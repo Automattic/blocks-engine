@@ -4,6 +4,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -34,10 +36,11 @@ foreach (array('control' => str_replace($hover, '', $html), 'descendant' => $htm
         $assert(is_string($slug) && $slug === ($attributes['textColor'] ?? null), $case . ': distinct section text still binds to its exact preset.');
         $assert(!isset($attributes['style']['color']['text']), $case . ': bound text has no literal override.');
     } else {
-    // This near-white shade is intentionally local, not a duplicate palette
-    // entry. A descendant hover must neither block it nor change its paint.
-    $assert(!isset($palette['#faf7f2']) && !isset($attributes['textColor']), $case . ': near-white text does not bind to a nearby preset.');
-    $assert('rgb(250, 247, 242)' === ($attributes['style']['color']['text'] ?? null), $case . ': section retains its exact local text color.');
+    // This near-white shade is not a duplicate palette entry: it binds to
+    // its family's representative, and a descendant hover must not block it.
+    $representative = array_search($attributes['textColor'] ?? null, $palette, true);
+    $assert(!isset($palette['#faf7f2']) && is_string($representative) && (CssColor::distance('#faf7f2', $representative) ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, $case . ': near-white text binds to its family representative.');
+    $assert(!isset($attributes['style']['color']['text']), $case . ': bound near-white text has no literal override.');
     }
     $assert(0 === $plan['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], $case . ': no unrelated state refusal.');
     if (str_ends_with($case, 'descendant')) $assert(str_contains($css, '.contact a:hover') && str_contains($css, '201, 169, 106'), 'The authored link hover color remains in the stylesheet.');

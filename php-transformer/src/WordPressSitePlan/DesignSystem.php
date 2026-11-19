@@ -22,10 +22,16 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * broken by value, and each joins the first cluster within tolerance or
  * starts a new one. The heaviest member names the cluster's value.
  *
- * - Colours: a preset binding never changes a painted colour. A block
- *   attribute, a stylesheet declaration or an element style binds a colour
- *   only to a token whose value is that exact 8-bit colour (colorSlug()),
- *   so an import paints 1:1 until a site owner edits the palette.
+ * - Colours: one binding rule (colorSlug()) serves block attributes,
+ *   stylesheet declarations (`var(--wp--preset--color--<slug>, <literal>)`),
+ *   custom-property values and element styles. A colour binds to the token
+ *   whose value is that exact 8-bit colour; a near shade the palette omits
+ *   binds to its family's representative token (#3043). The representative
+ *   renders the shade at most COLOR_CONSOLIDATION_DISTANCE off, below the
+ *   bound an untrained observer notices without a side-by-side comparison,
+ *   and the shade then follows a Global Styles palette change with the
+ *   rest of its family. A shade further away is not folded: it keeps a
+ *   token of its own exact value.
  *
  *   Grouping selects distinct palette entries: opaque colours within
  *   CIE76 ΔE*ab 2.3 (one just-noticeable difference) form a family, and
@@ -33,9 +39,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   much it is used, so a near-duplicate neutral (`#1f2937` beside
  *   `#1e293b`) does not compete with a distinct colour for a role. Roles
  *   take each family's heaviest colour. Other distinct families receive
- *   exact tokens by painted weight. Near shades remain exact local values,
- *   not palette entries: binding never substitutes a representative.
- *   Unpainted stylesheet colours do not create palette entries.
+ *   exact tokens by painted weight. Near shades are not palette entries:
+ *   they bind to their family's representative (nearShades). Unpainted
+ *   stylesheet colours do not create palette entries.
  *
  *   Clustering, slot ranking and `accent-N` order use each colour's
  *   prominence: the mean of its share of the document's area (text mass
@@ -114,8 +120,9 @@ final class DesignSystem
     /** Float slack for lengths that are equal: binding never changes a rendered length. */
     private const EXACT_PX = 0.001;
     /**
-     * ΔE*ab within which a colour family joins a heavier one for slot
-     * ranking (see the class comment). It never decides what binds.
+     * ΔE*ab within which a colour family joins a heavier one, which then
+     * represents it in the palette and in every binding (see the class
+     * comment).
      */
     public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
 
@@ -154,6 +161,7 @@ final class DesignSystem
      * @param array<string,mixed> $elements Shared element values and proven no-op per-level heading typography.
      * @param list<string> $literalColors Painted opaque colours without a token (retained for report compatibility).
      * @param array<string,string> $buttonVariation Dominant look scoped to matching button blocks when an element would reach unowned values.
+     * @param array<string,string> $nearShades Opaque hex of each near shade the palette omits => hex of its family's representative token.
      */
     /** @var list<array{slug:string,name:string,color:string,role:string,weight:int}> */
     public readonly array $colors;
@@ -174,6 +182,7 @@ final class DesignSystem
         public readonly int $documentCount,
         public readonly array $literalColors = array(),
         public readonly array $buttonVariation = array(),
+        public readonly array $nearShades = array(),
     ) {
         // Every preset in a category gets a display name a person can tell
         // apart from its siblings; slugs never change here.
@@ -223,7 +232,9 @@ final class DesignSystem
     {
         if (!CssColor::opaque($value)) return null;
         $hex = CssColor::hex($value);
-        return null === $hex ? null : ($this->colorIndex()['block'][$hex] ?? null);
+        if (null === $hex) return null;
+        $block = $this->colorIndex()['block'];
+        return $block[$hex] ?? (isset($this->nearShades[$hex]) ? ($block[$this->nearShades[$hex]] ?? null) : null);
     }
 
     /**
@@ -332,7 +343,8 @@ final class DesignSystem
                 break;
             }
         }
-        $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles);
+        $nearShades = array();
+        $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles, $nearShades);
         foreach ($colors as &$color) $color['name'] = self::sourceName($sourceRoles, $color['color']) ?? $color['name'];
         unset($color);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
@@ -356,7 +368,7 @@ final class DesignSystem
         unset($step);
         $layout = self::layout($widthRows);
 
-        $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
+        $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors, array(), $nearShades);
         // Observed translucent paint gets a preset even when its opaque RGB
         // is not painted anywhere. Prefer a derived tint when an exact base
         // exists; otherwise retain the source value, including its alpha.
@@ -395,7 +407,7 @@ final class DesignSystem
         foreach (array('background' => 'colorSlug', 'color' => 'colorSlug', 'font_family' => 'fontFamilySlug', 'font_size' => 'fontSizeSlug') as $field => $method) {
             if (isset($buttonLook[$field]) && null === $system->{$method}($buttonLook[$field])) unset($buttonLook[$field]);
         }
-        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors);
+        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors, array(), $nearShades);
     }
 
     /** Preserve the primary palette's stylesheet scope when adding block-only tokens. */
@@ -408,11 +420,14 @@ final class DesignSystem
     }
 
     /**
-     * Slug of the token whose value is exactly this colour, or null. The
-     * one colour binding rule: block attributes, stylesheet bindings and
-     * element styles all bind through this method, and only to a token
-     * that paints the same 8-bit colour, so binding never changes what
-     * renders. Observed translucent colours bind to derived tint presets
+     * Slug of the token this colour binds to, or null. The one colour
+     * binding rule: block attributes, stylesheet bindings (`var(--wp--preset
+     * --color--<slug>, <literal>)`), custom-property values and element
+     * styles all bind through this method. A colour binds to the token that
+     * paints the same 8-bit colour; a near shade the palette omits
+     * (nearShades) binds to its family's representative, at most
+     * COLOR_CONSOLIDATION_DISTANCE off, so it follows a palette change with
+     * its family. Observed translucent colours bind to derived tint presets
      * when possible, otherwise to exact standalone alpha presets.
      */
     public function colorSlug(string $value): ?string
@@ -435,7 +450,8 @@ final class DesignSystem
             return isset($index['slug'][$slug]) ? $slug : null;
         }
         $hex = CssColor::hex($value);
-        return null === $hex ? null : ($index['hex'][$hex] ?? null);
+        if (null === $hex) return null;
+        return $index['hex'][$hex] ?? (isset($this->nearShades[$hex]) ? ($index['hex'][$this->nearShades[$hex]] ?? null) : null);
     }
 
     /**
@@ -510,7 +526,7 @@ final class DesignSystem
         }
         $elements = $this->elements;
         if (array() === $button) unset($elements['button']); else $elements['button'] = $button;
-        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
     }
 
     /**
@@ -581,13 +597,16 @@ final class DesignSystem
             $used[$slug] = true;
             $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
         }
-        return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
     }
 
     /**
      * The system with exact tokens for distinct opaque literal colours a block
-     * carries as its `style.color` text or background. Near shades of existing
-     * presets stay exact local values instead of re-entering the palette.
+     * carries as its `style.color` text or background. A near shade of an
+     * existing preset (within COLOR_CONSOLIDATION_DISTANCE) does not re-enter
+     * the palette: it binds to that preset through the one colour binding
+     * rule (colorSlug(), blockColorSlug()), like the near shades palette()
+     * folds.
      *
      * Like withBlockTypography(), this covers the colour the browser rendered
      * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
@@ -624,15 +643,20 @@ final class DesignSystem
         $used = array_fill_keys(array_column($this->colors, 'slug'), true);
         $accent = 0;
         $colors = $this->colors;
+        $nearShades = $this->nearShades;
         foreach (array_keys($counts) as $hex) {
-            // A near shade stays an exact local value; never substitute the
-            // family's representative or reintroduce it as a block-only token.
+            // A near shade binds to its family's representative, the nearest
+            // preset, rather than re-entering the palette as a block token.
             do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
             $used[$slug] = true;
-            if ($this->hasNearColor($hex)) continue;
+            $near = $this->nearestColor($hex);
+            if (null !== $near) {
+                $nearShades[$hex] = $near;
+                continue;
+            }
             $colors[] = array('slug' => $slug, 'name' => self::colorName($hex), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
         }
-        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $nearShades);
     }
 
     /**
@@ -669,7 +693,7 @@ final class DesignSystem
             if (array() === $values) unset($elements[$element]); else $elements[$element] = $values;
         }
         if ($elements === $this->elements) return $this;
-        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
     }
 
     public function buttonVariationSlug(): ?string
@@ -732,6 +756,7 @@ final class DesignSystem
             'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'color_consolidation_delta_e76' => self::COLOR_CONSOLIDATION_DISTANCE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
             'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight']), $this->colors),
             'literal_colors' => $this->literalColors,
+            'near_shades' => $this->nearShades,
             'font_sizes' => array_map(static fn(array $size): array => array('slug' => $size['slug'], 'size' => $size['size'], 'weight' => $size['weight']), $this->fontSizes),
             'font_families' => array_map(static fn(array $family): array => array('slug' => $family['slug'], 'name' => $family['name'], 'font_family' => $family['fontFamily'], 'weight' => $family['weight']), $this->fontFamilies),
             'spacing' => array_map(static fn(array $step): array => array('slug' => $step['slug'], 'size' => $step['size'], 'weight' => $step['weight']), $this->spacing),
@@ -770,6 +795,8 @@ final class DesignSystem
      *   whose display name repeats an earlier preset's in the same category.
      * - `literal_color_count`: painted opaque colours without a palette token
      *   (report `literal_colors`); zero when every usage colour is registered.
+     *   Near shades among them still bind to their family's representative
+     *   (report `near_shades`).
      * - `literal_preset_color_count`: block colour attributes (text,
      *   background, border and its sides, link) that store a literal equal
      *   to a palette preset, so a palette edit skips them; zero when every
@@ -910,13 +937,19 @@ final class DesignSystem
         return $labels[0] ?? null;
     }
 
-    private function hasNearColor(string $hex): bool
+    /** Hex of the nearest opaque preset within COLOR_CONSOLIDATION_DISTANCE of $hex, or null. */
+    private function nearestColor(string $hex): ?string
     {
+        $nearest = null;
+        $nearestDistance = INF;
         foreach ($this->colors as $color) {
-            $distance = CssColor::distance($hex, $color['color']);
-            if (null !== $distance && $distance <= self::COLOR_CONSOLIDATION_DISTANCE) return true;
+            $value = CssColor::opaque($color['color']) ? CssColor::hex($color['color']) : null;
+            $distance = null === $value ? null : CssColor::distance($hex, $value);
+            if (null === $distance || $distance > self::COLOR_CONSOLIDATION_DISTANCE || $distance >= $nearestDistance) continue;
+            $nearest = $value;
+            $nearestDistance = $distance;
         }
-        return false;
+        return $nearest;
     }
 
     private function duplicatePresetNameCount(): int
@@ -1158,9 +1191,10 @@ final class DesignSystem
      * @param array<string,array<string,int>> $textOnBackground
      * @param array<string,string> $root Root values every document agrees on.
      * @param array<string,array<string,int>> $sourceRoles Root token => colour => document count.
+     * @param array<string,string> $nearShades Set to each omitted painted shade's hex => its family representative's hex.
      * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
      */
-    private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array(), array $sourceRoles = array()): array
+    private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array(), array $sourceRoles = array(), array &$nearShades = array()): array
     {
         if (array() === $prominence) return array();
         $clusters = self::consolidateColors(self::clusterColors($prominence));
@@ -1236,8 +1270,9 @@ final class DesignSystem
             $palette[] = $token($role, $color, $prominence[$color]);
             $taken[$color] = $role;
         }
-        // Only distinct family representatives enter the palette. Near shades
-        // keep their source literals, so reducing clutter never changes paint.
+        // Only distinct family representatives enter the palette. A near
+        // shade binds to its family's representative instead (nearShades),
+        // so it follows a palette change with the rest of its family.
         $taken = array_flip(array_column($palette, 'color'));
         $rest = array_keys(array_diff_key($prominence, $taken));
         $isLead = static fn(string $color): int => $clusters[$memberOf[$color]]['color'] === $color ? 1 : 0;
@@ -1250,6 +1285,23 @@ final class DesignSystem
             if ($clusters[$memberOf[$color]]['color'] !== $color) continue;
             $palette[] = $token($slug, $color, $prominence[$color]);
         }
+        // Each family is represented by its lead when that is a token, else
+        // by its first token (a source role may name a non-lead member).
+        $representatives = array();
+        foreach ($palette as $entry) {
+            $family = $memberOf[$entry['color']];
+            if (!isset($representatives[$family]) || $clusters[$family]['color'] === $entry['color']) $representatives[$family] = $entry['color'];
+        }
+        $nearShades = array();
+        foreach (array_keys(array_diff_key($prominence, array_flip(array_column($palette, 'color')))) as $color) {
+            // A family member can sit further from the representative than the
+            // bound (it joined through a nearer member); it then stays literal.
+            $representative = $representatives[$memberOf[$color]] ?? null;
+            $hex = CssColor::hex($color);
+            if (null === $hex || null === $representative || (CssColor::distance($color, $representative) ?? INF) > self::COLOR_CONSOLIDATION_DISTANCE) continue;
+            $nearShades[$hex] = (string) CssColor::hex($representative);
+        }
+        ksort($nearShades, SORT_STRING);
         return $palette;
     }
 
@@ -1332,9 +1384,9 @@ final class DesignSystem
      * Merge each cluster into the nearest heavier kept cluster within
      * COLOR_CONSOLIDATION_DISTANCE, however much it is used, so a shade a
      * reader cannot tell from a heavier colour does not outrank a distinct
-     * colour for a role. Merging only groups for roles and ties: a painted
-     * member still competes for a token of its own exact value on its own
-     * weight (see palette()). Clusters
+     * colour for a role. The merged cluster is one family: only its
+     * representative becomes a token and its other members bind to that
+     * token (see palette()). Clusters
      * are visited heaviest first, so a cluster joins one that already holds
      * whatever merged into it; the heavier cluster keeps its colour.
      *
