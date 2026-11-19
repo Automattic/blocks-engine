@@ -270,7 +270,7 @@ final class DisclosureControlPresentation
         for ( $node = $svg?->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             $declarations = $this->styles->resolvedPresentationDeclarations($node);
             $display = strtolower(trim((string) ($declarations['display'] ?? '')));
-            $direction = strtolower(trim((string) ($declarations['flex-direction'] ?? 'row')));
+            $direction = CssValueInspector::declared($declarations, 'flex-direction') ?: 'row';
             if ( in_array($display, array('flex', 'inline-flex'), true) && in_array($direction, array('row', ''), true) ) {
                 $gap = trim((string) ($declarations['column-gap'] ?? ''));
                 if ( '' === $gap ) {

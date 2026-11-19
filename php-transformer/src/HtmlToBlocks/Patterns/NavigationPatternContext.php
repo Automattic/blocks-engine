@@ -440,47 +440,10 @@ final class NavigationPatternContext
         );
     }
 
-    /**
-     * Whether a navigation href names the document being compiled. Client
-     * routers (a React Router NavLink, for one) often mark the current item
-     * only through utility classes, with no aria-current or active/current
-     * token; the link targeting its own page is then the only current signal.
-     *
-     * Site-rooted hrefs (`/about/index.html`) resolve against the artifact's
-     * entry root, the single leading segment of the source path.
-     *
-     * A link with a fragment names a section, not the page: shared chrome
-     * linking to `/index.html#services` must compile the same on the route
-     * holding that section as on every other route.
-     */
+    /** Whether a navigation href names the document being compiled. */
     public function targetsCurrentDocument(string $href): bool
     {
-        $document = $this->session->sourcePath();
-        $href = trim($href);
-        if ( ArtifactPath::namesSection($href) ) {
-            return false;
-        }
-        $href = ArtifactPath::stripQueryAndFragment($href);
-        if ( '' === $href || ! str_contains($document, '.') || 1 === preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $href) ) {
-            return false;
-        }
-        $rooted = str_starts_with($href, '/');
-        $path = ArtifactPath::resolveRelativePath($rooted ? ltrim($href, '/') : $href, $rooted ? '' : $document);
-        if ( '' === $path && ! ($rooted || str_ends_with($href, '/')) ) {
-            return false;
-        }
-        $candidates = '' === $path || str_ends_with($href, '/')
-            ? array( ltrim($path . '/index.html', '/') )
-            : array( $path, $path . '/index.html', $path . '.html' );
-        $slash = strpos($document, '/');
-        $withinEntryRoot = false === $slash ? '' : substr($document, $slash + 1);
-        foreach ( $candidates as $candidate ) {
-            if ( $document === $candidate || ($rooted && $withinEntryRoot === $candidate && ! str_contains(substr($document, 0, (int) $slash), '/')) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return ArtifactPath::targetsDocument($href, $this->session->sourcePath());
     }
 
     /**

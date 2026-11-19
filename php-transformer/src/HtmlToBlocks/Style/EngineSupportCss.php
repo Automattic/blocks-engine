@@ -911,6 +911,11 @@ final class EngineSupportCss
             $parts[] = $fill . '{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}';
             $parts[] = $fill . '>.wp-block-group{flex-grow:1}';
         }
+        if ( str_contains($serializedBlocks, CoverPattern::GAP_CLASS) ) {
+            $gap = ':root .wp-block-cover.' . CoverPattern::GAP_CLASS . '>.wp-block-cover__inner-container';
+            $parts[] = $gap . '{gap:inherit}';
+            $parts[] = $gap . '>.wp-block-group{gap:inherit}';
+        }
         if ( preg_match_all('/(?<![\w-])' . preg_quote(CoverPattern::STACK_CLASS_PREFIX, '/') . '(\d+)(?![\w-])/', $serializedBlocks, $stackMatches) ) {
             foreach ( array_unique($stackMatches[1]) as $stackOrder ) {
                 $parts[] = ':root .wp-block-cover.' . CoverPattern::STACK_CLASS_PREFIX . $stackOrder . '>.wp-block-cover__inner-container{z-index:' . $stackOrder . '}';

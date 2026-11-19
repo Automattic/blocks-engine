@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 
 $css = '@font-face{font-family:ContractIcons;src:url(icons.woff2)}'
     . '.fas{font-family:ContractIcons;display:inline-block;font-weight:900}'
@@ -23,7 +24,22 @@ foreach (array(
         'no empty visual group' => static fn (string $m): bool => !str_contains($m, 'blocks-engine-empty-visual-group'),
         'chip box' => static fn (string $m): bool => 1 === preg_match('/<mark class="mark-lock[^"]*" style="([^"]*)"/', $m, $style)
             && array() === array_filter(array('display:inline-block', 'padding:14px', 'background-color:#f3f6fb', 'border-radius:5px', 'margin:-30px 0 20px'), static fn (string $d): bool => !str_contains($style[1], $d)),
-        'centered glyph' => static fn (string $m): bool => 1 === preg_match('/<p class="has-text-align-center[^"]*"><i><mark class="mark-lock/', $m),
+        'centered glyph' => static fn (string $m): bool => 1 === preg_match('/<p class="has-text-align-center[^"]*"><mark class="mark-lock/', $m),
+    )),
+    'single chip painter and pseudo typography' => array('<div class="tile"><div class="chip"><i class="mark-lock"></i></div><p>VPN</p></div>', $chipCss . '.mark-lock:before{line-height:2}i.mark-lock:before{line-height:1!important;font-style:normal}', array(
+        'one box painter' => static function (string $m): bool {
+            $document = new DOMDocument();
+            @$document->loadHTML('<html><body>' . $m . '</body></html>');
+            $painters = 0;
+            foreach ((new DOMXPath($document))->query('//body//*') as $node) {
+                $authorBox = CssSelectorMatcher::matches($node, CssSelectorMatcher::parse('.chip i'))['matches'];
+                $inlineBox = str_contains($node->getAttribute('style'), 'padding') || str_contains($node->getAttribute('style'), 'background-color:#f3f6fb');
+                if ($authorBox || $inlineBox) ++$painters;
+            }
+            return 1 === $painters;
+        },
+        'winning pseudo typography' => static fn (string $m): bool => 1 === preg_match('/<mark class="mark-lock[^"]*" style="[^"]*line-height:1(?:;|")/', $m)
+            && str_contains($m, 'font-style:normal'),
     )),
 ) as $case => [$body, $caseCss, $extra]) {
     $source = '<html><head><style>' . $css . $caseCss . '</style></head><body>' . $body . '</body></html>';

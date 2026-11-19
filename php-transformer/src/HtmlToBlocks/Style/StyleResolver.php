@@ -830,6 +830,23 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * A phrasing element that is the only content of a boxless block (the
+     * inline-layout carrier paragraph) as RichText: its descendants are
+     * restyled as in any RichText, and the element itself, the box the
+     * source laid out, takes every captured declaration through a box-tree
+     * carrier ({@see self::boxTreeElementCarrier()}). Null without evidence
+     * for the element.
+     */
+    public function boxTreeBoxlessContent(DOMElement $element): ?DOMElement
+    {
+        if (!$element->parentNode instanceof DOMElement || array() === $this->session->boxTreeEvidence($element)) return null;
+        $clone = $this->richTextSerializationSource($element);
+        $class = $this->boxTreeElementCarrier($element);
+        if ('' !== $class) $clone->setAttribute('class', SourceDom::mergeClassNames($clone->getAttribute('class'), $class));
+        return $clone;
+    }
+
+    /**
      * With box-tree evidence the author stylesheet is not shipped (ADR 0005),
      * so an observed element the output keeps as source markup inside a
      * block, rather than as a block or a RichText inline, keeps its rendered

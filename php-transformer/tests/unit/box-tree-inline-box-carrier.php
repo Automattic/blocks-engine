@@ -28,9 +28,9 @@ $badge = $text + array('display' => 'flex', 'align-items' => 'center', 'justify-
 $state = new LayoutGeometryState();
 $attrs = (new BoxTreeStyleProjector())->project(array(), $both($anchor), $viewports, $state, $both($text + array('display' => 'flex')), 'core/button');
 $css = $state->cssForSerializedBlocks((string) ($attrs['className'] ?? ''));
-$assert(1 === preg_match('/>\.wp-block-button__link\{([^}]*)\}/', $css, $link), 'A core/button carrier lays out its link: ' . $css);
+$assert(1 === preg_match('/>\s*a\.wp-block-button__link\{([^}]*)\}/', $css, $link), 'A core/button carrier lays out its link: ' . $css);
 $assert(str_contains($link[1], 'display:flex') && str_contains($link[1], 'gap:10px') && str_contains($link[1], 'align-items:center'), 'The link restates the anchor\'s flex row and gap: ' . $link[1]);
-$assert(!str_contains($link[1], 'width') && !str_contains($link[1], 'color'), 'Only content layout moves to the link: ' . $link[1]);
+$assert(str_contains($css, '{display:contents}'), 'The synthetic button wrapper generates no box of its own: ' . $css);
 
 // Another block keeps its carrier on its own box.
 $state = new LayoutGeometryState();

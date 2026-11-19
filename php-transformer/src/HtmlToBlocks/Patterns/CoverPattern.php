@@ -37,6 +37,8 @@ final class CoverPattern implements PatternRecognizerInterface
     public const CONSUMED_BACKGROUND_CLASS = 'blocks-engine-cover-consumed-background';
     /** A column hero whose child grows to fill it: the inner container and wrapper group must fill the cover too. */
     public const FILL_CLASS = 'blocks-engine-cover-fill';
+    /** A flex/grid hero with an authored gap: the wrapper group lays out its children with that gap. */
+    public const GAP_CLASS = 'blocks-engine-cover-gap';
     /**
      * Prefix of the class carrying a source child's stacking order onto the
      * inner container (`blocks-engine-cover-stack-<z-index>`).
@@ -175,7 +177,7 @@ final class CoverPattern implements PatternRecognizerInterface
         $declarations = $this->styleResolver->declarations($style);
         $display = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'flex', 'grid' ), true) ) {
-            $column = 'grid' === $display || 'column' === ($declarations['flex-direction'] ?? 'row');
+            $column = 'grid' === $display || 'column' === CssValueInspector::declared($declarations, 'flex-direction');
             $align = (string) ($declarations['align-items'] ?? 'stretch');
             $justify = (string) ($declarations['justify-content'] ?? 'normal');
             $vertical = 'flex' === $display && $column ? $justify : $align;
@@ -188,8 +190,11 @@ final class CoverPattern implements PatternRecognizerInterface
             $fillsInline = $column && in_array(CssValueInspector::comparable($horizontal), array( 'normal', 'stretch' ), true);
             $horizontalToken = $fillsInline ? 'center' : $this->positionToken($horizontal, 'left', 'right');
             $attrs['contentPosition'] = $this->positionToken($vertical, 'top', 'bottom') . ' ' . $horizontalToken;
-            // Covers add padding by default; an unpadded source must remain so.
-            foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            // Covers add padding by default; an unpadded source side must
+            // remain so. A padded side missing from the attributes is owned by
+            // the author stylesheet (it varies by breakpoint), so an inline
+            // zero would override it at every width.
+            foreach ( $this->unpaddedSides($declarations) as $side ) {
                 $attrs['style']['spacing']['padding'][$side] ??= '0';
             }
             $layout = array(
@@ -200,6 +205,12 @@ final class CoverPattern implements PatternRecognizerInterface
                 'verticalAlignment' => $this->positionToken($vertical, 'top', 'bottom'),
             );
             $children = array($createBlock('core/group', array('layout' => $layout), $children, null));
+            // The stacked children are laid out by the wrapper group inside
+            // the inner container, not by the cover wrapper that keeps the
+            // authored gap; the group inherits it at every breakpoint.
+            if ( array() !== array_intersect_key($declarations, array_flip(array( 'gap', 'row-gap', 'column-gap' ))) ) {
+                $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::GAP_CLASS);
+            }
             if ( 'flex' === $display && $column && null !== $presentationDeclarations && $this->hasGrowingChild($element, $presentationDeclarations) ) {
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::FILL_CLASS);
             }
@@ -358,7 +369,7 @@ final class CoverPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $direction = strtolower(trim((string) ($declarations['flex-direction'] ?? 'row')));
+        $direction = CssValueInspector::declared($declarations, 'flex-direction') ?: 'row';
         if ( ! in_array($direction, array( 'row', 'column' ), true) ) {
             return 'columns_layout';
         }
@@ -366,6 +377,28 @@ final class CoverPattern implements PatternRecognizerInterface
             return 'columns_layout';
         }
         return null;
+    }
+
+    /**
+     * Physical sides the resolved source style leaves unpadded.
+     *
+     * @param array<string, string> $declarations
+     * @return array<int, string>
+     */
+    private function unpaddedSides(array $declarations): array
+    {
+        $sides = array( 'top' => '', 'right' => '', 'bottom' => '', 'left' => '' );
+        foreach ( $declarations as $property => $value ) {
+            $value = CssValueInspector::comparable((string) $value);
+            if ( 'padding' === $property ) {
+                $values = CssValueInspector::hasPositionalSides($value) ? CssValueInspector::expandBoxShorthand($value) : array( $value, $value, $value, $value );
+                $sides = array_combine(array_keys($sides), $values);
+            } elseif ( str_starts_with($property, 'padding-') && isset($sides[substr($property, 8)]) ) {
+                $sides[substr($property, 8)] = $value;
+            }
+        }
+
+        return array_keys(array_filter($sides, static fn (string $value): bool => 1 === preg_match('/^(?:[+-]?0*\.?0+(?:[a-z]+|%)?)?$/', $value)));
     }
 
     /** @param callable(DOMElement): array<string, string> $childDeclarations */

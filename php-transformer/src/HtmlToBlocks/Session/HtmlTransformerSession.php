@@ -305,6 +305,33 @@ final class HtmlTransformerSession
      */
     private array $boxTree = array();
 
+    /**
+     * The state element conversion writes, by name, for a chrome journal to
+     * record and replay. Author style analysis replays through its marker
+     * allocations; style resolution, presentation caches and the fallback
+     * emitter are derived from the document, not written by conversion.
+     *
+     * @return array<string,object>
+     */
+    public function journaledStates(): array
+    {
+        return array_filter(array(
+            'transformationEvidenceState' => $this->transformationEvidenceState,
+            'transformationProvenanceState' => $this->transformationProvenanceState,
+            'runtimeBehaviorState' => $this->runtimeBehaviorState,
+            'navigationProjectionState' => $this->navigationProjectionState,
+            'sourceTargetProjectionState' => $this->sourceTargetProjectionState,
+            'runtimeDomState' => $this->runtimeDomState,
+            'reusableComponentState' => $this->reusableComponentState,
+            'generatedBlockRegistry' => $this->generatedBlockRegistry,
+            'assetMaterializationState' => $this->assetMaterializationState,
+            'runtimeSelectorState' => $this->runtimeSelectorState,
+            'authorSelectorProjectionState' => $this->authorSelectorProjectionState,
+            'generatedSupportStylesheetState' => $this->generatedSupportStylesheetState,
+            'layoutGeometryState' => $this->layoutGeometryState,
+        ));
+    }
+
     /** Browser observations for the source element, keyed by captured viewport. */
     public function boxTreeViewports(): array
     {
