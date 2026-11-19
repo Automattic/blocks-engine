@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
@@ -272,6 +273,11 @@ final class SvgMaterializer implements SvgElementMaterializer
             $html = preg_replace_callback('/<svg\b[^>]*>/i', static fn (array $match): string => preg_replace('/\s(?:viewBox|width|height)\s*=\s*(["\']).*?\1/i', '', $match[0]) ?? $match[0], $html, 1) ?? $html;
             $html = preg_replace('/<svg\b/i', '<svg viewBox="' . $overflow['viewBox'] . '" width="' . $overflow['width'] . '" height="' . $overflow['height'] . '"', $html, 1) ?? $html;
         }
+        // Box-tree node ids are route-local capture observations and style
+        // nothing inside a standalone image document. Keeping them would give
+        // the same icon on two routes two content addresses, so the shared
+        // chrome around it would read as two different shells.
+        $html = preg_replace('/\s' . preg_quote(BoxTree::NODE_ATTRIBUTE, '/') . '\s*=\s*(["\'])[^"\']*\1/i', '', $html) ?? $html;
         $assetHtml = $html;
         $visualPayload = $this->svgImageAssetIdentity($html);
         $path = $this->materializedInlineSvgPath($element, $visualPayload);
