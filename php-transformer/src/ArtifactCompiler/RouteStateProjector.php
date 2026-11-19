@@ -544,13 +544,16 @@ final class RouteStateProjector
                     foreach ($named as $index) {
                         $node = $rows[$index]['node'];
                         if ('a' !== strtolower($node->tagName)) continue;
-                        $node->setAttribute('aria-current', 'page');
-                        $changed[$index] = true;
+                        // Record evidence without inventing source semantics:
+                        // aria-current changes how lowering reads the paint.
                         $current[] = $index;
                     }
                 }
             }
-            if (array() === $current || count($current) === count($rows) || $named === $current) continue;
+            // Retain observed sources even when the URL can derive them. A
+            // nested import and captured mobile menus must replay the same
+            // selection, rather than reinterpreting the archive-relative URL.
+            if (array() === $current || count($current) === count($rows)) continue;
             $sources = (string) json_encode(array_values(array_map(static fn(int $index): string => (string) ($files[$index]['path'] ?? ''), $current)), JSON_UNESCAPED_SLASHES);
             foreach ($rows as $index => $row) {
                 $row['node']->setAttribute(self::CURRENT_SOURCES_ATTRIBUTE, $sources);

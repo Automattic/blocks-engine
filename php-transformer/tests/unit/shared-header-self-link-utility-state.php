@@ -24,7 +24,8 @@ $sources = array();
 foreach (array('index.html', 'about.html', 'contact.html') as $path) $sources[] = array('kind' => 'html', 'path' => $path, 'content' => $document($path));
 $projected = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector())->project($sources, 'index.html')['files'];
 foreach ($projected as $file) {
-    if (1 !== substr_count($file['content'], 'aria-current="page"')) throw new RuntimeException('The source projection must identify exactly the utility-painted self link for current-state lowering.');
+    if (str_contains($file['content'], 'aria-current=')) throw new RuntimeException('Inferred utility paint must not introduce authored aria-current semantics.');
+    if (3 !== substr_count($file['content'], 'data-blocks-engine-current-sources=')) throw new RuntimeException('Every peer must carry the observed route selection.');
 }
 $plan = $compile();
 if (1 !== count($headers($plan))) throw new RuntimeException('Self-link utility paint must not fragment a shared header.');
@@ -39,7 +40,8 @@ foreach ($sources as $source) {
 }
 $nested = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector())->project($nestedSources, 'website/index.html')['files'];
 foreach ($nested as $file) {
-    if (1 !== substr_count($file['content'], 'aria-current="page"')) throw new RuntimeException('Root-relative self links must be resolved inside the entry artifact directory.');
+    if (str_contains($file['content'], 'aria-current=')) throw new RuntimeException('Nested imports must not introduce authored aria-current semantics.');
+    if (3 !== substr_count($file['content'], 'data-blocks-engine-current-sources=')) throw new RuntimeException('Root-relative self links must be resolved inside the entry artifact directory.');
 }
 $nestedPlan = $compile(false, 'website/');
 if (1 !== count($headers($nestedPlan))) throw new RuntimeException('An import directory must not fragment shared utility-painted navigation.');
