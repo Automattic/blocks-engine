@@ -51,14 +51,7 @@ final class QuotePatternContext
     public function figureCaptionContent(DOMElement $caption): string
     {
         $content = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::innerHtml($caption);
-        $declarations = array();
-        $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
-        foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
-            $value = isset($authored[$property]) ? $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) : '';
-            if ('' !== $value) {
-                $declarations[$property] = $value;
-            }
-        }
+        $declarations = $this->figureCaptionTypography($caption);
         if (array() === $declarations) {
             return $content;
         }
@@ -74,7 +67,25 @@ final class QuotePatternContext
     /** A consumed block caption must not split an inline cite into anonymous boxes. */
     public function figureCaptionClassName(DOMElement $caption): string
     {
-        return $this->styleResolver->figureQuoteCaptionClassName($caption);
+        // Only a styled caption gets a block span in figureCaptionContent().
+        // Without that span, the native inline cite has no split line box to fix.
+        return array() === $this->figureCaptionTypography($caption)
+            ? ''
+            : $this->styleResolver->figureQuoteCaptionClassName($caption);
+    }
+
+    /** @return array<string, string> */
+    private function figureCaptionTypography(DOMElement $caption): array
+    {
+        $declarations = array();
+        $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
+        foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
+            $value = isset($authored[$property]) ? $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) : '';
+            if ('' !== $value) {
+                $declarations[$property] = $value;
+            }
+        }
+        return $declarations;
     }
 
     public function citationFromElement(DOMElement $element): string

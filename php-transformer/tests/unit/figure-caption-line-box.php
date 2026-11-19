@@ -31,13 +31,15 @@ if (!$cite instanceof DOMElement
 }
 // Existing citations and pullquotes do not have this direct-child caption topology.
 foreach (array(
+    '<figure class="testimonial-card"><blockquote>Build with care.</blockquote><figcaption><strong>Ada</strong>, Founder</figcaption></figure>',
     '<blockquote>A review<cite>Publication</cite></blockquote>',
     '<figure><blockquote>A review<cite>Existing citation</cite></blockquote><figcaption>Unused caption</figcaption></figure>',
     '<figure class="wp-block-pullquote"><blockquote>A review</blockquote><figcaption>Publication</figcaption></figure>',
 ) as $html) {
     $control = (new HtmlTransformer())->transform($html)->toArray();
     $controlCss = implode("\n", array_column(array_filter($control['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-    if (str_contains($controlCss, ' > cite{display:block}')) {
+    if (str_contains($controlCss, ' > cite{display:block}')
+        || str_contains($control['serialized_blocks'], 'testimonial-card be-inline-geometry-')) {
         throw new RuntimeException('Caption flow rule must not restyle existing citations or pullquotes');
     }
 }
