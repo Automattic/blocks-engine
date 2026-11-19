@@ -145,7 +145,13 @@ final class BoxTreeStyleProjector
         }
         $split = $synthetic ? $this->outerBoxSplit($blockName, $keys, $declarations, $bands, $observations, $parents, $selector) : null;
         $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid, $selector, $split);
-        $wrapper = $synthetic && null === $split ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '';
+        // An inline anchor carrier keeps the inline box EngineSupportCss gives
+        // it: a boxless paragraph is a RichText root the editor cannot focus,
+        // so text typed into it never reaches the block (issue #5797). Around
+        // a source inline link, an unpadded inline box lays out the same line.
+        $boxless = $synthetic && null === $split
+            && !in_array(SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true);
+        $wrapper = $boxless ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '';
         $class = $this->carrier($wrapper . $css, $state);
         if ('' === $class) return $attrs;
         if ($synthetic) $state->markBoxlessImageFigureCarrier($class);
