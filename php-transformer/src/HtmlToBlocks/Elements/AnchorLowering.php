@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
@@ -475,8 +476,18 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
             return $this->layoutShells->blockForElements(array($anchor), $children, $anchor);
         }
-        if ( ! $stretched && array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
-            $this->recordDroppedLinkWrapper($anchor);
+        $propagated = false;
+        if ( ! $stretched && array() !== $linkAttrs ) {
+            $propagated = $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
+            if ( ! $propagated ) {
+                $this->recordDroppedLinkWrapper($anchor);
+            }
+        }
+        // ADR 0005: an anchor whose box the capture proved neutral apart from
+        // its link emits no block once that link has moved onto its content.
+        if ( $propagated && 1 === count($children) && $this->session->isLinkCarrierBox($anchor) ) {
+            $this->session->collapseBoxTreeNodes(array( $anchor->getAttribute(BoxTree::NODE_ATTRIBUTE) ));
+            return $children[0];
         }
         // The link now lives on the children, so the group is the anchor's box.
         // An author rule that selects the anchor (a card link laid out as a
