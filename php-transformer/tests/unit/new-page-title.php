@@ -38,7 +38,8 @@ $assert('' !== $hook, 'generated theme supplies missing generic page chrome');
 if ('' !== $hook) {
     eval($hook);
     $filter = $filters['render_block_core/post-content'];
-    $wp_current_template_id = 'theme//page';
+    // WordPress populates the underscored global during template rendering.
+    $_wp_current_template_id = 'theme//page';
     $singular = true;
     $queried = 42;
     $identity = '';
@@ -48,11 +49,11 @@ if ('' !== $hook) {
     $assert($content === $filter($content), 'captured pages retain their exact content');
     $identity = '';
     $assert('<h1>Authored</h1>' === $filter('<h1>Authored</h1>'), 'an authored title is not duplicated');
-    $wp_current_template_id = 'theme//page-custom';
+    $_wp_current_template_id = 'theme//page-custom';
     $assert($content === $filter($content), 'custom templates retain their own title ownership');
-    $wp_current_template_id = 'theme//front-page';
+    $_wp_current_template_id = 'theme//front-page';
     $assert($content === $filter($content), 'front pages are unchanged');
-    $wp_current_template_id = 'theme//page';
+    $_wp_current_template_id = 'theme//page';
     $queried = 99;
     $assert($content === $filter($content), 'query loop content is unchanged');
     $queried = 42;

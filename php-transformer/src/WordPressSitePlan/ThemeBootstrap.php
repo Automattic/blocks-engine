@@ -561,24 +561,18 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
-        // A route-specific page can carry a title while the generic template
-        // has only a content slot. Supply that missing chrome at render time,
+        // Captured pages can carry titles while the generic template has only
+        // a content slot. Supply missing chrome for new pages at render time,
         // without changing template equivalence or captured shell composition.
         $pageTemplate = null;
         foreach ($templates as $template) if ('page' === ($template['slug'] ?? null)) $pageTemplate = $template['canonical_block_markup'];
-        $hasTitledOverride = false;
-        $hasUntitledPage = false;
-        foreach ($pages as $page) {
-            if ('page' !== ($page['post_type'] ?? null)) continue;
-            $titled = 1 === preg_match('/<h1\\b/i', $page['canonical_block_markup']);
-            if (str_starts_with(TemplateSlugs::forPage($page), 'page-') && $titled) $hasTitledOverride = true;
-            if (!$titled) $hasUntitledPage = true;
-        }
-        if ($hasTitledOverride && $hasUntitledPage && is_string($pageTemplate) && !str_contains($pageTemplate, '<!-- wp:post-title')) {
+        // Decide from template ownership, not mutable page content: consumers
+        // can edit content without regenerating the theme bootstrap.
+        if (is_string($pageTemplate) && !str_contains($pageTemplate, '<!-- wp:post-title')) {
             $lines[] = <<<'PHP'
 add_filter( 'render_block_core/post-content', static function ( string $content ): string {
-    global $wp_current_template_id;
-    if ( ! is_singular( 'page' ) || get_the_ID() !== get_queried_object_id() || ! is_string( $wp_current_template_id ) || ! str_ends_with( $wp_current_template_id, '//page' ) ) return $content;
+    global $_wp_current_template_id;
+    if ( ! is_singular( 'page' ) || get_the_ID() !== get_queried_object_id() || ! is_string( $_wp_current_template_id ) || ! str_ends_with( $_wp_current_template_id, '//page' ) ) return $content;
     if ( get_post_meta( get_the_ID(), '_blocks_engine_reconciliation_identity', true ) || preg_match( '/<h1\b/i', $content ) ) return $content;
     return render_block( array( 'blockName' => 'core/post-title', 'attrs' => array( 'level' => 1 ), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array() ) ) . $content;
 }, 10, 1 );
