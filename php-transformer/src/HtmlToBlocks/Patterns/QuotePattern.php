@@ -134,14 +134,6 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
-        // Keep card padding outside the quotation. Collapsing the figure
-        // makes the caption an inline cite in the card's inherited line box,
-        // and discards the blockquote's independent margins and line box.
-        // Generic figure lowering preserves all three source boxes instead.
-        if ($quotes->hasFigurePadding($figure)) {
-            return null;
-        }
-
         $citation = $quotes->citationFromElement($blockquote);
         $caption = SourceDom::firstChildElement($figure, 'figcaption');
         // The figure collapses into core/quote only when it holds just the

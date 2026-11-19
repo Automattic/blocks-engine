@@ -47,18 +47,6 @@ final class QuotePatternContext
             : $content;
     }
 
-    /** A padded figure is a card box, separate from the quotation's text box. */
-    public function hasFigurePadding(DOMElement $figure): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
-        foreach (array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-inline') as $property) {
-            if (isset($declarations[$property]) && ! preg_match('/^(?:0(?:px|em|rem|%)?\s*)+$/', trim($declarations[$property]))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /** Preserve the typography of the caption consumed by a native quote. */
     public function figureCaptionContent(DOMElement $caption): string
     {
@@ -70,6 +58,14 @@ final class QuotePatternContext
             if ('' !== $value) {
                 $declarations[$property] = $value;
             }
+        }
+        // A figcaption is a block box. A typography span left inline inside
+        // the native cite still participates in its parent's larger line box:
+        // small captions then increase the figure height and shift everything
+        // below it. Keep the native quote topology, but give styled caption
+        // content its own line box instead of lowering the entire figure.
+        if (array() !== $declarations) {
+            $declarations = array('display' => 'block') + $declarations;
         }
         $style = $this->styleResolver->cssDeclarationString($declarations);
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';

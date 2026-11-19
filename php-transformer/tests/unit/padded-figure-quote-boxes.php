@@ -6,8 +6,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
-// A caption with small type needs its own block line box, not a small
-// inline span inside a cite inheriting the card's larger line height.
+// A small figcaption needs its own line box, not an inline span in the
+// larger inherited cite line box. Do not change the native quote topology.
 $result = (new HtmlTransformer())->transform(
     '<style>body{font-size:16px;line-height:1.5}'
     . '.card{padding:24px 36px 20px;margin:0}'
@@ -15,16 +15,20 @@ $result = (new HtmlTransformer())->transform(
     . '.card figcaption{font-size:9px;font-weight:700}</style>'
     . '<figure class="card"><blockquote>A quotation</blockquote><figcaption>Publication</figcaption></figure>'
 )->toArray();
-$card = $result['blocks'][0] ?? array();
-$quote = $card['innerBlocks'][0] ?? array();
-$caption = $card['innerBlocks'][1] ?? array();
-if ('core/group' !== ($card['blockName'] ?? '')
-    || 'core/quote' !== ($quote['blockName'] ?? '')
-    || isset($quote['attrs']['citation'])
-    || 'core/paragraph' !== ($caption['blockName'] ?? '')
-    || 'Publication' !== ($caption['attrs']['content'] ?? '')
+$quote = $result['blocks'][0] ?? array();
+$citation = $quote['attrs']['citation'] ?? '';
+if ('core/quote' !== ($quote['blockName'] ?? '')
+    || ! str_contains($citation, 'display:block;font-size:9px;font-weight:700')
+    || ! str_contains($citation, '>Publication</span>')
+    || 'core/paragraph' !== ($quote['innerBlocks'][0]['blockName'] ?? '')
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
-    throw new RuntimeException('Padded quote cards must retain independent quote and caption boxes: ' . $result['serialized_blocks']);
+    throw new RuntimeException('Styled figure captions must retain their own line box inside native quotes: ' . $result['serialized_blocks']);
 }
-echo "Padded figure quote boxes passed\n";
+
+// Unstyled citations must not acquire an unnecessary carrier.
+$plain = (new HtmlTransformer())->transform('<figure><blockquote>Quote</blockquote><figcaption>Source</figcaption></figure>')->toArray();
+if ('Source' !== ($plain['blocks'][0]['attrs']['citation'] ?? '')) {
+    throw new RuntimeException('Unstyled figure citations must remain unchanged.');
+}
+echo "Figure caption line boxes passed\n";
