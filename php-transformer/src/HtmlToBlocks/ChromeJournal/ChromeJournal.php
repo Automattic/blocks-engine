@@ -101,7 +101,11 @@ final class ChromeJournal
                 array_push($fallbacks, ...$replay['fallbacks']);
                 return $replay['block'];
             }
+            return $convert($fallbacks);
         }
+        // Most keys one page alone reaches (a post's own heading before it,
+        // say); recording starts at a key's second sighting.
+        if (!$this->store->sighted($key)) return $convert($fallbacks);
         $before = $this->state();
         $attributes = self::attributes($element);
         $fallbackCount = count($fallbacks);
@@ -115,10 +119,8 @@ final class ChromeJournal
             $this->recording = false;
             $allocations = $analysis->allocations();
         }
-        if (null === $journal) {
-            $recorded = $this->record($element, $before, $attributes, array_slice($fallbacks, $fallbackCount), $block, $nextSourceId, $allocations);
-            if (null !== $recorded) $this->store->record($key, $recorded);
-        }
+        $recorded = $this->record($element, $before, $attributes, array_slice($fallbacks, $fallbackCount), $block, $nextSourceId, $allocations);
+        if (null !== $recorded) $this->store->record($key, $recorded);
         return $block;
     }
 

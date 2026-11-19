@@ -46,9 +46,10 @@ foreach (array('one', 'two') as $page) {
     $expected = $compile($plan);
     $actual = $compile($plan, $store);
     $assert($expected === $actual, $page . ': shared and unshared receipts must be byte-identical.');
-    $journals = $property->getValue($store);
-    $assert(1 === count($journals), 'The captured footer must record and reuse one key.');
 }
+// The first page sights the footer's key and the second records it.
+$journals = $property->getValue($store);
+$assert(1 === count($journals), 'The captured footer must record and reuse one key.');
 // A hit alone does not prove replay succeeded: make the recorded block visibly
 // different and compile page two again. Only a replay can emit this text.
 $key = array_key_first($journals);
