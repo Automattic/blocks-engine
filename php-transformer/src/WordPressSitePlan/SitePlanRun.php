@@ -554,7 +554,7 @@ final class SitePlanRun
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
-            $content = $this->presetBinding->bindStylesheet($asset['content']);
+            $content = $this->presetBinding->bindStylesheet($asset['content'], array_values(array_unique(array_map('strval', array_column($asset['stylesheet_instances'] ?? array(), 'source_path')))));
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
@@ -683,14 +683,14 @@ final class SitePlanRun
     {
         $documentsBySource = array_column($documents, null, 'source_path');
         foreach ($pages as &$page) {
-            $bound = $this->presetBinding?->bind($page['canonical_block_markup']);
+            $bound = $this->presetBinding?->bind($page['canonical_block_markup'], $page['source_path']);
             if (null === $bound || $bound === $page['canonical_block_markup']) continue;
             $page['canonical_block_markup'] = $bound;
             $page['content_hash'] = WordPressSitePlan::contentHash($bound);
             $document = $documentsBySource[$page['source_path']] ?? null;
             if (!is_array($document) || !isset($page['shell_candidates'])) continue;
             foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
-                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
+                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup'], $page['source_path']);
             }
             $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $bound);
         }
