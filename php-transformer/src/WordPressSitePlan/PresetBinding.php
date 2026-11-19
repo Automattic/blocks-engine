@@ -1367,7 +1367,9 @@ final class PresetBinding
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
                 $tag = strtolower($selector);
-                if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
+                // Captured-body box materialization uses :root body. It is
+                // still the document body, not a component font override.
+                if (1 === preg_match('/^(?::root\s+)?body(?:\.editor-styles-wrapper)?$/', $tag)) $tag = 'body';
                 $kept = $body;
                 // A matching body paint belongs to Global Styles just like its
                 // font. Preset binding alone would keep the author declaration
