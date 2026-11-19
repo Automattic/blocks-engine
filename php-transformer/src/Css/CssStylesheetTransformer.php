@@ -323,10 +323,7 @@ final class CssStylesheetTransformer
             // Support rules also own structural roots and native descendants.
             // Only independent class carriers may share a declaration body;
             // keep those structural rules standalone for later consumers.
-            // Geometry carriers repeat their class to outrank core layout.
-            // Compounds of classes remain independent carriers; joining their
-            // selector lists preserves each arm's specificity.
-            if ($classCarriersOnly && 1 !== preg_match('/^(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)+(?:\s*,\s*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)+)*$/D', $prelude)) {
+            if ($classCarriersOnly && 1 !== preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?:\s*,\s*\.[a-zA-Z_][a-zA-Z0-9_-]*)*$/D', $prelude)) {
                 continue;
             }
             $key = implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($body) . "\0" . implode(',', self::uncommonPseudoNames($prelude));
