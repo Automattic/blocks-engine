@@ -913,6 +913,10 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
             $parts[] = ':root .wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '{background-image:none!important}';
         }
+        if ( str_contains($serializedBlocks, CoverPattern::SOURCE_SIZED_CLASS) ) {
+            // The authored aspect-ratio/height sizes the hero, not core's 430px floor.
+            $parts[] = ':root .wp-block-cover.' . CoverPattern::SOURCE_SIZED_CLASS . '{min-height:0}';
+        }
         if ( str_contains($serializedBlocks, CoverPattern::FILL_CLASS) ) {
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';
             $parts[] = $fill . '{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}';

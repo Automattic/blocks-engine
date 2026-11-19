@@ -1,7 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+// The plugin bootstrap loads Composer when installed and its own source
+// autoloader otherwise: the contract runs from a checkout without vendor/.
+require dirname(__DIR__, 2) . '/php-transformer.php';
 if ($bootstrap = getenv('BODY_CONTEXT_WORDPRESS_BOOTSTRAP')) require $bootstrap;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
