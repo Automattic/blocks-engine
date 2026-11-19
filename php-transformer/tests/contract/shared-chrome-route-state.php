@@ -82,7 +82,8 @@ foreach (array('index.html' => 9, 'about/index.html' => 2, 'contact/index.html' 
 
 // A state class some author rule paints at rest is the chrome's own variant;
 // a hook whose rule sets more than the inline style is a width-scoped
-// presentation. Either difference keeps the home chrome page-owned.
+// presentation. Either difference gives the home chrome its own variant
+// part (#6723): it renders differently, yet stays out of post content.
 $painted = $compile(array(
     'index.html' => $page($css . '.bar.is-pinned{background:#900}', $header(' is-pinned', ''), '<h1>Welcome</h1>', $footer('signup-row', 'display:grid;width:100%')),
     'about/index.html' => $page($css, $header('', ''), '<h1>About</h1>', $footer('signup-row', 'display:grid;width:100%')),
@@ -95,10 +96,11 @@ $widthScoped = $compile(array(
     'contact/index.html' => $responsive('Contact'),
 ));
 foreach (array('header' => $painted, 'footer' => $widthScoped) as $area => $negative) {
-    $diagnostic = current(array_filter($negative['diagnostics'], static fn (array $row): bool => 'wordpress_site_plan_shell_extracted' === ($row['code'] ?? null) && $area === ($row['area'] ?? null)));
-    $excluded = array_column($diagnostic['exclusions'] ?? array(), 'reason', 'source_path');
-    $assert(2 === ($diagnostic['page_count'] ?? null) && 'non_equivalent' === ($excluded['index.html'] ?? null), "A home {$area} that renders differently stays page-owned: " . json_encode($diagnostic));
-    $assert(str_contains(array_column($negative['pages'], 'canonical_block_markup', 'source_path')['index.html'] ?? '', 'header' === $area ? 'Brand' : 'Stay in touch'), "The differing home {$area} keeps its inline chrome.");
+    $negativeTemplates = ThemeTemplates::rendered($negative);
+    preg_match_all('/"slug":"(' . $area . '[^"]*)"/', $negativeTemplates['front-page'] ?? '', $homeParts);
+    preg_match_all('/"slug":"(' . $area . '[^"]*)"/', $negativeTemplates['page'] ?? '', $innerParts);
+    $assert(array($area) === array_values(array_unique($innerParts[1])) && 1 === count(array_unique($homeParts[1])) && $area !== $homeParts[1][0], "A home {$area} that renders differently binds its own variant part: " . json_encode(array($homeParts[1], $innerParts[1])));
+    $assert(!str_contains(array_column($negative['pages'], 'canonical_block_markup', 'source_path')['index.html'] ?? '', 'header' === $area ? 'Brand' : 'Stay in touch'), "The differing home {$area} leaves post content.");
 }
 
 // A runtime entity's source contract losses report its page's stylesheet set.

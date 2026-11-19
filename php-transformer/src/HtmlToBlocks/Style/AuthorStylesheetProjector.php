@@ -686,12 +686,18 @@ final class AuthorStylesheetProjector
      * Project host display here, never in an after-author reference-value replay.
      * The host's cross-axis alignment rides along: the list-navigation baseline
      * outranks a bare class, and Core's toggle is a direct child of the host.
+     *
+     * A list wrapper that lowers onto the host keeps only a table-cell display:
+     * Core's flex layout (`body .is-layout-flex`) would otherwise take the
+     * host out of the source table row, so its percentage width resolves
+     * against an anonymous cell and the items wrap.
      */
     private function directNavigationHostRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $lifted = array_intersect_key($declarations, array('display' => true, 'align-items' => true));
         if (array() === $lifted) return '';
-        $targets = array();
+        $tableCell = 'table-cell' === CssValueInspector::declared($declarations, 'display');
+        $targets = $cellTargets = array();
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
             // Class compounds only (`.menus`, `.menus.res`): every lifted rule
             // gains the same prefix, so their relative specificity holds.
@@ -705,9 +711,31 @@ final class AuthorStylesheetProjector
                     $targets[] = ':root .wp-block-navigation' . $match[0];
                     break;
                 }
+                if ($tableCell && $this->navigationRootCarriesClasses($match[0], $context->emittedMarkup)) {
+                    $cellTargets[] = ':root .wp-block-navigation' . $match[0];
+                }
             }
         }
-        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}';
+        $cellTargets = array_diff(array_unique($cellTargets), $targets);
+        return (array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}')
+            . (array() === $cellTargets ? '' : implode(',', $cellTargets) . '{' . $this->styleResolver->cssDeclarationString(array('display' => $declarations['display'])) . '}');
+    }
+
+    /** Whether an emitted core/navigation root carries every class of a class compound (`.a.b`). */
+    private function navigationRootCarriesClasses(string $compound, string $markup): bool
+    {
+        $classes = array_map(static fn (string $class): string => stripslashes($class), array_values(array_filter(explode('.', $compound), static fn (string $class): bool => '' !== $class)));
+        if ( array() === $classes || ! preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/', $markup, $matches) ) {
+            return false;
+        }
+        foreach ( $matches[1] as $json ) {
+            $attributes = json_decode($json, true);
+            $tokens = SourceDom::tokens(is_array($attributes) ? (string) ($attributes['className'] ?? '') : '');
+            if ( array() === array_diff($classes, $tokens) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function withEditorProjectionRules(string $css, string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
@@ -1142,6 +1170,9 @@ final class AuthorStylesheetProjector
             );
             return (array() === $static || '' === $projectedPrelude ? '' : $projectedPrelude . '{' . $this->styleResolver->cssDeclarationString($static) . '}')
                 . (array() === $motionSelectors ? '' : implode(',', $motionSelectors) . '{' . $this->styleResolver->cssDeclarationString($motion) . '}');
+        }
+        if ( $inConditional ) {
+            $projectedPrelude = $this->withoutMergedDeviceNavigationHide($prelude, $projectedPrelude, $body, $context);
         }
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
@@ -1699,6 +1730,45 @@ final class AuthorStylesheetProjector
      * @param list<string> $properties
      * @param list<string> $values
      */
+    /**
+     * A desktop menu and the equivalent copy the source shows at other widths
+     * become one core/navigation that serves every width. A width-gated
+     * `display:none` on the kept copy (`@media(max-width:780px){#menu{display:none}}`)
+     * swapped it for the absorbed copy; on the merged block it would hide the
+     * only menu there. Keep the rule for every other subject and add no weight.
+     */
+    private function withoutMergedDeviceNavigationHide(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( '' === $projectedPrelude
+            || ! str_contains($context->emittedMarkup, AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS)
+            || ! self::anyDeclaredAs($body, array( 'display' ), array( 'none' )) ) {
+            return $projectedPrelude;
+        }
+        $hidesMergedNavigation = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! ( $parsed['supported'] ?? false ) ) {
+                continue;
+            }
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                if ( $context->selectorProjections->isMergedDeviceNavigationSource($element->getNodePath() ?? '') ) {
+                    $hidesMergedNavigation = true;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $hidesMergedNavigation ) {
+            return $projectedPrelude;
+        }
+        $guard = ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+
+        return implode(',', array_map(static function (string $selector) use ($guard): string {
+            $selector = trim($selector);
+            $pseudo = strpos($selector, '::');
+            return false === $pseudo ? $selector . $guard : substr($selector, 0, $pseudo) . $guard . substr($selector, $pseudo);
+        }, CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()));
+    }
+
     private static function anyDeclaredAs(string $body, array $properties, array $values): bool
     {
         foreach ( CssRuleAnalyzer::declarations($body, $properties) as [ 'value' => $value ] ) {

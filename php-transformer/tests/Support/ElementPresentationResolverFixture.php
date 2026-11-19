@@ -44,4 +44,7 @@ final class ElementPresentationResolverFixture implements ElementPresentationRes
 
     public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
     { return false; }
+
+    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string
+    { return ''; }
 }

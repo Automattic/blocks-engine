@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -87,6 +88,7 @@ final class NavigationPatternContext
         // particular inset and its logical forms) survive that filtering.
         $geometry = $this->styleResolver->inlineGeometryClassName($element);
         if ('' !== $geometry) $markers[] = $geometry;
+        $markers[] = $this->styleResolver->boxTreeElementCarrier($element);
         return $markers;
     }
 
@@ -1446,7 +1448,7 @@ final class NavigationPatternContext
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
-            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
+            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node)), $this->styleResolver->boxTreeElementCarrier($node)));
         }
         if (array() !== $boxes) {
             // These carriers exist only at frontend render time. Resolve the
@@ -1486,9 +1488,15 @@ final class NavigationPatternContext
             if (!$child instanceof DOMElement) continue;
             if ($child->isSameNode($branch)) { $after = true; continue; }
             if (!in_array(strtolower($child->tagName), array('span', 'div'), true) || $child->childElementCount || '' !== trim($child->textContent ?? '') || $child->hasAttribute('role') || $child->hasAttribute('tabindex')) continue;
-            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child))), 'style' => $child->getAttribute('style'));
+            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child)), $this->styleResolver->boxTreeElementCarrier($child)), 'style' => $child->getAttribute('style'));
         }
         return $result;
+    }
+
+    /** An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}). */
+    public function boxTreeElementCarrier(DOMElement $element): string
+    {
+        return $this->styleResolver->boxTreeElementCarrier($element);
     }
 
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
@@ -1748,6 +1756,25 @@ final class NavigationPatternContext
         }
 
         return $overlayMenu;
+    }
+
+    /**
+     * A menu shown at the reference viewport whose source also shows an
+     * equivalent copy elsewhere: its navigation serves both widths, so the
+     * hides that swapped the copies must not hide it. Records the source
+     * menu and returns the marker its navigation carries, or ''.
+     */
+    public function mergedDeviceNavigationMarker(DOMElement $element, DOMElement $navigationSource): string
+    {
+        if ( $this->isHiddenAtReferenceViewport($element)
+            || ! ( $this->navigationToggleSuppressor?->hasEquivalentNavigationVariant($element) ?? false ) ) {
+            return '';
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $projections->markMergedDeviceNavigationSource($element);
+        $projections->markMergedDeviceNavigationSource($navigationSource);
+
+        return AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS;
     }
 
     public function capturedMenuFold(DOMElement $row): ?CapturedMenuDialogFold
@@ -2165,11 +2192,13 @@ final class NavigationPatternContext
         }
 
         $declarations = $projected = array();
+        // Every property below walks the same anchors and ancestors.
+        $resolvedDeclarations = new \SplObjectStorage();
         // `font` first: builders commonly state menu type as the shorthand, and
         // a longhand found further out should not silently outrank it.
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
             if ($this->nativeNavigationParentOwnsPresentation($anchors, $navigation, $property)) continue;
-            $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property);
+            $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property, $resolvedDeclarations);
             // The source component resolves this formula against its own width.
             // Replaying it on Core's replacement anchor changes that reference
             // and inflates the label. The promoted item retains the source
@@ -2310,12 +2339,13 @@ final class NavigationPatternContext
      * Presentation every source anchor inside the navigation actually shares.
      *
      * @param list<DOMElement> $anchors
+     * @param \SplObjectStorage<DOMElement, array<string, string>> $resolvedDeclarations
      */
-    private function sharedNavigationItemPresentationValue(array $anchors, DOMElement $navigation, string $property): string
+    private function sharedNavigationItemPresentationValue(array $anchors, DOMElement $navigation, string $property, \SplObjectStorage $resolvedDeclarations): string
     {
         $shared = null;
         foreach ( $anchors as $anchor ) {
-            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property, $resolvedDeclarations);
             if ( null === $shared ) {
                 $shared = $value;
                 continue;
@@ -2472,8 +2502,9 @@ final class NavigationPatternContext
      */
     private function navigationDeclaresAny(DOMElement $navigation, array $properties): bool
     {
+        $resolvedDeclarations = new \SplObjectStorage();
         foreach ( $properties as $property ) {
-            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
+            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property, $resolvedDeclarations);
             if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)', 'medium none', '0 none' ), true) ) {
                 return true;
             }
@@ -2489,18 +2520,26 @@ final class NavigationPatternContext
      * document chrome that the destination theme legitimately supplies, and
      * reading it would recover the destination's own default rather than the
      * source's menu styling.
+     *
+     * A node's resolved declarations do not depend on the property, so a
+     * caller reading several properties across the same nodes passes one
+     * `$resolvedDeclarations` store and each node's cascade resolves once.
+     *
+     * @param \SplObjectStorage<DOMElement, array<string, string>> $resolvedDeclarations
      */
-    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property): string
+    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property, \SplObjectStorage $resolvedDeclarations): string
     {
         $node  = $anchor;
         $depth = 0;
         while ( $node instanceof DOMElement && $depth < 12 ) {
             ++$depth;
-            $resolved     = $this->styleResolver->customProperties->resolve(
-                $this->styleResolver->specificityResolvedPresentationStyle($node),
-                $node
-            );
-            $declarations = SourceDeclarations::parse($resolved);
+            if ( ! $resolvedDeclarations->offsetExists($node) ) {
+                $resolvedDeclarations[$node] = SourceDeclarations::parse($this->styleResolver->customProperties->resolve(
+                    $this->styleResolver->specificityResolvedPresentationStyle($node),
+                    $node
+                ));
+            }
+            $declarations = $resolvedDeclarations[$node];
             $value        = trim((string) ($declarations[$property] ?? ''));
             if ( '' === $value ) {
                 $value = $this->styleResolver->conditionalDeclaration($node, $property);
