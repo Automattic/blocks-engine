@@ -132,8 +132,22 @@ final class AuthorStyleAnalysis
 
     /** Whole-site subject evidence, never stylesheet inventory. */
     public ?\Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner $siteSelectorPruner = null;
-    /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> */
-    public function stylesheetAssets(): array { return $this->stylesheetAssets; }
+    /**
+     * Analysis consumers can prune unreachable arms without changing authored
+     * provenance or the raw assets used for materialization.
+     *
+     * @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}>
+     */
+    public function stylesheetAssets(bool $pruned = false): array
+    {
+        if ( ! $pruned || null === $this->siteSelectorPruner ) return $this->stylesheetAssets;
+        return array_map(function (array $asset): array {
+            foreach ( array('content', 'cascade_content') as $key ) {
+                if ( isset($asset[$key]) ) $asset[$key] = $this->siteSelectorPruner->prune($asset[$key], true);
+            }
+            return $asset;
+        }, $this->stylesheetAssets);
+    }
     /** @return list<DOMElement> */
     public function sourceElementsByClass(string $class): array { return $this->sourceElementsByClass[$class] ?? array(); }
     /** @return list<string> */
