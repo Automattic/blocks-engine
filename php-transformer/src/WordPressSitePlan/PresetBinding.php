@@ -248,6 +248,16 @@ final class PresetBinding
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
     private array $uniformVariables = array();
+    /** @var array<string,?float> The root font size each document renders (DesignSystem::renderedRoots()). */
+    private array $documentRoots = array();
+    /** The root every document renders, or null when they differ or one is unknown. */
+    private ?float $siteRootPx = null;
+    /**
+     * The root that renders the markup or stylesheet being bound, which rem
+     * values are measured against; null when its documents render different
+     * or unknown roots, so a rem value names no token.
+     */
+    private ?float $rootPx = null;
 
     /**
      * @param array<int,array<string,mixed>> $assets
@@ -306,6 +316,25 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
+        $this->documentRoots = DesignSystem::renderedRoots($usageBySource);
+        $this->siteRootPx = $this->rootPx = array() === $this->documentRoots ? $this->system->rootPx : $this->rootOf(array_map('strval', array_keys($this->documentRoots)));
+    }
+
+    /**
+     * The root the given documents render: theirs when they all render one,
+     * the site's when none is named, otherwise null.
+     *
+     * @param list<string> $sources
+     */
+    private function rootOf(array $sources): ?float
+    {
+        $roots = array();
+        foreach ($sources as $source) {
+            $root = array_key_exists($source, $this->documentRoots) ? $this->documentRoots[$source] : $this->siteRootPx;
+            $roots[null === $root ? '' : CssLength::format($root)] = $root;
+        }
+        if (array() === $roots) return $this->siteRootPx;
+        return 1 === count($roots) ? reset($roots) : null;
     }
 
     /**
@@ -376,9 +405,20 @@ final class PresetBinding
         return $refusals;
     }
 
-    public function bind(string $markup): string
+    /** Bind the block markup of the document at `$source` (rem lengths resolve at its root). */
+    public function bind(string $markup, ?string $source = null): string
     {
         if (!str_contains($markup, '<!-- wp:')) return $markup;
+        $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
+        try {
+            return $this->bindMarkup($markup);
+        } finally {
+            $this->rootPx = $this->siteRootPx;
+        }
+    }
+
+    private function bindMarkup(string $markup): string
+    {
         $markup = $this->bindNavigations($markup);
         $pattern = '/<!-- wp:(' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS))) . ') (\{.*?\}) (\/)?-->/s';
         $result = '';
@@ -1279,8 +1319,23 @@ final class PresetBinding
      *   or rounding changes what renders. Font-shorthand custom properties
      *   bind only an exactly matching complete stack, in place, leaving the
      *   rest of the shorthand literal.
+     * - A rem length is measured at the root of the documents that load the
+     *   sheet (`$sources`), and names no token when they render different
+     *   roots.
+     *
+     * @param list<string> $sources Source paths of the documents that load the stylesheet.
      */
-    public function bindStylesheet(string $css): string
+    public function bindStylesheet(string $css, array $sources = array()): string
+    {
+        $this->rootPx = $this->rootOf($sources);
+        try {
+            return $this->bindStylesheetRules($css);
+        } finally {
+            $this->rootPx = $this->siteRootPx;
+        }
+    }
+
+    private function bindStylesheetRules(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
         // Yield unconditional body paint to matching emitted defaults.
@@ -1525,14 +1580,14 @@ final class PresetBinding
             if (null !== $expected && str_starts_with($expected, 'var:preset|spacing|')) {
                 $slug = substr($expected, strlen('var:preset|spacing|'));
                 return $value === $expected || $value === 'var(--wp--preset--spacing--' . $slug . ')'
-                    || $this->system->spacingSlug($this->resolve($value)) === $slug;
+                    || $this->spacingSlug($this->resolve($value)) === $slug;
             }
         }
         if (null === $expected || '' === $value) return false;
         $value = $this->resolve($value);
         if (in_array($property, array('color', 'background', 'background-color'), true)) return null !== CssColor::hex($value) && CssColor::hex($value) === CssColor::hex($expected);
         if ($value === $expected) return true;
-        $a = CssLength::toPx($value, $this->system->rootPx);
+        $a = $this->lengthPx($value);
         $b = CssLength::toPx($expected, $this->system->rootPx);
         return null !== $a && null !== $b && abs($a - $b) < 0.001;
     }
@@ -1811,10 +1866,29 @@ final class PresetBinding
 
     private function exactFontSizeSlug(string $value): ?string
     {
-        $px = CssLength::toPx($value, $this->system->rootPx);
+        $px = $this->lengthPx($value);
         if (null === $px) return null;
-        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
+        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->fontSizeSlug($value)) return $size['slug'];
         return null;
+    }
+
+    /** A length in px at the root being bound; null when it is a rem length and that root is unknown. */
+    private function lengthPx(string $value): ?float
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return CssLength::toPx($value, $this->rootPx ?? $this->system->rootPx);
+    }
+
+    private function fontSizeSlug(string $value): ?string
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return $this->system->fontSizeSlug($value, $this->rootPx);
+    }
+
+    private function spacingSlug(string $value): ?string
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return $this->system->spacingSlug($value, $this->rootPx);
     }
 
     private function exactFontFamilySlug(string $value): ?string
@@ -1905,9 +1979,9 @@ final class PresetBinding
         if (!$this->comparable($kind, $value)) return null;
         return match ($kind) {
             'color' => $this->system->colorSlug($value),
-            'font-size' => $this->system->fontSizeSlug($value),
+            'font-size' => $this->fontSizeSlug($value),
             'font-family' => $this->system->fontFamilySlug($value),
-            default => $this->system->spacingSlug($value),
+            default => $this->spacingSlug($value),
         };
     }
 

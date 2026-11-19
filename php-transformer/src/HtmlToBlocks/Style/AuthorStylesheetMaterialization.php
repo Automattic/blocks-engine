@@ -202,11 +202,13 @@ final class AuthorStylesheetMaterialization
         // moved into render metadata by the time blocks are serialized.
         $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss, '', $html));
         // DOMDocument synthesizes a body for fragments; its margin belongs to
-        // the host document, not to the imported content.
+        // the host document, not to the imported content. A shared shell's
+        // support CSS joins every member route, but its synthetic document
+        // keeps only their common stylesheets: its body is none of theirs.
         $bodyDeclarations = preg_match('/<(?:html|body)\b/i', $html)
             ? $this->styleResolver->authorStructuralDeclarations($this->session->authorStyleAnalysis()->sourceBody())
             : null;
-        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $bodyDeclarations, null !== $bodyDeclarations && $this->htmlOwnsCanvas($this->session->authorStyleAnalysis()->sourceBody())));
+        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $bodyDeclarations, null !== $bodyDeclarations && $this->htmlOwnsCanvas($this->session->authorStyleAnalysis()->sourceBody()), ! $this->projectsOnlyMatchedAuthorRules));
         // Engine support CSS may join an author cascade layer, and naming a
         // layer registers it. The editor injects author CSS after the enqueued
         // editor styles, so that registration would otherwise arrive first and
@@ -307,8 +309,14 @@ final class AuthorStylesheetMaterialization
         $rootObservations = $this->session->boxTreeEvidence($root);
         $fluid = ( new BoxTreeFluidIntent() )->lift($body, $this->styleResolver, $observations, $viewports, $rootObservations);
         $projector = new BoxTreeStyleProjector();
-        return $projector->boxRule(':root', array( 'background-color' => 'rgba(0, 0, 0, 0)' ), $rootObservations)
-            . $projector->boxRule(':root body', self::BODY_BOX_PROPERTIES, $observations, $fluid);
+        // The root font size sizes every rem, and the body's is the size its
+        // content inherits: carriers prune a size equal to their parent's, and
+        // keep relative sizes relative, so both are restated where they differ
+        // from what the destination root and body would otherwise compute.
+        $rootSizes = array_unique(array_map(static fn(array $observation): string => (string) ($observation['used_styles']['font-size'] ?? ''), $rootObservations));
+        $inheritedSize = 1 === count($rootSizes) ? (string) reset($rootSizes) : '';
+        return $projector->boxRule(':root', array( 'background-color' => 'rgba(0, 0, 0, 0)', 'font-size' => '16px' ), $rootObservations)
+            . $projector->boxRule(':root body', self::BODY_BOX_PROPERTIES + array( 'font-size' => $inheritedSize ), $observations, $fluid);
     }
 
     /** Whether the source paints its canvas on `html` and never on `body`, under any condition. */
@@ -360,8 +368,9 @@ final class AuthorStylesheetMaterialization
         $media = trim($media);
         $sitePruner = $this->session->authorStyleAnalysis()->siteSelectorPruner;
         if (null !== $sitePruner) {
-            // Prune only the projection input. Analysis and source provenance
-            // retain the authored inventory and its specificity ceiling.
+            // Reuse the text already pruned for selector preparation and the
+            // conversion cascade. Raw assets retain authored provenance and
+            // inventory for consumers that still need the complete stylesheet.
             // Keep ID ancestry here: route reconciliation needs the same
             // inventory on every route to coalesce page-local arms. The final
             // asset pruner can drop absent IDs after that reconciliation.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\ChromeJournalStore;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\MemoryChromeJournalStore;
 
 $assert = static function (bool $condition, string $message): void {
@@ -13,7 +14,7 @@ $footer = '<footer class="site-footer"><h2>Contact our studio</h2>';
 foreach (range(1, 40) as $item) $footer .= '<p><a href="https://example.com/contact/' . $item . '">Contact our studio about project number ' . $item . '</a></p>';
 $footer .= '<canvas width="20" height="20"></canvas></footer>';
 $files = array();
-foreach (array('one', 'two') as $index => $page) {
+foreach (array('one', 'two', 'three') as $index => $page) {
     // Different content at every ancestor prevents an outer wrapper winning.
     $html = '';
     foreach (range(1, 7) as $depth) $html .= '<div><p>' . $page . ' level ' . $depth . '</p>';
@@ -22,7 +23,10 @@ foreach (array('one', 'two') as $index => $page) {
     $html = preg_replace_callback('/<([a-z][a-z0-9]*)(?=[\s>])/', static function (array $match) use (&$id): string {
         return $match[0] . ' data-blocks-engine-node-id="n' . $id++ . '"';
     }, $html);
-    $html = '<!doctype html><html><head><title>' . $page . '</title></head><body>' . $html . '</body></html>';
+    $css = ':root { --footer-color: #333; } .site-footer { color: var(--footer-color); }'
+        . ' .' . $page . '-only { color: red; }';
+    if ('three' === $page) $css .= ' .site-footer { color: blue; }';
+    $html = '<!doctype html><html><head><title>' . $page . '</title><style>' . $css . '</style></head><body>' . $html . '</body></html>';
     $files[] = array('path' => $page . '.html', 'content' => $html);
 }
 // Keep both tested pages in the same non-entry scope.
@@ -31,13 +35,24 @@ $artifact = array('entrypoint' => 'index.html', 'files' => $files);
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert(array() !== ($shared['analysis']['repeated_subtrees'] ?? array()), 'Deep captured footer must be a repeated subtree.');
-$store = new MemoryChromeJournalStore();
+$store = new class implements ChromeJournalStore {
+    public MemoryChromeJournalStore $inner;
+    public int $hits = 0;
+    public function __construct() { $this->inner = new MemoryChromeJournalStore(); }
+    public function journal(string $key): ?array
+    {
+        $journal = $this->inner->journal($key);
+        if (null !== $journal) ++$this->hits;
+        return $journal;
+    }
+    public function record(string $key, array $journal): void { $this->inner->record($key, $journal); }
+};
 $untimed = static function (mixed $value) use (&$untimed): mixed {
     if (!is_array($value)) return $value;
     foreach (array('metrics', 'step_timings', 'timings', 'work') as $key) unset($value[$key]);
     return array_map($untimed, $value);
 };
-$compile = static function (array $plan, ?MemoryChromeJournalStore $store = null) use ($compiler, $shared, $untimed): string {
+$compile = static function (array $plan, ?ChromeJournalStore $store = null) use ($compiler, $shared, $untimed): string {
     return json_encode($untimed($compiler->compilePreparedPage($shared, $plan, null, $store)), JSON_THROW_ON_ERROR);
 };
 $property = new ReflectionProperty(MemoryChromeJournalStore::class, 'journals');
@@ -46,14 +61,19 @@ foreach (array('one', 'two') as $page) {
     $expected = $compile($plan);
     $actual = $compile($plan, $store);
     $assert($expected === $actual, $page . ': shared and unshared receipts must be byte-identical.');
-    $journals = $property->getValue($store);
+    $journals = $property->getValue($store->inner);
     $assert(1 === count($journals), 'The captured footer must record and reuse one key.');
 }
+$assert(1 === $store->hits, 'Second captured page must hit the footer journal once (trunk: zero hits).');
+$third = $compiler->preparePage($artifact, $shared, 'three.html');
+$assert($compile($third) === $compile($third, $store), 'Relevant footer CSS must preserve the unshared receipt.');
+$assert(1 === $store->hits, 'Matching footer CSS must not hit the journal.');
+$assert(2 === count($property->getValue($store->inner)), 'Matching footer CSS must miss and record a different key.');
 // A hit alone does not prove replay succeeded: make the recorded block visibly
 // different and compile page two again. Only a replay can emit this text.
 $key = array_key_first($journals);
 $journals[$key]['block']['attrs']['className'] = 'journal-replay-proof';
-$property->setValue($store, $journals);
+$property->setValue($store->inner, $journals);
 $proof = $compile($plan, $store);
 $assert(str_contains($proof, 'journal-replay-proof'), 'The second page must be served by the recorded journal, not converted after a failed replay.');
 echo "ok\n";

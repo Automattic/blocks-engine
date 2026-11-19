@@ -55,6 +55,8 @@ final class PostChrome
 
     /** Whether every post renders one single template, with no layout groups. */
     private bool $uniformTemplate = false;
+    /** Whether post content is the inner children of a hoisted template frame. */
+    private bool $framedContent = false;
 
     /** @var list<array<string,mixed>> Original site posts, across layout groups. */
     private array $allPosts = array();
@@ -254,6 +256,7 @@ final class PostChrome
         $this->taxonomyEntities = $taxonomyEntities;
         $this->relatedTermScopes = array();
         $this->uniformTemplate = null === $templates;
+        $this->framedContent = false;
         if (null === $templates) {
             $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
             foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
@@ -271,6 +274,7 @@ final class PostChrome
         $canonicalSize = 0;
         foreach ($bound as $slug => $posts) {
             $baseTemplate = $bySlug[$slug];
+            $this->framedContent = str_contains($baseTemplate['canonical_block_markup'], WordPressSitePlan::FRAME_CONTENT_CLASS);
             // Peers establish article boundaries even when optional chrome
             // later divides this template's posts into singleton layouts.
             if (count($posts) < 2) continue;
@@ -349,7 +353,9 @@ final class PostChrome
                     $template['slug'] = $target;
                     $template['target_path'] = 'templates/' . $target . '.html';
                     $template['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']);
-                    $template['canonical_block_markup'] = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $match): string => $factored['single'], $template['canonical_block_markup'], 1);
+                    // The slot keeps its own attributes: a frame template's
+                    // slot is marked so it adds no box inside that frame.
+                    $template['canonical_block_markup'] = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $match): string => str_replace('<!-- wp:post-content /-->', $match[0], $factored['single']), $template['canonical_block_markup'], 1);
                     $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
                     $bySlug[$target] = $template;
                     // The largest factored post design owns the hierarchy slot.
@@ -859,6 +865,21 @@ final class PostChrome
                 foreach ($index->ranges() as $owner) if ($owner['offset'] === $offset && $leaf['offset'] >= $offset && $leaf['offset'] < $offset + $owner['length']) continue 3;
             }
             $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
+            // A breadcrumb can repeat the headline without being the article
+            // title or body. Preserve its list item in the template instead of
+            // abandoning the heading-anchored body selection for this variation.
+            if ('list-item' === PostBlocks::sourceBlockName($slice) && !preg_match('/<a\b/i', $slice) && ListingExcerptProjection::text($slice) === ($post['title'] ?? null)) {
+                for ($parent = $index->parent($leaf); null !== $parent; $parent = $index->parent($parent)) {
+                    $owner = substr($index->markup, $parent['offset'], $parent['length']);
+                    if ('nav' === (PostBlocks::sourceAttributes($owner)['tagName'] ?? null)) {
+                        $attrs = PostBlocks::sourceAttributes($slice);
+                        $attrs['metadata']['bindings']['content'] = array('source' => 'core/post-data', 'args' => array('field' => 'title'));
+                        $bound = preg_replace('/^(<!-- wp:list-item)(?:\s+\{.*?\})?\s*-->/', '$1 ' . BlockAttributes::encode($attrs) . ' -->', $slice) ?? $slice;
+                        $slots[$leaf['offset']] = preg_replace('/(<li\b[^>]*>).*?(<\/li>)/s', '$1$2', $bound) ?? $bound;
+                        continue 2;
+                    }
+                }
+            }
             if ('paragraph' === PostBlocks::sourceBlockName($slice)) {
                 // Slot identity is structural, never a byte offset or source text.
                 $path = array();
@@ -1051,11 +1072,22 @@ final class PostChrome
         $content = false;
         $retained = array();
         $cursor = 0;
+        $previousContent = false;
         foreach ($top as $range) {
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
             $transformed = $this->transformRange($index, $postIndex, $range, $post, $route, $shared, false, $featuredOffset, $contentRange, $slots);
+            // A post whose article became its template frame holds that
+            // article's children: the frame is the body boundary. As inside
+            // a container, content right after the placed slot joins it.
+            if ($this->framedContent && $transformed['content'] && $previousContent) {
+                $body .= substr($markup, $range['offset'], $range['length']);
+                $retained[] = array('offset' => $range['offset'], 'length' => $range['length']);
+                $cursor = $range['offset'] + $range['length'];
+                continue;
+            }
+            $previousContent = $transformed['content'] && '<!-- wp:post-content /-->' === $transformed['template'];
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
