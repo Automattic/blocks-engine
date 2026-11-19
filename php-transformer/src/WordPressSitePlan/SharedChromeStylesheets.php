@@ -1082,6 +1082,8 @@ final class SharedChromeStylesheets
         // detached chrome: keep their rules in the authored route cascade,
         // just as before shell extraction moved the frame out of the page.
         $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
+        $strandedControls = $routeHooks['stranded_controls'];
+        unset($routeHooks['stranded_controls']);
         foreach ($parts as $part) {
             if ('page-frame' !== ($part['slug'] ?? null)) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
@@ -1110,6 +1112,14 @@ final class SharedChromeStylesheets
                 }
             }
         }
+        // A control marker kept on the route only because its element carries
+        // a route-kept hook names one capture's copy of the control, so the
+        // generated support rules for it exist only in the support sheets of
+        // routes that compiled that capture. Every other route adopting the
+        // part would render the control without them: those generated rules
+        // follow the part. Author rules for it stay on the route, keeping the
+        // element's authored cascade in one stylesheet.
+        $strandedControls = array_intersect_key($strandedControls, $classes, $routeHooks['marker']);
         $classes = array_diff_key($classes, $routeHooks['marker']);
         unset($routeHooks['marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
@@ -1123,18 +1133,19 @@ final class SharedChromeStylesheets
             'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
             'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
         );
-        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
+        if (!$hasSharedNavigation && array() === $classes && array() === $strandedControls && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
+        $supportClassMatcher = array() === $strandedControls ? $classMatcher : self::generatedClassMatcher($classes + $strandedControls);
         // Current state is assigned by core on the served route, not saved in
         // the shared part. Projected selectors using only native navigation
         // hooks therefore have no authored/generated class to claim them.
         // Lift them with the menu rather than the capture's matching leaf.
-        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
+        $targets = static fn (array $classMatcher): \Closure => static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
             || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
             || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
         $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
             && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
-        $liftsToChrome = static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
+        $lifts = static fn (callable $targetsChrome): \Closure => static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
         $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
             $routes = array();
             foreach ($controlRoutes as $control => $classes) {
@@ -1175,12 +1186,14 @@ final class SharedChromeStylesheets
                 $keep($asset);
                 continue;
             }
-            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
+            $assetClassMatcher = 'engine-support' === ($asset['source'] ?? null) ? $supportClassMatcher : $classMatcher;
+            $targetsChrome = $targets($assetClassMatcher);
+            $shared = self::sharedChromeRules($asset['content'], $lifts($targetsChrome), $reanchor, $inheritedContexts, $liveElementMarkers, $assetClassMatcher);
             if (null === $shared) {
                 $keep($asset);
                 continue;
             }
-            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $targetsChrome, $classMatcher), $shared);
+            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $targetsChrome, $assetClassMatcher), $shared);
             $contract = self::sharedChromeContract($asset);
             $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
             $shared = (string) $sharedAsset['content'];
@@ -1324,7 +1337,7 @@ final class SharedChromeStylesheets
      * @param array{class:array<string,true>,id:array<string,true>} $authored
      * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>} $hookRoutes
      * @param list<array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}> $chromeElements
-     * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}
+     * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>,stranded_controls:array<string,true>}
      */
     private static function routeKeptHooks(array $assets, array $pages, array $authored, array $hookRoutes, array $chromeElements): array
     {
@@ -1354,6 +1367,7 @@ final class SharedChromeStylesheets
         }
         // Keep each chrome element's rules in one stylesheet: an element with any
         // route-kept hook keeps all of its hooks on the route (to a fixed point).
+        $contentMarkers = $routeHooks['marker'];
         do {
             $grown = false;
             foreach ($chromeElements as $element) {
@@ -1365,6 +1379,7 @@ final class SharedChromeStylesheets
                 }
             }
         } while ($grown);
+        $routeHooks['stranded_controls'] = array_filter(array_diff_key($routeHooks['marker'], $contentMarkers), static fn (string $marker): bool => 'control' === EngineMarker::markerKind($marker), ARRAY_FILTER_USE_KEY);
         return $routeHooks;
     }
 

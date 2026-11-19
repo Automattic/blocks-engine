@@ -2498,7 +2498,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceTagName = strtolower($sourceElement->tagName);
         $withheld = array_fill_keys($withheld, true);
         $observations = $this->session->boxTreeEvidence($sourceElement);
-        if (array() === $observations) $observations = $this->authoredBoxTreeStandIn($sourceElement);
         foreach ($observations as $key => $observation) {
             if (is_array($observation['used_styles'] ?? null)) $observations[$key]['used_styles'] = array_diff_key($observation['used_styles'], $withheld);
         }
@@ -2536,60 +2535,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $attrs;
-    }
-
-    /**
-     * Stand-in observations for a device-island element the capture never
-     * observed (a mobile-only fragment grafted into the desktop document has
-     * no box in the route's box tree). Its route still retires the author
-     * sheets (ADR 0005), so without a carrier the element would lose its
-     * resting author presentation, such as the hidden-at-rest pose of a skip
-     * link revealed only on focus (#5860). The author cascade resolved at the
-     * island's own captured viewport (the only one where the copy renders;
-     * the device visibility rules hide it elsewhere) stands in for the
-     * missing observation of the box properties; inherited typography
-     * already reaches the block through its style attributes.
-     *
-     * @return array<string, array<string, mixed>> Observations by viewport, or none off an evidence route,
-     *         for an observed element, or outside a device island.
-     */
-    private function authoredBoxTreeStandIn(DOMElement $element): array
-    {
-        $viewports = $this->session->boxTreeViewports();
-        if (array() === $viewports || '' === $element->getAttribute(BoxTree::NODE_ATTRIBUTE)) return array();
-        $profile = $this->deviceIslandProfile($element);
-        if (null === $profile) return array();
-        $widths = array_filter(array_map(static fn (mixed $viewport): float => is_array($viewport) ? (float) ($viewport['width'] ?? 0) : 0.0, $viewports), static fn (float $width): bool => $width > 0);
-        if (array() === $widths) return array();
-        if (!isset($widths[$profile])) {
-            // The island's profile names no captured viewport: its extreme stands in.
-            $key = 'mobile' === $profile ? array_search(min($widths), $widths, true) : array_search(max($widths), $widths, true);
-            $widths = array((string) $key => $widths[$key]);
-        } else {
-            $widths = array($profile => $widths[$profile]);
-        }
-        $properties = array_values(array_diff(BoxTree::PROPERTIES, BoxTree::INHERITED_PROPERTIES));
-        $observations = array();
-        foreach ($widths as $key => $width) {
-            $declared = array_filter(
-                $this->styleResolver->authorViewport->atViewport($element, $properties, $width, true),
-                static fn (string $value): bool => '' !== trim($value)
-            );
-            if (array() !== $declared) $observations[$key] = array('used_styles' => $declared);
-        }
-        return $observations;
-    }
-
-    /** The device profile (`mobile` or `desktop`) of the island an element belongs to, or null outside one. */
-    private function deviceIslandProfile(DOMElement $element): ?string
-    {
-        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
-            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) {
-                if (\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::MOBILE_ONLY_CLASS === $class) return 'mobile';
-                if (\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::DESKTOP_ONLY_CLASS === $class) return 'desktop';
-            }
-        }
-        return null;
     }
 
     /**
