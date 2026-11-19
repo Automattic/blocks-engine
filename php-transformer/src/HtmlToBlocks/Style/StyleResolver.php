@@ -2055,6 +2055,14 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element, $nativeBackgroundColor);
     }
 
+    /** Keep the native citation's font metrics and spacing, but restore the caption's block flow. */
+    public function figureQuoteCaptionClassName(DOMElement $caption): string
+    {
+        $className = $this->session->layoutGeometryState()->allocateCarrier($this->geometryStructuralPath($caption) . "\nfigure-quote-caption-display");
+        $this->session->layoutGeometryState()->registerRule($className, '.' . $className . ' > cite{display:block}');
+        return $className;
+    }
+
     /** Restate source caption margins that differ from core/image's defaults. */
     public function imageCaptionMarginClassName(DOMElement $caption): string
     {

@@ -71,6 +71,12 @@ final class QuotePatternContext
         return '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
 
+    /** A consumed block caption must not split an inline cite into anonymous boxes. */
+    public function figureCaptionClassName(DOMElement $caption): string
+    {
+        return $this->styleResolver->figureQuoteCaptionClassName($caption);
+    }
+
     public function citationFromElement(DOMElement $element): string
     {
         foreach ( $element->childNodes as $child ) {

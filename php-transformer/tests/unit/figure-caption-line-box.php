@@ -22,10 +22,23 @@ if (!$cite instanceof DOMElement
     || !$caption instanceof DOMElement
     || 'font-size:9px;font-weight:700;display:block' !== $caption->getAttribute('style')
     || $cite->hasAttribute('style')
-    || str_contains($css, ' > cite{')
+    || !str_contains($css, ' > cite{display:block}')
+    || preg_match('/ > cite\\{[^}]*font-/', $css)
     || 'Publication' !== $caption->textContent
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
     throw new RuntimeException('Consumed figcaption must retain an independent line box without restyling cite: ' . $result['serialized_blocks']);
+}
+// Existing citations and pullquotes do not have this direct-child caption topology.
+foreach (array(
+    '<blockquote>A review<cite>Publication</cite></blockquote>',
+    '<figure><blockquote>A review<cite>Existing citation</cite></blockquote><figcaption>Unused caption</figcaption></figure>',
+    '<figure class="wp-block-pullquote"><blockquote>A review</blockquote><figcaption>Publication</figcaption></figure>',
+) as $html) {
+    $control = (new HtmlTransformer())->transform($html)->toArray();
+    $controlCss = implode("\n", array_column(array_filter($control['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+    if (str_contains($controlCss, ' > cite{display:block}')) {
+        throw new RuntimeException('Caption flow rule must not restyle existing citations or pullquotes');
+    }
 }
 echo "Figure caption line box passed\n";
