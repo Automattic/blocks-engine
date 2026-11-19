@@ -297,7 +297,8 @@ final class ArtifactCompiler
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $normalized['source_css_bytes'] = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
         $this->layoutGeometryProof = ArrayField::array($normalized, 'layout_geometry_proof');
-        $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
+        $runtimeOwned = (new RuntimeOwnedRegionProjector())->project($normalized['files']);
+        $capturedDialogs = (new CapturedDialogProjector())->project($runtimeOwned['files']);
         $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
         $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
@@ -313,7 +314,7 @@ final class ArtifactCompiler
             // reporting bucket. Selectable-set counts stay separate so
             // projected_dialog_count is not inflated.
             'captured_dialogs' => array(
-                'diagnostics' => CapturedInteractionReport::mergeDiagnostics($capturedDialogs['diagnostics'], $collections['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
+                'diagnostics' => CapturedInteractionReport::mergeDiagnostics($runtimeOwned['diagnostics'], $capturedDialogs['diagnostics'], $collections['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
                 'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
                 'projected_selectable_set_count' => $selectableSets['projected_count'],
                 'projected_choice_group_count' => $choiceGroups['projected_count'],
