@@ -7,6 +7,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -46,9 +47,16 @@ final class LayoutShellLowering
         // layout-shell's save function reads wrappers only, not className.
         // Source block creation can add projected selector carriers, so retain
         // those on the outer wrapper in both the save attributes and HTML.
+        // The same holds for the style attributes an evidence route's box-tree
+        // carrier maps its invariant declarations to (padding, background,
+        // radius): with no block supports nothing renders them, so the box
+        // would lose them in the editor and on the front end alike. They
+        // become the outer wrapper's inline style instead.
         if (isset($elements[0])) {
-            $wrappers[0] = $this->layoutShellWrapper($elements[0], $fieldBox, (string) ($block['attrs']['className'] ?? ''));
+            $supportStyle = $this->boxTreeSupportStyle($block['attrs']['style'] ?? null);
+            $wrappers[0] = $this->layoutShellWrapper($elements[0], $fieldBox, (string) ($block['attrs']['className'] ?? ''), $supportStyle);
             $block['attrs']['wrappers'][0]['attributes'] = $wrappers[0]['attributes'];
+            if ('' !== $supportStyle) unset($block['attrs']['style']);
         }
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
@@ -67,13 +75,17 @@ final class LayoutShellLowering
      *
      * @return array{tagName: string, attributes: array<string, mixed>, opening: string, closing: string}
      */
-    private function layoutShellWrapper(DOMElement $element, bool $fieldBox = false, string $className = ''): array
+    private function layoutShellWrapper(DOMElement $element, bool $fieldBox = false, string $className = '', string $supportStyle = ''): array
     {
         $sourceTagName = strtolower($element->tagName);
         $tagName = str_contains($sourceTagName, '-') || ($fieldBox && 'label' === $sourceTagName) ? 'div' : $sourceTagName;
         $attributes = SourceDom::htmlAttributes($element);
         if ($fieldBox && 'label' === $sourceTagName) {
             unset($attributes['for']);
+        }
+        if ('' !== $supportStyle) {
+            $authored = trim((string) ($attributes['style'] ?? ''), " \t\n\r;");
+            $attributes['style'] = '' === $authored ? $supportStyle : $authored . ';' . $supportStyle;
         }
         $className = SourceDom::mergeClassNames($this->layoutShellClassName($element), $className);
         if ( '' === $className ) {
@@ -103,6 +115,18 @@ final class LayoutShellLowering
             'opening' => $opening,
             'closing' => '</' . $tagName . '>',
         );
+    }
+
+    /**
+     * The declarations a box-tree carrier moved into the block's style
+     * attributes ({@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\BoxTreeStyleProjector}),
+     * as the CSS a core block would serialize for them. Off an evidence
+     * route nothing is mapped, and the shell keeps its source attributes.
+     */
+    private function boxTreeSupportStyle(mixed $style): string
+    {
+        if (!is_array($style) || array() === $style || array() === $this->session->boxTreeViewports()) return '';
+        return trim((new StyleAttributeMapper())->serialize($style)['style'], " \t\n\r;");
     }
 
     private function layoutShellClassName(DOMElement $element): string
