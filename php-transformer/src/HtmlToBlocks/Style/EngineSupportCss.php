@@ -177,15 +177,17 @@ final class EngineSupportCss
                 // Put its immediate host in editor flow so both native blocks
                 // remain selectable, without changing front-end layer geometry.
                 . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::LAYER_FILL_IMAGE_FIGURE_CLASS . '){position:static!important;inset:auto!important}'
-                // The converse: a later positioned layer paints over an
-                // in-flow fill image. Put that layer in editor flow after the
-                // image, so a click on the image reaches the image block.
-                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let
                 // the anchor fill the figure so the image resolves against it.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.blocks-engine-linked-image-figure)>a{display:block;width:100%;height:100%}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS) ) {
+            // The converse of a layer fill image: a later positioned layer
+            // paints over an in-flow fill image. Put that layer in editor flow
+            // after the image, so a click on the image reaches the image block.
+            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}';
         }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line

@@ -20,8 +20,9 @@ $strip = static function (array $value) use (&$strip): array {
     return $value;
 };
 $hash = hash('sha256', json_encode($strip($result), JSON_THROW_ON_ERROR));
-// Includes native Groups and single-page selector compaction in the artifact report.
-if ('363b9bcf450483d387d34ac7381aaa91d461c6d947e71367f593d84e57642697' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
+// Includes native Groups, single-page selector compaction and the generated
+// layout-shell editor script (its anchors cancel canvas navigation) in the artifact report.
+if ('dbf4ca0d8abea9c104a3b945ca54803fd1420723b773a1d7b855b8bf492d1fb9' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
 $invalid = $graph;
 $invalid['diagnostics'][] = 'unsupported_selector::host(.extra)';
 try {

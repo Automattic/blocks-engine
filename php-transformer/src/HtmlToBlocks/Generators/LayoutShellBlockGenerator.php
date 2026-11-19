@@ -204,24 +204,24 @@ final class LayoutShellBlockGenerator
     // selecting to replace) followed the href and navigated the canvas away
     // from the editor. Selection follows focus, not the click's default
     // action, so cancel only the navigation; the saved link is unchanged.
-    function canvasProps( tagName, props ) {
-        if ( 'a' !== String( tagName || 'div' ).toLowerCase() ) { return props; }
-        var onClick = props.onClick;
-        return Object.assign( {}, props, { onClick: function( event ) {
-            event.preventDefault();
-            if ( onClick ) { onClick( event ); }
-        } } );
+    function cancelNavigation( event ) { event.preventDefault(); }
+    function canvasWrappers( wrappers ) {
+        return wrappers.map( function( wrapper ) {
+            if ( 'a' !== String( wrapper.tagName || 'div' ).toLowerCase() ) { return wrapper; }
+            var attributes = Object.assign( {}, wrapper.attributes || {}, { onClick: cancelNavigation } );
+            return Object.assign( {}, wrapper, { attributes: attributes } );
+        } );
     }
     function edit( props ) {
-        var wrappers = revealedWrappers( props.attributes.wrappers || [] );
+        var wrappers = canvasWrappers( revealedWrappers( props.attributes.wrappers || [] ) );
         // Both hooks run exactly once, in this order, regardless of chain length.
         var blockProps = useBlockProps();
-        var outerProps = wrappers.length ? canvasProps( wrappers[ 0 ].tagName, sourceBlockProps( wrapperProps( wrappers[ 0 ].attributes ), blockProps ) ) : blockProps;
+        var outerProps = wrappers.length ? sourceBlockProps( wrapperProps( wrappers[ 0 ].attributes ), blockProps ) : blockProps;
         var last = wrappers.length - 1;
-        var innerProps = useInnerBlocksProps( last > 0 ? canvasProps( wrappers[ last ].tagName, wrapperProps( wrappers[ last ].attributes ) ) : outerProps );
+        var innerProps = useInnerBlocksProps( last > 0 ? wrapperProps( wrappers[ last ].attributes ) : outerProps );
         var content = createElement( last >= 0 ? wrappers[ last ].tagName || 'div' : 'div', innerProps );
         for ( var index = last - 1; index >= 0; index-- ) {
-            content = createElement( wrappers[ index ].tagName || 'div', index === 0 ? outerProps : canvasProps( wrappers[ index ].tagName, wrapperProps( wrappers[ index ].attributes ) ), content );
+            content = createElement( wrappers[ index ].tagName || 'div', index === 0 ? outerProps : wrapperProps( wrappers[ index ].attributes ), content );
         }
         return content;
     }
