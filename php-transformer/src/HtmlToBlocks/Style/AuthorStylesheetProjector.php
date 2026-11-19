@@ -253,16 +253,29 @@ final class AuthorStylesheetProjector
             }
         }
         if ( array() === $subjects ) return '';
+        $blockSubjects = array_filter($subjects, static fn (\DOMElement $element): bool => in_array(
+            strtolower($element->tagName),
+            array('div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'figure'),
+            true
+        ));
         $rules = '';
-        (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body) use (&$rules, $subjects): void {
+        (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body) use (&$rules, $subjects, $blockSubjects): void {
             // Only positive block targets own this escape. A projected arm in
             // a mixed selector list must not lend ownership to authored inline
             // subjects, nor do RichText carriers have Core block defaults.
-            $targets = array_filter(CssStylesheetTransformer::splitSelectorList($selector) ?? array(), static function (string $arm): bool {
+            $targets = array();
+            foreach ( CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm ) {
                 $positive = CssSelectorCompoundInspector::positiveSelector($arm);
-                return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-)/', $positive)
-                    && ! preg_match('/\\.blocks-engine-(?:role-richtext\\b|richtext-)/', $positive);
-            });
+                if ( preg_match('/\\.blocks-engine-(?:role-richtext\\b|richtext-)/', $positive) ) continue;
+                if ( 1 === preg_match('/\\.(?:wp-block-|blocks-engine-)/', $positive) ) {
+                    $targets[] = $arm;
+                } elseif ( ! str_contains($arm, '::') && array() !== $blockSubjects ) {
+                    // Source classes often survive conversion unchanged. They
+                    // need the same hand-back as rewritten selectors, but only
+                    // on block hosts, never on their inline RichText children.
+                    $targets[] = ':is(' . $arm . '):where(.wp-block-group,.wp-block-heading,.wp-block-list,.wp-block-list-item,.wp-block-image,.wp-block-cover,.wp-block-columns,.wp-block-column,p)';
+                }
+            }
             if ( array() === $targets ) return;
             $selector = implode(',', $targets);
             $properties = array();
