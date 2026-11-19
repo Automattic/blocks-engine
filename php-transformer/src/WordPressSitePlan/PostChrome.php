@@ -806,6 +806,21 @@ final class PostChrome
                 foreach ($index->ranges() as $owner) if ($owner['offset'] === $offset && $leaf['offset'] >= $offset && $leaf['offset'] < $offset + $owner['length']) continue 3;
             }
             $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
+            // A breadcrumb can repeat the headline without being the article
+            // title or body. Preserve its list item in the template instead of
+            // abandoning the heading-anchored body selection for this variation.
+            if ('list-item' === PostBlocks::sourceBlockName($slice) && !preg_match('/<a\b/i', $slice) && ListingExcerptProjection::text($slice) === ($post['title'] ?? null)) {
+                for ($parent = $index->parent($leaf); null !== $parent; $parent = $index->parent($parent)) {
+                    $owner = substr($index->markup, $parent['offset'], $parent['length']);
+                    if ('nav' === (PostBlocks::sourceAttributes($owner)['tagName'] ?? null)) {
+                        $attrs = PostBlocks::sourceAttributes($slice);
+                        $attrs['metadata']['bindings']['content'] = array('source' => 'core/post-data', 'args' => array('field' => 'title'));
+                        $bound = preg_replace('/^(<!-- wp:list-item)(?:\s+\{.*?\})?\s*-->/', '$1 ' . BlockAttributes::encode($attrs) . ' -->', $slice) ?? $slice;
+                        $slots[$leaf['offset']] = preg_replace('/(<li\b[^>]*>).*?(<\/li>)/s', '$1$2', $bound) ?? $bound;
+                        continue 2;
+                    }
+                }
+            }
             if ('paragraph' === PostBlocks::sourceBlockName($slice)) {
                 // Slot identity is structural, never a byte offset or source text.
                 $path = array();
