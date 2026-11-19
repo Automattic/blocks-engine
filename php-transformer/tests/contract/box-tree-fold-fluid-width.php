@@ -85,7 +85,13 @@ $assert('folded' === $disposition, 'the box folds into the child that fills it.'
 $assert(str_contains($rules, "width:50%") && str_contains($rules, "width:90%"), "the child takes the box's fluid width in each of the box's bands.", $rules . $markup);
 $assert(!str_contains($rules, 'width:720px') && !str_contains($rules, 'width:351px'), 'the child is not frozen at the captured pixels.', $rules);
 
-// A child that does not declare it fills the box keeps the captured pixels:
+// Normal block flow fills the containing block with an auto width too.
+// Text wrappers commonly rely on this instead of declaring width:100%.
+[$disposition, $rules, $markup] = $compile('');
+$assert('folded' === $disposition, 'the box folds into its auto-width block child.', $markup);
+$assert(str_contains($rules, 'width:50%') && str_contains($rules, 'width:90%'), 'an auto-width block child follows the folded responsive wrapper.', $rules . $markup);
+
+// A fixed-width child keeps the captured pixels:
 // nothing proves it follows the box between captures.
 [$disposition, $rules] = $compile('.fold-child{width:calc(100% - 0px)}.fold-child{width:720px}@media (max-width:600px){.fold-child{width:351px}}');
 $assert('folded' === $disposition, 'the box folds into a fixed-width child.');

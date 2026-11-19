@@ -2044,9 +2044,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Whether a folded box's child declares that it fills the box: its own
-     * width, lifted with the box still in place as its containing block, is
-     * `100%` at every width the author's cascade reaches.
+     * Whether a folded box's child fills the box: its own width, lifted
+     * with the box still in place as its containing block, is `100%` at
+     * every author band, or is `auto` in normal block flow.
      *
      * @param array<string, array<string, mixed>> $observations
      * @param array<string, array<string, mixed>> $viewports
@@ -2060,7 +2060,28 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $parents = $element->parentNode === $box ? $boxObservations : array();
         $bands = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $own, $viewports, $parents, '', $this->session->boxTreeEvidence(...))['width'] ?? array();
-        return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => '100%' !== $value);
+        if ( array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => '100%' !== $value) ) {
+            return true;
+        }
+        // A normal-flow block's auto width fills its containing block just
+        // like 100%. After folding, that containing block disappears: keeping
+        // captured pixels here freezes text wrapping at the capture width.
+        // Do not apply this to shrink-to-fit, positioned, flex or grid items.
+        if ( array() === $bands || array() !== array_filter(array_column($bands, 1), static fn(string $value): bool => 'auto' !== $value)
+            || $element->parentNode !== $box ) {
+            return false;
+        }
+        foreach ( $observations as $key => $observation ) {
+            $styles = $observation['used_styles'] ?? array();
+            $parentStyles = $boxObservations[$key]['used_styles'] ?? array();
+            if ( !in_array($styles['display'] ?? '', array('block', 'flow-root'), true)
+                || !in_array($styles['position'] ?? 'static', array('static', 'relative'), true)
+                || 'none' !== ($styles['float'] ?? 'none')
+                || !in_array($parentStyles['display'] ?? '', array('block', 'flow-root'), true) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
