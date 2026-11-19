@@ -35,6 +35,29 @@ final class QuotePatternContext
     }
 
     /**
+     * The blockquote's authored non-zero margins. The paragraph that replaces
+     * it in a collapsed figure quote is that block box, so the margins keep
+     * spacing the quotation from its caption.
+     *
+     * @return array<string, string>
+     */
+    public function figureQuotationMargin(DOMElement $blockquote): array
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
+        $margin = array_intersect_key($declarations, array_flip(array(
+            'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        )));
+        $mapped = $this->styleResolver->styleAttributeMapper()->map(
+            $margin,
+            fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
+        );
+        return array_filter(
+            $mapped['style']['spacing']['margin'] ?? array(),
+            static fn ($value): bool => is_string($value) && 1 !== preg_match('/^-?0(?:\.0+)?[a-z%]*$/i', trim($value))
+        );
+    }
+
+    /**
      * The quotation's RichText. Under a clip that author motion carries it
      * across, the text runs the source split with empty comments
      * (`“<!---->{quote}<!---->”`) are painted one by one, so they keep
@@ -57,6 +80,17 @@ final class QuotePatternContext
             $value = isset($authored[$property]) ? $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) : '';
             if ('' !== $value) {
                 $declarations[$property] = $value;
+            }
+        }
+        if ( array() !== $declarations ) {
+            // The caption was its own block box; the citation is a <cite>
+            // inside the quote. Lay its typography out as a block so the line
+            // box takes the caption's font, not the quote's strut, and cancel
+            // the UA italic of <cite> the caption never had.
+            $declarations['display'] = 'block';
+            if ( ! isset($declarations['font-style']) ) {
+                $inherited = $this->styleResolver->authoredInheritedPropertyWinner($caption, 'font-style');
+                $declarations['font-style'] = '' === $inherited ? 'normal' : $inherited;
             }
         }
         $style = $this->styleResolver->cssDeclarationString($declarations);
