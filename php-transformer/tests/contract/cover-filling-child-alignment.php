@@ -38,6 +38,8 @@ $expectPinned = static function (array $block, string $label): void {
 $expectPinned($cover('height:100%;display:flex;flex-direction:column;justify-content:flex-end'), 'stylesheet fill');
 $expectPinned($cover('', 'height:100%;display:flex;flex-direction:column;justify-content:flex-end'), 'inline fill');
 $expectPinned($cover('height:100%;display:flex;align-items:flex-end'), 'row flex fill');
+// Bootstrap utilities (`h-100 d-flex flex-column justify-content-end`) declare every value !important.
+$expectPinned($cover('height:100%!important;display:flex!important;flex-direction:column!important;justify-content:flex-end!important'), 'important fill');
 
 $unfilled = $cover('display:flex;flex-direction:column;justify-content:flex-end');
 if ( isset($unfilled['attrs']['contentPosition']) || isset($unfilled['attrs']['style']['spacing']['padding']) ) {

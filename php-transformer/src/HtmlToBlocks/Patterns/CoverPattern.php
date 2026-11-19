@@ -184,8 +184,8 @@ final class CoverPattern implements PatternRecognizerInterface
         if ( null !== $alignment ) {
             $alignDisplay = CssValueInspector::declared($alignment, 'display');
             $column = 'grid' === $alignDisplay || 'column' === CssValueInspector::declared($alignment, 'flex-direction');
-            $align = (string) ($alignment['align-items'] ?? 'stretch');
-            $justify = (string) ($alignment['justify-content'] ?? 'normal');
+            $align = CssValueInspector::declared($alignment, 'align-items') ?: 'stretch';
+            $justify = CssValueInspector::declared($alignment, 'justify-content') ?: 'normal';
             $vertical = 'flex' === $alignDisplay && $column ? $justify : $align;
             $horizontal = 'flex' === $alignDisplay && $column ? $align : $justify;
             // A stacked hero whose inline axis stretches (column flex cross
