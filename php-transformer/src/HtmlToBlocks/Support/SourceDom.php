@@ -370,7 +370,8 @@ final class SourceDom
 
     public static function attr(DOMElement $element, string $name): string
     {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
+        // getAttribute() already answers '' for an absent attribute.
+        return $element->getAttribute($name);
     }
 
     /** Author naming only: capture plumbing must never feed identity heuristics. */
@@ -763,19 +764,20 @@ final class SourceDom
             return $implicit instanceof DOMElement ? array($implicit) : array();
         }
 
-        $scope = self::documentVariantRoot($control);
-        $labels = array();
-        $fallback = array();
-        foreach ( self::labelsFor($control->ownerDocument, $id) as $label ) {
-            $labelScope = self::documentVariantRoot($label);
-            if ( ( null === $scope && null === $labelScope ) || ( $scope instanceof DOMElement && $labelScope instanceof DOMElement && $scope->isSameNode($labelScope) ) ) {
-                $labels[] = $label;
-            } else {
-                $fallback[] = $label;
+        $labels = self::labelsFor($control->ownerDocument, $id);
+        // A single label is the result whether or not it shares the control's
+        // variant scope, so the scope is read only to choose among several.
+        if ( 1 < count($labels) ) {
+            $scope = self::documentVariantRoot($control);
+            $inScope = array();
+            foreach ( $labels as $label ) {
+                $labelScope = self::documentVariantRoot($label);
+                if ( ( null === $scope && null === $labelScope ) || ( $scope instanceof DOMElement && $labelScope instanceof DOMElement && $scope->isSameNode($labelScope) ) ) {
+                    $inScope[] = $label;
+                }
             }
+            $labels = array() !== $inScope ? $inScope : $labels;
         }
-
-        $labels = array() !== $labels ? $labels : $fallback;
         if ( $implicit instanceof DOMElement && ! in_array($implicit, $labels, true) ) {
             $labels[] = $implicit;
         }
