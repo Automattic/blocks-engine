@@ -22,8 +22,16 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * same importance at an equal specificity, so no tie changes winner. Relative
  * `url()`s resolve against the source sheet's origin.
  *
+ * Named cascade layers do not pin an arm: the extract restates each moved
+ * arm inside its layers, which its source sheet has already declared in
+ * that order, so the arm keeps its layer and only moves to the end of it.
+ * The tie check above already weighs every rule that stays after the arm.
+ * An anonymous layer (`@layer {`) cannot be reopened, so its sheet stays
+ * whole.
+ *
  * Sheets whose delivery is shared with other rows (parts, replays), that
- * another sheet `@import`s, or that order rules by cascade layer stay whole.
+ * another sheet `@import`s, that `@import`s, scopes rules or opens an
+ * anonymous layer stay whole.
  */
 final class EditorCanvasStylesheets
 {
@@ -52,7 +60,7 @@ final class EditorCanvasStylesheets
             $delivery = (string) ($asset['stylesheet_target'] ?? 'both');
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || 'editor' === $delivery
                 || isset($asset['stylesheet_parts']) || isset($asset['stylesheet_replays']) || isset($partTargets[$target]) || self::imported($asset)
-                || 1 !== preg_match(self::EDITOR_ARM, $asset['content']) || 1 === preg_match('/@(?:layer|import|scope)\b/i', $asset['content'])) {
+                || 1 !== preg_match(self::EDITOR_ARM, $asset['content']) || 1 === preg_match('/@(?:import|scope)\b|@layer(?:\s|\/\*.*?\*\/)*\{/is', $asset['content'])) {
                 $split[] = $asset;
                 continue;
             }
