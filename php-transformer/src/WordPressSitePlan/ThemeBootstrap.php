@@ -321,21 +321,6 @@ PHP;
         self::serve($lines, $served, $units, 'listing_fields');
         if (self::markupContains($documents, 'blocksEngineSocialAnchor')) $lines[] = SocialLinkSourceAttribution::bootstrap();
         self::serve($lines, $served, $units, 'social_link_attribution');
-        if (self::markupContains($documents, 'blocksEngineFallbackTitle')) {
-            $lines[] = <<<'PHP'
-add_filter( 'render_block_core/post-title', static function ( string $content, array $block, WP_Block $instance ): string {
-    if ( empty( $block['attrs']['metadata']['blocksEngineFallbackTitle'] ) ) return $content;
-    // Match core/post-title's post context, not the ambient template/query post.
-    $post = get_post( $instance->context['postId'] ?? 0 );
-    if ( ! $post ) return $content;
-    // Captured pages retain their authored title and its presentation. Inspect
-    // tags rather than text, which may itself contain an escaped H1 example.
-    $tags = new WP_HTML_Tag_Processor( $post->post_content );
-    return $tags->next_tag( 'H1' ) ? '' : $content;
-}, 10, 3 );
-PHP;
-        }
-        self::serve($lines, $served, $units, 'fallback_page_title');
         if (self::markupContains($documents, 'blocksEngineLinkClass')) {
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }

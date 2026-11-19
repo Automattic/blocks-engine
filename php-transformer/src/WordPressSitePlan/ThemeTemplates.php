@@ -176,6 +176,43 @@ final class ThemeTemplates
         return $titles;
     }
 
+    /**
+     * Add native authoring landmarks only to an unoccupied page fallback.
+     * Do this after override sharing: changing page.html earlier makes otherwise
+     * identical route templates differ and changes captured pages' assignments.
+     * A captured page using page.html owns its headings in post_content, so its
+     * template must remain untouched (including a front page falling back to it).
+     *
+     * @param array<int,array<string,mixed>> $templates
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withAuthoringFallback(array $templates, array $pages): array
+    {
+        $bySlug = array_column($templates, null, 'slug');
+        if (!isset($bySlug['page'])) return $templates;
+        foreach ($pages as $page) {
+            if ('page' !== ($page['post_type'] ?? null)) continue;
+            if (!empty($page['entrypoint']) && isset($bySlug['front-page'])) continue;
+            if (!empty($page['route_template']) && isset($bySlug[$page['route_template']])) continue;
+            return $templates;
+        }
+        foreach ($templates as &$template) {
+            if ('page' !== $template['slug']) continue;
+            // Source-owned templates already define their authoring structure.
+            if (isset($template['source_path']) || str_contains($template['canonical_block_markup'], '<!-- wp:post-title')) continue;
+            $template['canonical_block_markup'] = (string) preg_replace(
+                '/(?=<!-- wp:post-content(?:\\s+\\{.*?\\})?\\s*\\/-->)/',
+                '<!-- wp:post-title {"level":1} /-->' . "\n",
+                $template['canonical_block_markup'],
+                1
+            );
+            $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
+        }
+        unset($template);
+        return $templates;
+    }
+
     /** Captured landmarks remain content-owned until shell extraction removes them. */
     public static function contentCarriesChrome(string $markup, string $area): bool
     {
@@ -233,9 +270,6 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
-                 if ('page' === $templateSlug && '<!-- wp:post-content /-->' === $content) {
-                     $content = '<!-- wp:post-title {"level":1,"metadata":{"blocksEngineFallbackTitle":true}} /-->' . "\n" . $content;
-                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -245,7 +279,7 @@ final class ThemeTemplates
             }
             // Keep each lifecycle's native content inside the shared app frame.
             if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells']) {
-                if ('<!-- wp:post-content /-->' === $content || str_contains($content, '"blocksEngineFallbackTitle":true')) $content = str_replace('<!-- wp:post-content /-->', '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->', $content);
+                if ('<!-- wp:post-content /-->' === $content) $content = '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->';
                 $content = $frames[$templateSlug]['opening'] . $content . $frames[$templateSlug]['closing'];
             }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;

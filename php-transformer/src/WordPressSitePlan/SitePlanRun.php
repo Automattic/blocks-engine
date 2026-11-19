@@ -334,6 +334,7 @@ final class SitePlanRun
         $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates']);
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
+        $templates = ThemeTemplates::withAuthoringFallback($templates, $pages);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);
         $pages = $articleChrome['pages'];
         $templates = $articleChrome['templates'];
