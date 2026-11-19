@@ -2431,7 +2431,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // `<!-- -->`) are not RichText content: the editor shows each one as a
         // chip. The text-run boundaries they make still shape the text.
         $richTextAttribute = match ($name) {
-            'core/paragraph', 'core/heading' => 'content',
+            'core/paragraph', 'core/heading', 'core/list-item' => 'content',
             'core/button' => 'text',
             default => null,
         };

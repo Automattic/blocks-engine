@@ -59,14 +59,6 @@ final class QuotePatternContext
                 $declarations[$property] = $value;
             }
         }
-        // A figcaption owns a block line box. Keeping its metrics on an
-        // inline span leaves the larger citation strut in that line and can
-        // enlarge a wrapping quote rail. Preserve that box on the RichText
-        // span, without changing the native cite's typography or generating
-        // a per-quote stylesheet rule.
-        if (isset($declarations['font-size']) || isset($declarations['line-height'])) {
-            $declarations = array_merge(array('display' => 'block'), $declarations);
-        }
         $style = $this->styleResolver->cssDeclarationString($declarations);
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
