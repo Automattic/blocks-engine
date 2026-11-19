@@ -1261,6 +1261,10 @@ final class StyleResolver implements ElementPresentationResolver
 
     public function responsiveTypographyClassName(DOMElement $element): string
     {
+        // Captured elements already carry viewport typography. The legacy
+        // rescue can reference author variables retired on these routes and
+        // override the carrier with an invalid-at-computed-value font size.
+        if (array() !== $this->session->boxTreeEvidence($element)) return '';
         if (isset(SourceDeclarations::inline($element)['font-size'])) {
             return '';
         }
