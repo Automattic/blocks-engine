@@ -1474,8 +1474,11 @@ final class NavigationPatternContext
     /** Equivalent menu occurrences share identity, while different source cascades do not. */
     private function navigationSubjectMarker(DOMElement $element, string $kind): string
     {
+        $state = $this->session->authorStyleAnalysis();
+        $cached = $state->subjectMarker($element, $kind);
+        if (null !== $cached) return $cached;
         $rules = array();
-        foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
+        foreach ($this->session->authorStyleAnalysis()->styleRulesForSubject($element) as $rule) {
             foreach ($rule['selectors'] as $selector) {
                 $text = (string) ($selector['selector'] ?? '');
                 // Route state is not item identity: the same item on every route
@@ -1498,7 +1501,7 @@ final class NavigationPatternContext
         }
         $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), $rules);
         if ($hasSubmenu) $identity[] = 'submenu-row';
-        return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
+        return $state->rememberSubjectMarker($element, $kind, $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity)));
     }
 
     /**

@@ -1,0 +1,13 @@
+<!doctype html><html><head><title>Navigation marker fixture</title><style>
+nav ul { display:flex; gap:12px; list-style:none }
+nav a { color:#123456; padding:4px }
+#home { font-weight:bold }
+.menu-item { margin:2px }
+:is(.menu-item, .other) > a { text-decoration:none }
+[data-label] { letter-spacing:1px }
+nav li:first-child a { border-bottom:1px solid }
+nav a:hover { color:red }
+@media print { nav a { color:black } }
+@media (min-width:800px) { .menu-item a, #home { padding:8px } }
+.unrelated { color:purple }
+</style></head><body><header><nav aria-label="Primary"><ul><li class="menu-item"><a id="home" href="/home" data-label="home">Home</a></li><li class="menu-item"><a href="/about">About</a></li><li class="menu-item"><a href="/contact">Contact</a></li></ul></nav></header><main><h1>Welcome</h1><p>A neutral page with a primary navigation.</p></main></body></html>

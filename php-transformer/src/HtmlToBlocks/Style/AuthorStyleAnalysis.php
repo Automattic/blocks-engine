@@ -43,6 +43,8 @@ final class AuthorStyleAnalysis
     private array $styleRules = array();
     /** @var array<string, mixed>|null */
     private ?array $styleRuleCandidateIndex = null;
+    /** @var array<string, mixed>|null Full inventory, including non-screen conditions. */
+    private ?array $styleRuleSubjectIndex = null;
     /** @var array<string, true>|null */
     private ?array $captureOnlySelectors = null;
     /** @var list<array{parsed: array<string, mixed>, weight: list<int>}>|null */
@@ -72,6 +74,28 @@ final class AuthorStyleAnalysis
     private ?\SplObjectStorage $subtreeHashes = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $selectorSubtreeHashes = null;
+
+    /** @var \SplObjectStorage<DOMElement, array<string, string>>|null */
+    private ?\SplObjectStorage $subjectMarkers = null;
+
+    /** Number of distinct (source element, kind) marker identities computed. */
+    public int $subjectMarkerComputations = 0;
+
+    public function subjectMarker(DOMElement $element, string $kind): ?string
+    {
+        return null !== $this->subjectMarkers && $this->subjectMarkers->contains($element)
+            ? ($this->subjectMarkers[$element][$kind] ?? null) : null;
+    }
+
+    public function rememberSubjectMarker(DOMElement $element, string $kind, string $marker): string
+    {
+        $this->subjectMarkers ??= new \SplObjectStorage();
+        $markers = $this->subjectMarkers->contains($element) ? $this->subjectMarkers[$element] : array();
+        $markers[$kind] = $marker;
+        $this->subjectMarkers[$element] = $markers;
+        ++$this->subjectMarkerComputations;
+        return $marker;
+    }
 
     /** @param list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> $stylesheetAssets */
     public function __construct(string $html, string $combinedCss, array $stylesheetAssets, DOMElement $sourceBody)
@@ -169,6 +193,9 @@ final class AuthorStyleAnalysis
     {
         $this->styleRules = $rules;
         $this->styleRuleCandidateIndex = null;
+        $this->styleRuleSubjectIndex = null;
+        $this->subjectMarkers = null;
+        $this->subjectMarkerComputations = 0;
         $this->captureOnlySelectors = null;
         $this->typeSubjectSelectors = null;
         $this->positionalParents = null;
@@ -179,6 +206,25 @@ final class AuthorStyleAnalysis
     public function styleRules(): array
     {
         return $this->styleRules;
+    }
+
+    /**
+     * Full author rules whose subjects could match, in original inventory order.
+     * Unlike styleRuleCandidateIndex(), this retains conditions and all selectors
+     * because they participate in stable navigation identity, not just screen paint.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function styleRulesForSubject(DOMElement $element): array
+    {
+        $this->styleRuleSubjectIndex ??= \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::buildForSelectorLists(
+            $this->styleRules,
+            static fn(array $rule): array => array_map(static fn(array $selector): array => $selector['parsed'], $rule['selectors'])
+        );
+        return array_values(array_map(
+            static fn(array $entry): array => $entry['rule'],
+            \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $this->styleRuleSubjectIndex)
+        ));
     }
 
     /**
