@@ -81,7 +81,7 @@ final class ButtonsPattern
         }
 
         $text = $this->buttonText($anchor, $buttons->richTextInnerHtml($anchor), $buttons);
-        if ( ( '' !== $this->plainText($text) || $this->requiresAccessibleLinkSurface($anchor) ) && $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+        if ( $this->needsAccessibleNameCompanion($anchor, $text) ) {
             // The companion's RichText element replaces the anchor's single
             // wrapper child, so its content is that wrapper's label.
             $wrapper = $this->accessibleLinkContentWrapper($anchor);
@@ -228,6 +228,19 @@ final class ButtonsPattern
             return $this->createBlock->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
 
+        $lineAnchor = null === $wrappedAnchor ? null : $this->soleButtonOfLineBox($element, $wrappedAnchor, $buttons);
+        if ( $lineAnchor instanceof DOMElement ) {
+            // The box is only the line its control sits on, and core/buttons
+            // is that line: it takes the box's identity and spacing instead
+            // of nesting a synthesized core/buttons inside a Group for it.
+            $attrs = $context->presentationAttributes($element);
+            $layout = $this->buttonWrapperAttributes($lineAnchor, $context, $buttons)['layout'] ?? null;
+            if ( is_array($layout) ) {
+                $attrs['layout'] = $layout;
+            }
+            return $this->createBlock->createBlock('core/buttons', $attrs, array( $this->buttonBlockFromAnchor($lineAnchor, $context, $buttons) ), $element);
+        }
+
         $buttonBlocks = array();
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
@@ -311,6 +324,80 @@ final class ButtonsPattern
         }
 
         return $button;
+    }
+
+    /** Declarations a line box can hand to the core/buttons that replaces it. */
+    private const LINE_BOX_PROPERTIES = array(
+        'margin-top', 'margin-bottom', 'text-align', 'color', 'font-family', 'font-size', 'font-weight', 'font-style',
+        'line-height', 'letter-spacing', 'text-transform',
+    );
+
+    /**
+     * The only content of a source line box, when it is one inline-level
+     * button anchor: a generic `div` in normal block flow at every breakpoint
+     * whose own box carries nothing but vertical margins and text styles its
+     * line inherits. core/buttons is a flex row of exactly that line (the
+     * box's `text-align` becomes its justification), so it stands in for the
+     * box rather than nesting inside a Group for it.
+     */
+    private function soleButtonOfLineBox(DOMElement $element, DOMElement $anchor, ButtonPatternContext $buttons): ?DOMElement
+    {
+        if ( 'div' !== strtolower($element->tagName) || SourceDom::hasClass($element, 'wp-block-buttons') || SourceDom::isDeviceVisibilityCarrier($element) ) {
+            return null;
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->nodeName), array( 'class', 'style', 'data-blocks-engine-node-id' ), true) ) {
+                return null;
+            }
+        }
+        if ( $buttons->isRuntimeDomTarget($element) || ! $buttons->isUnconditionalBlockBox($element) ) {
+            return null;
+        }
+        // A border with no width (a preflight reset) paints nothing.
+        $paintsBorder = array() !== array_diff_key($this->styleResolver->paintedBorder($buttons->resolvedStyle($element)), array( 'radius' => true ));
+        foreach ( $buttons->resolvedDeclarations($element) as $property => $value ) {
+            if ( str_starts_with((string) $property, '--') || in_array($property, self::LINE_BOX_PROPERTIES, true) ) {
+                continue;
+            }
+            if ( ! $paintsBorder && str_starts_with((string) $property, 'border') && ! str_contains((string) $property, 'radius') ) {
+                continue;
+            }
+            if ( 'position' === $property && 'static' === CssValueInspector::comparable((string) $value) ) {
+                continue;
+            }
+            return null;
+        }
+
+        $anchorDeclarations = $buttons->resolvedDeclarations($anchor);
+        if ( ! str_starts_with(CssValueInspector::declared($anchorDeclarations, 'display'), 'inline') ) {
+            return null;
+        }
+        foreach ( array( 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ) as $side ) {
+            if ( ! in_array(CssValueInspector::declared($anchorDeclarations, $side), array( '', '0', '0px' ), true) ) {
+                return null;
+            }
+        }
+        // Only an anchor {@see self::matchAnchor()} lowers to a plain core/button.
+        if ( $anchor->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE)
+            || $buttons->isRuntimeDomTarget($anchor)
+            || $this->anchorsNativeRuntimeControl($anchor, $buttons)
+            || $this->wrappedButtonRequiresPreservation($anchor)
+            || $this->hasUnsafeButtonContent($anchor)
+            || $this->hasRuntimeBehaviorSignal($anchor)
+            || $this->isPositionedFragmentNavigation($anchor, $buttons->resolvedStyle($anchor))
+            || ! $this->hasButtonSignal($anchor, $buttons)
+            || ! $this->isRichTextAnchorLabel($anchor, $buttons)
+            || $this->needsAccessibleNameCompanion($anchor, $this->buttonText($anchor, $buttons->richTextInnerHtml($anchor), $buttons)) ) {
+            return null;
+        }
+
+        return $anchor;
+    }
+
+    /** A named control whose visible label differs keeps its typed accessible-link companion. */
+    private function needsAccessibleNameCompanion(DOMElement $anchor, string $text): bool
+    {
+        return ( '' !== $this->plainText($text) || $this->requiresAccessibleLinkSurface($anchor) ) && $this->hasMateriallyDifferentAccessibleLabel($anchor, $text);
     }
 
     /** @return array<string, mixed> */
