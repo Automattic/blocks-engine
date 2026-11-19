@@ -38,6 +38,34 @@ final class FormControlMetadataBuilder
 
     private ?FormPresentationGraphBuilder $formPresentationGraph = null;
 
+    private static int $formMetadataBuilds = 0;
+
+    /**
+     * Full form metadata builds ({@see self::form()}) since process start;
+     * observable for tests. Each walks every control's context, typography
+     * and hidden state, so callers that need only where a form submits read
+     * {@see self::submission()} instead (#6731).
+     */
+    public static function formMetadataBuilds(): int
+    {
+        return self::$formMetadataBuilds;
+    }
+
+    /**
+     * Where and how a form submits: its authored action and lower-cased
+     * method, '' when absent. Shared with {@see self::form()} so both read
+     * the same values.
+     *
+     * @return array{action: string, method: string}
+     */
+    public static function submission(DOMElement $form): array
+    {
+        return array(
+            'action' => SourceDom::attr($form, 'action'),
+            'method' => strtolower(SourceDom::attr($form, 'method')),
+        );
+    }
+
     /**
      * @param HtmlTransformerSession|null $session Source stylesheets for the form presentation graph's
      *     typography, paint and hidden-state cascade; without one those facts are not resolved.
@@ -123,13 +151,15 @@ final class FormControlMetadataBuilder
     /** @return array<string, mixed> */
     public function form(DOMElement $form): array
     {
+        ++self::$formMetadataBuilds;
+        $submission = self::submission($form);
         $metadata = array_filter(array(
             'id'           => SourceDom::attr($form, 'id'),
             'name'         => SourceDom::attr($form, 'name'),
             'class'        => SourceDom::attr($form, 'class'),
             'aria_label'   => SourceDom::attr($form, 'aria-label'),
-            'action'       => SourceDom::attr($form, 'action'),
-            'method'       => strtolower(SourceDom::attr($form, 'method')),
+            'action'       => $submission['action'],
+            'method'       => $submission['method'],
             'enctype'      => SourceDom::attr($form, 'enctype'),
             'target'       => SourceDom::attr($form, 'target'),
             'autocomplete' => SourceDom::attr($form, 'autocomplete'),
