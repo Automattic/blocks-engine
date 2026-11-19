@@ -18,32 +18,73 @@ final class EvidenceRouteStylesheets
         if (array() === $evidence) return $assets;
         $markup = (string) json_encode(array_values(array_map(static fn(array $page): array => array($page['canonical_block_markup'] ?? null, $page['resolved_block_markup'] ?? null), array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])))), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $retired = array();
+        // A sheet legacy routes still link is retired only on the evidence
+        // routes: they get its retained rules as a sibling sheet in the same
+        // cascade position, as a wholly retired sheet would deliver them.
+        $siblings = array();
         $legacy = array_values(array_filter($pages, static fn(array $page): bool => !isset($evidence[$page['source_path']])));
+        $evidencePages = array_values(array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])));
         foreach ($assets as $key => &$asset) {
             // Engine-owned generated sheets (editor repairs naming only engine
             // markup) are not author selectors: retiring them hides the editor's
             // own repairs, such as the selectable box of a hidden-at-rest image.
             if ('css' !== ($asset['kind'] ?? null) || in_array($asset['source'] ?? '', array('engine-support', 'wordpress-compat'), true) || EngineMarker::ENGINE_OWNED_STYLESHEET_ROLE === ($asset['source_role'] ?? null)) continue;
             $scopes = array();
+            $evidenceScopes = array();
             foreach ($asset['scopes'] as $scope) {
-                if ('global' === $scope['kind']) foreach ($legacy as $page) $scopes[] = PageStylesheets::documentScope($page);
-                elseif (!isset($evidence[$scope['source_path'] ?? ''])) $scopes[] = $scope;
+                if ('global' === $scope['kind']) {
+                    foreach ($legacy as $page) $scopes[] = PageStylesheets::documentScope($page);
+                    foreach ($evidencePages as $page) $evidenceScopes[] = PageStylesheets::documentScope($page);
+                } elseif (!isset($evidence[$scope['source_path'] ?? ''])) $scopes[] = $scope;
+                else $evidenceScopes[] = $scope;
             }
             $asset['stylesheet_instances'] = array_values(array_filter($asset['stylesheet_instances'] ?? array(), static fn(array $instance): bool => !isset($evidence[$instance['source_path']])));
             unset($asset['frame_fallback'], $asset['stylesheet_replays']);
             if (array() !== $scopes) {
+                if (array() !== $evidenceScopes && 'editor-static-state' !== ($asset['source'] ?? null)) $siblings[$key] = self::evidenceSibling($asset, $evidenceScopes);
                 $asset['scopes'] = $scopes;
                 continue;
             }
             $retired[] = $key;
         }
         unset($asset);
-        if (array() === $retired) return $assets;
+        if (array() === $retired && array() === $siblings) return $assets;
         // Preserve resource identities referenced by document metadata (font
         // faces have already been projected into theme.json at this point),
-        // and the state rules carriers cannot replace.
+        // and the state rules carriers cannot replace. A sheet legacy routes
+        // keep is author CSS, not delivered evidence context.
         $context = '';
-        foreach ($assets as $key => $asset) if ('css' === ($asset['kind'] ?? null) && !in_array($key, $retired, true)) $context .= (string) ($asset['content'] ?? '');
+        foreach ($assets as $key => $asset) if ('css' === ($asset['kind'] ?? null) && !in_array($key, $retired, true) && !isset($siblings[$key])) $context .= (string) ($asset['content'] ?? '');
+        $placedSiblings = array();
+        if (array() !== $siblings) {
+            // Each sibling follows the sheet it was retired from.
+            $placed = array();
+            $placedRetired = array();
+            foreach ($assets as $key => $asset) {
+                $placed[] = $asset;
+                if (in_array($key, $retired, true)) $placedRetired[] = array_key_last($placed);
+                if (!isset($siblings[$key])) continue;
+                $placed[] = $siblings[$key];
+                $placedRetired[] = $placedSiblings[] = array_key_last($placed);
+            }
+            $assets = $placed;
+            $retired = $placedRetired;
+        }
+        $assets = self::retireRules($assets, $retired, $markup, $parts, $context);
+        // A sibling that retains nothing has nothing to deliver.
+        if (array() === $placedSiblings) return $assets;
+        foreach ($placedSiblings as $key) if ('' === trim((string) ($assets[$key]['content'] ?? ''))) unset($assets[$key]);
+        return array_values($assets);
+    }
+
+    /**
+     * @param array<int|string, array<string, mixed>> $assets
+     * @param list<int|string> $retired
+     * @param list<array<string, mixed>> $parts
+     * @return array<int|string, array<string, mixed>>
+     */
+    private static function retireRules(array $assets, array $retired, string $markup, array $parts, string $context): array
+    {
         // Editor static state sheets are editor projections of author rules
         // the author sheets themselves still carry: keeping their state rules
         // would deliver every kept rule twice.
@@ -59,5 +100,35 @@ final class EvidenceRouteStylesheets
         $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context);
         foreach ($author as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
         return $assets;
+    }
+
+    /**
+     * The evidence routes' share of a sheet legacy routes keep linking. It is
+     * written, and named as a source, next to its sheet, so relative resource
+     * URLs resolve unchanged.
+     *
+     * @param array<string, mixed> $asset
+     * @param list<array<string, mixed>> $scopes
+     * @return array<string, mixed>
+     */
+    private static function evidenceSibling(array $asset, array $scopes): array
+    {
+        $sibling = $asset;
+        $sibling['target_path'] = self::suffixed((string) $asset['target_path']);
+        if (isset($sibling['path'])) $sibling['path'] = $sibling['target_path'];
+        $sibling['source_path'] = self::suffixed((string) ($asset['source_path'] ?? ''));
+        $sibling['scopes'] = $scopes;
+        $sibling['stylesheet_instances'] = array();
+        $sibling['token'] = 'asset-' . substr(hash('sha256', $sibling['target_path']), 0, 16);
+        $sibling['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sibling['source_path'], $sibling['target_path']);
+        return $sibling;
+    }
+
+    private static function suffixed(string $path): string
+    {
+        $dot = strrpos($path, '.');
+        $slash = strrpos($path, '/');
+        $stem = false !== $dot && (false === $slash || $dot > $slash) ? substr($path, 0, $dot) : $path;
+        return $stem . '-evidence-routes' . substr($path, strlen($stem));
     }
 }

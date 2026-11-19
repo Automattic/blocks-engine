@@ -20,7 +20,10 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * kept down to their motion declarations. So are resting rules that bind
  * a scroll- or time-driven animation through a custom property whose value
  * names one of the sheets' `@keyframes` (Wix parallax: `--anm-0` carries the
- * keyframes, `--anm-tmln-0` the view timeline). The custom properties kept
+ * keyframes, `--anm-tmln-0` the view timeline). So are resting rules that
+ * apply, by name, an animation a delivered carrier binds: a carrier records
+ * only `animation-name`, so the duration, delay and fill mode that make the
+ * animation run stay with the rule. The custom properties kept
  * rules and kept keyframes read are closed over: every rule that defines one
  * keeps that definition. Every `@keyframes` and `@property` the kept rules
  * reach is kept. Rules whose subject names an id no emitted element carries
@@ -98,9 +101,15 @@ final class EvidenceRouteStateRules
         foreach ($trees as &$tree) $this->markState($tree);
         unset($tree);
         $this->motionProperties += $this->stateProperties;
-        foreach ($trees as &$tree) $this->markConsumers($tree);
+        // Carriers bind an animation by name only: its timing stays in the
+        // resting rule that applied it.
+        $carried = array();
+        if (preg_match_all('/(?<![\w-])animation(?:-name)?\s*:([^;{}]*)/i', $context, $bound)) foreach ($bound[1] as $value) {
+            foreach ($this->identifiers($value) as $identifier) if (isset($this->keyframes[$identifier])) $carried[$identifier] = true;
+            $this->bindNames($value);
+        }
+        foreach ($trees as &$tree) $this->markConsumers($tree, $carried);
         unset($tree);
-        if (preg_match_all('/(?<![\w-])animation(?:-name)?\s*:([^;{}]*)/i', $context, $bound)) foreach ($bound[1] as $value) $this->bindNames($value);
         // Close over the custom properties kept rules and kept keyframes read.
         do {
             $before = count($this->referenced) + count($this->names);
@@ -210,12 +219,15 @@ final class EvidenceRouteStateRules
         }
     }
 
-    /** @param list<array<string, mixed>> $nodes */
-    private function markConsumers(array &$nodes): void
+    /**
+     * @param list<array<string, mixed>> $nodes
+     * @param array<string, true> $carried Keyframes names delivered carriers bind.
+     */
+    private function markConsumers(array &$nodes, array $carried): void
     {
-        if (array() === $this->motionProperties) return;
+        if (array() === $this->motionProperties && array() === $carried) return;
         foreach ($nodes as &$node) {
-            if ('group' === $node['type']) $this->markConsumers($node['children']);
+            if ('group' === $node['type']) $this->markConsumers($node['children'], $carried);
             if ('style' !== $node['type'] || null !== $node['keep']) continue;
             $motion = array();
             $consumes = false;
@@ -223,6 +235,8 @@ final class EvidenceRouteStateRules
                 if (!preg_match(self::MOTION, $property)) continue;
                 $motion[] = $property . ':' . $value;
                 if (preg_match_all('/var\(\s*(--[\w-]+)/', $value, $vars)) foreach ($vars[1] as $var) $consumes = $consumes || isset($this->motionProperties[$var]);
+                $lower = strtolower($property);
+                if ('animation' === $lower || 'animation-name' === $lower) foreach ($this->identifiers($value) as $identifier) $consumes = $consumes || isset($carried[$identifier]);
             }
             if (!$consumes) continue;
             $selectors = $this->reachable(CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array($node['prelude']));
@@ -277,10 +291,16 @@ final class EvidenceRouteStateRules
         }
     }
 
-    private function bindNames(string $value): void
+    /** @return list<string> Identifiers outside custom property references. */
+    private function identifiers(string $value): array
     {
         $value = (string) preg_replace('/var\(\s*--[\w-]+/', '', $value);
-        if (preg_match_all('/(?<![\w-])-?[A-Za-z_][\w-]*/', $value, $identifiers)) foreach ($identifiers[0] as $identifier) $this->names[$identifier] = true;
+        return preg_match_all('/(?<![\w-])-?[A-Za-z_][\w-]*/', $value, $identifiers) ? $identifiers[0] : array();
+    }
+
+    private function bindNames(string $value): void
+    {
+        foreach ($this->identifiers($value) as $identifier) $this->names[$identifier] = true;
         if (preg_match_all('/"([^"]+)"|\'([^\']+)\'/', $value, $strings)) foreach (array_filter(array_merge($strings[1], $strings[2])) as $string) $this->names[$string] = true;
     }
 
