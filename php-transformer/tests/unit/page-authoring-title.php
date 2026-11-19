@@ -17,6 +17,13 @@ $view = (new ArtifactCompiler())->compile(array(
 $plan = $view['wordpress_site_plan'];
 $rendered = ThemeTemplates::rendered($plan);
 $failures = array();
+$dom = new DOMDocument();
+@$dom->loadHTML($rendered['page']);
+$xpath = new DOMXPath($dom);
+$main = $xpath->query('//main')->item(0);
+if (null === $main || !str_contains($dom->saveHTML($main), 'wp:post-title') || !str_contains($dom->saveHTML($main), 'wp:post-content')) {
+    $failures[] = 'New pages own a main landmark containing both native title and content';
+}
 if (!str_contains($rendered['page'], '<!-- wp:post-title {"level":1} /-->')) $failures[] = 'New pages render their native title';
 if (!str_contains($rendered['page'], '<!-- wp:post-content')) $failures[] = 'New pages retain their content slot';
 foreach ($plan['pages'] as $page) {

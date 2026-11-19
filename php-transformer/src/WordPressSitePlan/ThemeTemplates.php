@@ -242,7 +242,11 @@ final class ThemeTemplates
                  // generic page lifecycle also serves newly authored pages,
                  // whose title lives in the native post-title field instead.
                  if ('page' === $templateSlug && !isset($postTemplates[$templateSlug])) {
-                     $content = '<!-- wp:post-title {"level":1} /-->' . "\n" . $content;
+                     // The authoring surface owns its main landmark as well as
+                     // its title; captured route bodies supply their own main.
+                     $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n"
+                         . '<main class="wp-block-group"><!-- wp:post-title {"level":1} /-->' . "\n" . $content
+                         . '</main><!-- /wp:group -->';
                  }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
