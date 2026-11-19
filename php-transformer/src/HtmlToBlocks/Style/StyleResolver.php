@@ -876,6 +876,9 @@ final class StyleResolver implements ElementPresentationResolver
             $allowed = array_fill_keys($properties, true);
             foreach ($observations as &$observation) {
                 $observation['used_styles'] = array_intersect_key($observation['used_styles'] ?? array(), $allowed);
+                // A replacement carrier owns only the requested box properties.
+                // SVG pseudo paint belongs to the materialized artwork, not img.
+                unset($observation['pseudo']);
             }
             unset($observation);
         }

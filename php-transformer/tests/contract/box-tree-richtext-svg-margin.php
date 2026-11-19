@@ -21,6 +21,13 @@ foreach ($tree['nodes']['n7']['viewports'] as &$viewport) {
 unset($viewport);
 foreach ($tree['nodes']['n8']['viewports'] as &$viewport) {
     $viewport['used_styles'] = array_replace($viewport['used_styles'], array('display' => 'block', 'background-color' => 'rgb(255, 0, 0)', 'line-height' => '37px', 'width' => '20px', 'height' => '20px', 'margin-top' => '2px', 'margin-right' => '0px', 'margin-bottom' => '0px', 'margin-left' => '0px', 'flex-shrink' => '0'));
+    // The SVG's pseudo paint is already baked into the image asset. It must
+    // not be emitted a second time on the replacement's layout carrier.
+    $viewport['pseudo']['before'] = array(
+        'content' => '"icon-paint"',
+        'border_box' => $viewport['border_box'],
+        'used_styles' => $viewport['used_styles'],
+    );
 }
 unset($viewport);
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))))->toArray();
@@ -28,6 +35,11 @@ $markup = $result['serialized_blocks'];
 $css = implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'content'));
 if (!preg_match('/<img[^>]*class="([^"]+)"/', $markup, $image)) {
     throw new RuntimeException('SVG must remain a native RichText image: ' . $markup);
+}
+foreach (explode(' ', $image[1]) as $class) {
+    if (preg_match('/\.' . preg_quote($class, '/') . '(?:\.' . preg_quote($class, '/') . ')?::(?:before|after)\b/', $css)) {
+        throw new RuntimeException('Replacement layout carrier must not duplicate SVG pseudo paint: ' . $css);
+    }
 }
 $preserved = false;
 foreach (explode(' ', $image[1]) as $class) {
