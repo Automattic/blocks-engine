@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
@@ -3141,6 +3142,103 @@ final class ShellExtraction
         // generic frame, so it renders through a plain route template.
         if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames[TemplateSlugs::forPage($page)] = array('opening' => '', 'closing' => '', 'shells' => array());
         return array('pages' => $pages, 'frames' => $frames, 'generic_source' => $genericSource);
+    }
+
+    /**
+     * Fold runtime-bound chrome that leads the shared header into the header
+     * part.
+     *
+     * A wrapper such as Squarespace's `#siteWrapper` holds, in order, a
+     * floating cart, the header, `main` and the footer. Everything before the
+     * header becomes the template frame opening, where no runtime binding can
+     * anchor, so a bound cart link there kept the whole frame (and both shell
+     * references) in page content. When every route that renders the inline
+     * header repeats the same leading run, and that run carries the bindings,
+     * the run joins the header part, as `foldFrameTrailingChrome()` does for
+     * the footer side, and its bindings re-anchor on the part. Sibling order
+     * is unchanged: the run still renders immediately before the header.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $assets
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>}
+     */
+    public function withLeadingBoundChromeInHeader(array $pages, array $parts, array $declarations, array $assets = array()): array
+    {
+        $unchanged = array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $declarations);
+        $headers = array_keys(array_filter($parts, static fn(array $part): bool => 'header' === ($part['area'] ?? null) && 'inline_shared_shell' === ($part['placement']['kind'] ?? null)));
+        if (1 !== count($headers)) return $unchanged;
+        $partIndex = $headers[0];
+        $partSource = (string) $parts[$partIndex]['source_path'];
+        $slug = preg_quote((string) $parts[$partIndex]['slug'], '/');
+        // Box-tree node ids are route-local capture observations; the same
+        // materialized icon on two routes differs only by them.
+        $assetKeys = array();
+        foreach ($assets as $asset) if (is_string($asset['token'] ?? null) && is_string($asset['content'] ?? null)) $assetKeys[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = 'asset:' . hash('sha256', (string) preg_replace('/\s' . preg_quote(BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $asset['content']));
+        $runs = array();
+        $bindings = array();
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic'])) continue;
+            $markup = (string) ($page['canonical_block_markup'] ?? '');
+            $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
+            $refs = array_keys(array_filter($nodes, static fn(array $node): bool => 'template-part' === $node['name'] && 1 === preg_match('/"slug":"' . $slug . '"/', $node['attributes'])));
+            if (array() === $refs) continue;
+            if (1 !== count($refs)) return $unchanged;
+            $parent = $nodes[$refs[0]]['parent'];
+            $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
+            if ($siblings[0] === $refs[0]) return $unchanged;
+            $start = $nodes[$siblings[0]]['offset'];
+            $length = $nodes[$refs[0]]['offset'] - $start;
+            $run = substr($markup, $start, $length);
+            if (str_contains($run, 'wp:template-part') || self::containsMainLandmark($run)) return $unchanged;
+            $found = $this->runtimeBindingsInRanges($declarations, $page, array(array('offset' => $start, 'length' => $length)));
+            if ($found['blocked'] || array() === $found['refs']) return $unchanged;
+            $runs[$index] = array('start' => $start, 'length' => $length, 'run' => $run, 'identity' => strtr(ChromeIdentity::markup($run), $assetKeys));
+            $bindings[$index] = $found['refs'];
+        }
+        if (count($runs) < 2 || 1 !== count(array_unique(array_column($runs, 'identity')))) return $unchanged;
+        $canonical = array_key_first($runs);
+        $leading = $runs[$canonical]['run'];
+        $partMarkup = $leading . $parts[$partIndex]['canonical_block_markup'];
+        $hoist = $this->sharedShellBindingHoist($declarations, $pages, array_keys($runs), $bindings, array('source_path' => $pages[$canonical]['source_path'], 'template_part_markup' => $partMarkup), 'header');
+        if (null === $hoist) return $unchanged;
+        // Bindings already on the part, and page bindings after each run, keep
+        // their anchors across the moved blocks.
+        $leadingBlocks = count((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($leading))->ranges());
+        $sourceRuns = array();
+        foreach ($runs as $index => $run) $sourceRuns[(string) $pages[$index]['source_path']] = $run + array('blocks' => count((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($run['run']))->ranges()));
+        foreach ($declarations as &$declaration) {
+            if (!is_array($declaration['payload']['entities'] ?? null)) continue;
+            foreach ($declaration['payload']['entities'] as &$entity) {
+                if (!is_array($entity['bindings'] ?? null)) continue;
+                foreach ($entity['bindings'] as &$binding) {
+                    if (!is_array($binding['position'] ?? null)) continue;
+                    $source = (string) ($binding['source_path'] ?? '');
+                    if ($partSource === $source) {
+                        $binding['position']['block_index'] += $leadingBlocks;
+                        $binding['position']['offset'] += strlen($leading);
+                        if (is_string($binding['search_block_markup'] ?? null) && '' !== $binding['search_block_markup']) $binding['occurrence'] = (int) ($binding['occurrence'] ?? 1) + substr_count($leading, $binding['search_block_markup']);
+                    } elseif (isset($sourceRuns[$source]) && $binding['position']['offset'] >= $sourceRuns[$source]['start'] + $sourceRuns[$source]['length']) {
+                        $binding['position']['block_index'] -= $sourceRuns[$source]['blocks'];
+                        $binding['position']['offset'] -= $sourceRuns[$source]['length'];
+                    }
+                }
+                unset($binding);
+            }
+            unset($entity);
+        }
+        unset($declaration);
+        $declarations = self::applySharedShellBindingHoist($declarations, $hoist, $partSource);
+        foreach ($declarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+        unset($declaration);
+        foreach ($runs as $index => $run) {
+            $pages[$index]['canonical_block_markup'] = substr_replace((string) $pages[$index]['canonical_block_markup'], '', $run['start'], $run['length']);
+            $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
+        }
+        $parts[$partIndex]['canonical_block_markup'] = $partMarkup;
+        $parts[$partIndex]['content_hash'] = WordPressSitePlan::contentHash($partMarkup);
+        return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => RuntimeDeclarations::normalizeForComposition($declarations));
     }
 
     /**

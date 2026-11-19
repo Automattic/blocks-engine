@@ -338,6 +338,12 @@ final class HtmlTransformerSession
         return $this->boxTree['viewports'] ?? array();
     }
 
+    public function boxTreeParentEvidence(\DOMElement $element, ?\DOMElement $parent): array
+    {
+        return $this->boxTree['chrome_parent_viewports'][$element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)]
+            ?? (null !== $parent ? $this->boxTreeEvidence($parent) : array());
+    }
+
     public function boxTreeEvidence(\DOMElement $element): array
     {
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
