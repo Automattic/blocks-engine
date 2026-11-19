@@ -84,6 +84,11 @@ final class WrapperCoalescer
     // document policy: a stricter local cap creates needless non-core shells.
     private const MAX_NATIVE_WRAPPER_DEPTH = EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
 
+    // Existing shell transport can absorb static boxes without adding a new
+    // companion block. Keep that optimization local to deep List View trees;
+    // the broader native-to-shell policy intentionally has a separate budget.
+    private const MAX_EXISTING_SHELL_DEPTH = 10;
+
     private bool $wrapperBudgetExceeded = false;
 
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
@@ -103,11 +108,13 @@ final class WrapperCoalescer
         // through a sole static Group child rather than adding redundant List
         // View levels for the same rendered boxes. Ownership/layout boundaries
         // still use the same eligibility checks as ordinary chain folding.
-        if ($this->sourceElementClassifier->isLayoutShellBlock($block)) {
+        if ($this->sourceElementClassifier->isLayoutShellBlock($block)
+            && $depth - 1 + $this->nativeBlockHeight($block) > self::MAX_EXISTING_SHELL_DEPTH) {
             $wrappers = ArrayField::array($block, '_layout_shell_wrappers');
             if (array() !== $wrappers) {
                 $children = ArrayField::array($block, 'innerBlocks');
-                while (1 === count($children) && null !== ($descriptor = $this->foldableWrapperDescriptor($children[0]))) {
+                $originalCount = count($wrappers);
+                while (1 === count($children) && null !== ($descriptor = $this->shellDescendantDescriptor($children[0]))) {
                     $child = $children[0];
                     $wrappers[] = $descriptor;
                     if (isset($child['_source_provenance_id'])) {
@@ -115,13 +122,15 @@ final class WrapperCoalescer
                     }
                     $children = ArrayField::array($child, 'innerBlocks');
                 }
-                $opening = implode('', array_column($wrappers, 'opening'));
-                $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
-                $block['_layout_shell_wrappers'] = $wrappers;
-                $block['attrs']['wrappers'] = array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers);
-                $block['innerBlocks'] = $children;
-                $block['innerHTML'] = $opening . $closing;
-                $block['innerContent'] = array_merge(array($opening), array_fill(0, count($children), null), array($closing));
+                if (count($wrappers) > $originalCount) {
+                    $opening = implode('', array_column($wrappers, 'opening'));
+                    $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
+                    $block['_layout_shell_wrappers'] = $wrappers;
+                    $block['attrs']['wrappers'] = array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers);
+                    $block['innerBlocks'] = $children;
+                    $block['innerHTML'] = $opening . $closing;
+                    $block['innerContent'] = array_merge(array($opening), array_fill(0, count($children), null), array($closing));
+                }
             }
         }
         // Spend shared ancestry once before charging its depth to each branch.
@@ -219,6 +228,30 @@ final class WrapperCoalescer
         // children serialize in place, just as nativeBlockHeight accounts for.
         if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + ('core/freeform' === ($block['blockName'] ?? null) ? 0 : 1));
         return $block;
+    }
+
+    /**
+     * A responsive-fragment marker identifies a captured box, not a runtime
+     * control. It can travel with that exact box in existing shell transport.
+     * Other runtime metadata and independently owned wrappers remain boundaries.
+     *
+     * @param array<string,mixed> $block
+     * @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null
+     */
+    private function shellDescendantDescriptor(array $block): ?array
+    {
+        $runtime = ArrayField::array(ArrayField::array(ArrayField::array($block, 'attrs'), 'metadata'), 'blocksEngineRuntimeAttributes');
+        $marker = $runtime['data-blocks-engine-capture-responsive-fragment'] ?? null;
+        if (is_string($marker) && 1 === count($runtime)) {
+            unset($block['attrs']['metadata']['blocksEngineRuntimeAttributes']);
+        }
+        $descriptor = $this->foldableWrapperDescriptor($block);
+        if (null !== $descriptor && is_string($marker) && 1 === count($runtime)) {
+            $descriptor['attributes']['data-blocks-engine-capture-responsive-fragment'] = $marker;
+            $descriptor['opening'] = substr($descriptor['opening'], 0, -1)
+                . ' data-blocks-engine-capture-responsive-fragment="' . htmlspecialchars($marker, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
+        }
+        return $descriptor;
     }
 
     /** @param array<string,mixed> $block */
