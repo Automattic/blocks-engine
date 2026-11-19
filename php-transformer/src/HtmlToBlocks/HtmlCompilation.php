@@ -1925,6 +1925,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box']);
         }
         $this->session->overrideBoxTreeObservations($classification['observations']);
+        $this->session->collapseBoxTreeNodes(array_map('strval', array_keys($children)));
         return $children;
     }
 
