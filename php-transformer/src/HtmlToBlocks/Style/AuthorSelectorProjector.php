@@ -107,6 +107,8 @@ final class AuthorSelectorProjector
     /**
      * The figure selector for an `img.x` / `img#x` subject whose image became a
      * core/image block, or null when the subject can still reach an <img>.
+     * An `svg.x` / `svg#x` subject materialized as a standalone core/image
+     * follows the same rule: nothing named `svg` remains in the output.
      *
      * A subject naming the image by class or id follows that identity. A
      * type-only positioned image also needs its figure to own the source box:
@@ -127,7 +129,8 @@ final class AuthorSelectorProjector
 
     private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context, bool $namesOnlyPositionedImages): ?string
     {
-        if ( 'img' !== strtolower($element->tagName) ) {
+        $tagName = strtolower($element->tagName);
+        if ( 'img' !== $tagName && 'svg' !== $tagName ) {
             return null;
         }
         $leafMarker = $context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '';
@@ -143,7 +146,7 @@ final class AuthorSelectorProjector
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
             && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
-        if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
+        if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
             || array() !== ($subject['attributes'] ?? array())
