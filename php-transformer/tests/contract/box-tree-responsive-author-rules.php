@@ -22,7 +22,8 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     echo "PASS: $message\n";
 };
 
-$author = '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:17px 30px;font-size:10px;line-height:17px}'
+$author = '.floating{box-sizing:border-box;background:#111;color:#fff;display:inline-flex;position:fixed;right:20px;bottom:20px;width:165px;height:47px;z-index:9}'
+    . '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:17px 30px;font-size:10px;line-height:17px}'
     . '@media (max-width:850px){.cta{gap:12px}}'
     . 'footer p{font-size:10px;line-height:17px;margin:0}'
     // A plan card: a flex column whose CTA is spaced from the price by its own
@@ -41,8 +42,9 @@ $author = '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:
     // Pricing cards: a three-track grid that collapses to one track under
     // 850px, of flex columns no author rule sizes. At 1440 grid stretch makes
     // the cards one height; that used height is layout, not author intent.
+    // Logical auto sizes (also common reset rules) do not declare a height.
     . '.cards{display:grid;grid-template-columns:repeat(3,1fr)}@media (max-width:850px){.cards{grid-template-columns:1fr}}'
-    . '.package{display:flex;flex-direction:column}.package p{margin:0}'
+    . '.package{display:flex;flex-direction:column;block-size:auto;min-block-size:auto}.package p{margin:0}'
     // A FAQ question: the author hides the UA disclosure marker and draws
     // its own indicator after the label.
     . '.faq summary{list-style:none;cursor:pointer}.faq summary::-webkit-details-marker{display:none}.faq summary::after{content:"+";float:right}'
@@ -70,7 +72,7 @@ $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $autho
     . '<section class="pricing"><div class="addon">EXTRA HOUR<b>RM150/hr</b></div></section>'
     . '<section class="cards"><div class="package"><h3>Basic</h3><p>One</p></div><div class="package"><h3>Plus</h3><p>Two</p></div><div class="package"><h3>Pro</h3><p>Three</p></div></section>'
     . '<section class="faq"><details><summary>How long is a session?</summary><p>Two hours.</p></details></section>'
-    . '</main><footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
+    . '</main><a class="floating cta" href="/date">CHECK YOUR DATE ↗</a><footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
     . '</body></html>';
 $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 640));
 
@@ -152,6 +154,8 @@ $observed['//section[@class="portfolio"]'] = array(
     'desktop' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '120px'))),
     'mobile' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '32.5px'))),
 );
+
+$observed['//a[@class="floating cta"]'] = array_fill_keys(array_keys($viewports), array_replace($buttonStyles, array('box-sizing' => 'border-box', 'background-color' => 'rgb(17, 17, 17)', 'display' => 'inline-flex', 'position' => 'fixed', 'right' => '20px', 'bottom' => '20px', 'width' => '165px', 'height' => '47px', 'z-index' => '9')));
 
 $fixture = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
 $defaults = $fixture['nodes']['n5']['viewports']['desktop']['used_styles'];
@@ -382,6 +386,16 @@ foreach (array(1440, 768, 390) as $width) {
     $top = $marginTop($cascaded($addon, 'margin', $width), $cascaded($addon, 'margin-top', $width));
     $assert('15px' === $top, "At {$width}px the add-on's <b> keeps its margin-top.", (string) $top);
 }
+
+$floating = $element('//a[@href="/date"]');
+foreach (array($floating->parentNode, $floating->parentNode->parentNode) as $wrapper) {
+    $expect($wrapper, 'floating CTA synthetic wrapper', 'display', array_fill_keys(array(1440, 768, 390), 'contents'));
+}
+$expect($floating, 'floating CTA source link', 'position', array_fill_keys(array(1440, 768, 390), 'fixed'));
+$expect($floating, 'floating CTA source link', 'right', array_fill_keys(array(1440, 768, 390), '20px'));
+$expect($floating, 'floating CTA source link', 'bottom', array_fill_keys(array(1440, 768, 390), '20px'));
+$expect($floating, 'floating CTA source link', 'width', array_fill_keys(array(1440, 768, 390), '165px'));
+$expect($floating, 'floating CTA source link', 'z-index', array_fill_keys(array(1440, 768, 390), '9'));
 
 // Issue #6580: a used height that results from layout (grid stretch at 1440,
 // content at 390) is not author intent. No author rule sizes the cards, so no
