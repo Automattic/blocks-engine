@@ -560,7 +560,9 @@ final class SitePlanRun
             // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
             // that spelling, so it is written once at its smallest form.
             $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
-            if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Inline source sheets are projected like linked ones: a motion
+            // or state rule restated per subject ships its block once.
+            if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Fold independent support carriers, not structural roots or native
             // descendants whose standalone rules are consumed by other stages.
             if ('engine-support' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted, false, true);
@@ -595,11 +597,7 @@ final class SitePlanRun
      */
     private static function withoutUnreferencedEngineClasses(array $units, ?string $references, array $declarations, array $records): ?array
     {
-        $markups = array();
-        foreach ($units as $group => $rows) foreach ($rows as $index => $row) {
-            foreach (array('canonical_block_markup', 'block_markup') as $field) if (is_string($row[$field] ?? null)) $markups[$group . "\0" . $index . "\0" . $field] = $row[$field];
-            if (is_string($row['archive']['presentation_markup'] ?? null)) $markups[$group . "\0" . $index . "\0archive"] = $row['archive']['presentation_markup'];
-        }
+        $markups = UnreferencedEngineClasses::markups($units);
         $dropped = UnreferencedEngineClasses::unreferenced($markups, $references);
         if (array() === $dropped) return null;
         $before = array();

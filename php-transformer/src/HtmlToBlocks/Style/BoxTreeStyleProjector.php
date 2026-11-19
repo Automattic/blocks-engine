@@ -184,6 +184,37 @@ final class BoxTreeStyleProjector
     }
 
     /**
+     * Restyle an observed element the output keeps as source markup inside a
+     * block (a navigation label's box, an authored control's icon artwork):
+     * it has no block attributes and is not a RichText inline, so its whole
+     * observed box goes to one carrier class, exactly as a block's would,
+     * against its source parent's observations. Without it such an element
+     * keeps only its source classes, whose author rules an evidence route
+     * does not ship.
+     *
+     * @param string $tagName The emitted (source) element's tag, for UA defaults.
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid {@see BoxTreeFluidIntent::liftPseudo()}, by name.
+     * @return string The carrier class, or '' when nothing observed differs from what the element gets anyway.
+     */
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array()): string
+    {
+        $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
+        if (array() === $observations) return '';
+        $keys = array_map('strval', array_keys($observations));
+        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
+        $status = array();
+        $declarations = array();
+        foreach ($keys as $key) {
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, '', $tagName);
+            $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
+        }
+        $bands = $this->liftFluid($declarations, $keys, $fluid);
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
+    }
+
+    /**
      * Restyle a source box that becomes no block, such as the document body
      * the destination document supplies, under a fixed selector. Each given
      * property is restated where lifted author intent, or one value observed

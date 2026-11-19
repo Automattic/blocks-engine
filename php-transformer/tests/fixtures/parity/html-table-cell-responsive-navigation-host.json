@@ -1,0 +1,63 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-table-cell-responsive-navigation-host",
+  "description": "A menu wrapper laid out as a `display:table-cell` lowers onto a responsive core/navigation root (the source has a mobile menu toggle). Core's global `body .is-layout-flex{display:flex}` (0,1,1) outranks the author's `.nav{display:table-cell}` (0,1,0), so the host left the table row, its `width:50%` resolved against an anonymous cell and the seven links wrapped onto two rows (header 76px to 112px at 1440px). The host restates only the table-cell display at the author rule's position; the source's collapse-range `display:none` is not lifted, so Core's open button still shows.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-table-cell-responsive-navigation-host.json",
+    "notes": "Responsive-navigation variant of issue #6734."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>body { margin: 0; font-family: Helvetica, Arial, sans-serif; }.header { padding: 20px 40px; }.row { display: table; width: 100%; }.logo, .nav, .extras { display: table-cell; vertical-align: middle; }.logo { width: 25%; text-align: left; }.nav { width: 50%; text-align: center; }.extras { width: 25%; text-align: right; }.nav ul { margin: 0; padding: 0; list-style: none; }.nav li { display: inline-block; }.nav a { display: block; padding: 10px 14px; font-size: 14px; color: #000; text-decoration: none; }.menu-toggle { display: none; }@media (max-width: 768px) { .nav { display: none; } .menu-toggle { display: table-cell; } .menu-toggle span { display: block; width: 22px; height: 2px; background: #000; } }</style><div class=\"header\"><div class=\"row\"><div class=\"logo\"><a href=\"index.html\">Parish</a></div><div class=\"nav\"><ul><li><a href=\"index.html\">Home</a></li><li><a href=\"about.html\">About</a></li><li><a href=\"services.html\">Services</a></li><li><a href=\"events.html\">Events</a></li><li><a href=\"news.html\">News</a></li><li><a href=\"members.html\">Members</a></li><li><a href=\"contact.html\">Contact</a></li></ul></div><label class=\"menu-toggle\"><span></span></label><div class=\"extras\"></div></div></div><main><h1>Welcome</h1></main>"
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<!-- wp:navigation {\"className\":\"nav blocks-engine-list-navigation blocks-engine-native-responsive-navigation"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "\"overlayMenu\":\"mobile\""
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ".logo,.nav,.extras{ display: table-cell; vertical-align: middle; }:root .wp-block-navigation.nav{display:table-cell}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "not_contains",
+      "value": ":root .wp-block-navigation.nav{display:none}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "not_contains",
+      "value": ":root .wp-block-navigation.logo"
+    }
+  ],
+  "expected_blocks": [
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.1",
+      "name": "core/navigation"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.2",
+      "name": "core/group",
+      "attrs": {
+        "className": "extras blocks-engine-empty-visual-group"
+      }
+    }
+  ]
+}
