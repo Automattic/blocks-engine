@@ -44,6 +44,11 @@ final class CoverPattern implements PatternRecognizerInterface
      * inner container (`blocks-engine-cover-stack-<z-index>`).
      */
     public const STACK_CLASS_PREFIX = 'blocks-engine-cover-stack-';
+    /**
+     * A hero the source sizes by aspect-ratio or height with no min-height of
+     * its own: core's default cover min-height must not floor it.
+     */
+    public const SOURCE_SIZED_CLASS = 'blocks-engine-cover-source-sized';
 
     private CoverStyleResolver $styleResolver;
     private BackgroundImageExtractor $backgroundImageExtractor;
@@ -75,7 +80,8 @@ final class CoverPattern implements PatternRecognizerInterface
             $media->resolveImageUrl(...),
             $this->createBlock->createBlock(...),
             $media->hasConditionalMinHeight(...),
-            $media->presentationDeclarations(...)
+            $media->presentationDeclarations(...),
+            $media->isSizedWithoutMinHeight(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -91,6 +97,7 @@ final class CoverPattern implements PatternRecognizerInterface
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @param (callable(DOMElement): bool)|null $hasConditionalMinHeight
      * @param (callable(DOMElement): array<string, string>)|null $presentationDeclarations
+     * @param (callable(DOMElement): bool)|null $isSizedWithoutMinHeight
      * @return array<string, mixed>|null
      */
     public function match(
@@ -103,7 +110,8 @@ final class CoverPattern implements PatternRecognizerInterface
         callable $resolveAssetUrl,
         callable $createBlock,
         ?callable $hasConditionalMinHeight = null,
-        ?callable $presentationDeclarations = null
+        ?callable $presentationDeclarations = null,
+        ?callable $isSizedWithoutMinHeight = null
     ): ?array {
         try {
             $style = $mergedPresentationStyle($element);
@@ -294,6 +302,15 @@ final class CoverPattern implements PatternRecognizerInterface
             // stylesheet: an inline minHeight would freeze the base value.
             $attrs['minHeight'] = $minHeight['minHeight'];
             $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
+        }
+        // The authored aspect-ratio/height keeps sizing the hero from the
+        // source stylesheet only once core's default min-height is neutralized.
+        if ( ! isset($attrs['minHeight']) && null !== $isSizedWithoutMinHeight && $isSizedWithoutMinHeight($element) ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::SOURCE_SIZED_CLASS);
+        }
+        // Core falls back to a scrolling background on touch devices itself.
+        if ( $this->styleResolver->hasFixedBackgroundAttachment($style) ) {
+            $attrs['hasParallax'] = true;
         }
 
         try {

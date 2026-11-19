@@ -127,12 +127,12 @@ $pattern = new CoverPattern(new \Automattic\BlocksEngine\PhpTransformer\Tests\Su
 $matchMethod = new ReflectionMethod(CoverPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'hasConditionalMinHeight', 'presentationDeclarations' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'hasConditionalMinHeight', 'presentationDeclarations', 'isSizedWithoutMinHeight' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', '?callable', '?callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', '?callable', '?callable', '?callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );

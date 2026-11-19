@@ -183,6 +183,12 @@ final class EngineSupportCss
                 // the anchor fill the figure so the image resolves against it.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.blocks-engine-linked-image-figure)>a{display:block;width:100%;height:100%}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS) ) {
+            // The converse of a layer fill image: a later positioned layer
+            // paints over an in-flow fill image. Put that layer in editor flow
+            // after the image, so a click on the image reaches the image block.
+            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}';
+        }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line
             // box. In the editor, RichText fills it with a padding character and
@@ -912,6 +918,10 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
             $parts[] = ':root .wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '{background-image:none!important}';
+        }
+        if ( str_contains($serializedBlocks, CoverPattern::SOURCE_SIZED_CLASS) ) {
+            // The authored aspect-ratio/height sizes the hero, not core's 430px floor.
+            $parts[] = ':root .wp-block-cover.' . CoverPattern::SOURCE_SIZED_CLASS . '{min-height:0}';
         }
         if ( str_contains($serializedBlocks, CoverPattern::FILL_CLASS) ) {
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';

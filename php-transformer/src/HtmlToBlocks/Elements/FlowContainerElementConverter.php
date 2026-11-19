@@ -31,6 +31,8 @@ final class FlowContainerElementConverter implements ElementConverter
 {
     private readonly NavigationPattern $navigationPattern;
 
+    private readonly CapturedImageFrameLowering $imageFrames;
+
     /** @var \WeakMap<\DOMDocument, array<string, true>> */
     private \WeakMap $controllerIds;
 
@@ -57,10 +59,11 @@ final class FlowContainerElementConverter implements ElementConverter
         private readonly AuthoredMarqueeRecognizer $marquees,
         private readonly AuthoredCarouselBlockGenerator $carousels,
         private readonly EmptyVisualSpacerLowering $emptyVisualSpacers,
-        private readonly InFlowImageFrameLowering $imageFrames
+        private readonly InFlowImageFrameLowering $inFlowImageFrames
     )
     {
         $this->navigationPattern = new NavigationPattern($this->createBlock);
+        $this->imageFrames = new CapturedImageFrameLowering($this->session, $this->runtimeIslands, $this->imageLowering);
         $this->controllerIds = new \WeakMap();
     }
 
@@ -181,7 +184,7 @@ final class FlowContainerElementConverter implements ElementConverter
         }
         // A block box its lone in-flow image fills exactly is that image's
         // figure, not a Group around it.
-        $framedImage = $this->imageFrames->block($element);
+        $framedImage = $this->inFlowImageFrames->block($element);
         if ( null !== $framedImage ) {
             return ConversionOutcome::handled($framedImage);
         }
@@ -268,6 +271,14 @@ final class FlowContainerElementConverter implements ElementConverter
         $cover = $this->context->recognizePatterns($element, $fallbacks, array( CoverPattern::class ));
         if ( null !== $cover ) {
             return ConversionOutcome::handled($cover);
+        }
+
+        // A box the capture proves is its sole image's box is that image's figure.
+        if ( 'div' === $tagName ) {
+            $image = $this->imageFrames->blockFromElement($element);
+            if ( null !== $image ) {
+                return ConversionOutcome::handled($image);
+            }
         }
 
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))

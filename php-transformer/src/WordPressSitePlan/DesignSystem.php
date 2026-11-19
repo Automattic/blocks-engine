@@ -5,6 +5,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -468,18 +471,39 @@ final class DesignSystem
      * fields are checked independently, including shape and spacing; matching
      * inherited typography and core's outline fill also establish ownership.
      *
+     * A button restyled from box-tree evidence carries its look in a carrier
+     * rule on its link instead of block attributes. That rule outranks the
+     * element style, so each field its unconditional declarations set is
+     * owned exactly as the matching attribute would own it.
+     *
      * @param list<string> $markups Every page's block markup.
+     * @param list<string> $stylesheets Stylesheets the pages load, read for button link carriers.
      */
-    public function withButtonElementsOwnedBy(array $markups): self
+    public function withButtonElementsOwnedBy(array $markups, array $stylesheets = array()): self
     {
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+        $carriers = self::buttonLinkCarriers($stylesheets);
         foreach ($markups as $markup) {
-            if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
-            foreach ($matches[1] as $json) {
+            if (!preg_match_all('/<!-- (\/)?wp:(buttons?)(?: (\{.*?\}))? \/?-->/s', $markup, $blocks, PREG_SET_ORDER)) continue;
+            // Class tokens of each open core/buttons, innermost last.
+            $groups = array();
+            foreach ($blocks as $block) {
+                $json = $block[3] ?? '';
                 $attributes = '' === $json ? array() : json_decode($json, true);
                 if (!is_array($attributes)) $attributes = array();
+                if ('buttons' === $block[2]) {
+                    if ('/' === $block[1]) array_pop($groups);
+                    else $groups[] = self::classTokens($attributes);
+                    continue;
+                }
+                if ('/' === $block[1]) continue;
+                $carrier = self::buttonLinkCarrierProperties($carriers, self::classTokens($attributes), array() === $groups ? array() : $groups[count($groups) - 1]);
+                $declares = static function (array ...$alternatives) use ($carrier): bool {
+                    foreach ($alternatives as $properties) if (array() === array_diff($properties, $carrier)) return true;
+                    return false;
+                };
                 $style = ArrayField::array($attributes, 'style');
                 $carried = array(
                     'color' => isset($attributes['textColor']) || isset($style['color']['text']),
@@ -488,16 +512,21 @@ final class DesignSystem
                     'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
                     'font_weight' => isset($style['typography']['fontWeight']),
                 );
+                $carried['color'] = $carried['color'] || $declares(array('color'));
+                $carried['background'] = $carried['background'] || $declares(array('background-color'), array('background'));
+                $carried['font_family'] = $carried['font_family'] || $declares(array('font-family'), array('font'));
+                $carried['font_size'] = $carried['font_size'] || $declares(array('font-size'), array('font'));
+                $carried['font_weight'] = $carried['font_weight'] || $declares(array('font-weight'), array('font'));
                 if ($dominant) {
                     // Missing ownership vetoes only this field, not the rest of
                     // the dominant look. Matching inherited defaults are safe.
                     $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
                     $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
                     $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                    $carried['radius'] = isset($style['border']['radius']);
-                    $carried['padding'] = isset($style['spacing']['padding']);
-                    $carried['text_transform'] = isset($style['typography']['textTransform']);
-                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
+                    $carried['radius'] = isset($style['border']['radius']) || $declares(array('border-radius'), array('border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'));
+                    $carried['padding'] = isset($style['spacing']['padding']) || $declares(array('padding'), array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'));
+                    $carried['text_transform'] = isset($style['typography']['textTransform']) || $declares(array('text-transform'));
+                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']) || $declares(array('letter-spacing'));
                 }
                 foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
             }
@@ -511,6 +540,65 @@ final class DesignSystem
         $elements = $this->elements;
         if (array() === $button) unset($elements['button']); else $elements['button'] = $button;
         return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /** @return list<string> */
+    private static function classTokens(array $attributes): array
+    {
+        return array_values(array_filter(preg_split('/\s+/', is_string($attributes['className'] ?? null) ? $attributes['className'] : '') ?: array(), static fn(string $class): bool => '' !== $class));
+    }
+
+    /**
+     * Unconditional rules that style a button link through its block's class
+     * (`.c.c>a.wp-block-button__link`) or its core/buttons' class
+     * (`.c.c>.wp-block-button>a.wp-block-button__link`), the two shapes a
+     * box-tree carrier takes on button blocks. Media, state and pseudo rules
+     * only refine a look, so they do not establish ownership.
+     *
+     * @param list<string> $stylesheets
+     * @return list<array{classes: list<string>, group: bool, properties: list<string>}>
+     */
+    private static function buttonLinkCarriers(array $stylesheets): array
+    {
+        $carriers = array();
+        foreach ($stylesheets as $css) {
+            if (!str_contains($css, 'wp-block-button__link')) continue;
+            $tree = new CssRuleTree($css);
+            foreach ($tree->rules() as $rule) {
+                if ($rule['boundary'] === $rule['end']) continue;
+                $prelude = trim((string) preg_replace('#/\*.*?\*/#s', '', substr($css, $rule['start'], $rule['boundary'] - $rule['start'])));
+                if ('' === $prelude || '@' === $prelude[0] || !str_contains($prelude, 'wp-block-button__link')) continue;
+                $properties = array();
+                foreach (CssValueSplitter::splitTopLevel(substr($css, $rule['boundary'] + 1, $rule['end'] - $rule['boundary'] - 1), array(';')) as $declaration) {
+                    $name = strtolower(trim(explode(':', $declaration, 2)[0]));
+                    if ('' !== $name && str_contains($declaration, ':')) $properties[$name] = true;
+                }
+                if (array() === $properties) continue;
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (!preg_match('/^((?:\.[A-Za-z_][\w-]*)+)\s*>\s*(\.wp-block-button\s*>\s*)?a\.wp-block-button__link$/', trim($selector), $match)) continue;
+                    $carriers[] = array('classes' => array_values(array_unique(explode('.', substr($match[1], 1)))), 'group' => '' !== ($match[2] ?? ''), 'properties' => array_keys($properties));
+                }
+            }
+        }
+        return $carriers;
+    }
+
+    /**
+     * CSS properties the carriers declare on one button's link.
+     *
+     * @param list<array{classes: list<string>, group: bool, properties: list<string>}> $carriers
+     * @param list<string> $buttonClasses
+     * @param list<string> $groupClasses The enclosing core/buttons' classes.
+     * @return list<string>
+     */
+    private static function buttonLinkCarrierProperties(array $carriers, array $buttonClasses, array $groupClasses): array
+    {
+        $properties = array();
+        foreach ($carriers as $carrier) {
+            if (array() !== array_diff($carrier['classes'], $carrier['group'] ? $groupClasses : $buttonClasses)) continue;
+            foreach ($carrier['properties'] as $property) $properties[$property] = true;
+        }
+        return array_keys($properties);
     }
 
     /**
