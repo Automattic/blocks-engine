@@ -25,16 +25,25 @@ try {
     const page = await browser.newPage();
     const config = JSON.stringify({ thresholdPx: 50, addClasses: ['scrolled'], removeClasses: ['rest'], styleTargets: [] });
     await page.setContent(`<header class="rest" data-blocks-engine-scroll-state="true" data-blocks-engine-scroll-state-config='${config}'>Brand</header><main style="height:3000px"></main>`);
-    // A suspended rendering clock must not suspend scroll-state restoration.
-    await page.evaluate(() => { window.requestAnimationFrame = () => 1; });
+    // Control the rendering clock to distinguish entry from restoration.
+    await page.evaluate(() => {
+        window.pendingFrames = [];
+        window.requestAnimationFrame = callback => window.pendingFrames.push(callback);
+    });
     await page.addScriptTag({ content: script });
     const state = async top => page.evaluate(top => {
         window.scrollTo({ top, behavior: 'instant' });
         window.dispatchEvent(new Event('scroll'));
         return document.querySelector('header').className;
     }, top);
-    assert.equal(await state(200), 'scrolled', 'crossing the threshold updates without another frame');
-    assert.equal(await state(0), 'rest', 'returning to the top restores the transparent resting header');
+    assert.equal(await state(200), 'rest', 'entry retains the existing frame-scheduled presentation');
+    await page.evaluate(() => window.pendingFrames.splice(0).forEach(callback => callback()));
+    assert.equal(await page.locator('header').getAttribute('class'), 'scrolled');
+    await state(250); // Leave a scrolled update pending during restoration.
+    assert.equal(await state(50), 'rest', 'returning to the threshold restores the resting header without a frame');
+    await page.evaluate(() => window.pendingFrames.splice(0).forEach(callback => callback()));
+    assert.equal(await page.locator('header').getAttribute('class'), 'rest', 'a pending frame reads the current position rather than replaying stale state');
+    assert.equal(await state(0), 'rest');
     console.log('Scroll-state restoration browser contract passed.');
 } finally {
     await browser.close();

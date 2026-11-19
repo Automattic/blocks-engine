@@ -32,13 +32,23 @@ final class ScrollStateScript
         if ( ! config ) return;
         element.dataset.blocksEngineScrollStateMounted = 'true';
         var threshold = Number( config.thresholdPx ) || 0;
+        var ticking = false;
         function update() {
+            ticking = false;
             applyState( element, config, window.scrollY > threshold );
         }
-        // Scroll events already arrive at the browser's rendering cadence.
-        // Apply the current pose synchronously: a queued animation frame can
-        // retain the previous scroll state while rendering is suspended.
-        window.addEventListener( 'scroll', update, { passive: true } );
+        window.addEventListener( 'scroll', function() {
+            // Only restoration needs to bypass the rendering clock. Keep the
+            // captured scrolled pose frame-scheduled as before; replaying it
+            // earlier can override other scroll-driven presentation.
+            if ( window.scrollY <= threshold ) {
+                applyState( element, config, false );
+                return;
+            }
+            if ( ticking ) return;
+            ticking = true;
+            window.requestAnimationFrame( update );
+        }, { passive: true } );
         update();
     }
     function mountAll() {

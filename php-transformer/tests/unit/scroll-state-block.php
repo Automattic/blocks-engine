@@ -48,7 +48,7 @@ $assert($blockName === ((new Runtime())->parseBlocks((new Runtime())->serializeB
 
 $assert(array() === ($result['source_reports']['generated_blocks'] ?? array()), 'scroll behavior requires no generated block registration');
 $view = \Automattic\BlocksEngine\PhpTransformer\WordPress\ScrollStateScript::viewScript();
-$assert(str_contains($view, "data-blocks-engine-scroll-state=\"true\"") && str_contains($view, 'window.scrollY > threshold') && str_contains($view, "'scroll', update") && str_contains($view, 'classList.toggle') && str_contains($view, 'style.setProperty') && str_contains($view, "':scope'"), 'the runtime is generic: it reads scrollY against a captured threshold and replays captured class/style diffs, including :scope self-targets');
+$assert(str_contains($view, "data-blocks-engine-scroll-state=\"true\"") && str_contains($view, 'window.scrollY > threshold') && str_contains($view, 'requestAnimationFrame') && str_contains($view, 'window.scrollY <= threshold') && str_contains($view, 'classList.toggle') && str_contains($view, 'style.setProperty') && str_contains($view, "':scope'"), 'the runtime is generic: it reads scrollY against a captured threshold and replays captured class/style diffs, including :scope self-targets');
 
 // A plain container without the marker is unaffected.
 $plain = (new HtmlTransformer())->transform('<html><body><header id="ordinary" class="hdr"><img id="logo-2" src="logo.png" alt="logo"></header></body></html>', array())->toArray();
