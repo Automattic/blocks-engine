@@ -35,6 +35,12 @@ final class ThemeAssetWrites
             if ('inline-style' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, array_column($asset['inline_references'] ?? array(), 'source_path'));
             if (is_string($content)) $content = $references->content($content, (string) ($asset['reference_origin'] ?? $asset['source_path']));
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = PlanWrites::reference('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
+            // Delimiter whitespace is a transport concern, not new source
+            // evidence for cascade folding, editor extraction or diagnostics.
+            // Compact only after all semantic stylesheet consumers have run.
+            if ('css' === ($asset['kind'] ?? null) && is_string($content) && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationWhitespaceCompactor::stylesheet($content);
+            }
             $base64Transport = is_string($asset['content_base64'] ?? null);
             $text = is_string($content) && empty($asset['binary']) && 1 === preg_match('//u', $content) && (!$base64Transport || 'text/css' === ($asset['mime_type'] ?? null));
             $data = $text ? $content : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (is_string($content) ? base64_encode($content) : null));

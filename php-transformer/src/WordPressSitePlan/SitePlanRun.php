@@ -573,13 +573,7 @@ final class SitePlanRun
             // Captured fluid lengths ship as the source runtime spelled them
             // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
             // that spelling, so it is written once at its smallest form.
-            // Preserve authored colour spellings and the document-inline
-            // declarations replayed on frontend-only root carriers. These are
-            // also consumed as source evidence, not just browser paint.
-            $content = 'frontend' === ($asset['stylesheet_target'] ?? 'both')
-                ? $asset['content']
-                : \Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationWhitespaceCompactor::stylesheet($asset['content']);
-            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($content)));
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
             // Inline source sheets are projected like linked ones: a motion
             // or state rule restated per subject ships its block once.
             if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);

@@ -20,8 +20,13 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><main><p class="paint">Paint</p></main></body></html>',
     'style.css' => '.paint:hover{--captured-tokens:  red  ; outline-offset :  3px ;outline-style: dotted }',
 )))->toArray();
-$styles = implode("\n", array_column($result['source_reports']['wordpress_site_plan']['assets'], 'content'));
+$plan = $result['source_reports']['wordpress_site_plan'];
+$styles = implode("\n", array_map(static fn (array $write): string => 'theme_asset' === $write['kind'] ? ($write['payload']['data'] ?? '') : '', $plan['writes']));
 if (!str_contains($styles, 'outline-offset:3px') || preg_match('/outline-offset\s*:\s+3px/', $styles)) throw new RuntimeException('Published state declarations must not repeat delimiter whitespace.');
+$evidence = implode("\n", array_column($plan['assets'], 'content'));
+if (!str_contains($evidence, 'outline-offset :3px')) {
+    throw new RuntimeException('Transport compaction must not change the source evidence consumed by semantic passes.');
+}
 // Publication compacts delimiters, not authored colour evidence or the
 // frontend-only document declarations replayed with inline priority.
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
