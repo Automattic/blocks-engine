@@ -312,6 +312,21 @@ final class BoxTreeFluidIntent
             if (null !== $this->declared($property, $width)) { $declared = true; break; }
         }
         if (!$declared) return null;
+        // Hidden panels expose computed placement, not a used containing block.
+        // Do not infer a new positioning scheme from an absent desktop winner
+        // and a media-only declaration observed solely on display:none boxes.
+        // Navigation recognition owns that panel's replacement with Core's
+        // overlay; these values are not evidence for moving its in-flow host.
+        if ('position' === $property || in_array($property, self::OFFSETS, true)) {
+            $visibleDeclaration = false;
+            $absent = false;
+            foreach ($widths as $key => $width) {
+                $value = $this->declared($property, $width);
+                $absent = $absent || null === $value;
+                if (null !== $value && 'none' !== ($observations[$key]['used_styles']['display'] ?? '')) $visibleDeclaration = true;
+            }
+            if ($absent && !$visibleDeclaration) return null;
+        }
         // An absent winner proves only a known, non-inherited initial value.
         // Keep this fallback at sampled widths too, so media-only rules lift.
         $winner = fn(float $width): ?string => $this->declared($property, $width) ?? BoxTreeDeclarationPruner::cascadeInitial($property);
