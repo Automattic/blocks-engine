@@ -37,22 +37,6 @@ final class BoxTreeStyleProjector
      */
     public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), array $summary = array(), bool $inlineSupports = true): array
     {
-        // Navigation coalesces a flow landmark and its list into one native
-        // flex host. Its transport UL is display:contents, so replaying the
-        // landmark's block display here would stack the items instead of
-        // laying them out with Core's declared flex layout. Hidden states and
-        // authored flex/grid containers still keep their observed display.
-        if ('core/navigation' === $blockName && 'flex' === ($attrs['layout']['type'] ?? null)) {
-            $displays = array('block' => 'flex', 'flow-root' => 'flex', 'inline' => 'inline-flex', 'inline-block' => 'inline-flex');
-            foreach ($observations as &$observation) {
-                $display = $observation['used_styles']['display'] ?? '';
-                if (isset($displays[$display])) $observation['used_styles']['display'] = $displays[$display];
-            }
-            unset($observation);
-            foreach ($fluid['display'] ?? array() as $index => $band) {
-                if (isset($displays[$band[1]])) $fluid['display'][$index][1] = $displays[$band[1]];
-            }
-        }
         $attrs = $this->projectBlock($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $sourceTag, $image, $inlineSupports);
         $summaryObservations = $summary['observations'] ?? array();
         if ('core/details' !== $blockName || array() === $summaryObservations) return $attrs;

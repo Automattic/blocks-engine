@@ -320,11 +320,13 @@ final class BoxTreeFluidIntent
         if ('line-height' === $property && count(array_unique(array_column(array_column($observations, 'used_styles'), $property))) < 2
             && count(array_filter($proven, static fn(string $value): bool => 1 === preg_match('/^\d*\.?\d+$/', $value))) === count($proven)) return null;
         $sample = fn(float $width): ?string => $this->declared($property, $width);
-        // An unstyled range outside the captures must not invalidate a proven
-        // author lift between them. Otherwise an optional extrapolation freezes
-        // the whole property back to capture pixels (including tablet layout).
-        return $this->bands($widths, $samples, $proven, $sample, false)
-            ?? $this->bands($widths, array_filter($samples, static fn(float $width): bool => $width > min($widths) && $width < max($widths)), $proven, $sample, false);
+        // Missing extrapolation must not discard proven intermediate intent,
+        // or valid author variants outside the captures. Only omit genuinely
+        // unstyled exterior samples; an unresolved or missing interior value
+        // still invalidates the lift.
+        $samples = array_filter($samples, static fn(float $width): bool =>
+            ($width >= min($widths) && $width <= max($widths)) || null !== $sample($width));
+        return $this->bands($widths, $samples, $proven, $sample, false);
     }
 
     /**
