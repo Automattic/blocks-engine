@@ -915,8 +915,9 @@ final class PresetBinding
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
-            if (is_string($literal) && null !== CssColor::parse($literal)) {
-                // A plain inline colour belongs to this block, not every
+            if (is_string($literal) && null !== CssColor::parse($this->resolve($literal))) {
+                // A root-resolved inline colour has the same cascade precedence
+                // as a plain colour. It belongs to this block, not every
                 // element sharing its author classes. Ordinary breakpoint
                 // rules cannot override it. safe() still checks all reachable
                 // !important, state and style-text rules; removeDeclaration()
@@ -933,6 +934,15 @@ final class PresetBinding
                     $style->color->{$key} = 'transparent';
                     ++$d->bound;
                 }
+                continue;
+            }
+            if (null !== $slug && is_string($literal) && str_contains($literal, 'var(')) {
+                // Resolving custom properties proves the colour, not that an
+                // !important preset class is equivalent to the authored inline
+                // declaration. Keep its cascade slot (and avoid adding core's
+                // has-background presentation) when binding that evidence.
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'inconsistent_source');
                 continue;
             }
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
