@@ -1704,7 +1704,15 @@ final class FormPresentationGraphBuilder
             }
             foreach (array_intersect_key($parent, $properties) as $property => $fact) {
                 if (in_array(strtolower($fact['value']), array('inherit', 'unset'), true)) continue;
-                $facts[$property] = $fact + array('element' => $ancestor);
+                // This is the select's winning declaration, not a declaration
+                // on the ancestor. In particular, provider materialization must
+                // not compare the ancestor's specificity with `font:inherit`
+                // and discard the resolved longhand as a weaker reset.
+                // Keep the value's owner for custom-property resolution only.
+                $facts[$property] = array_replace($facts['font'], array(
+                    'value' => $fact['value'],
+                    'element' => $ancestor,
+                ));
                 unset($properties[$property]);
             }
         }
