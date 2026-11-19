@@ -1,7 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+// The public bootstrap supports both installed packages and source checkouts
+// without Composer dependencies, as used by the import acceptance gate.
+require dirname(__DIR__, 2) . '/php-transformer.php';
 if ($bootstrap = getenv('BODY_CONTEXT_WORDPRESS_BOOTSTRAP')) require $bootstrap;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
