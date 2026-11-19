@@ -5,9 +5,18 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
-/** Author selectors are analysis input, never delivery for captured routes. */
+/**
+ * Author selectors are analysis input, never delivery for captured routes.
+ *
+ * A sheet that only evidence routes load retires to the rules carriers cannot
+ * replace (EvidenceRouteStateRules). A sheet that routes without evidence
+ * also load stays whole for them, and its evidence routes load that retained
+ * part as a sibling sheet in the same cascade positions.
+ */
 final class EvidenceRouteStylesheets
 {
+    public const RETAINED_SUFFIX = '.evidence-retained.css';
+
     /**
      * @param list<array<string, mixed>> $parts Template parts every route renders; their markup counts as emitted.
      */
@@ -19,25 +28,56 @@ final class EvidenceRouteStylesheets
         $markup = (string) json_encode(array_values(array_map(static fn(array $page): array => array($page['canonical_block_markup'] ?? null, $page['resolved_block_markup'] ?? null), array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])))), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $retired = array();
         $legacy = array_values(array_filter($pages, static fn(array $page): bool => !isset($evidence[$page['source_path']])));
+        $evidencePages = array_column(array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])), null, 'source_path');
+        $targets = array_fill_keys(array_map(static fn(array $asset): string => strtolower((string) ($asset['target_path'] ?? '')), $assets), true);
+        $siblings = array();
         foreach ($assets as $key => &$asset) {
             // Engine-owned generated sheets (editor repairs naming only engine
             // markup) are not author selectors: retiring them hides the editor's
             // own repairs, such as the selectable box of a hidden-at-rest image.
             if ('css' !== ($asset['kind'] ?? null) || in_array($asset['source'] ?? '', array('engine-support', 'wordpress-compat'), true) || EngineMarker::ENGINE_OWNED_STYLESHEET_ROLE === ($asset['source_role'] ?? null)) continue;
-            $scopes = array();
+            $scopes = $evidenceScopes = array();
             foreach ($asset['scopes'] as $scope) {
-                if ('global' === $scope['kind']) foreach ($legacy as $page) $scopes[] = PageStylesheets::documentScope($page);
-                elseif (!isset($evidence[$scope['source_path'] ?? ''])) $scopes[] = $scope;
+                if ('global' === $scope['kind']) {
+                    foreach ($legacy as $page) $scopes[] = PageStylesheets::documentScope($page);
+                    foreach ($evidencePages as $page) $evidenceScopes[$page['source_path']] = PageStylesheets::documentScope($page);
+                } elseif (isset($evidence[$scope['source_path'] ?? ''])) {
+                    $evidenceScopes[$scope['source_path']] = $scope;
+                } else {
+                    $scopes[] = $scope;
+                }
             }
-            $asset['stylesheet_instances'] = array_values(array_filter($asset['stylesheet_instances'] ?? array(), static fn(array $instance): bool => !isset($evidence[$instance['source_path']])));
+            $instances = $asset['stylesheet_instances'] ?? array();
+            $asset['stylesheet_instances'] = array_values(array_filter($instances, static fn(array $instance): bool => !isset($evidence[$instance['source_path']])));
             unset($asset['frame_fallback'], $asset['stylesheet_replays']);
-            if (array() !== $scopes) {
-                $asset['scopes'] = $scopes;
+            if (array() === $scopes) {
+                $retired[] = $key;
                 continue;
             }
-            $retired[] = $key;
+            $asset['scopes'] = $scopes;
+            if (array() === $evidenceScopes) continue;
+            // Routes without evidence keep the whole sheet. Evidence routes
+            // load its retained part from a sibling at the same positions.
+            $target = (string) preg_replace('/\.css$/i', '', (string) $asset['target_path']) . self::RETAINED_SUFFIX;
+            if (isset($targets[strtolower($target)])) continue;
+            $targets[strtolower($target)] = true;
+            $source = (string) preg_replace('/\.css$/i', '', (string) $asset['source_path']) . self::RETAINED_SUFFIX;
+            $sibling = $asset;
+            $sibling['path'] = $sibling['target_path'] = $target;
+            $sibling['token'] = 'asset-' . substr(hash('sha256', $target), 0, 16);
+            $sibling['source_path'] = $source;
+            // URLs inside the retained part still resolve against the source sheet.
+            $sibling['reference_origin'] = $asset['reference_origin'] ?? $asset['source_path'];
+            $sibling['reconciliation_identity'] = WordPressSitePlan::identity('asset', $source, $target);
+            $sibling['scopes'] = array_values($evidenceScopes);
+            $sibling['stylesheet_instances'] = array_values(array_filter($instances, static fn(array $instance): bool => isset($evidence[$instance['source_path']])));
+            $siblings[] = $sibling;
         }
         unset($asset);
+        foreach ($siblings as $sibling) {
+            $retired[] = count($assets);
+            $assets[] = $sibling;
+        }
         if (array() === $retired) return $assets;
         // Preserve resource identities referenced by document metadata (font
         // faces have already been projected into theme.json at this point),
