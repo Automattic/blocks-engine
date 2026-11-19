@@ -436,10 +436,17 @@ final class BoxTreeClassifier
                 && $b['overflow-x'] === $c['overflow-x'] && $b['overflow-y'] === $c['overflow-y'];
             foreach (array('overflow-x', 'overflow-y') as $overflow) {
                 if (!in_array($b[$overflow], array('hidden', 'clip', 'auto', 'scroll'), true)) continue;
-                if ($b[$overflow] !== $c[$overflow] || 'none' !== $c['box-shadow']
+                // Unlike hidden/auto/scroll, clip creates neither a scroll
+                // container nor a formatting context. An equal, borderless
+                // child can take a square clip even when it was visible.
+                // The equal-box and child-border proofs below still apply.
+                $transferClip = 'clip' === $b[$overflow] && 'visible' === $c[$overflow]
+                    && '0px' === $b['border-radius'] && '0px' === $c['border-radius'];
+                if (($b[$overflow] !== $c[$overflow] && !$transferClip) || 'none' !== $c['box-shadow']
                     || self::paintsLine($c['outline']) || !self::identityTransform($c['transform'])
                     || ($b['border-radius'] !== $c['border-radius'] && !$roundedClip)) return null;
                 if ($roundedClip) $moves['border-radius'] = 'border-radius';
+                if ($transferClip) $moves[$overflow] = $overflow;
                 $clipped = true;
             }
             $display = $b['display'];

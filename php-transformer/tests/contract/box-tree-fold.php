@@ -74,7 +74,12 @@ foreach (array(
     array('box' => array('border-radius' => '4.5px'), 'child' => array('border-top' => '1px solid rgb(0, 0, 0)')),
     array('box' => array('border-radius' => '4.5px', 'border-top' => '1px solid rgb(0, 0, 0)')),
     array('box' => array('top' => '1px')),
-    array('child' => array('overflow-x' => 'visible')),
+    array('child' => array('overflow-x' => 'visible'), 'allow' => true, 'expect' => array('overflow' => 'clip')),
+    // A square clip can move to a previously unclipped, equal child.
+    array('child' => array('overflow-x' => 'visible', 'overflow-y' => 'visible'), 'allow' => true,
+        'expect' => array('overflow' => 'clip')),
+    // Scroll-container overflow is not interchangeable with a clip.
+    array('box' => array('overflow-x' => 'hidden'), 'child' => array('overflow-x' => 'visible')),
     array('child' => array('box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px')),
     array('box' => array('z-index' => '1')),
     array('child' => array('outline' => '1px solid rgb(0, 0, 0)')),
