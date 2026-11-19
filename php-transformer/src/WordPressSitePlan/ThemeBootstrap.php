@@ -458,7 +458,7 @@ PHP;
             if (array_filter($parts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), WordPressSitePlan::TOKEN_PREFIX))) $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content ) use ( \$blocks_engine_resolve_template_assets ): string { return \$blocks_engine_resolve_template_assets( \$content ); }, 10, 1 );";
         }
         self::serve($lines, $served, $units, 'template_assets');
-        $editorStyles = array();
+        $editorStyles = $editorStyleKeys = array();
         $partSlugsBySource = array();
         foreach ($parts as $part) {
             $sourcePaths = is_array($part['placement']['source_paths'] ?? null) ? $part['placement']['source_paths'] : array((string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? ''))));
@@ -469,7 +469,15 @@ PHP;
             if (!StylesheetActivation::active($asset) || 'frontend' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $partSlugs = array();
             foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $owner) foreach ($partSlugsBySource[(string) ($owner['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $editorScope) $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($editorScope), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? self::editorStylesheetMedia($enqueue), 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $editorScope) {
+                // The editor matches a post design by its template alone, so
+                // that design's member posts share one scope and one entry.
+                if ('post_template' === ($editorScope['kind'] ?? null)) unset($editorScope['source_path']);
+                $style = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($editorScope), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? self::editorStylesheetMedia($enqueue), 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
+                if (isset($editorStyleKeys[$key = serialize($style)])) continue;
+                $editorStyleKeys[$key] = true;
+                $editorStyles[] = $style;
+            }
         }
         if (array() !== $editorStyles) {
             // Files and scopes own shared data; replay owns occurrence order,
@@ -1053,6 +1061,8 @@ PHP;
                 $paths[] = $scope['route_path'];
             } else $conditions[] = '(' . self::bootstrapScopeCondition($scope, true) . ')';
         }
+        // Every post of one design has the same template condition; test it once.
+        $conditions = array_values(array_unique($conditions));
         if (array() !== $identities) $conditions[] = "( 0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? in_array( \$blocks_engine_page_identity, " . BootstrapData::literal($identities) . ", true ) : in_array( \$blocks_engine_page_uri, " . BootstrapData::literal($paths) . ", true ) ) )";
         return implode(' || ', $conditions);
     }
