@@ -17,7 +17,9 @@ foreach (array('control' => str_replace($hover, '', $html), 'descendant' => $htm
     $assert(1 === preg_match('/<!-- wp:group (\{.*?\}) -->/', $markup, $match), 'The section remains a native group.');
     $attributes = json_decode($match[1], true, 512, JSON_THROW_ON_ERROR);
     if ('own' === $case) {
-        $assert(!isset($attributes['textColor']) && isset($attributes['style']['color']['text']), 'A state on the section itself still refuses binding.');
+        // A preset class would mask the section's own hover; its `.contact`
+        // rule renders the colour with that state, so no literal masks it either.
+        $assert(!isset($attributes['textColor']) && !isset($attributes['style']['color']['text']), 'A state on the section itself still refuses binding and leaves the colour to its class.');
         continue;
     }
     $palette = array();
@@ -35,9 +37,11 @@ foreach (array('control' => str_replace($hover, '', $html), 'descendant' => $htm
         $assert(!isset($attributes['style']['color']['text']), $case . ': bound text has no literal override.');
     } else {
     // This near-white shade is intentionally local, not a duplicate palette
-    // entry. A descendant hover must neither block it nor change its paint.
+    // entry. A descendant hover must neither block it nor change its paint:
+    // the section's own `.contact` rule paints it, so the block leaves it to
+    // that class instead of repeating it as a literal.
     $assert(!isset($palette['#faf7f2']) && !isset($attributes['textColor']), $case . ': near-white text does not bind to a nearby preset.');
-    $assert('rgb(250, 247, 242)' === ($attributes['style']['color']['text'] ?? null), $case . ': section retains its exact local text color.');
+    $assert(!isset($attributes['style']['color']['text']) && 1 === preg_match('/\.contact\b[^{,]*\{[^}]*color:\s*(?:rgb\(250, ?247, ?242\)|#faf7f2)/i', $css), $case . ': section keeps its exact local text color through its author class.');
     }
     $assert(0 === $plan['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], $case . ': no unrelated state refusal.');
     if (str_ends_with($case, 'descendant')) $assert(str_contains($css, '.contact a:hover') && str_contains($css, '201, 169, 106'), 'The authored link hover color remains in the stylesheet.');

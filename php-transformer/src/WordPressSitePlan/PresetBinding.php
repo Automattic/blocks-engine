@@ -55,7 +55,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * sets `line-height`). The preset wins without removing it: core's preset
  * classes are `!important`, and a spacing preset is inline. What could still
  * override a preset is another `!important` rule, which is why binding is
- * refused when one can reach the element. The projected native-button rules
+ * refused when one can reach the element and does not already outrank the
+ * preset class. One that outranks it (`.booking h3`) wins over the bound
+ * value exactly as it won over the inline literal. The projected native-button rules
  * that restate author classes on `.wp-block-button__link` with `!important`
  * step aside for `.has-text-color` and `.has-background` (see
  * AuthorStylesheetProjector and GeneratedBlockStyleProjector), the same way
@@ -75,7 +77,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * - re-encoding the delimiter JSON would not reproduce it byte for byte;
  * - a stylesheet declares the property `!important` for a selector whose
  *   subject this block could match, unless the selector excludes the classes
- *   the bound block carries;
+ *   the bound block carries or is more specific than the single-class preset
+ *   rule binding adds;
  * - a stylesheet selects on the inline style text (`[style*=…]`) for that
  *   property in a way the rewrite would change;
  * - a `:hover`, `:focus`, `:focus-visible`, `:focus-within` or `:active`
@@ -108,6 +111,13 @@ final class PresetBinding
 
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');
+
+    /**
+     * Blocks whose author class and inline style sit on one element, so a
+     * colour the class paints renders without the duplicate literal
+     * (rendersThroughClass()).
+     */
+    private const CLASS_RENDERED_BLOCKS = array('paragraph', 'heading', 'group', 'list', 'list-item', 'column', 'columns');
 
     /** Supports a block type has for values it carries only through classes. */
     private const CLASS_SUPPORTS = array(
@@ -173,7 +183,7 @@ final class PresetBinding
     private const BACKGROUND_PADDED_BLOCKS = array('paragraph', 'heading', 'list', 'columns');
 
     /** Refusal reasons for the `!` observations DesignUsageCollector records. */
-    private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
+    private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!context' => 'contextual_source', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
 
     /** Rich-text blocks whose inline colours bind to core's text-colour format. */
     private const RICH_TEXT_BLOCKS = array('paragraph', 'heading');
@@ -187,7 +197,7 @@ final class PresetBinding
     /** Core's text-colour format background when none is chosen (format-library `transparentValue`). */
     private const INLINE_TRANSPARENT = 'rgba(0, 0, 0, 0)';
 
-    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>}>> `!important` rules per property family. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,outranks_preset_class:bool}>> `!important` rules per property family. */
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
@@ -268,9 +278,19 @@ final class PresetBinding
                         // Remove only that generated scope, not author contexts/states.
                         $routeScope = ':where\(:root:(?:is|not)\(\.be-r-[a-f0-9]+(?:,\.be-r-[a-f0-9]+)*\)\)';
                         $selector = preg_replace('/^' . $routeScope . ' +|' . $routeScope . '$/', '', trim($selector)) ?? $selector;
-                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) continue;
+                        $control = false;
+                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) {
+                            // A single author class projected onto a native
+                            // control's button element (`.filter-btn` as its
+                            // subject class). Only its border colour is read
+                            // here: the class renders it with its states.
+                            if (1 !== preg_match('/^:where\(\.blocks-engine-role-control\.blocks-engine-subject\.(' . preg_quote(EngineMarker::SUBJECT_CLASS_PREFIX, '/') . '[a-f0-9]+)\)(?::not\(\.be-c-\d+\))*\s*>\s*:where\(\.wp-block-button__link\)(?::not\(be-t-\d+\))*$/', $selector, $match)) continue;
+                            $control = true;
+                        }
                         foreach (self::declarations($body) as [$property, $value]) {
-                            if (in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            if (!$control && in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            elseif ('border-color' === $property) $this->classColors[$match[1]][$property][] = $value;
+                            elseif ('border' === $property) $this->classColors[$match[1]]['border-color'][] = self::borderShorthandColor($value);
                         }
                     }
                 }
@@ -404,6 +424,10 @@ final class PresetBinding
     private function bindNavigations(string $markup): string
     {
         if (!str_contains($markup, '<!-- wp:navigation ')) return $markup;
+        $markup = (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) (\/?-->)/s', function (array $match): string {
+            $attributes = $this->navigationFontSize($match[1]);
+            return null === $attributes ? $match[0] : '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' ' . $match[2];
+        }, $markup);
         return (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) -->(.*?)<!-- \/wp:navigation -->/s', function (array $match): string {
             $attributes = json_decode($match[1], false);
             if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1] || isset($attributes->textColor) || isset($attributes->style->color->text)) return $match[0];
@@ -414,6 +438,42 @@ final class PresetBinding
             ++$this->bound;
             return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
         }, $markup);
+    }
+
+    /**
+     * The navigation's attributes with its literal `style.typography.fontSize`
+     * bound to the exact font-size preset, or null when there is none to
+     * bind. Core renders a navigation's typography from its attributes alone
+     * (the block has no saved wrapper markup, open or as a `ref`), and turns
+     * a `var:preset|font-size|…` reference into the `!important`
+     * `has-{slug}-font-size` class. So the preset is bound as `fontSize` only
+     * where that class would not change the cascade (safe()); otherwise the
+     * literal becomes the preset's CSS variable, which core keeps as the same
+     * inline declaration, now following the token.
+     */
+    private function navigationFontSize(string $json): ?\stdClass
+    {
+        $attributes = json_decode($json, false);
+        if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json || isset($attributes->fontSize)) return null;
+        $typography = $attributes->style->typography ?? null;
+        $literal = $typography instanceof \stdClass ? ($typography->fontSize ?? null) : null;
+        if (!is_string($literal) || str_starts_with($literal, 'var')) return null;
+        $slug = null;
+        foreach ($this->system->fontSizes as $preset) if (0 === $preset['weight'] && $preset['size'] === $literal) $slug = $preset['slug'];
+        $slug ??= $this->exactFontSizeSlug($this->resolve($literal));
+        if (null === $slug) return null;
+        $tokens = $this->tagTokens('<nav>', is_string($attributes->className ?? null) ? $attributes->className : '');
+        if ($this->safe('font-size', $tokens, array('has-' . $slug . '-font-size'))) {
+            unset($typography->fontSize);
+            $attributes->fontSize = $slug;
+            self::prune($attributes);
+        } elseif ($this->safe('font-size', $tokens, array(), true, false, $reason, true)) {
+            $typography->fontSize = 'var(--wp--preset--font-size--' . $slug . ')';
+        } else {
+            return null;
+        }
+        ++$this->bound;
+        return $attributes;
     }
 
     /**
@@ -895,7 +955,7 @@ final class PresetBinding
                 continue;
             }
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
-            if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
+            if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens, $classes) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
                 // element or author class renders this value with its state, so the
                 // literal only duplicated it.
@@ -971,6 +1031,20 @@ final class PresetBinding
             $literal = $group->color ?? null;
             if (!is_string($literal) || str_starts_with($literal, 'var:')) continue;
             $property = '' === $side ? 'border-color' : 'border-' . $side . '-color';
+            // Without the colour core's `has-border-color` no longer supplies
+            // a solid style, so another block must declare its own.
+            if ('' === $side && ('button' === $d->name || is_string($group->style ?? null)) && $this->rendersThroughClass($d->name, $property, $literal, $tokens, $d->classes)) {
+                // As with a button's text and background (bindColorPresets()):
+                // the author class renders this border colour with its
+                // states, so the literal only duplicated it, outside the
+                // editable design system, and masked the class's hover rule.
+                if (self::removeDeclaration($d->declarations, $property, $literal)) {
+                    unset($group->color);
+                    $d->dropClasses[] = 'has-border-color';
+                    ++$d->bound;
+                    continue;
+                }
+            }
             $slug = $this->presetSlug('color', $literal, null);
             if (null !== $slug && $this->inlinePreset($group, 'color', 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
         }
@@ -1856,6 +1930,10 @@ final class PresetBinding
             if ($staysInline) continue;
             $reason = 'important';
             foreach ($this->importantRules[$family] ?? array() as $rule) {
+                // Binding adds only single-class preset rules. An `!important`
+                // rule that outranks them wins over the bound value exactly as
+                // it won over the inline literal, wherever it applies.
+                if (array() !== $addedClasses && $rule['outranks_preset_class']) continue;
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
@@ -2010,14 +2088,26 @@ final class PresetBinding
         return false;
     }
 
-    private function rendersThroughClass(string $name, string $property, string $literal, array $tokens): bool
+    /**
+     * Whether the block's own author class paints exactly this literal, so
+     * the literal only duplicates it. A button's colours sit on its link,
+     * which carries the author class or its subject class. Other blocks
+     * qualify only for text and border colour, and only through a class on
+     * the very element that carries the inline style (`$classes`): their
+     * background preset class also changes core padding.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function rendersThroughClass(string $name, string $property, string $literal, array $tokens, string $classes = ''): bool
     {
-        if ('button' !== $name) return false;
+        $button = 'button' === $name;
+        if (!$button && (!in_array($name, self::CLASS_RENDERED_BLOCKS, true) || !in_array($property, array('color', 'border-color'), true))) return false;
         $color = CssColor::parse($this->resolve($literal));
         if (null === $color) return false;
+        $own = array_flip(preg_split('/\s+/', trim($classes)) ?: array());
         $found = false;
         foreach ($this->classColors as $class => $properties) {
-            if (!isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)])) continue;
+            if ($button ? !isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)]) : !isset($own[$class])) continue;
             foreach ('background-color' === $property ? array('background-color', 'background') : array($property) as $candidate) {
                 foreach ($properties[$candidate] ?? array() as $value) {
                     if (CssColor::parse($this->resolve($value)) !== $color) return false;
@@ -2134,7 +2224,8 @@ final class PresetBinding
             if (array() === $important) continue;
             $subject = self::subjectTokens($selector);
             if (null === $subject) continue;
-            foreach ($important as $family => $_) $this->importantRules[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
+            $rule = $subject + array('attributes' => self::subjectAttributes($selector), 'outranks_preset_class' => self::outranksPresetClass($selector));
+            foreach ($important as $family => $_) $this->importantRules[$family][] = $rule;
         }
     }
 
@@ -2282,6 +2373,20 @@ final class PresetBinding
             }
         }
         return implode(' ', $properties);
+    }
+
+    /**
+     * Whether a selector is more specific than a core preset class rule
+     * (`.has-contrast-color`, one class), so its `!important` declaration
+     * keeps winning over the class's. A selector the matcher cannot read is
+     * not known to outrank it.
+     */
+    private static function outranksPresetClass(string $selector): bool
+    {
+        $parsed = CssSelectorMatcher::parse(trim($selector));
+        if (!$parsed['supported']) return false;
+        $weight = CssSelectorMatcher::specificityCounts($parsed);
+        return array($weight['ids'], $weight['classes'], $weight['types']) > array(0, 1, 0);
     }
 
     /** The selector's last compound, after its final combinator. */
@@ -2459,6 +2564,21 @@ final class PresetBinding
     private static function declarationText(array $declarations): string
     {
         return implode(';', array_map(static fn(array $declaration): string => $declaration[0] . ':' . $declaration[1], $declarations));
+    }
+
+    /**
+     * The colour a `border` shorthand sets (`1px solid #e0ddd7`), or the
+     * shorthand itself when no single component parses as a colour, which no
+     * literal then matches. A shorthand without a colour sets `currentcolor`.
+     */
+    private static function borderShorthandColor(string $value): string
+    {
+        $colors = array();
+        foreach (preg_split('/\s+(?![^()]*\))/', trim($value)) ?: array() as $part) {
+            if (null !== CssColor::parse($part) || 'currentcolor' === strtolower($part)) $colors[] = $part;
+        }
+        if (1 === count($colors)) return $colors[0];
+        return array() === $colors ? 'currentcolor' : $value;
     }
 
     /** @param list<array{0:string,1:string}> $declarations */

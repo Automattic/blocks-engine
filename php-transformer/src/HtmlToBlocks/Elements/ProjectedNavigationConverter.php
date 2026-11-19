@@ -1393,7 +1393,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $layout = array_map('strtolower', $this->portableCollapsedPlacement($row, array('display', 'flex-direction', 'justify-content')));
         if ( ! in_array($layout['display'] ?? '', array('flex', 'inline-flex'), true)
-            || ! in_array($layout['flex-direction'] ?? 'row', array('row', ''), true) ) {
+            || ! in_array(CssValueInspector::declared($layout, 'flex-direction'), array('row', ''), true) ) {
             return null;
         }
         $wrapperBox = $this->portableCollapsedPlacement($wrapper, array('order', 'margin-left', 'margin-inline-start', 'gap', 'column-gap'));
@@ -1576,6 +1576,12 @@ final class ProjectedNavigationConverter implements ElementConverter
             $host[] = 'border-image:none!important';
             $host[] = 'box-shadow:none!important';
             $host[] = 'outline:0!important';
+            // Nor does the panel's box size: an offcanvas width or a
+            // full-height panel would stretch the toggle slot off its row.
+            $host[] = 'width:auto!important';
+            $host[] = 'height:auto!important';
+            $host[] = 'max-width:none!important';
+            $host[] = 'max-height:none!important';
         }
 
         return $host;

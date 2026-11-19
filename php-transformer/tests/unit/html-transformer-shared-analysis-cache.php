@@ -230,7 +230,9 @@ $assert(
     && 0 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
     && 2 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
     && 4099 === $pressureCache->sourceStructuralDeclarationBuilds
-    && 8201 === $pressureCache->sourceStructuralDeclarationHits,
+    // Media gallery lowering no longer resolves a subtree without an image
+    // (#6789), so one repeated pass per paragraph is gone.
+    && 4104 === $pressureCache->sourceStructuralDeclarationHits,
     'Read-only conversion retains selector and structural declaration results across repeated passes.'
 );
 $assert(

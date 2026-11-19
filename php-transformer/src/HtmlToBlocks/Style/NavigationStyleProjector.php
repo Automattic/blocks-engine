@@ -472,7 +472,16 @@ final class NavigationStyleProjector
         if ( ! ($parsed['supported'] ?? false) || ! is_array($rightmost) || ! is_array($compound) ) {
             return null;
         }
-        if ( array() === array_intersect(array_keys($ids), $compound['ids'] ?? array()) ) {
+        // Look the subject's ids up rather than intersecting every page id
+        // per selector (#6752).
+        $named = false;
+        foreach ( $compound['ids'] ?? array() as $id ) {
+            if ( isset($ids[ (string) $id ]) ) {
+                $named = true;
+                break;
+            }
+        }
+        if ( ! $named ) {
             return null;
         }
 

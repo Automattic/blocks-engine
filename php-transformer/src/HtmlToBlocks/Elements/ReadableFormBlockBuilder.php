@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
@@ -114,6 +113,18 @@ final class ReadableFormBlockBuilder
             ? ($this->cssOwnedGroupAttributes)($element) : $this->presentationResolver->presentationAttributes($element);
     }
 
+    private static int $builds = 0;
+
+    /**
+     * Readable form builds that read a form's controls, since process start;
+     * observable for tests. A form dispatch builds each form's readable block
+     * at most once (#6752).
+     */
+    public static function builds(): int
+    {
+        return self::$builds;
+    }
+
     /** @return array<string, mixed>|null */
     public function layoutGraph(): ?array
     {
@@ -156,6 +167,7 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
+        ++self::$builds;
         $this->controlIndices = array();
         $this->presentedControls = array();
         $this->controlLabels = array();
@@ -254,8 +266,9 @@ final class ReadableFormBlockBuilder
     private function groupedContentBlocks(DOMElement $form, array &$fallbacks): array
     {
         $structure = array();
-        $this->layoutGraph = (new FormLayoutGraphBuilder($this->controlElements))->build(
+        $this->layoutGraph = FormBuildScope::layoutGraph(
             $form,
+            $this->controlElements,
             $this->session->authorStyleAnalysis()->stylesheetAssets(),
             $this->session->sourceStyleResolutionState()->formLayoutCss(),
             $structure

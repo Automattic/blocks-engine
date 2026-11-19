@@ -16,6 +16,8 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
     /** A synthetic paragraph that is itself a lowered block-level source box, not a transparent carrier. */
     public const SOURCE_BOX_PARAGRAPH_CLASS = 'blocks-engine-source-box-paragraph';
+    /** A synthetic link paragraph that keeps an inline box, so the editor can focus its RichText root. */
+    public const INLINE_ANCHOR_CARRIER_CLASS = 'blocks-engine-inline-anchor-carrier';
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
     /**
      * A synthetic paragraph whose RichText keeps its source item (a classed
@@ -45,6 +47,8 @@ final class SourceBlockAttributeProjector
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
+    /** A fill image a later absolutely positioned sibling layer paints over. */
+    public const COVERED_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-covered-fill-image';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
@@ -94,6 +98,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
             self::LAYER_FILL_IMAGE_FIGURE_CLASS,
+            self::COVERED_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
             self::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS,
         ),
@@ -161,7 +166,7 @@ final class SourceBlockAttributeProjector
         }
         $attrs = $this->withoutDuplicatedButtonLabelColor($name, $attrs, $sourceElement, $logicalSourceElement);
 
-        $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement);
+        $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement, $context);
         $attrs = $this->withSocialAnchorIdentity($name, $attrs, $sourceElement, $sourceTagName, $context);
         $attrs = $this->withGlobalZeroBoxes($name, $attrs, $sourceElement, $context);
         // An inline source element's own lang/dir already rides in the
@@ -232,6 +237,8 @@ final class SourceBlockAttributeProjector
                     $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? ''));
                     if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
                         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYER_FILL_IMAGE_FIGURE_CLASS);
+                    } elseif ( $this->laterSiblingIsPositionedLayer($sourceElement) ) {
+                        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::COVERED_FILL_IMAGE_FIGURE_CLASS);
                     }
                 }
             }
@@ -355,7 +362,7 @@ final class SourceBlockAttributeProjector
                     // flow before a block, its fallback hitbox can overlap the
                     // following Group. An inline carrier preserves the source
                     // line without changing flex/grid or floating link layout.
-                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-anchor-carrier');
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::INLINE_ANCHOR_CARRIER_CLASS);
                 }
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
             }
@@ -494,7 +501,7 @@ final class SourceBlockAttributeProjector
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withGroupSourceSemantics(string $name, array $attrs, DOMElement $sourceElement): array
+    private function withGroupSourceSemantics(string $name, array $attrs, DOMElement $sourceElement, SourceBlockAttributeProjectionContext $context): array
     {
         if ( 'core/group' === $name ) {
             $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($sourceElement);
@@ -505,6 +512,15 @@ final class SourceBlockAttributeProjector
 
         if ( 'core/group' === $name && ! isset($attrs['tagName']) ) {
             $semanticTag = self::semanticGroupTagName($sourceElement);
+            // A content item's own footer is no landmark (HTML maps it
+            // to a generic role). Saved as `<footer>` it reads as a
+            // copy of the page shell inside page content, so it keeps the
+            // tag only while author CSS still selects it by that tag.
+            if ( null !== $semanticTag && ShellLandmarkPolicy::isContentItemLandmarkTag($sourceElement)
+                && ! self::authorCssSelectsTag($context->authorStyles, $semanticTag)
+            ) {
+                $semanticTag = null;
+            }
             if ( null !== $semanticTag ) {
                 $attrs['tagName'] = $semanticTag;
             }
@@ -620,6 +636,27 @@ final class SourceBlockAttributeProjector
             }
         }
         return true;
+    }
+
+    /**
+     * A later absolutely positioned sibling paints over an image that fills
+     * their shared parent (a scrim with a caption, a play button over a
+     * poster). It is the front end's design, but in the editor that layer is
+     * a block whose box covers the image block, so every click on the image
+     * selects the layer and the image can never be selected or replaced.
+     */
+    private function laterSiblingIsPositionedLayer(DOMElement $image): bool
+    {
+        for ( $sibling = $image->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( ! $sibling instanceof DOMElement ) {
+                continue;
+            }
+            $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($sibling)['position'] ?? ''));
+            if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
@@ -1272,6 +1309,31 @@ final class SourceBlockAttributeProjector
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
         $generatedStyles->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
         return $attrs;
+    }
+
+    /**
+     * Whether an author rule names the tag as a type with an effect a `div`
+     * would not already have. `display:block` (the normalize.css reset for
+     * sectioning tags) is a div's own display.
+     */
+    private static function authorCssSelectsTag(AuthorStyleAnalysis $authorStyles, string $tagName): bool
+    {
+        $pattern = '/(?<![\w.#-])' . preg_quote($tagName, '/') . '(?![\w-])/i';
+        foreach ( $authorStyles->styleRules() as $rule ) {
+            $declarations = (array) ( $rule['declarations'] ?? array() );
+            if ( 1 === count($declarations) && 'block' === strtolower(trim((string) ( $declarations['display'] ?? '' ))) ) {
+                continue;
+            }
+            foreach ( (array) ( $rule['selectors'] ?? array() ) as $selector ) {
+                $text = is_array($selector) ? (string) ( $selector['selector'] ?? '' ) : (string) $selector;
+                // Attribute values and strings can hold the word; strip them first.
+                $text = preg_replace('/\[[^\]]*\]|"[^"]*"|\'[^\']*\'/', '', $text) ?? $text;
+                if ( 1 === preg_match($pattern, $text) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static function semanticGroupTagName(DOMElement $element): ?string

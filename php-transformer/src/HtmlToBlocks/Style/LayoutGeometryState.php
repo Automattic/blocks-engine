@@ -51,6 +51,12 @@ final class LayoutGeometryState
         return $className;
     }
 
+    /** Whether a class is a box-tree carrier, which styles the exact element it was allocated for. */
+    public function isBoxTreeCarrier(string $className): bool
+    {
+        return str_starts_with($this->carrierSignatures[$className] ?? '', 'box-tree:');
+    }
+
     public function registerRule(string $className, string $rule): void
     {
         $this->rules[$className] = $rule;

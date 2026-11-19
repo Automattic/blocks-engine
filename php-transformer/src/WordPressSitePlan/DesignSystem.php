@@ -5,6 +5,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -514,18 +517,39 @@ final class DesignSystem
      * fields are checked independently, including shape and spacing; matching
      * inherited typography and core's outline fill also establish ownership.
      *
+     * A button restyled from box-tree evidence carries its look in a carrier
+     * rule on its link instead of block attributes. That rule outranks the
+     * element style, so each field its unconditional declarations set is
+     * owned exactly as the matching attribute would own it.
+     *
      * @param list<string> $markups Every page's block markup.
+     * @param list<string> $stylesheets Stylesheets the pages load, read for button link carriers.
      */
-    public function withButtonElementsOwnedBy(array $markups): self
+    public function withButtonElementsOwnedBy(array $markups, array $stylesheets = array()): self
     {
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+        $carriers = self::buttonLinkCarriers($stylesheets);
         foreach ($markups as $markup) {
-            if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
-            foreach ($matches[1] as $json) {
+            if (!preg_match_all('/<!-- (\/)?wp:(buttons?)(?: (\{.*?\}))? \/?-->/s', $markup, $blocks, PREG_SET_ORDER)) continue;
+            // Class tokens of each open core/buttons, innermost last.
+            $groups = array();
+            foreach ($blocks as $block) {
+                $json = $block[3] ?? '';
                 $attributes = '' === $json ? array() : json_decode($json, true);
                 if (!is_array($attributes)) $attributes = array();
+                if ('buttons' === $block[2]) {
+                    if ('/' === $block[1]) array_pop($groups);
+                    else $groups[] = self::classTokens($attributes);
+                    continue;
+                }
+                if ('/' === $block[1]) continue;
+                $carrier = self::buttonLinkCarrierProperties($carriers, self::classTokens($attributes), array() === $groups ? array() : $groups[count($groups) - 1]);
+                $declares = static function (array ...$alternatives) use ($carrier): bool {
+                    foreach ($alternatives as $properties) if (array() === array_diff($properties, $carrier)) return true;
+                    return false;
+                };
                 $style = ArrayField::array($attributes, 'style');
                 $carried = array(
                     'color' => isset($attributes['textColor']) || isset($style['color']['text']),
@@ -534,16 +558,21 @@ final class DesignSystem
                     'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
                     'font_weight' => isset($style['typography']['fontWeight']),
                 );
+                $carried['color'] = $carried['color'] || $declares(array('color'));
+                $carried['background'] = $carried['background'] || $declares(array('background-color'), array('background'));
+                $carried['font_family'] = $carried['font_family'] || $declares(array('font-family'), array('font'));
+                $carried['font_size'] = $carried['font_size'] || $declares(array('font-size'), array('font'));
+                $carried['font_weight'] = $carried['font_weight'] || $declares(array('font-weight'), array('font'));
                 if ($dominant) {
                     // Missing ownership vetoes only this field, not the rest of
                     // the dominant look. Matching inherited defaults are safe.
                     $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
                     $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
                     $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                    $carried['radius'] = isset($style['border']['radius']);
-                    $carried['padding'] = isset($style['spacing']['padding']);
-                    $carried['text_transform'] = isset($style['typography']['textTransform']);
-                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
+                    $carried['radius'] = isset($style['border']['radius']) || $declares(array('border-radius'), array('border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'));
+                    $carried['padding'] = isset($style['spacing']['padding']) || $declares(array('padding'), array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'));
+                    $carried['text_transform'] = isset($style['typography']['textTransform']) || $declares(array('text-transform'));
+                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']) || $declares(array('letter-spacing'));
                 }
                 foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
             }
@@ -559,6 +588,65 @@ final class DesignSystem
         return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
     }
 
+    /** @return list<string> */
+    private static function classTokens(array $attributes): array
+    {
+        return array_values(array_filter(preg_split('/\s+/', is_string($attributes['className'] ?? null) ? $attributes['className'] : '') ?: array(), static fn(string $class): bool => '' !== $class));
+    }
+
+    /**
+     * Unconditional rules that style a button link through its block's class
+     * (`.c.c>a.wp-block-button__link`) or its core/buttons' class
+     * (`.c.c>.wp-block-button>a.wp-block-button__link`), the two shapes a
+     * box-tree carrier takes on button blocks. Media, state and pseudo rules
+     * only refine a look, so they do not establish ownership.
+     *
+     * @param list<string> $stylesheets
+     * @return list<array{classes: list<string>, group: bool, properties: list<string>}>
+     */
+    private static function buttonLinkCarriers(array $stylesheets): array
+    {
+        $carriers = array();
+        foreach ($stylesheets as $css) {
+            if (!str_contains($css, 'wp-block-button__link')) continue;
+            $tree = new CssRuleTree($css);
+            foreach ($tree->rules() as $rule) {
+                if ($rule['boundary'] === $rule['end']) continue;
+                $prelude = trim((string) preg_replace('#/\*.*?\*/#s', '', substr($css, $rule['start'], $rule['boundary'] - $rule['start'])));
+                if ('' === $prelude || '@' === $prelude[0] || !str_contains($prelude, 'wp-block-button__link')) continue;
+                $properties = array();
+                foreach (CssValueSplitter::splitTopLevel(substr($css, $rule['boundary'] + 1, $rule['end'] - $rule['boundary'] - 1), array(';')) as $declaration) {
+                    $name = strtolower(trim(explode(':', $declaration, 2)[0]));
+                    if ('' !== $name && str_contains($declaration, ':')) $properties[$name] = true;
+                }
+                if (array() === $properties) continue;
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (!preg_match('/^((?:\.[A-Za-z_][\w-]*)+)\s*>\s*(\.wp-block-button\s*>\s*)?a\.wp-block-button__link$/', trim($selector), $match)) continue;
+                    $carriers[] = array('classes' => array_values(array_unique(explode('.', substr($match[1], 1)))), 'group' => '' !== ($match[2] ?? ''), 'properties' => array_keys($properties));
+                }
+            }
+        }
+        return $carriers;
+    }
+
+    /**
+     * CSS properties the carriers declare on one button's link.
+     *
+     * @param list<array{classes: list<string>, group: bool, properties: list<string>}> $carriers
+     * @param list<string> $buttonClasses
+     * @param list<string> $groupClasses The enclosing core/buttons' classes.
+     * @return list<string>
+     */
+    private static function buttonLinkCarrierProperties(array $carriers, array $buttonClasses, array $groupClasses): array
+    {
+        $properties = array();
+        foreach ($carriers as $carrier) {
+            if (array() !== array_diff($carrier['classes'], $carrier['group'] ? $groupClasses : $buttonClasses)) continue;
+            foreach ($carrier['properties'] as $property) $properties[$property] = true;
+        }
+        return array_keys($properties);
+    }
+
     /**
      * The system with an exact preset for every literal font size and font
      * family a block carries in `style.typography` that no preset renders.
@@ -572,11 +660,18 @@ final class DesignSystem
      * scale, its names and its roles are unchanged, and each new token is the
      * exact value, so binding never changes a rendered font.
      *
+     * A fluid size (`clamp(42px,6.5vw,84px)`) built only from absolute and
+     * viewport lengths renders the same for every block at a given viewport,
+     * whatever its parent, so it is one exact token too (fluidFontSize()).
+     * Its preset has no single pixel size (`px` 0), so an absolute literal
+     * never resolves to it through fontSizeSlug(); only the identical value
+     * binds to it.
+     *
      * @param list<string> $markups Every page's block markup.
      */
     public function withBlockTypography(array $markups): self
     {
-        $sizes = $families = array();
+        $sizes = $families = $fluid = array();
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
@@ -591,6 +686,8 @@ final class DesignSystem
                         $pixel = CssLength::format($px);
                         if (!isset($sizes[$pixel]) || strcmp($size, $sizes[$pixel]) < 0) $sizes[$pixel] = $size;
                     }
+                } elseif (null !== ($range = $this->fluidFontSize($size)) && !in_array($size, array_column($this->fontSizes, 'size'), true)) {
+                    $fluid[$size] = $range;
                 }
                 $stack = is_string($typography['fontFamily'] ?? null) ? trim($typography['fontFamily']) : '';
                 $key = self::familyKey($stack);
@@ -598,7 +695,7 @@ final class DesignSystem
                 $families[$key][$stack] = ($families[$key][$stack] ?? 0) + 1;
             }
         }
-        if (array() === $sizes && array() === $families) return $this;
+        if (array() === $sizes && array() === $families && array() === $fluid) return $this;
         $fontSizes = $this->fontSizes;
         $used = array_fill_keys(array_column($fontSizes, 'slug'), true);
         uksort($sizes, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
@@ -609,6 +706,16 @@ final class DesignSystem
             for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
             $used[$slug] = true;
             $fontSizes[] = array('slug' => $slug, 'name' => self::sizeName((float) $px, $this->rootPx), 'size' => $value, 'px' => (float) $px, 'weight' => 0);
+        }
+        uksort($fluid, static fn(string $a, string $b): int => ($fluid[$a][1] <=> $fluid[$b][1]) ?: ($fluid[$a][0] <=> $fluid[$b][0]) ?: strcmp($a, $b));
+        foreach ($fluid as $value => [$min, $max]) {
+            $range = CssLength::format($min) === CssLength::format($max) ? rtrim(CssLength::format($max), 'px') : rtrim(CssLength::format($min), 'px') . '-' . rtrim(CssLength::format($max), 'px');
+            $base = self::presetSlug('fluid-' . $range);
+            $slug = $base;
+            for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
+            $used[$slug] = true;
+            $name = 'Fluid ' . (string) preg_replace('/\s*\([^)]*\)$/', '', self::sizeName($max, $this->rootPx)) . ' (' . $range . 'px)';
+            $fontSizes[] = array('slug' => $slug, 'name' => $name, 'size' => $value, 'px' => 0.0, 'weight' => 0);
         }
         $fontFamilies = $this->fontFamilies;
         $used = array_fill_keys(array_merge(array('body', 'heading'), array_column($fontFamilies, 'slug')), true);
@@ -628,6 +735,36 @@ final class DesignSystem
             $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
         }
         return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
+    }
+
+    /**
+     * The smallest and largest absolute bound, in pixels, of a fluid font
+     * size: a `clamp()`, `min()` or `max()` whose terms are absolute lengths
+     * (`px`, `rem`), viewport lengths (`vw`, `vh`, `vmin`, `vmax` and their
+     * `s`/`l`/`d` variants) and plain numbers. Null for anything else: an
+     * `em`, `%`, `ch` or `var()` term renders differently under each parent.
+     *
+     * @return array{0:float,1:float}|null
+     */
+    private function fluidFontSize(string $value): ?array
+    {
+        if (1 !== preg_match('/^(?:clamp|min|max)\(.*\)$/is', $value)) return null;
+        $terms = (string) preg_replace('/\b(?:clamp|min|max|calc)\(|[(),+*\/\s]|(?<![\d.])-/i', ' ', $value);
+        $absolute = array();
+        foreach (preg_split('/\s+/', trim($terms)) ?: array() as $term) {
+            if ('' === $term) continue;
+            if (1 !== preg_match('/^(?:\d+\.?\d*|\.\d+)(px|rem|[sld]?v(?:w|h|i|b|min|max))?$/i', $term, $match)) return null;
+            $unit = strtolower($match[1] ?? '');
+            if ('px' === $unit || 'rem' === $unit) $absolute[] = (float) CssLength::toPx($term, $this->rootPx);
+        }
+        if (array() === $absolute || max($absolute) <= 0) return null;
+        // A clamp() names its own bounds; otherwise the absolute terms span it.
+        if (1 === preg_match('/^clamp\(\s*([^(),]+?)\s*,.*,\s*([^(),]+?)\s*\)$/is', $value, $bounds)) {
+            $low = CssLength::toPx($bounds[1], $this->rootPx);
+            $high = CssLength::toPx($bounds[2], $this->rootPx);
+            if (null !== $low && null !== $high && $low > 0 && $high >= $low) return array($low, $high);
+        }
+        return array(min($absolute), max($absolute));
     }
 
     /**

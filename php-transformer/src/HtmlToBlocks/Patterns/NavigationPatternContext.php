@@ -440,47 +440,10 @@ final class NavigationPatternContext
         );
     }
 
-    /**
-     * Whether a navigation href names the document being compiled. Client
-     * routers (a React Router NavLink, for one) often mark the current item
-     * only through utility classes, with no aria-current or active/current
-     * token; the link targeting its own page is then the only current signal.
-     *
-     * Site-rooted hrefs (`/about/index.html`) resolve against the artifact's
-     * entry root, the single leading segment of the source path.
-     *
-     * A link with a fragment names a section, not the page: shared chrome
-     * linking to `/index.html#services` must compile the same on the route
-     * holding that section as on every other route.
-     */
+    /** Whether a navigation href names the document being compiled. */
     public function targetsCurrentDocument(string $href): bool
     {
-        $document = $this->session->sourcePath();
-        $href = trim($href);
-        if ( ArtifactPath::namesSection($href) ) {
-            return false;
-        }
-        $href = ArtifactPath::stripQueryAndFragment($href);
-        if ( '' === $href || ! str_contains($document, '.') || 1 === preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $href) ) {
-            return false;
-        }
-        $rooted = str_starts_with($href, '/');
-        $path = ArtifactPath::resolveRelativePath($rooted ? ltrim($href, '/') : $href, $rooted ? '' : $document);
-        if ( '' === $path && ! ($rooted || str_ends_with($href, '/')) ) {
-            return false;
-        }
-        $candidates = '' === $path || str_ends_with($href, '/')
-            ? array( ltrim($path . '/index.html', '/') )
-            : array( $path, $path . '/index.html', $path . '.html' );
-        $slash = strpos($document, '/');
-        $withinEntryRoot = false === $slash ? '' : substr($document, $slash + 1);
-        foreach ( $candidates as $candidate ) {
-            if ( $document === $candidate || ($rooted && $withinEntryRoot === $candidate && ! str_contains(substr($document, 0, (int) $slash), '/')) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return ArtifactPath::targetsDocument($href, $this->session->sourcePath());
     }
 
     /**
@@ -1538,17 +1501,36 @@ final class NavigationPatternContext
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
 
-    /** Preserve a single passive icon as artwork inside Core's native anchor. */
-    public function navigationAnchorArtwork(DOMElement $anchor): string
+    /**
+     * Preserve a single passive icon as artwork inside Core's native anchor.
+     *
+     * The anchor's only element child is the SVG. Either it is the whole
+     * anchor (the label is the hidden accessible name), or it leads visible
+     * text (the label stays painted after it). Returns the presentation the
+     * runtime reads: `svg`, plus `labelVisible` for the icon-and-label shape.
+     *
+     * @return array{svg?: string, labelVisible?: true}
+     */
+    public function navigationAnchorArtwork(DOMElement $anchor): array
     {
-        if (!$this->svgMaterializer instanceof SvgMaterializer || '' !== trim($anchor->textContent ?? '')) return '';
+        if (!$this->svgMaterializer instanceof SvgMaterializer) return array();
         $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement));
-        if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return '';
+        if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return array();
         $svg = $children[0];
-        if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return '';
+        $leading = '';
+        $trailing = '';
+        $seen = false;
+        foreach ($anchor->childNodes as $node) {
+            if ($node->isSameNode($svg)) $seen = true;
+            elseif ($node instanceof \DOMText) $seen ? $trailing .= $node->textContent : $leading .= $node->textContent;
+        }
+        // Text before the icon would reorder around it at render time.
+        if ('' !== trim($leading)) return array();
+        $labelVisible = '' !== trim($trailing);
+        if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return array();
         $nodes = array($svg);
         foreach ($svg->getElementsByTagName('*') as $node) {
-            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return '';
+            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return array();
             $nodes[] = $node;
         }
         $subjects = array();
@@ -1558,9 +1540,9 @@ final class NavigationPatternContext
             $node->setAttribute('class', SourceDom::mergeClassNames($node->getAttribute('class'), $marker));
         }
         $markup = $this->svgMaterializer->inlineSvgMarkup($svg);
-        if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return '';
+        if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return array();
         foreach ($subjects as [$path, $marker]) $this->pendingNavigationSubjects[$path] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $marker);
-        return $markup;
+        return $labelVisible ? array('svg' => $markup, 'labelVisible' => true) : array('svg' => $markup);
     }
 
     /** Core's item can interrupt an anchor's authored or safely inherited line-height. */

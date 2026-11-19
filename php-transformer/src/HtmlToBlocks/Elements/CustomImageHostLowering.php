@@ -94,6 +94,21 @@ final class CustomImageHostLowering implements ElementConverter
             && $this->sourceElementClassifier->hasPictureSourceSelection($picture)) {
             return null;
         }
+        $hasPicture = $picture instanceof DOMElement && $picture !== $host;
+        // Captured geometry that proves the host's box is exactly the image's
+        // box makes the host the image's own figure: the figure takes the
+        // host's identity and observed box, the image keeps its own, and no
+        // separate container adds a List View level around the media.
+        if (null === $link
+            && (! $hasPicture || $this->isNeutralPictureBox($host, $picture, $image))
+            && ! $this->hasCropFocusThatCoreImageCannotCarry($image)
+            && $this->hostBoxIsCapturedImageBox($host, $image)) {
+            $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($host->tagName));
+            $figure = $this->imageLowering->convertImage($image, $host, $hasPicture ? $picture : null);
+            if (null !== $figure && 'core/image' === $figure['blockName']) {
+                return $figure;
+            }
+        }
         $block = $this->imageLowering->convertImage($image, null, null, $link);
         if (null === $block || 'core/image' !== $block['blockName']) {
             return null;
@@ -114,7 +129,6 @@ final class CustomImageHostLowering implements ElementConverter
         // image. In particular an id and captured image metadata are not a
         // reason to make the image itself an opaque HTML editing surface.
         $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($host->tagName));
-        $hasPicture = $picture instanceof DOMElement && $picture !== $host;
         $wrappers = array($host);
         // A source-less picture only selects its lone image. Without identity,
         // presentation, or selectors that depend on it, its box is the image's
@@ -176,6 +190,75 @@ final class CustomImageHostLowering implements ElementConverter
                 return false;
             }
         }
+        return true;
+    }
+
+    /**
+     * Whether box-tree evidence observed the host and its image with the same
+     * border box at every captured viewport, so the host contributes no
+     * geometry of its own beyond the box the image already fills.
+     */
+    private function hostBoxIsCapturedImageBox(DOMElement $host, DOMElement $image): bool
+    {
+        $hostObservations = $this->session->boxTreeEvidence($host);
+        $imageObservations = $this->session->boxTreeEvidence($image);
+        if (array() === $hostObservations && array() === $imageObservations) {
+            // An unobserved copy (a device island) has no captured boxes; the
+            // authored cascade must then prove the image fills the host.
+            return $this->imageFillsHost($host, $image);
+        }
+        if (array() === $hostObservations || array_keys($hostObservations) !== array_keys($imageObservations)) {
+            return false;
+        }
+        foreach ($hostObservations as $viewport => $observation) {
+            $hostBox = $observation['border_box'] ?? null;
+            $imageBox = $imageObservations[$viewport]['border_box'] ?? null;
+            if (! is_array($hostBox) || ! is_array($imageBox)) {
+                return false;
+            }
+            foreach (array('x', 'y', 'width', 'height') as $axis) {
+                if (! is_numeric($hostBox[$axis] ?? null) || ! is_numeric($imageBox[$axis] ?? null)
+                    || abs((float) $hostBox[$axis] - (float) $imageBox[$axis]) >= 1.0) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether the authored cascade sizes the in-flow image to the full
+     * content box of a block host that adds no box edges of its own.
+     */
+    private function imageFillsHost(DOMElement $host, DOMElement $image): bool
+    {
+        // An absolutely positioned host is blockified whatever its display.
+        $blockified = in_array($this->positionOf($host), array('absolute', 'fixed'), true)
+            && in_array($this->styleResolver->resolvedDeclaration($host, 'display'), array('', 'inline', 'block'), true);
+        if (! ($blockified || $this->hasBlockFigureDisplay($host))
+            || in_array($this->positionOf($image), array('absolute', 'fixed', 'sticky'), true)) {
+            return false;
+        }
+        $shape = $this->styleResolver->imageShapeDeclarations($image);
+        foreach (array('width', 'height') as $axis) {
+            if ('100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($shape[$axis]['value'] ?? ''))))) {
+                return false;
+            }
+        }
+        foreach (array('top', 'right', 'bottom', 'left') as $side) {
+            foreach (array(array($host, 'padding-' . $side), array($host, 'border-' . $side . '-width'), array($image, 'margin-' . $side)) as [$element, $property]) {
+                if (! in_array($this->styleResolver->resolvedDeclaration($element, $property), array('', '0', '0px'), true)) {
+                    return false;
+                }
+            }
+        }
+        foreach (array(array($host, 'padding'), array($host, 'border'), array($host, 'border-width'), array($image, 'margin')) as [$element, $shorthand]) {
+            if (! in_array($this->styleResolver->resolvedDeclaration($element, $shorthand), array('', '0', '0px', 'none'), true)) {
+                return false;
+            }
+        }
+
         return true;
     }
 

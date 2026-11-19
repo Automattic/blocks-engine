@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -16,14 +17,18 @@ final class EmptyInteractiveFeatureShell
 {
     public function __construct(
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
-        private readonly WrapperCoalescer $wrapperCoalescer
+        private readonly WrapperCoalescer $wrapperCoalescer,
+        private readonly EmptyElementFootprint $emptyElementFootprint
     ) {
     }
 
     /**
      * Empty search and cart shells are dead platform chrome, not authored layout.
      * Content, controls, media, links, and runtime bindings keep their existing
-     * native or capability-owned conversion path.
+     * native or capability-owned conversion path. A shell whose cascaded
+     * declarations reserve a layout slot (a sized table cell or flex item) is
+     * authored layout whatever its name: dropping it hands its share of the
+     * row to its siblings.
      */
     public function isEmptyInteractiveFeatureShell(DOMElement $element): bool
     {
@@ -33,6 +38,7 @@ final class EmptyInteractiveFeatureShell
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->wrapperCoalescer->isDirectChildOfStructuralLayout($element)
             || $this->hasAuthorInlineAlignment($element)
+            || $this->emptyElementFootprint->reservesLayoutSlot($element)
         ) {
             return false;
         }

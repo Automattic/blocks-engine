@@ -73,6 +73,10 @@ $rows = array(
     // Inherited properties against the observed parent.
     array('inherited values equal to the parent are omitted', array(), array(), 'core/group', array(), array('font-family', 'color:', 'pointer-events')),
     array('inherited values that differ from the parent are kept', array('pointer-events' => 'auto', 'font-family' => 'Inter'), array('pointer-events' => 'none'), 'core/group', array('pointer-events:auto'), array()),
+    // The block editor resets every block wrapper to pointer-events:auto, so an
+    // inherited none never reaches it there and the layer swallows clicks (#5920).
+    array('a fixed layer keeps the pointer pass-through equal to the parent', array('position' => 'fixed', 'pointer-events' => 'none'), array('pointer-events' => 'none'), 'core/group', array('pointer-events:none'), array()),
+    array('an in-flow box inherits the pointer pass-through equal to the parent', array('pointer-events' => 'none'), array('pointer-events' => 'none'), 'core/group', array(), array('pointer-events')),
     array('a paragraph inherits typography equal to the parent', array(), array(), 'core/paragraph', array(), array('font-size', 'font-weight', 'color:')),
     // An element with its own user-agent or theme.json default would not inherit the parent's value.
     array('a heading keeps typography equal to the parent over its heading defaults', array(), array(), 'core/heading', array('font-size:16px', 'font-weight:400', 'font-family', 'line-height', 'color:'), array('pointer-events', 'white-space')),

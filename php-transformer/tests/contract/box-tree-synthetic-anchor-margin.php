@@ -10,9 +10,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 // #6584: a flex-item link lowered to <p class="blocks-engine-synthetic-paragraph"><a>
-// carries its captured `margin:0 12px` on the box-tree carrier paragraph. The
-// margin must apply once per side: the boxed paragraph owns it and the anchor
-// must not inherit it again.
+// carries its captured `margin:0 12px` on the source anchor, not its synthetic
+// paragraph. The margin must apply once per side, including media variants.
 $html = '<!doctype html><html data-blocks-engine-node-id="n1"><head data-blocks-engine-node-id="n2"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'
     . 'body{margin:0}.bar{display:flex;padding:20px}.links{display:flex;margin:0 auto}.links a{margin:0 12px}'
     . '</style></head><body data-blocks-engine-node-id="n4"><header class="bar" data-blocks-engine-node-id="h"><div class="links" data-blocks-engine-node-id="l">'
@@ -117,8 +116,8 @@ $verify = static function (array $tree) use ($html, $assert, $widths): void {
             $carrier = $anchor->parentNode;
             $assert($carrier instanceof DOMElement && str_contains($carrier->getAttribute('class'), 'blocks-engine-synthetic-paragraph'), "$key: the link keeps its synthetic paragraph carrier");
             $boxed = 'contents' !== ($cascade($carrier, 'display', $width) ?? 'contents');
-            $expectedBox = 'contents' !== $tree['nodes']['a1']['viewports'][$key]['used_styles']['display'];
-            $assert($boxed === $expectedBox, "$key: the carrier preserves the captured display ownership");
+            $assert(!$boxed, "$key: the synthetic paragraph generates no box");
+            $assert($cascade($anchor, 'display', $width) === $tree['nodes']['a1']['viewports'][$key]['used_styles']['display'], "$key: the source anchor preserves captured display ownership");
             foreach (array('margin-left', 'margin-right') as $side) {
                 $carrierMargin = $px($cascade($carrier, $side, $width));
                 $anchorValue = $cascade($anchor, $side, $width);
@@ -131,8 +130,7 @@ $verify = static function (array $tree) use ($html, $assert, $widths): void {
 };
 $verify($tree);
 
-// Margin ownership must also switch when a carrier becomes transparent at
-// the narrower capture, rather than disabling the boxed reset everywhere.
+// A narrower capture changes the source anchor's display, not its wrapper's.
 foreach (array('a1', 'a2', 'a3') as $id) {
     $tree['nodes'][$id]['viewports']['mobile']['used_styles']['display'] = 'contents';
 }
