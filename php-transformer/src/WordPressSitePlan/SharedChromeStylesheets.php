@@ -1082,6 +1082,20 @@ final class SharedChromeStylesheets
         // detached chrome: keep their rules in the authored route cascade,
         // just as before shell extraction moved the frame out of the page.
         $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
+        // A frame's geometry carriers are content-addressed instance CSS, and
+        // the generic page frame is chosen by an identity that keeps them: every
+        // route rendering that template compiled the same carriers and already
+        // owns their rules. Lifting them only copies those rules onto routes
+        // that render another template. Carriers a shared part also renders
+        // still follow the part.
+        $partCarriers = array();
+        $frameCarriers = array();
+        foreach ($parts as $part) {
+            if (!preg_match_all('/\bbe-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?\b/', (string) ($part['canonical_block_markup'] ?? ''), $carriers)) continue;
+            if ('page-frame' === ($part['slug'] ?? null)) $frameCarriers += array_fill_keys($carriers[0], true);
+            else $partCarriers += array_fill_keys($carriers[0], true);
+        }
+        $classes = array_diff_key($classes, array_diff_key($frameCarriers, $partCarriers));
         foreach ($parts as $part) {
             if ('page-frame' !== ($part['slug'] ?? null)) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
