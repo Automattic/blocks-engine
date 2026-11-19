@@ -1,0 +1,29 @@
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
+
+// A small figcaption must own its line box, not sit inside a larger cite
+// strut. The latter grows a wrapping quote rail and shifts subsequent lists.
+$result = (new HtmlTransformer())->transform(
+    '<style>.rail{display:flex;flex-wrap:wrap}.card{flex:0 0 280px;padding:24px}'
+    . '.card blockquote{margin:0 0 12px;font-size:14px;line-height:1.45}'
+    . '.card figcaption{font-size:9px;font-weight:700;letter-spacing:.16em}</style>'
+    . '<div class="rail"><figure class="card"><blockquote>A quotation that wraps across lines.</blockquote>'
+    . '<figcaption>Publication</figcaption></figure></div><ol><li>Following content</li></ol>'
+)->toArray();
+$quote = $result['blocks'][0]['innerBlocks'][0] ?? array();
+$citation = $quote['attrs']['citation'] ?? '';
+if ('core/quote' !== ($quote['blockName'] ?? '')
+    || str_contains($citation, 'display:block')
+    || !preg_match('/be-inline-geometry-[a-f0-9]+/', $quote['attrs']['className'] ?? '')
+    || !str_contains(json_encode($result), '>cite{display:block;font-style:normal;font-size:9px;font-weight:700;letter-spacing:.16em}')
+    || 'core/list' !== ($result['blocks'][1]['blockName'] ?? '')
+    || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
+) {
+    throw new RuntimeException('Consumed figure captions must style the citation host, not introduce a block inside an inline cite: ' . json_encode($result));
+}
+echo "Figure quote caption line box passed\n";

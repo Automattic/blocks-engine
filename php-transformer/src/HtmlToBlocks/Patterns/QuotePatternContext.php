@@ -63,6 +63,19 @@ final class QuotePatternContext
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
 
+    /** Project the consumed caption's line box onto Core's citation host. */
+    public function figureCaptionClass(DOMElement $caption): string
+    {
+        $declarations = array('display' => 'block', 'font-style' => 'normal');
+        foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
+            $value = $this->styleResolver->authoredInheritedPropertyWinner($caption, $property);
+            if ('' !== $value) {
+                $declarations[$property] = $value;
+            }
+        }
+        return $this->styleResolver->registerFigureCitationStyle($caption, $declarations);
+    }
+
     public function citationFromElement(DOMElement $element): string
     {
         foreach ( $element->childNodes as $child ) {
