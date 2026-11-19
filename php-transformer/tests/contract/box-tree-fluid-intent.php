@@ -247,6 +247,46 @@ $cases = array(
         array('n6.display' => array('block', 'none')),
         array('display:block', 'display:none'), array('@media (max-width:1023px){'),
     ),
+    // sdnunca capture: a Wix grid item placed by `grid-area` moves into the
+    // one-column template at the author's 1023px band, not at the 402px capture.
+    'a grid-area placement switch lifts each line at the author breakpoint' => array(
+        'main{display:grid}h1{grid-area:2/3/3/4}@media (max-width:1023px){h1{grid-area:4/1/5/2}}',
+        array(
+            'n5.display' => array('grid', 'grid'),
+            'n6.grid-row-start' => array('2', '4'), 'n6.grid-column-start' => array('3', '1'),
+            'n6.grid-row-end' => array('3', '5'), 'n6.grid-column-end' => array('4', '2'),
+        ),
+        array('grid-column:3 / 4;grid-row:2 / 3', '@media (max-width:1023px){', 'grid-column:1 / 2;grid-row:4 / 5'),
+        array('@media (max-width:402px){'),
+    ),
+    'a grid-column span shorthand lifts at the author breakpoint' => array(
+        'main{display:grid}h1{grid-column:2 / span 3}@media (max-width:1023px){h1{grid-column:1 / span 2}}',
+        array(
+            'n5.display' => array('grid', 'grid'),
+            'n6.grid-column-start' => array('2', '1'), 'n6.grid-column-end' => array('span 3', 'span 2'),
+        ),
+        array('grid-column:2 / span 3', '@media (max-width:1023px){', 'grid-column:1 / span 2'),
+        array('@media (max-width:402px){'),
+    ),
+    'a grid-area with omitted lines expands them per CSS Grid' => array(
+        'main{display:grid}h1{grid-area:hero}@media (max-width:1023px){h1{grid-area:2 / 1}}',
+        array(
+            'n5.display' => array('grid', 'grid'),
+            'n6.grid-row-start' => array('hero', '2'), 'n6.grid-column-start' => array('hero', '1'),
+            'n6.grid-row-end' => array('hero', 'auto'), 'n6.grid-column-end' => array('hero', 'auto'),
+        ),
+        array('grid-column:hero / hero;grid-row:hero / hero', '@media (max-width:1023px){', 'grid-column:1 / auto;grid-row:2 / auto'),
+        array('@media (max-width:402px){'),
+    ),
+    'a grid-area placement the author winners do not explain keeps per-capture output' => array(
+        'main{display:grid}h1{grid-area:2/3/3/4}',
+        array(
+            'n5.display' => array('grid', 'grid'),
+            'n6.grid-row-start' => array('2', '4'), 'n6.grid-column-start' => array('3', '1'),
+            'n6.grid-row-end' => array('3', '5'), 'n6.grid-column-end' => array('4', '2'),
+        ),
+        array('@media (max-width:402px){'), array('@media (max-width:1023px){'),
+    ),
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),

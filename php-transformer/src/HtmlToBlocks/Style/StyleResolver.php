@@ -821,12 +821,68 @@ final class StyleResolver implements ElementPresentationResolver
             $parent = $source->parentNode;
             if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
             $observations = $this->session->boxTreeEvidence($source);
-            $parents = $this->session->boxTreeEvidence($parent);
+            $parents = $this->session->boxTreeParentEvidence($source, $parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
             $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
+    }
+
+    /**
+     * A phrasing element that is the only content of a boxless block (the
+     * inline-layout carrier paragraph) as RichText: its descendants are
+     * restyled as in any RichText, and the element itself, the box the
+     * source laid out, takes every captured declaration through a box-tree
+     * carrier ({@see self::boxTreeElementCarrier()}). Null without evidence
+     * for the element.
+     */
+    public function boxTreeBoxlessContent(DOMElement $element): ?DOMElement
+    {
+        if (!$element->parentNode instanceof DOMElement || array() === $this->session->boxTreeEvidence($element)) return null;
+        $clone = $this->richTextSerializationSource($element);
+        $class = $this->boxTreeElementCarrier($element);
+        if ('' !== $class) $clone->setAttribute('class', SourceDom::mergeClassNames($clone->getAttribute('class'), $class));
+        return $clone;
+    }
+
+    /**
+     * With box-tree evidence the author stylesheet is not shipped (ADR 0005),
+     * so an observed element the output keeps as source markup inside a
+     * block, rather than as a block or a RichText inline, keeps its rendered
+     * box only through an engine carrier: a navigation item's label boxes and
+     * label, or an authored control's icon wrapper and artwork. Saved
+     * markup keeps every source element, so its source parent is the box it
+     * inherits from in the output too. A block that saves its own source
+     * markup (an authored control) restyles its own box the same way, but
+     * inherits from its nearest ancestor that emits a box: boxes collapsed
+     * into their child (ADR 0005 neutral and folded) emit none.
+     *
+     * @param bool $block Whether the source element is the block itself.
+     * @return string The carrier class, or '' off an evidence route or when nothing differs.
+     */
+    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string
+    {
+        $viewports = $this->session->boxTreeViewports();
+        if (array() === $viewports) return '';
+        $observations = $this->session->boxTreeEvidence($source);
+        if (array() === $observations) return '';
+        $parent = $block ? $this->session->boxTreeOutputParent($source) : $source->parentNode;
+        $parents = $parent instanceof DOMElement ? $this->session->boxTreeEvidence($parent) : array();
+        $intent = new BoxTreeFluidIntent();
+        $pseudoFluid = array();
+        foreach (array('before', 'after') as $pseudo) {
+            $pseudoFluid[$pseudo] = $intent->liftPseudo($source, $this, $observations, $viewports, $pseudo);
+        }
+        return (new BoxTreeStyleProjector())->elementCarrier(
+            $observations,
+            $viewports,
+            $this->session->layoutGeometryState(),
+            $parents,
+            strtolower($source->tagName),
+            $intent->lift($source, $this, $observations, $viewports, $parents),
+            $pseudoFluid
+        );
     }
 
     /** Preserve authored inline CSS except typography already supplied by the parent. */
@@ -3101,6 +3157,53 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return '';
+    }
+
+    /**
+     * Whether an inherited `left`/`center`/`right` lifted onto $element's
+     * block only reaches the source line when that block keeps a box.
+     *
+     * The element is inline-level, in flow, and the only content of a block
+     * container's line, so the source alignment positioned the element itself
+     * inside that container. A boxless carrier (`display:contents` or
+     * `display:inline`) would hold the lifted alignment on no line box.
+     * Inline content that shares the line with siblings, and flex/grid items
+     * (blockified, so text-align never placed them), keep boxless carriers.
+     */
+    public function inheritedTextAlignmentNeedsLineBox(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement
+            || ! in_array($this->inheritedTextAlignmentDeclaration($element), array( 'left', 'center', 'right' ), true) ) {
+            return false;
+        }
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( $sibling === $element || XML_COMMENT_NODE === $sibling->nodeType
+                || ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) ) {
+                continue;
+            }
+            return false;
+        }
+        $inlineLevelTags = array( 'a', 'abbr', 'b', 'cite', 'code', 'em', 'i', 'label', 'mark', 'q', 's', 'small', 'span', 'strong', 'sub', 'sup', 'u', 'button', 'input', 'img', 'select', 'textarea' );
+        $own = $this->structuralPresentationDeclarations($element);
+        $display = CssValueInspector::comparable((string) ($own['display'] ?? ''));
+        if ( '' === $display ) {
+            $display = in_array(strtolower($element->tagName), $inlineLevelTags, true) ? 'inline' : 'block';
+        }
+        $float = CssValueInspector::comparable((string) ($own['float'] ?? ''));
+        $position = CssValueInspector::comparable((string) ($own['position'] ?? ''));
+        if ( ! in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
+            || ! in_array($float, array( '', 'none' ), true)
+            || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? ''));
+        if ( '' === $parentDisplay ) {
+            $parentDisplay = in_array(strtolower($parent->tagName), $inlineLevelTags, true) ? 'inline' : 'block';
+        }
+
+        return in_array($parentDisplay, array( 'block', 'flow-root', 'list-item', 'table-cell' ), true)
+            && ! $this->hasConditionalStyleFamily($parent, 'layout');
     }
 
     /**
@@ -6326,6 +6429,7 @@ final class StyleResolver implements ElementPresentationResolver
             'border-left-width',
             'border-right-width',
             'border-spacing',
+            'caption-side',
             'border-top',
             'border-top-color',
             'border-top-left-radius',

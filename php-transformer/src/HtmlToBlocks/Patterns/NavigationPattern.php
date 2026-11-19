@@ -471,6 +471,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -1010,6 +1011,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
@@ -3125,12 +3127,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
         ), $presentationAttributes, $navigationContext);
-        // An icon-only anchor keeps its accessible name as the saved label, but
-        // core/navigation-link has nowhere to store the artwork that name
-        // described. Carry an opaque marker so the recovered source icon can be
-        // projected onto the rendered item without leaving native navigation.
-        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? '') : '';
-        if ('' !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor']['svg'] = $artwork;
+        // core/navigation-link has nowhere to store an anchor's inline icon:
+        // carry it as anchor presentation so the runtime renders it before the
+        // label. An icon-only anchor hides its label (the accessible name); a
+        // leading icon beside visible text keeps the label painted.
+        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? array()) : array();
+        if (array() !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor'] += $artwork;
         else $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
@@ -3528,7 +3530,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // stays on the plain linked-submenu path.
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
-            $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
+            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit

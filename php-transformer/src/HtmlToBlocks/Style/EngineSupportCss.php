@@ -107,7 +107,7 @@ final class EngineSupportCss
             // A lowered block-level source wrapper keeps its block box.
             $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
-                . "\n" . ':where(p.blocks-engine-inline-anchor-carrier){display:inline}'
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS . '){display:inline}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.
@@ -910,6 +910,11 @@ final class EngineSupportCss
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';
             $parts[] = $fill . '{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}';
             $parts[] = $fill . '>.wp-block-group{flex-grow:1}';
+        }
+        if ( str_contains($serializedBlocks, CoverPattern::GAP_CLASS) ) {
+            $gap = ':root .wp-block-cover.' . CoverPattern::GAP_CLASS . '>.wp-block-cover__inner-container';
+            $parts[] = $gap . '{gap:inherit}';
+            $parts[] = $gap . '>.wp-block-group{gap:inherit}';
         }
         if ( preg_match_all('/(?<![\w-])' . preg_quote(CoverPattern::STACK_CLASS_PREFIX, '/') . '(\d+)(?![\w-])/', $serializedBlocks, $stackMatches) ) {
             foreach ( array_unique($stackMatches[1]) as $stackOrder ) {
