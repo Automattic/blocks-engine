@@ -2006,7 +2006,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         foreach ( self::FOLD_SIZING as $property ) {
             $bands = $boxFluid[$property] ?? null;
             $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
-            if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
+            // A child the author sizes at `100%` of the box, unconstrained, at
+            // every width is the box's border box wherever the box has no
+            // padding or border (`equal_box`): the box's own proven intent
+            // (a `%` of the containing block they now share) sizes it exactly.
+            $fills = null !== $bands && $fold['equal_box'] && $this->fillsFoldedBox($element, $property, $viewports);
+            if ( $fills || ($keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands)) ) {
                 $fluid[$property] = $bands;
             } else {
                 unset($fluid[$property]);
@@ -2058,6 +2063,61 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     /** Sizes a folded box's intent decides for its child. */
     private const FOLD_SIZING = array('width', 'height');
+
+    /** Size => its logical alias and the constraints that could clamp it. */
+    private const FOLD_SIZING_CONSTRAINTS = array(
+        'width' => array('inline-size', 'min-width', 'max-width', 'min-inline-size', 'max-inline-size'),
+        'height' => array('block-size', 'min-height', 'max-height', 'min-block-size', 'max-block-size'),
+    );
+
+    /**
+     * Whether the author sizes an element at exactly `100%` of its containing
+     * block on one axis, with no logical alias or constraint that could clamp
+     * it, at every captured width and on both sides of every author
+     * breakpoint, so its size follows its container at every width.
+     *
+     * @param array<string, array<string, mixed>> $viewports
+     */
+    private function fillsFoldedBox(DOMElement $element, string $property, array $viewports): bool
+    {
+        $widths = array();
+        foreach ( $viewports as $viewport ) {
+            if ( isset($viewport['width']) ) {
+                $widths[] = (float) $viewport['width'];
+            }
+        }
+        foreach ( $this->styleResolver->authorViewport->widthBreakpoints() as $breakpoint ) {
+            $widths[] = floor($breakpoint);
+            $widths[] = floor($breakpoint) + 1;
+        }
+        if ( array() === $widths ) {
+            return false;
+        }
+        $constraints = self::FOLD_SIZING_CONSTRAINTS[$property];
+        foreach ( array_unique($widths) as $width ) {
+            $winners = $this->styleResolver->authorViewport->atViewport($element, array_merge(array($property), $constraints), $width);
+            $value = function (string $name) use ($winners, $element, $width): ?string {
+                if ( !isset($winners[$name]) ) {
+                    return null;
+                }
+                $declared = trim(Style\CssValueInspector::withoutImportant((string) $winners[$name]));
+                return strtolower(trim($this->styleResolver->customProperties->resolveAtViewport($declared, $element, $width)));
+            };
+            // The physical size and its logical alias share one cascade slot: whichever is set must fill.
+            $sizes = array_filter(array($value($property), $value($constraints[0])), static fn(?string $size): bool => null !== $size);
+            if ( array() === $sizes || array('100%') !== array_values(array_unique($sizes)) ) {
+                return false;
+            }
+            foreach ( array_slice($constraints, 1) as $constraint ) {
+                $limit = $value($constraint);
+                $unconstrained = str_starts_with($constraint, 'min-') ? array('auto', '0', '0px', '0%') : array('none', '100%');
+                if ( null !== $limit && !in_array($limit, $unconstrained, true) ) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 
     private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
 

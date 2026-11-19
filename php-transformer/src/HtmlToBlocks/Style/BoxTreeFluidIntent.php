@@ -143,6 +143,17 @@ final class BoxTreeFluidIntent
         'left' => array('auto', 'inset-inline', 'inset-inline-start'),
     );
 
+    /**
+     * Physical size => the logical longhand that sets the same box size in a
+     * horizontal writing mode, in either direction. Both share one cascade
+     * slot: whichever the author declared later wins.
+     */
+    private const LOGICAL_SIZES = array(
+        'width' => 'inline-size', 'height' => 'block-size',
+        'min-width' => 'min-inline-size', 'max-width' => 'max-inline-size',
+        'min-height' => 'min-block-size', 'max-height' => 'max-block-size',
+    );
+
     /** Keyword properties the author switches by width, lifted per author band. */
     private const KEYWORD_SWITCHES = array('display' => true, 'visibility' => true);
 
@@ -304,6 +315,7 @@ final class BoxTreeFluidIntent
             if (null === $value || '' === $value) return null;
             $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
             if ($value !== $actual
+                && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
                 && null === $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents)
                 && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
             $proven[$key] = $value;
@@ -354,6 +366,25 @@ final class BoxTreeFluidIntent
         if (null !== $predicted && isset(self::CLAMPS[$property])) $predicted = self::clamped($predicted, $styles, ...self::CLAMPS[$property]);
         if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
         return $value;
+    }
+
+    /**
+     * Whether a declared `aspect-ratio` (`<number> [/ <number>]`, optionally
+     * with `auto`) is the observed one: the computed value serializes the
+     * same ratio with rounded numbers and normalized spacing.
+     */
+    private static function sameRatio(string $declared, string $observed): bool
+    {
+        $parse = static function (string $value): ?array {
+            if (!preg_match('/^(auto\s+)?(\d*\.?\d+)(?:\s*\/\s*(\d*\.?\d+))?(\s+auto)?$/i', trim($value), $m)) return null;
+            $auto = '' !== ($m[1] ?? '') || '' !== ($m[4] ?? '');
+            $denominator = '' !== ($m[3] ?? '') ? (float) $m[3] : 1.0;
+            return $denominator > 0 ? array($auto, (float) $m[2] / $denominator) : null;
+        };
+        $a = $parse($declared);
+        $b = $parse($observed);
+        if (null === $a || null === $b || $a[0] !== $b[0]) return false;
+        return abs($a[1] - $b[1]) <= 1e-4 * max(abs($a[1]), abs($b[1]), 1e-9);
     }
 
     /** Whether a value is a viewport-, font- or containing-block-relative expression. */
@@ -469,6 +500,8 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
+            // The logical size is read as this property's own winner.
+            if ($alias === (self::LOGICAL_SIZES[$property] ?? null)) continue;
             if (null !== $this->declared($alias, $width)) return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
@@ -658,6 +691,11 @@ final class BoxTreeFluidIntent
         }
         $fromShorthand = null !== $shorthand && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;
+        $logical = self::LOGICAL_SIZES[$property] ?? null;
+        if (null !== $logical && isset($order[$logical]) && (!isset($order[$name]) || $order[$logical] > $order[$name])) {
+            $name = $logical;
+            $fromShorthand = false;
+        }
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
