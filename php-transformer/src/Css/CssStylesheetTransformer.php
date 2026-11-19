@@ -1241,7 +1241,7 @@ final class CssStylesheetTransformer
                     $reason = null;
                     $arms = null === $routeSetClass || !str_contains($scope, '.be-rs-')
                         ? self::scopeRouteArms($arms, $scope, $reason, $parsedArms, $rootTokens)
-                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms);
+                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms, $rootTokens);
                 }
                 $unit['text'] = $lead . implode(',', $arms) . $body;
                 $output[] = $unit;
@@ -1458,8 +1458,12 @@ final class CssStylesheetTransformer
         self::scopeRouteArms($arms, ':where(:root:is(.be-route-probe))', $reason, $parsedArms);
     }
 
-    /** @param list<string> $arms @return list<string> */
-    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms): array
+    /**
+     * @param list<string> $arms
+     * @param array<string,true>|null $rootTokens Classes and ids any document root can carry; null when unknown.
+     * @return list<string>
+     */
+    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms, ?array $rootTokens = null): array
     {
         // Test document membership on the subject, not on an assumed ancestor.
         // A class-led first compound can be either the root or a descendant;
@@ -1468,6 +1472,11 @@ final class CssStylesheetTransformer
         // authored compound, combinator and specificity (including :is()).
         $root = substr($scope, strlen(':where('), -1);
         $guard = ':where(' . $root . ',' . $root . ' *)';
+        // A subject that cannot be the document element only needs the
+        // descendant half: one after a combinator has an ancestor or a
+        // previous sibling, which the root never has, and a lone compound
+        // may require a type, class or id no document root carries.
+        $descendantGuard = ':where(' . $root . ' *)';
         foreach ($arms as &$arm) {
             $tokens = CssSelectorTokenizer::tokenize($arm);
             $first = $tokens['compounds'][0];
@@ -1485,7 +1494,8 @@ final class CssStylesheetTransformer
             $span = $tokens['compound_spans'][$last];
             $pseudo = self::pseudoElementOffset($tokens['compounds'][$last]);
             $insert = null === $pseudo ? $span['end'] : $span['start'] + $pseudo;
-            $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
+            $subjectOnly = $last > 0 || (null !== $rootTokens && !self::compoundMayMatchRoot($tokens['compounds'][$last], $rootTokens));
+            $arm = substr($arm, 0, $insert) . ($subjectOnly ? $descendantGuard : $guard) . substr($arm, $insert);
         }
         unset($arm);
         return $arms;

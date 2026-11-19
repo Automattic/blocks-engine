@@ -1907,12 +1907,18 @@ final class AuthorSelectorProjector
         if ( array() !== array_diff($carriers['reached'], $routed) ) {
             return null;
         }
-        $classes = array( 'blocks-engine-role-' . $kind, EngineMarker::SUBJECT_BASE_CLASS );
+        $classes = array( 'blocks-engine-role-' . $kind );
         if ( is_string($compound['type'] ?? null) ) {
             $classes[] = EngineMarker::subjectTagClass($compound['type']);
         }
         foreach ( array_values(array_unique(array_map('strval', $compound['classes'] ?? array()))) as $class ) {
             $classes[] = EngineMarker::subjectClassClass($class);
+        }
+        // Every carrier with a subject tag or class also carries the subject
+        // base, so only a universal compound needs the base to address it;
+        // inside `:where()` the base adds no weight either.
+        if ( 1 === count($classes) ) {
+            $classes[] = EngineMarker::SUBJECT_BASE_CLASS;
         }
         return array( 'target' => ':where(.' . implode('.', $classes) . ')', 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
     }
