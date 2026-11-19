@@ -341,6 +341,14 @@ final class TableAttributesBuilder
     private function registerTableCellGeometry(DOMElement $table): void
     {
         $rules = array();
+        // A table's height is a minimum in its formatting context. Putting it
+        // on core/table's scrolling figure instead would clip overflowing rows.
+        $height = trim((string) (SourceDeclarations::inline($table)['height'] ?? ''));
+        $height = trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $height));
+        if ( '' !== $height && 1 !== preg_match('/[{};<>]/', $height) ) {
+            $marker = $this->authorSelectorProjections()->ensureTableMarker(SourceDom::sourceElementIdentity($table), $table);
+            $this->layoutGeometry()->appendRule($marker, '.' . $marker . '>table{height:' . $height . ' !important}');
+        }
         $sectionRows = array( 'thead' => 0, 'tbody' => 0, 'tfoot' => 0 );
         foreach ( $table->getElementsByTagName('tr') as $row ) {
             if ( ! $row instanceof DOMElement || ! SourceDom::belongsToTable($row, $table) ) {
