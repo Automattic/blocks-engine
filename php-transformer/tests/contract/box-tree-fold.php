@@ -69,12 +69,13 @@ foreach (array(
     array(),
     array('child' => array('align-self' => 'stretch', 'justify-self' => 'stretch'), 'allow' => true),
     array('box' => array('border-radius' => '4.5px'), 'allow' => true, 'expect' => array('border-radius' => '4.5px')),
-    array('box' => array('border-radius' => '4.5px'), 'child' => array('overflow-x' => 'visible', 'overflow-y' => 'visible')),
+    array('box' => array('border-radius' => '4.5px'), 'child' => array('overflow-x' => 'visible', 'overflow-y' => 'visible'),
+        'allow' => true, 'expect' => array('overflow-x' => 'clip', 'overflow-y' => 'clip', 'border-radius' => '4.5px')),
     array('box' => array('border-radius' => '4.5px'), 'child' => array('border-radius' => '2px')),
     array('box' => array('border-radius' => '4.5px'), 'child' => array('border-top' => '1px solid rgb(0, 0, 0)')),
     array('box' => array('border-radius' => '4.5px', 'border-top' => '1px solid rgb(0, 0, 0)')),
     array('box' => array('top' => '1px')),
-    array('child' => array('overflow-x' => 'visible')),
+    array('child' => array('overflow-x' => 'visible'), 'allow' => true, 'expect' => array('overflow-x' => 'clip')),
     array('child' => array('box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px')),
     array('box' => array('z-index' => '1')),
     array('child' => array('outline' => '1px solid rgb(0, 0, 0)')),
@@ -89,6 +90,33 @@ foreach (array(
         'child' => array_replace($underlay, $change['child'] ?? array()),
         'child_box' => $change['child_box'] ?? $box,
         'expect' => array_merge(array('position' => 'absolute', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px'), $change['expect'] ?? array()),
+    );
+}
+
+// Rounded image frames can hand their clip to an equal-box relative child.
+$frame = array('position' => 'relative', 'overflow-x' => 'clip', 'overflow-y' => 'clip', 'border-radius' => '4.5px');
+foreach (array(
+    array(),
+    array('child' => array('border-radius' => '4.5px')),
+    array('child' => array('position' => 'static')),
+    array('badge' => array('position' => 'absolute')),
+    array('child' => array('box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px'), 'refuse' => true),
+    array('child' => array('outline' => '1px solid rgb(0, 0, 0)'), 'refuse' => true),
+    array('child' => array('transform' => 'matrix(1, 0, 0, 1, 1, 0)'), 'refuse' => true),
+    array('child' => array('border-radius' => '2px'), 'refuse' => true),
+    array('child' => array('position' => 'static'), 'badge' => array('position' => 'absolute'), 'refuse' => true),
+    array('child' => array('position' => 'static'), 'badge' => array('position' => 'fixed'), 'refuse' => true),
+    array('child_box' => $inset, 'refuse' => true),
+    array('child' => array('border-top' => '1px solid rgb(0, 0, 0)'), 'refuse' => true),
+) as $change) {
+    $cases[] = array(
+        'rule' => 'clip', 'box' => $frame,
+        'child' => array_replace(array('position' => 'relative'), $change['child'] ?? array()),
+        'badge' => $change['badge'] ?? array(),
+        'badge_box' => array('x' => 380, 'y' => 0, 'width' => 40, 'height' => 20),
+        'child_box' => $change['child_box'] ?? $box,
+        'refuse' => $change['refuse'] ?? false,
+        'expect' => array('overflow-x' => 'clip', 'overflow-y' => 'clip', 'border-radius' => '4.5px'),
     );
 }
 
@@ -120,7 +148,7 @@ foreach ($cases as $case) {
             });
             $observation['border_box'] = match ($id) {
                 'child' => $case['child_box'] ?? $box,
-                'badge' => array('x' => 380, 'y' => 0, 'width' => 20, 'height' => 20),
+                'badge' => $case['badge_box'] ?? array('x' => 380, 'y' => 0, 'width' => 20, 'height' => 20),
                 default => $box,
             };
             $node['viewports'][$viewport] = $observation;
@@ -151,7 +179,10 @@ foreach ($cases as $case) {
     foreach ($case['expect'] as $property => $value) {
         $declared = false;
         foreach ($classes as $class) {
-            if (preg_match('/\.' . preg_quote($class, '/') . '\.' . preg_quote($class, '/') . '\{[^}]*' . preg_quote($property . ':' . $value, '/') . '/', $css)) $declared = true;
+            $declaration = in_array($property, array('overflow-x', 'overflow-y'), true)
+                ? '(?:' . preg_quote($property, '/') . '|overflow):' . preg_quote($value, '/')
+                : preg_quote($property . ':' . $value, '/');
+            if (preg_match('/\.' . preg_quote($class, '/') . '\.' . preg_quote($class, '/') . '\{[^}]*' . $declaration . '/', $css)) $declared = true;
         }
         // A viewport-invariant value the block supports serializes as a block attribute instead.
         $declared = $declared || str_contains($match[1], '"' . $value . '"');

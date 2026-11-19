@@ -41,4 +41,27 @@ $root = implode("\n", array_column($frontend, 'content'));
 if (!str_contains($root, 'position: static !important') || !str_contains($root, 'overflow: hidden auto')) {
     throw new RuntimeException('Frontend document declarations must retain their inline source spelling.');
 }
+// The public write interface must not reserialize generated runtime contracts.
+$generated = '.runtime{ overflow : hidden auto ;position: static !important }';
+$writes = (new \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeAssetWrites())->writes(array(array(
+    'kind' => 'css', 'source' => 'engine-support',
+    'source_path' => 'assets/support.css', 'target_path' => 'assets/support.css',
+    'content' => $generated,
+)), new \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanonicalizer(array()));
+if ($generated !== $writes[0]['payload']['data']) {
+    throw new RuntimeException('Publication must not compact generated runtime contracts.');
+}
+// Generated support sheets retain the serialization of their owning generator.
+$supportCount = 0;
+foreach ($plan['assets'] as $asset) {
+    if ('engine-support' !== ($asset['source'] ?? null)) continue;
+    foreach ($plan['writes'] as $write) {
+        if ('theme_asset' !== $write['kind'] || $write['target_path'] !== $asset['target_path']) continue;
+        if (($write['payload']['data'] ?? null) !== $asset['content']) {
+            throw new RuntimeException('Publication must preserve generated support CSS byte-for-byte.');
+        }
+        $supportCount++;
+    }
+}
+if (0 === $supportCount) throw new RuntimeException('The fixture must exercise generated support publication.');
 echo "Published declaration whitespace compaction: ok\n";
