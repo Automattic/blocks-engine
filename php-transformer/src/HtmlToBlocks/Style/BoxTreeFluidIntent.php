@@ -503,7 +503,14 @@ final class BoxTreeFluidIntent
         // A replaced or attribute-sized element's intrinsic size is not the
         // author's to restate; a pseudo-element is neither.
         if ('' !== $this->pseudo) return $value;
-        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return $this->replacedHeightFromWidth($property, $value, $width);
+        $tag = strtolower($this->element->tagName);
+        // A button is a replaced element only in its width (`auto` is its
+        // fit-content size, which a copy on another tag would not shrink
+        // to). Its `auto` height is its content's and its carried padding
+        // and borders, as on any box, so a pixel height frozen from one
+        // capture would only hold the content at that capture's width.
+        if ('button' === $tag && 'height' === $property && 'auto' === $value) return $value;
+        if (in_array($tag, self::REPLACED, true)) return $this->replacedHeightFromWidth($property, $value, $width);
         if (in_array($property, array('width', 'height'), true) && $this->element->hasAttribute($property)) return null;
         return $value;
     }
