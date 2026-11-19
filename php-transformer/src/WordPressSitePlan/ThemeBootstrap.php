@@ -562,6 +562,21 @@ PHP;
             break;
         }
         self::serve($lines, $served, $units, 'template_frame');
+        // A source-specific page layout can carry a title that the generic
+        // page lifecycle lacks. Supply the native title for newly authored
+        // pages only; imported content and its source presentation stay intact.
+        $pageTemplate = array_column($templates, 'canonical_block_markup', 'slug')['page'] ?? '';
+        $titledPageLayouts = array_filter($templates, static fn(array $template): bool => str_starts_with($template['slug'], 'page-') && (str_contains($template['canonical_block_markup'], '<!-- wp:post-title') || 1 === preg_match('/<h1\\b/i', $template['canonical_block_markup'])));
+        $templateSlugs = array_column($templates, 'slug');
+        $titledPageRoutes = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && in_array(TemplateSlugs::forPage($page), $templateSlugs, true) && 1 === preg_match('/<h1\\b/i', $page['canonical_block_markup']));
+        if ((array() !== $titledPageLayouts || array() !== $titledPageRoutes) && !str_contains($pageTemplate, '<!-- wp:post-title') && 1 !== preg_match('/<h1\\b/i', $pageTemplate)) {
+            $lines[] = "add_filter( 'render_block_core/post-content', static function ( string \$content, array \$block, WP_Block \$instance ): string {";
+            $lines[] = "    \$post_id = (int) ( \$instance->context['postId'] ?? 0 );";
+            $lines[] = "    if ( ! \$post_id || ! is_page( \$post_id ) || 'page' !== get_post_type( \$post_id ) || '' !== get_post_meta( \$post_id, '_blocks_engine_reconciliation_identity', true ) || preg_match( '/<h1\\\\b|wp-block-post-title/i', \$content ) ) return \$content;";
+            $lines[] = "    return render_block( array( 'blockName' => 'core/post-title', 'attrs' => array( 'level' => 1 ), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array() ) ) . \$content;";
+            $lines[] = "}, 10, 3 );";
+        }
+        self::serve($lines, $served, $units, 'page_authoring_title');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
         }

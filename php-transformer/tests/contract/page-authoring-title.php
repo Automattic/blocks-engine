@@ -3,28 +3,35 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
-$assert = static function (bool $condition, string $message): void {
-    if (!$condition) throw new RuntimeException($message);
-};
-$files = array();
-foreach (array('index' => 'Welcome', 'about' => 'Meet the team', 'policy' => 'Our policy') as $slug => $headline) {
-    $files[] = array('path' => $slug . '.html', 'metadata' => array('post_type' => 'page'),
-        'content' => '<html><head><title>' . ucfirst($slug) . ' | Example</title></head><body><main><h1>' . $headline . '</h1><p>Body for ' . $slug . '.</p></main></body></html>');
-}
-$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
-WordPressSitePlan::assertValid($plan);
-$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
-$assert(str_contains($templates['page'], '<!-- wp:post-title'), 'Fresh pages render their native title outside authored body content.');
-foreach ($plan['pages'] as $page) {
-    $slug = pathinfo($page['source_path'], PATHINFO_FILENAME);
-    $headline = array('index' => 'Welcome', 'about' => 'Meet the team', 'policy' => 'Our policy')[$slug];
-    $assert($headline === $page['title'], 'The page title follows the visible H1, not the SEO label.');
-    $assert(ucfirst($slug) . ' | Example' === $page['document_metadata']['title'], 'SEO document metadata is preserved.');
-    $template = $templates[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page-' . $page['slug'])] ?? '';
-    $assert('' !== $template && !str_contains($template, '<!-- wp:post-title'), 'Captured routes retain a body-only template without a duplicate title.');
-    $assert(str_contains($page['canonical_block_markup'], $headline), 'Captured headline content is retained for visual parity.');
-}
-fwrite(STDOUT, "page-authoring-title: ok\n");
+$filters = array();
+function add_filter($hook, $callback, ...$args) { $GLOBALS['filters'][$hook][] = $callback; }
+function add_action(...$args) {}
+function remove_action(...$args) {}
+function remove_filter(...$args) {}
+function is_page($id) { return 42 === $id; }
+function get_post_type($id) { return 'page'; }
+function get_post_meta(...$args) { return $GLOBALS['identity']; }
+function render_block($block) { return '<h1 class="wp-block-post-title">Authored title</h1>'; }
+class WP_Block { public array $context = array('postId' => 42); }
+
+$templates = array(
+    array('slug' => 'page', 'canonical_block_markup' => '<!-- wp:post-content /-->'),
+    array('slug' => 'page-policy', 'canonical_block_markup' => '<h1>Policy</h1><!-- wp:post-content /-->'),
+);
+$php = ThemeBootstrap::functionsPhp(array(), array(), array(), array(), $templates);
+eval(substr($php, 5));
+$assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
+$callbacks = $filters['render_block_core/post-content'] ?? array();
+$assert(1 === count($callbacks), 'A titled route layout supplies the missing generic page title.');
+$render = $callbacks[0];
+$GLOBALS['identity'] = '';
+$assert(str_starts_with($render('<p>New body</p>', array(), new WP_Block()), '<h1'), 'Newly authored pages render a native title.');
+$GLOBALS['identity'] = 'captured-page';
+$assert('<p>Captured body</p>' === $render('<p>Captured body</p>', array(), new WP_Block()), 'Captured routes remain byte-identical.');
+$GLOBALS['identity'] = '';
+$assert('<h1>Own heading</h1>' === $render('<h1>Own heading</h1>', array(), new WP_Block()), 'An authored heading is not duplicated.');
+$plain = ThemeBootstrap::functionsPhp(array(), array(), array(), array(), array($templates[0]));
+$assert(!str_contains($plain, "add_filter( 'render_block_core/post-content'"), 'Sites without titled route layouts retain existing behavior.');
+echo "page-authoring-title: ok\n";

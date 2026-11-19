@@ -196,10 +196,7 @@ final class WordPressSitePlan
         }
         $partSlugs = array();
         $overrideTemplateSlugs = TemplateSlugs::overrides($plan['template_parts'], array_column(array_filter($plan['templates'], static fn(array $template): bool => array_key_exists('shell_frame', $template)), 'slug'));
-        foreach ($plan['pages'] as $page) {
-            if (isset($page['route_template'])) $overrideTemplateSlugs[$page['route_template']] = true;
-            elseif ('page' === ($page['post_type'] ?? null) && empty($page['entrypoint'])) $overrideTemplateSlugs[TemplateSlugs::forPage($page)] = true;
-        }
+        foreach ($plan['pages'] as $page) if (isset($page['route_template'])) $overrideTemplateSlugs[$page['route_template']] = true;
         foreach ( $plan['template_parts'] as $part ) {
             PlanDocuments::assertValid($part, 'template part', true, $tokens);
             if ($part['content_hash'] !== self::contentHash($part['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan template part has a stale content hash.');
