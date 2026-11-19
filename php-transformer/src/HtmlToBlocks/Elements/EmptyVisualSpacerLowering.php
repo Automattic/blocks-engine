@@ -73,7 +73,7 @@ final class EmptyVisualSpacerLowering
         // container's is height. Checking width alone let an authored
         // height survive the escape hatch but still be crushed by the
         // row-shaped compatibility box below.
-        $isColumnAxis = in_array(strtolower(trim((string) ($parentDeclarations['flex-direction'] ?? 'row'))), array( 'column', 'column-reverse' ), true);
+        $isColumnAxis = in_array(CssValueInspector::declared($parentDeclarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
         $mainAxisSizeProperties = $isColumnAxis
             ? array( 'height', 'min-height', 'max-height', 'aspect-ratio', 'flex', 'flex-basis' )
             : array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' );

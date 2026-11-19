@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use DOMElement;
 
@@ -61,6 +62,24 @@ final class SearchBlockConversionContext
 
         if ( ! $textInput instanceof DOMElement || ! self::hasSearchFormSignal($form, $textInput) ) {
             return null;
+        }
+
+        // core/search has only one control label slot. Labels whose for
+        // names a wrapper or no element cannot ride on that control; leave
+        // the form to native lowering so their authored copy survives.
+        $controlLabel = FormControlLabel::element($textInput);
+        foreach ($form->getElementsByTagName('label') as $label) {
+            if ($label === $controlLabel) {
+                continue;
+            }
+            $for = SourceDom::attr($label, 'for');
+            if ('' === $for) {
+                continue;
+            }
+            $target = $label->ownerDocument?->getElementById($for);
+            if (! $target instanceof DOMElement || ! FormControlClassifier::isControlElement($target)) {
+                return null;
+            }
         }
 
         $method = strtolower(trim(SourceDom::attr($form, 'method')));

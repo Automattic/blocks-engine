@@ -306,7 +306,13 @@ final class RichTextStylingHookNormalizer
         // nested inside it (format tags). Only a replacing carrier keeps the
         // author's classes, so only there can a media-conditional class rule
         // keep answering after conversion.
-        $carrierReplacesSource = in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) || RichTextInlineTags::isUnknownHtmlElement($element);
+        // An empty generated glyph has no italic/bold text semantics to
+        // preserve. Keeping its format tag would let descendant tag rules
+        // paint a second box around the mark that already owns that box.
+        $sourceIsFontGlyph = ! $sourceIsLink && '' === trim($element->textContent ?? '')
+            && 0 === $element->childElementCount
+            && $this->styleResolver->hasBeforeFontGlyph($element);
+        $carrierReplacesSource = $sourceIsFontGlyph || in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) || RichTextInlineTags::isUnknownHtmlElement($element);
 
         $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
         if ( $carrierReplacesSource ) {
@@ -359,8 +365,22 @@ final class RichTextStylingHookNormalizer
             return false;
         }
 
+        // A box-tree carrier restyles the element it was captured on. On a
+        // format tag (`small`, `strong`) that element keeps its own box, so
+        // it keeps the carrier: on the nested mark, the format tag's own
+        // inline box would take the parent's font and line height.
+        $ownCarriers = array();
+        if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
+            $ownCarriers = array_values(array_filter(SourceDom::tokens(SourceDom::attr($element, 'class')), fn(string $class): bool => $this->session->layoutGeometryState()->isBoxTreeCarrier($class)));
+        }
         $mark = $document->createElement('mark');
         foreach ( $sourceIsLink ? array() : $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
+            if ( 'class' === $name && array() !== $ownCarriers ) {
+                $value = implode(' ', array_diff(SourceDom::tokens($value), $ownCarriers));
+                if ( '' === $value ) {
+                    continue;
+                }
+            }
             $mark->setAttribute($name, $value);
         }
         $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
@@ -393,7 +413,9 @@ final class RichTextStylingHookNormalizer
             return true;
         }
 
-        if ( ! $sourceIsLink ) {
+        if ( array() !== $ownCarriers ) {
+            $element->setAttribute('class', implode(' ', $ownCarriers));
+        } elseif ( ! $sourceIsLink ) {
             $element->removeAttribute('class');
         }
         $element->removeAttribute('style');

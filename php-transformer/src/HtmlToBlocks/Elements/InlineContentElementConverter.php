@@ -190,8 +190,12 @@ final class InlineContentElementConverter implements ElementConverter
         if ('' === trim($element->textContent ?? '') && 0 === $element->childElementCount && $this->styleResolver->hasBeforeFontGlyph($element)) {
             $carrier = $element->cloneNode(true);
             $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
-            // A family declared on the pseudo-element itself would not reach
-            // the mark, whose tag and attributes no longer match that rule.
+            // Pseudo typography no longer matches the lowered mark. Carry
+            // only glyph typography, not content or a second pseudo box.
+            $declarations = array_merge($declarations, array_intersect_key(
+                $this->styleResolver->beforePseudoDeclarations($element),
+                array_flip(array( 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'font-stretch', 'line-height', 'letter-spacing', 'word-spacing', 'text-transform' ))
+            ));
             $declarations['font-family'] = (string) $this->styleResolver->beforeFontGlyphFamily($element);
             $carrier->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
             $content = SourceDom::outerHtml($carrier);

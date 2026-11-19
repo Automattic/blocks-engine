@@ -56,7 +56,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
             $columns->structuralStyle(...),
             $this->createBlock->createBlock(...),
             $columns->referenceViewportStyle(...),
-            $columns->isSingleRowAtMobile(...)
+            $columns->isSingleRowAtMobile(...),
+            $columns->referenceFloat(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -73,6 +74,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
      *        viewport, media-conditional rules included; classification only. Defaults to $resolvedStyle.
      * @param (callable(DOMElement): bool)|null $isSingleRowAtMobile Whether the source container is still
      *        one non-wrapping flex row at the mobile reference viewport; such a row keeps its columns unstacked.
+     * @param (callable(DOMElement): string)|null $referenceFloat The element's own `float` at the desktop
+     *        reference viewport. Defaults to the `float` in $referenceViewportStyle.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -84,9 +87,12 @@ final class ColumnsPattern implements PatternRecognizerInterface
         callable $resolvedStyle,
         callable $createBlock,
         ?callable $referenceViewportStyle = null,
-        ?callable $isSingleRowAtMobile = null
+        ?callable $isSingleRowAtMobile = null,
+        ?callable $referenceFloat = null
     ): ?array {
-        if ( ! $this->looksLikeColumnsContainer($element, $resolvedStyle($element), $referenceViewportStyle ?? $resolvedStyle) ) {
+        $referenceViewportStyle ??= $resolvedStyle;
+        $referenceFloat ??= static fn (DOMElement $node): string => CssValueInspector::declared(SourceDeclarations::parse($referenceViewportStyle($node)), 'float');
+        if ( ! $this->looksLikeColumnsContainer($element, $resolvedStyle($element), $referenceViewportStyle, $referenceFloat) ) {
             return null;
         }
 
@@ -168,8 +174,9 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
     /**
      * @param callable(DOMElement): string $referenceViewportStyle
+     * @param callable(DOMElement): string $referenceFloat
      */
-    private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle, callable $referenceViewportStyle): bool
+    private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle, callable $referenceViewportStyle, callable $referenceFloat): bool
     {
         $inlineStyle = strtolower(SourceDom::attr($element, 'style'));
         $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : $inlineStyle);
@@ -201,8 +208,6 @@ final class ColumnsPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $className = strtolower(SourceDom::attr($element, 'class'));
-
         if ( in_array($display, array( 'flex', 'inline-flex' ), true) && null !== SourceDom::firstChildElement($element, 'svg') ) {
             return false;
         }
@@ -231,15 +236,45 @@ final class ColumnsPattern implements PatternRecognizerInterface
             return false;
         }
 
-        // Only a complete column class names a layout. A fragment in a theme
-        // option such as theme-single-column-width-full describes no geometry.
+        // A flex row lays its children side by side whatever they contain;
+        // without one, a float inside a full-width child is the only
+        // side-by-side geometry and a group carries it.
+        $flexRow = in_array($display, array( 'flex', 'inline-flex' ), true);
+
+        // column/columns class tokens do not establish a columns container:
+        // they can name a full-width content wrapper in normal document flow.
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
-        return (bool) preg_match('/(?:^|\s)columns?(?:$|\s)/', $className)
+        return $this->namesColumnsContainer($element)
             || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
-            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
-            || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
+            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle, $referenceFloat, $flexRow) )
+            || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle, $referenceFloat, $flexRow)
             || in_array(CssValueInspector::declared(SourceDeclarations::parse($inlineStyle), 'display'), array( 'flex', 'inline-flex' ), true);
+    }
+
+    /**
+     * A complete plural `columns` class names a row of column boxes, but only
+     * when every child is a box container. The singular `column` names one
+     * item (Drupal Zen's `#content.column`), and headings, paragraphs or
+     * navigation children are flow content, not columns.
+     */
+    private function namesColumnsContainer(DOMElement $element): bool
+    {
+        if ( ! preg_match('/(?:^|\s)columns(?:$|\s)/', strtolower(SourceDom::attr($element, 'class'))) ) {
+            return false;
+        }
+        $children = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText && '' === trim($child->textContent) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'div', 'section', 'aside' ), true) ) {
+                return false;
+            }
+            ++$children;
+        }
+
+        return $children >= 2;
     }
 
     private function looksLikeSplitLayout(DOMElement $element): bool
@@ -273,14 +308,19 @@ final class ColumnsPattern implements PatternRecognizerInterface
      *    vertical page stack whose footer class happens to contain
      *    "-content" — is normal-flow stacking, not a split layout, and
      *    core/columns would lay those sections out side by side.
+     *  - outside a flex row, a sidebar-named block whose rendered content is
+     *    entirely floated is a full-width block stacked above its partner;
+     *    the float, carried on a group, is what places it beside the content.
      *
      * The layout is read from the resting cascade WITH media-conditional
      * rules, so a mobile-first sidebar hidden at the base viewport and
      * revealed by a `min-width` rule still counts.
      *
      * @param callable(DOMElement): string $referenceViewportStyle
+     * @param callable(DOMElement): string $referenceFloat
+     * @param bool $flexRow Whether the container itself is a horizontal flex row.
      */
-    private function hasSidebarAndContentChildren(DOMElement $element, callable $referenceViewportStyle): bool
+    private function hasSidebarAndContentChildren(DOMElement $element, callable $referenceViewportStyle, callable $referenceFloat, bool $flexRow): bool
     {
         $namesSidebar = false;
         $namesContent = false;
@@ -330,6 +370,15 @@ final class ColumnsPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            // A sidebar-named block whose rendered content is entirely
+            // floated (Drupal Zen's `aside.sidebars > section.region {float:right}`)
+            // is a full-width float carrier stacked above its partner, not a
+            // pane. The side-by-side geometry lives in the float, which a
+            // group carries; core/columns would ignore it and mirror the page.
+            if ( ! $flexRow && ! $content && $this->isFloatCarrier($child, $referenceViewportStyle, $referenceFloat) ) {
+                continue;
+            }
+
             ++$flowPanes;
             $hasSidebar = $hasSidebar || $sidebar;
             $hasContent = $hasContent || $content;
@@ -372,6 +421,49 @@ final class ColumnsPattern implements PatternRecognizerInterface
         }
 
         return false;
+    }
+
+    /**
+     * Whether every rendered in-flow child of the element floats and the
+     * element itself neither floats nor holds direct text: its own box is a
+     * full-width block in normal flow, and any beside-the-partner placement
+     * comes from the floated descendants.
+     *
+     * @param callable(DOMElement): string $referenceViewportStyle
+     * @param callable(DOMElement): string $referenceFloat
+     */
+    private function isFloatCarrier(DOMElement $element, callable $referenceViewportStyle, callable $referenceFloat): bool
+    {
+        if ( $this->floats($referenceFloat($element)) ) {
+            return false;
+        }
+
+        $floated = 0;
+        foreach ( $element->childNodes as $node ) {
+            if ( XML_TEXT_NODE === $node->nodeType && '' !== trim($node->textContent ?? '') ) {
+                return false;
+            }
+
+            if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( ! $this->isLaidOutInFlow($node, $referenceViewportStyle($node)) ) {
+                continue;
+            }
+
+            if ( ! $this->floats($referenceFloat($node)) ) {
+                return false;
+            }
+            ++$floated;
+        }
+
+        return $floated > 0;
+    }
+
+    private function floats(string $float): bool
+    {
+        return in_array(CssValueInspector::comparable($float), array( 'left', 'right', 'inline-start', 'inline-end' ), true);
     }
 
     /**

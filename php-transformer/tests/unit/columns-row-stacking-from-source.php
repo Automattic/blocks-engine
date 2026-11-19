@@ -69,6 +69,7 @@ $findColumns = static function (array $blocks) use (&$findColumns): ?array {
 // A row that stays one row at narrow widths does not stack.
 $singleRow = array(
     'inline flex row' => array( $row($inlineRow) ),
+    'inline flex row with column-named children' => array( str_replace('<div style="min-width:', '<div class="column" style="min-width:', $row($inlineRow)) ),
     'inline flex row without a direction' => array( $row('display:flex;gap:24px') ),
     'inline flex row with an explicit nowrap flow' => array( $row('display:flex;flex-flow:row nowrap;gap:24px') ),
     'inline flex row whose narrow-width rule only changes its gap' => array( $row($inlineRow), '@media (max-width: 809px){.counter-row{gap:8px}}' ),
@@ -91,7 +92,6 @@ $stacks = array(
     'row whose important narrow-width rule overrides the inline row' => array( $row($inlineRow), '@media (max-width: 809px){.counter-row{flex-direction:column !important}}' ),
     'row that becomes block flow below a breakpoint' => array( $row('display:flex;gap:24px'), '@media (max-width: 809px){.counter-row{display:block !important}}' ),
     'wrapping row' => array( $row('display:flex;flex-wrap:wrap;gap:24px') ),
-    'column-named container with no flex display' => array( '<div class="columns"><div><p>One</p></div><div><p>Two</p></div></div>' ),
 );
 
 foreach ( $stacks as $label => $case ) {

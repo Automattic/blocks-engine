@@ -25,11 +25,11 @@ final class FormLayoutGraphBuilder
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
-    private const SOURCE_BOX_PROPERTIES = array('max-width', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'position', 'top', 'right', 'bottom', 'left', 'place-self');
+    private const SOURCE_BOX_PROPERTIES = array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'position', 'top', 'right', 'bottom', 'left', 'place-self');
     // Shorthands read from source and expanded into their longhands before the
     // cascade; they never appear as graph keys themselves.
-    private const SHORTHAND_PROPERTIES = array('flex-flow', 'margin-block', 'margin-inline', 'padding-block', 'padding-inline');
-    private const SOURCE_BOX_KEYS = array('max_width', 'margin_top', 'margin_right', 'margin_bottom', 'margin_left', 'position', 'top', 'right', 'bottom', 'left');
+    private const SHORTHAND_PROPERTIES = array('flex-flow');
+    private const SOURCE_BOX_KEYS = array('margin_top', 'margin_right', 'margin_bottom', 'margin_left', 'position', 'top', 'right', 'bottom', 'left');
     private const PROPERTIES = array( 'display', 'width', 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' );
     private const LAYOUT_KEYS = array( 'display', 'width', 'height', 'min_height', 'padding', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'padding_block_start', 'padding_block_end', 'padding_inline_start', 'padding_inline_end', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
     private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
@@ -43,6 +43,12 @@ final class FormLayoutGraphBuilder
     private array $nodeIds = array();
     private array $spacers = array();
     private array $labels = array();
+    /** @var array<string, string|null> One build's graph entries: each id's parent id, read in O(1) per ancestor step. */
+    private array $entryParents = array();
+    /** @var array<string, int>|null Data-entry controls at or below each entry id, counted once per build. */
+    private ?array $dataEntryCounts = null;
+    /** @var array<string, string>|null The first data-entry control at or below each entry id. */
+    private ?array $firstDataEntryControls = null;
     /** Selector match memo for one build's document; replaced at every build() so it never spans documents. */
     private CssSelectorMatchCache $selectorCache;
     /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
@@ -220,6 +226,7 @@ final class FormLayoutGraphBuilder
             $this->diagnostics[] = 'node_or_depth_limit';
         }
         $entries = self::withoutDanglingLabels(array_slice($all, 0, self::MAX_NODES));
+        $this->indexEntries($entries);
         $nodes = array();
         $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'), selectorMatchCache: $selectorCache);
         $variants = array();
@@ -287,7 +294,7 @@ final class FormLayoutGraphBuilder
                 continue;
             }
             foreach ( array_keys($nodes) as $nodeId ) {
-                if ( $this->hasAncestor($entries, $nodeId, $entry['id']) ) {
+                if ( $this->hasAncestor($nodeId, $entry['id']) ) {
                     $nodes[$entry['id']] = $this->node($entry, array(), array());
                     break;
                 }
@@ -622,27 +629,73 @@ final class FormLayoutGraphBuilder
         return array_values(array_filter($entries, static fn (array $entry): bool => ! isset($entry['for_control']) || isset($ids[$entry['for_control']])));
     }
 
-    /** @param list<array<string, mixed>> $entries */
-    private function hasAncestor(array $entries, string $node, string $ancestor): bool
+    /**
+     * Index one build's entries so ancestry and the per-entry data-entry
+     * questions cost a parent-chain walk, not a scan of every entry per step.
+     * An id keeps its first entry's parent, the one a scan would reach first.
+     *
+     * @param list<array<string, mixed>> $entries
+     */
+    private function indexEntries(array $entries): void
     {
+        $this->entryParents = array();
         foreach ( $entries as $entry ) {
-            if ( $entry['id'] !== $node ) {
-                continue;
+            if ( ! array_key_exists($entry['id'], $this->entryParents) ) {
+                $this->entryParents[$entry['id']] = $entry['parent'];
             }
-            for ( $parent = $entry['parent']; null !== $parent; ) {
-                if ( $parent === $ancestor ) {
-                    return true;
-                }
-                foreach ( $entries as $candidate ) {
-                    if ( $candidate['id'] === $parent ) {
-                        $parent = $candidate['parent'];
-                        continue 2;
-                    }
-                }
+        }
+        $this->dataEntryCounts = null;
+        $this->firstDataEntryControls = null;
+    }
+
+    private function hasAncestor(string $node, string $ancestor): bool
+    {
+        if ( ! array_key_exists($node, $this->entryParents) ) {
+            return false;
+        }
+        for ( $parent = $this->entryParents[$node]; null !== $parent; $parent = $this->entryParents[$parent] ) {
+            if ( $parent === $ancestor ) {
+                return true;
+            }
+            if ( ! array_key_exists($parent, $this->entryParents) ) {
                 return false;
             }
         }
         return false;
+    }
+
+    /**
+     * Each entry id's data-entry controls at or below it, in entry order,
+     * attributed by walking every control's ancestor chain once.
+     *
+     * @param list<array<string, mixed>> $entries
+     */
+    private function indexDataEntryControls(array $entries): void
+    {
+        if ( null !== $this->dataEntryCounts ) {
+            return;
+        }
+        $this->dataEntryCounts = array();
+        $this->firstDataEntryControls = array();
+        foreach ( $entries as $entry ) {
+            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
+                continue;
+            }
+            $holders = array( $entry['id'] => true );
+            if ( array_key_exists($entry['id'], $this->entryParents) ) {
+                for ( $parent = $this->entryParents[$entry['id']]; null !== $parent; $parent = $this->entryParents[$parent] ) {
+                    $holders[$parent] = true;
+                    if ( ! array_key_exists($parent, $this->entryParents) ) {
+                        break;
+                    }
+                }
+            }
+            foreach ( array_keys($holders) as $holder ) {
+                $holder = (string) $holder;
+                $this->dataEntryCounts[$holder] = ($this->dataEntryCounts[$holder] ?? 0) + 1;
+                $this->firstDataEntryControls[$holder] ??= $entry['id'];
+            }
+        }
     }
 
     /** @return list<DOMElement> */
@@ -822,30 +875,15 @@ final class FormLayoutGraphBuilder
     /** @param list<array<string, mixed>> $entries */
     private function dataEntryControlId(array $entries, string $id): ?string
     {
-        foreach ( $entries as $entry ) {
-            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
-                continue;
-            }
-            if ( $entry['id'] === $id || $this->hasAncestor($entries, $entry['id'], $id) ) {
-                return $entry['id'];
-            }
-        }
-        return null;
+        $this->indexDataEntryControls($entries);
+        return $this->firstDataEntryControls[$id] ?? null;
     }
 
     /** @param list<array<string, mixed>> $entries */
     private function dataEntryDescendants(array $entries, string $id): int
     {
-        $count = 0;
-        foreach ( $entries as $entry ) {
-            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
-                continue;
-            }
-            if ( $entry['id'] === $id || $this->hasAncestor($entries, $entry['id'], $id) ) {
-                ++$count;
-            }
-        }
-        return $count;
+        $this->indexDataEntryControls($entries);
+        return $this->dataEntryCounts[$id] ?? 0;
     }
 
     /**
@@ -1081,7 +1119,7 @@ final class FormLayoutGraphBuilder
         $expanded = array();
         foreach ($declarations as $declaration) {
             $name = $declaration['name'];
-            if (!in_array($name, array('margin', 'place-self', 'flex-flow', 'margin-block', 'margin-inline', 'padding-block', 'padding-inline'), true)) {
+            if (!in_array($name, array('margin', 'place-self', 'flex-flow'), true)) {
                 $expanded[] = $declaration;
                 continue;
             }
@@ -1090,11 +1128,6 @@ final class FormLayoutGraphBuilder
             $parts = CssValueSplitter::splitTopLevelWhitespace($value);
             if ('margin' === $name && count($parts) >= 1 && count($parts) <= 4) {
                 foreach (array_combine(array('top', 'right', 'bottom', 'left'), CssValueInspector::expandBoxShorthand($value)) as $side => $part) $expanded[] = array('name' => 'margin-' . $side, 'value' => $part . $important);
-            } elseif (in_array($name, array('margin-block', 'margin-inline', 'padding-block', 'padding-inline'), true) && count($parts) >= 1 && count($parts) <= 2) {
-                // The provider graph names logical sides, not axis shorthands.
-                // Expand before cascading so later longhands still win normally.
-                $expanded[] = array('name' => $name . '-start', 'value' => $parts[0] . $important);
-                $expanded[] = array('name' => $name . '-end', 'value' => ($parts[1] ?? $parts[0]) . $important);
             } elseif ('flex-flow' === $name && null !== ($flow = FlexFlowParser::parse($parts))) {
                 // `flex-flow` resets both longhands; an omitted one is its initial value.
                 $expanded[] = array('name' => 'flex-direction', 'value' => $flow[0] . $important);

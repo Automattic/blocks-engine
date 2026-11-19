@@ -13,6 +13,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 /** Replay source child rules across native Query Loop transport wrappers. */
 final class ListingQueryPresentation
 {
+    /** Zero-weight route gate added by route-variant scoping (`be-r-…`/`be-rs-…` root classes). */
+    private const ROUTE_SCOPE = ':where\\(:root(?:\\.be-rs?(?:-[0-9a-f]+)?(?::not\\((?:\\.be-rs?-[0-9a-f]+,?)+\\))?|:(?:is|not)\\((?:\\.be-rs?-[0-9a-f]+,?)+\\))\\)';
+
     /** @param list<array<string,mixed>> $assets @param list<string> $containers @return list<array<string,mixed>> */
     public static function project(array $assets, array $containers): array
     {
@@ -37,6 +40,13 @@ final class ListingQueryPresentation
                 $aliases = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim(preg_replace('~/\*.*?\*/~s', '', $selector) ?? $selector);
+                    // Route scoping runs at compile time, before Query Loops
+                    // exist: carry its ancestor gate onto the alias.
+                    $scope = '';
+                    if (preg_match('/^(' . self::ROUTE_SCOPE . ')\s+/', $selector, $gate)) {
+                        $scope = $gate[1] . ' ';
+                        $selector = substr($selector, strlen($gate[0]));
+                    }
                     $zero = false;
                     $suffix = '';
                     if (str_starts_with($selector, ':where(')) {
@@ -53,19 +63,19 @@ final class ListingQueryPresentation
                             }
                             $offset = $next;
                         }
-                        if (!$zero || !preg_match('/^(?::not\(\.' . EngineMarker::specificityPatternBody('specificity-class') . '\))*$/', $suffix)) continue;
+                        if (!$zero || !preg_match('/^(?::not\(\.' . EngineMarker::specificityPatternBody('specificity-class') . '\))*$/', self::withoutRouteScope($suffix))) continue;
                     }
                     $parts = explode('>', $selector);
                     if (2 !== count($parts)) continue;
                     [$parent, $child] = array_map('trim', $parts);
                     if ('' === $child) continue;
                     if (!preg_match('/^\*?((?::not\(:last-child\)|:first-child|:last-child)?)$/', $child, $match)) continue;
-                    $parsed = CssSelectorMatcher::parse($parent);
+                    $parsed = CssSelectorMatcher::parse(self::withoutRouteScope($parent));
                     if (!($parsed['supported'] ?? false)) continue;
                     foreach ($elements as $element) {
                         if (!CssSelectorMatcher::matches($element['container'], $parsed)['matches']) continue;
                         $alias = $parent . '>:where(.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li)' . $match[1] . '>:where(' . $element['root'] . ')';
-                        $aliases[($zero ? ':where(' . $alias . ')' : $alias) . $suffix] = true;
+                        $aliases[$scope . ($zero ? ':where(' . $alias . ')' : $alias) . $suffix] = true;
                     }
                 }
                 return $original . (array() === $aliases ? '' : implode(',', array_keys($aliases)) . '{' . $body . '}');
@@ -75,5 +85,11 @@ final class ListingQueryPresentation
         }
         unset($asset);
         return $assets;
+    }
+
+    /** A scoped compound (`.parent:where(:root:not(.be-r-…))`) keeps its gate on the alias but matches as `.parent`. */
+    private static function withoutRouteScope(string $selector): string
+    {
+        return preg_replace('/' . self::ROUTE_SCOPE . '/', '', $selector) ?? $selector;
     }
 }
