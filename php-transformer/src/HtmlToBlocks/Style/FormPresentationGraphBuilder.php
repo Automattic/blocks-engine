@@ -633,8 +633,8 @@ final class FormPresentationGraphBuilder
                     }
                 }
                 // A provider wraps a select in its own styled dropdown shell.
-                // Resolve explicit source font inheritance before that boundary:
-                // leaving `font:inherit` would inherit the provider shell instead.
+                // Resolve the source family before that boundary: leaving it
+                // implicit would inherit the provider shell's typeface instead.
                 if ('control' === $role && 'select' === strtolower($element->tagName)) {
                     $matched['base'] = $this->selectInheritedFont($element, $matched['base'], $analysis['rules']);
                     foreach ($matched['conditional'] as &$facts) {
@@ -1686,11 +1686,15 @@ final class FormPresentationGraphBuilder
         return array( 'base' => $base, 'conditional' => $conditional );
     }
 
-    /** Resolve a select's explicit font inheritance against its source ancestors. */
+    /** Resolve a select's explicitly inherited family against its source ancestors. */
     private function selectInheritedFont(DOMElement $element, array $facts, array $rules): array
     {
         if ('inherit' !== strtolower($facts['font']['value'] ?? '')) return $facts;
-        $properties = array_fill_keys(self::SHORTHAND_LONGHANDS['font'], true);
+        // Only the family needs to cross the provider boundary. In particular,
+        // copying an ancestor's line-height onto a native select changes its
+        // control metrics (and the layout below it), rather than just restoring
+        // the source typeface. Keep all other authored control facts intact.
+        $properties = array('font-family' => true);
         foreach (array_keys($properties) as $property) {
             if (isset($facts[$property]) && 'inherit' !== strtolower($facts[$property]['value'])) unset($properties[$property]);
         }

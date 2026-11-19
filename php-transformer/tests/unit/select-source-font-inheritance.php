@@ -11,7 +11,7 @@ $result = (new HtmlTransformer())->transform(
 )->toArray();
 $styles = $result['fallbacks'][0]['presentation_graph']['controls'][0]['control']['styles'] ?? array();
 if ('Arial,sans-serif' !== ($styles['font_family'] ?? null)
-    || '1.5' !== ($styles['line_height'] ?? null)
+    || isset($styles['line_height'])
     || '16px' !== ($styles['font_size'] ?? null)
 ) {
     throw new RuntimeException('Select must inherit its source font, not the provider dropdown shell: ' . json_encode($styles));
@@ -20,10 +20,20 @@ if ('Arial,sans-serif' !== ($styles['font_family'] ?? null)
 // The resolved value still belongs to the select's winning inheritance rule:
 // giving it the ancestor's lower specificity lets font:inherit reset it again.
 $provenance = $result['fallbacks'][0]['presentation_graph']['controls'][0]['control']['provenance'] ?? array();
-foreach (array('font-family', 'line-height') as $property) {
+foreach (array('font-family') as $property) {
     $owners = array_values(array_filter($provenance, static fn (array $fact): bool => in_array($property, $fact['properties'], true)));
     if (1 !== count($owners) || '.field select' !== $owners[0]['selector']) {
         throw new RuntimeException('Resolved select font must retain its own cascade rank: ' . json_encode($provenance));
     }
+}
+// Resolving a select must not restyle sibling controls that still inherit
+// through their original source container rather than a dropdown wrapper.
+$withSibling = (new HtmlTransformer())->transform(
+    '<style>html{line-height:1.5}body{font-family:Arial,sans-serif}.field select,.field input{font:inherit;font-size:16px}</style>'
+    . '<form class="field" method="post"><label for="name">Name</label><input id="name" name="name"><label for="topic">Topic</label><select id="topic" name="topic"><option>One</option></select><button>Send</button></form>'
+)->toArray();
+$inputStyles = $withSibling['fallbacks'][0]['presentation_graph']['controls'][0]['control']['styles'] ?? array();
+if ('inherit' !== ($inputStyles['font'] ?? null) || isset($inputStyles['font_family']) || isset($inputStyles['line_height'])) {
+    throw new RuntimeException('Select family resolution must not change sibling control metrics: ' . json_encode($inputStyles));
 }
 echo "Select source font inheritance passed\n";
