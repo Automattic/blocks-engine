@@ -1005,13 +1005,13 @@ final class DesignSystem
                 foreach ($matches[1] as $json) {
                     $attributes = json_decode($json, true);
                     if (!is_array($attributes)) continue;
-                    foreach (array('textColor', 'backgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
+                    foreach (array('textColor', 'backgroundColor', 'overlayTextColor', 'overlayBackgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
                     $style = ArrayField::array($attributes, 'style');
-                    $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
+                    $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $attributes['customOverlayTextColor'] ?? null, $attributes['customOverlayBackgroundColor'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
                     $border = ArrayField::array($style, 'border');
-                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
+                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $attributes['customOverlayTextColor'] ?? null, $attributes['customOverlayBackgroundColor'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
                     foreach (array('top', 'right', 'bottom', 'left') as $side) $colors[] = $border[$side]['color'] ?? null;
                     foreach ($colors as $color) if (is_string($color) && !str_starts_with($color, 'var:') && null !== $this->colorSlug($color)) $literalPreset++;
                     foreach ($values as $value) {
