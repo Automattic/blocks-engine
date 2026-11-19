@@ -1261,10 +1261,6 @@ final class StyleResolver implements ElementPresentationResolver
 
     public function responsiveTypographyClassName(DOMElement $element): string
     {
-        // Captured elements already carry viewport typography. The legacy
-        // rescue can reference author variables retired on these routes and
-        // override the carrier with an invalid-at-computed-value font size.
-        if (array() !== $this->session->boxTreeEvidence($element)) return '';
         if (isset(SourceDeclarations::inline($element)['font-size'])) {
             return '';
         }
@@ -1301,12 +1297,12 @@ final class StyleResolver implements ElementPresentationResolver
             if (array() === $entry['queries'] || (null !== $baseEntry && !CssCascade::wins($fact($entry), $fact($baseEntry)))) {
                 continue;
             }
-            $value = $this->carriedFontSizeValue($entry);
+            $value = $this->carriedFontSizeValue($entry, $element);
             if ('' !== $value) {
                 $conditional[implode('{', $entry['queries'])] = $value;
             }
         }
-        $base = null === $baseEntry ? '' : $this->carriedFontSizeValue($baseEntry);
+        $base = null === $baseEntry ? '' : $this->carriedFontSizeValue($baseEntry, $element);
         $restatesImportant = null !== $baseEntry && $baseEntry['important'];
         if (('' === $base && array() === $conditional) || (array() === $conditional && !$restatesImportant && (null === $baseEntry || null === $baseEntry['layer']))) {
             return '';
@@ -1526,9 +1522,17 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** @param array{value: string, important: bool} $entry */
-    private function carriedFontSizeValue(array $entry): string
+    private function carriedFontSizeValue(array $entry, DOMElement $element): string
     {
-        $value = CssValueInspector::carriableDeclarationValue($entry['value']);
+        $value = $entry['value'];
+        // Captured presentation can retire author tokens from the projected
+        // stylesheet. Keep the responsive rescue (and its literal sizes), but
+        // do not reintroduce a reference that can invalidate the captured size
+        // at computed-value time. Resolve against the source, before retirement.
+        if (array() !== $this->session->boxTreeEvidence($element)) {
+            $value = $this->customProperties->resolve($value, $element);
+        }
+        $value = CssValueInspector::carriableDeclarationValue($value);
 
         return '' === $value || !$entry['important'] ? $value : $value . ' !important';
     }
