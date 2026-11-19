@@ -3963,6 +3963,14 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $display = strtolower(trim($navigationContext->resolvedDisplay($listSource)));
         if ( ! $preserveSemanticBlockStack && in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            // The host's classes are repeated on Core's inner list. Retain the
+            // list's own formatting context rather than inheriting the folded
+            // wrapper's display (which can be block even for a flex list).
+            $navigationContext->projectSourceToNativeTarget(
+                $listSource,
+                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container',
+                'display:' . $display . '!important'
+            );
             return;
         }
 
