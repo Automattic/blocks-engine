@@ -2361,6 +2361,7 @@ final class ShellExtraction
                 $excluded = array_filter($diagnostics, static fn(array $d): bool => 'header' === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && in_array($e['reason'] ?? null, array('non_equivalent', 'missing'), true)));
                 if (array() === $excluded) continue;
                 $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], 'header');
+                if (count($rows) <= 1 && !array_filter($excluded, static fn(array $d): bool => (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)))) continue;
                 // A captured route can have one landmark per device document.
                 // They are independent presentation copies, not ambiguity. Move
                 // each in place, from the end so the remaining offsets stay valid.
@@ -2368,14 +2369,14 @@ final class ShellExtraction
                 usort($rows, static fn(array $a, array $b): int => $b['offset'] <=> $a['offset']);
                 foreach ($rows as $variant => $row) {
                     $matchingPartRows = array_values(array_filter($partRows, static fn(array $member): bool => self::chromeCopy($member['markup']) === self::chromeCopy($row['markup'])));
-                    $partLandmark = $matchingPartRows[0]['markup'] ?? (1 === count($partRows) ? $partRows[0]['markup'] : $part['canonical_block_markup']);
+                    $partLandmark = count($rows) > 1 ? ($matchingPartRows[0]['markup'] ?? (1 === count($partRows) ? $partRows[0]['markup'] : $part['canonical_block_markup'])) : $part['canonical_block_markup'];
                     $partCopy = self::chromeCopy($partLandmark);
                     $partNavigationClasses = self::navigationClasses($partLandmark);
                     $anchorVariant = $this->addsOnlySameDocumentAnchorItems($page, $part, $pages, $stylesheetIds);
                     $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                     $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
                     $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
-                    $sourceAnchor = preg_replace('/--data-blocks-engine-capture-(?:mobile|desktop)$/', '', (string) ($attrs['anchor'] ?? ''));
+                    $sourceAnchor = preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '(?:mobile|desktop)$/', '', (string) ($attrs['anchor'] ?? ''));
                     $sharedWrapper = $anchors[$sourceAnchor] ?? null;
                     // Multiple device landmarks prove presentation, not ownership.
                     // Require the shared shell's source anchor before moving them;
@@ -3403,11 +3404,21 @@ final class ShellExtraction
         }
         $routeFooter = false;
         if ($foldRouteFooter && isset($positions['header']) && !isset($positions['footer']) && $to > $from && $to === count($siblings) - 1) {
-            $last = $nodes[$siblings[$to]];
+            $footerPosition = $to;
+            // A fixed contact control may follow the route footer. It is
+            // document chrome, not part of the preceding article. Keep both
+            // verbatim in the frame, without changing their selector context.
+            while ($footerPosition > $from) {
+                $tail = $nodes[$siblings[$footerPosition]];
+                $tailMarkup = substr($markup, $tail['offset'], $tail['end'] - $tail['offset']);
+                if ('paragraph' !== $tail['name'] || 1 !== preg_match_all('/<a\b/i', $tailMarkup) || !preg_match('/<a\b[^>]*\bclass="[^"]*\bfixed\b[^"]*"/i', $tailMarkup) || !str_contains($tailMarkup, 'aria-label=')) break;
+                --$footerPosition;
+            }
+            $last = $nodes[$siblings[$footerPosition]];
             $footer = substr($markup, $last['offset'], $last['end'] - $last['offset']);
-            $rest = array_slice($siblings, $from, $to - $from);
+            $rest = array_slice($siblings, $from, $footerPosition - $from);
             if ('group' === $last['name'] && 1 === preg_match('/"tagName":"footer"/', $last['attributes']) && !self::containsMainLandmark($footer) && !str_contains($footer, 'wp:template-part') && (self::nodesHoldPageHeading($markup, $nodes, $rest) || self::nodesHoldMain($markup, $nodes, $rest))) {
-                --$to;
+                $to = $footerPosition - 1;
                 $routeFooter = true;
             }
         }

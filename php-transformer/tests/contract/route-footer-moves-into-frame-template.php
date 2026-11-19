@@ -24,6 +24,7 @@ foreach ($routes as $route => $title) {
         . '<header class="site-header"><nav>' . $nav . '</nav></header>'
         . '<main><h1>' . $title . '</h1><p>' . $title . ' route content.</p></main>'
         . '<footer class="site-footer"><p>' . $title . ' footer note, unique to this route.</p></footer>'
+        . '<a href="https://example.org/chat" aria-label="Chat with us" class="fixed" style="position:fixed;bottom:20px;right:20px">Chat</a>'
         . '</div></div></body></html>';
 }
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
@@ -42,6 +43,7 @@ foreach ($plan['pages'] as $page) {
     $content = strpos($markup, '<!-- wp:post-content');
     $footer = strpos($markup, $title . ' footer note, unique to this route.');
     $assert(false !== $content && false !== $footer && $footer > $content, 'The route footer follows the content slot in its own template: ' . $page['source_path']);
+    $assert(!str_contains($page['canonical_block_markup'], 'Chat with us') && str_contains($markup, 'Chat with us'), 'The fixed contact control stays with the footer in its original frame.');
     $assert(1 === substr_count($markup, '<footer'), 'The route template carries exactly its own footer: ' . $page['source_path']);
 }
 
