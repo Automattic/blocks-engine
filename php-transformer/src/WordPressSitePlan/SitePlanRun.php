@@ -364,6 +364,9 @@ final class SitePlanRun
         // never becomes matches nothing on any route. Menus keep their markup
         // in `block_markup`: their figures are emitted too.
         $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
+        // Carriers are final: a marker list naming most of a kind's carriers
+        // is written through that kind's role class instead.
+        $assets = CompleteMarkerLists::compact($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         // Writing canonicalizes references and can still drop rules (a missing
         // font source drops its face). Emptiness is judged on the written bytes,

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\ChromeJournalStore;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\MemoryChromeJournalStore;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
@@ -225,6 +227,10 @@ final class ArtifactCompiler
     /** @var array<string,mixed> Optional normalized proof for the current artifact. */
     private array $layoutGeometryProof = array();
 
+    /** @var list<string> {@see RepeatedSubtrees} of the artifact being compiled. */
+    private array $repeatedSubtrees = array();
+    private ?ChromeJournalStore $chromeJournals = null;
+
     /**
      * Resolve the runtime selector context used when a caller converts one
      * source document or landmark separately from full artifact compilation.
@@ -297,6 +303,8 @@ final class ArtifactCompiler
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = (new RouteStateProjector())->project($scrollStates['files'])['files'];
+        $this->repeatedSubtrees = RepeatedSubtrees::selectors($normalized['files']);
+        $this->chromeJournals = new MemoryChromeJournalStore();
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
@@ -1424,6 +1432,9 @@ final class ArtifactCompiler
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
             'global_shell_context_depth' => $globalShellContextDepth,
+            'chrome_journal'             => null !== $this->chromeJournals && array() !== $this->repeatedSubtrees && in_array($sourceScope, array('artifact-entry', 'artifact-document'), true)
+                ? array('selectors' => $this->repeatedSubtrees, 'store' => $this->chromeJournals)
+                : null,
             // A shared shell's projection joins every page's stylesheet, where
             // a rule it left unprojected would bypass the page's projection.
             'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
