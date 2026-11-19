@@ -31,4 +31,15 @@ $result = $compile($html, $tree);
 if (!str_contains($result['serialized_blocks'], 'preset')) {
     throw new RuntimeException('A stateful contents wrapper must retain its boundary.');
 }
+// Custom hosts use the transparent-hook path, not ordinary box removal.
+// In particular their child must keep the same styling context it had before
+// the generic contents-wrapper reduction was introduced.
+$customHtml = str_replace(array('<div class="preset"', '</div>'), array('<layout-host class="preset"', '</layout-host>'), $html);
+$tree['nodes']['n6']['interaction_states'] = array();
+$tree['source_hash'] = hash('sha256', $customHtml);
+$result = $compile($customHtml, $tree);
+$node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['n6'];
+if ('neutral' === $node['disposition']) {
+    throw new RuntimeException('A custom contents host must retain its dedicated lowering and descendant styling context.');
+}
 echo "display:contents wrapper contract passed\n";

@@ -204,6 +204,10 @@ final class BoxTreeClassifier
     /** A single-child, non-interactive contents wrapper contributes no box. */
     private static function boxlessContents(DOMElement $element, array $node, array $child): bool
     {
+        // Custom hosts have a separate transparent-hook lowering. Their DOM
+        // boundary still supplies selector and runtime context to descendants;
+        // treating them as ordinary neutral boxes changes that lowering.
+        if (str_contains($element->tagName, '-')) return false;
         foreach ($element->childNodes as $text) {
             if ($text instanceof \DOMText && '' !== trim($text->textContent)) return false;
         }
