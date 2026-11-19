@@ -5,13 +5,9 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\SharedChromeStylesheets;
 
-// Issue #5860: routes compile their own copy of one source-equal header; the
-// shared part keeps one capture's control marker. The header's mobile-only
-// "Menu" button also carries a subject marker that route content uses, so its
-// author rules stay on the route. Its generated support rules (the wrapper
-// hidden from the md breakpoint) were emitted only by the chosen capture's
-// support sheet, though: kept there with the author rules, every other route
-// adopting the part rendered "Menu" on desktop.
+// A route-kept hook keeps the element's generated and authored styles on
+// the route together. Moving even its visibility rule to shared chrome can
+// create another globally enqueued support sheet and grow unrelated routes.
 $control = 'blocks-engine-control-07832227e5d6-0';
 $subject = 'blocks-engine-subject-class-d2cf63c704ae';
 $hide = '@media (width>=48rem){.' . $control . '.' . $control . '.wp-block-buttons:has(>.' . $control . '.wp-block-button:only-child){display:none!important}}';
@@ -38,8 +34,8 @@ $route = static function (string $source) use ($projected): string {
     foreach ($projected as $asset) if ($source === ($asset['source_path'] ?? null)) return (string) $asset['content'];
     throw new RuntimeException('Missing route stylesheet ' . $source);
 };
-if (!str_contains($shared, ':has(>.' . $control . '.wp-block-button:only-child){display:none!important}') || !str_contains($shared, 'width>=48rem')) throw new RuntimeException('The part control\'s generated wrapper visibility must render on every adopting route: ' . $shared);
-if (str_contains($route('support.css'), $hide) || !str_contains($route('support.css'), '.fitment-intro')) throw new RuntimeException('Only route content keeps its generated support rules on the route: ' . $route('support.css'));
+if (str_contains($shared, $control)) throw new RuntimeException('Route-kept control created global CSS: ' . $shared);
+if (!str_contains($route('support.css'), $hide) || !str_contains($route('support.css'), '.fitment-intro')) throw new RuntimeException('Route-kept controls retain their support rules: ' . $route('support.css'));
 if ($author !== $route('site.css') || str_contains($shared, 'letter-spacing')) throw new RuntimeException('Author rules of a route-kept chrome element stay in one route stylesheet: ' . $route('site.css') . "\n" . $shared);
 if (!str_contains($route('support.css'), $presentation) || str_contains($shared, 'padding:24px')) throw new RuntimeException('Stranded control presentation must not spread to other routes: ' . $shared);
 echo "Shared chrome stranded control marker passed\n";
