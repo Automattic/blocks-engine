@@ -47,9 +47,10 @@ final class QuotePatternContext
             : $content;
     }
 
-    /** Preserve the line box of the caption on the native citation itself. */
-    public function figureCaptionClassName(DOMElement $caption): string
+    /** Preserve the typography and independent line box of a consumed caption. */
+    public function figureCaptionContent(DOMElement $caption): string
     {
+        $content = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::innerHtml($caption);
         $declarations = array();
         $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
         foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
@@ -58,7 +59,16 @@ final class QuotePatternContext
                 $declarations[$property] = $value;
             }
         }
-        return $this->styleResolver->figureQuoteCaptionClassName($caption, $declarations);
+        if (array() === $declarations) {
+            return $content;
+        }
+        // An inline span shares the native cite's (potentially larger) strut.
+        // Keep typography on its original carrier, but give that carrier the
+        // independent line box the source figcaption had. Styling cite itself
+        // would also change inherited/em-based native citation presentation.
+        $declarations['display'] = 'block';
+        $style = $this->styleResolver->cssDeclarationString($declarations);
+        return '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
 
     public function citationFromElement(DOMElement $element): string

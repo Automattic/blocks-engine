@@ -13,13 +13,12 @@ $result = (new HtmlTransformer())->transform(
 )->toArray();
 $quote = $result['blocks'][0] ?? array();
 $text = $quote['innerBlocks'][0] ?? array();
-$css = implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 if ('core/quote' !== ($quote['blockName'] ?? '')
     || 'core/paragraph' !== ($text['blockName'] ?? '')
     || '14px' !== ($text['attrs']['style']['typography']['fontSize'] ?? '')
     || '1.45' !== ($text['attrs']['style']['typography']['lineHeight'] ?? '')
     || isset($text['attrs']['style']['spacing'])
-    || !str_contains($css, ' > cite{font-size:9px;font-weight:700;line-height:1.5;letter-spacing:1.44px;display:block}')
+    || !str_contains($quote['attrs']['citation'] ?? '', 'font-size:9px;font-weight:700;line-height:1.5;letter-spacing:1.44px;display:block')
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
     throw new RuntimeException('Collapsed figure quote must preserve independent quotation and caption typography: ' . $result['serialized_blocks']);

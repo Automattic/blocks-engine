@@ -154,7 +154,7 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
-            $citation = SourceDom::innerHtml($caption);
+            $citation = $quotes->figureCaptionContent($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
                 $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
@@ -168,13 +168,6 @@ final class QuotePattern implements PatternRecognizerInterface
 
         $createBlock = $this->createBlock->createBlock(...);
         $attrs = array_filter(array_merge($context->presentationAttributes($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
-
-        if ( $caption instanceof DOMElement ) {
-            $captionCarrier = $quotes->figureCaptionClassName($caption);
-            if ( '' !== $captionCarrier ) {
-                $attrs['className'] = trim(($attrs['className'] ?? '') . ' ' . $captionCarrier);
-            }
-        }
 
         if ( SourceDom::hasClass($figure, 'wp-block-pullquote') || SourceDom::hasClass($blockquote, 'wp-block-pullquote') ) {
             return new PatternRecognitionResult($createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure));
