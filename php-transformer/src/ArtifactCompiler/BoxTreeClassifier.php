@@ -129,7 +129,7 @@ final class BoxTreeClassifier
                     foreach ($effective['nodes'][$child]['viewports'] as $viewport => &$observation) {
                         if (!isset($node['viewports'][$viewport])) continue;
                         foreach ($fold['moves'] as $to => $from) $observation['used_styles'][$to] = $node['viewports'][$viewport]['used_styles'][$from];
-                        if (isset($fold['moves']['position']) && 'absolute' === $observation['used_styles']['position']) {
+                        if (isset($fold['moves']['position']) && !isset($fold['moves']['align-self']) && 'absolute' === $observation['used_styles']['position']) {
                             $observation['used_styles']['align-self'] = $observation['used_styles']['justify-self'] = 'auto';
                         }
                     }
@@ -181,6 +181,11 @@ final class BoxTreeClassifier
             if (count($node['children']) > 1 && in_array($observation['used_styles']['display'], array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return 'multi-child-layout';
         }
         if ($containing) return 'containing-block';
+        foreach ($node['viewports'] as $observation) {
+            // Even an identity transform owns a stacking context and a
+            // containing block; folding must carry it, not erase it as neutral.
+            if ('none' !== $observation['used_styles']['transform']) return 'containing-block';
+        }
         $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted, $linkCarried);
         if (null !== $behavior) return $behavior;
         if (1 !== count($node['children'])) return 'own-sizing';
@@ -384,9 +389,11 @@ final class BoxTreeClassifier
      *   box.
      *
      * Absolute inset-zero boxes can hand position to an equal-box flow child.
+     * A positioned box can also be replaced by its equal-box absolute child:
+     * the child's fill sizing and placement give way to the box's own.
      * A clip is redundant when that child repeats it without exterior paint.
      *
-     * Never folded: pseudo-elements, transforms, filters, opacity, blending,
+     * Never folded: pseudo-elements, non-identity transforms, filters, opacity, blending,
      * isolation, unmatched z-index, other non-flow boxes, and every
      * criterion {@see self::behavior()} reports.
      *
@@ -414,6 +421,7 @@ final class BoxTreeClassifier
         $paints = false;
         $relative = false;
         $absolute = null;
+        $absoluteChild = null;
         $clipped = false;
         // Inherited property => [the box owns a value its parent lacks, the child repeats the box's value at every viewport].
         $inherited = array();
@@ -425,8 +433,26 @@ final class BoxTreeClassifier
             $fill = 'absolute' === $b['position'];
             if (null !== $absolute && $absolute !== $fill) return null;
             $absolute = $fill;
+            $replaces = 'absolute' === $c['position'] && in_array($b['position'], array('relative', 'absolute'), true);
+            if (null !== $absoluteChild && $absoluteChild !== $replaces) return null;
+            $absoluteChild = $replaces;
+            if ($replaces) {
+                foreach (array('top', 'right', 'bottom', 'left') as $offset) {
+                    if (!in_array($c[$offset] ?? 'auto', array('auto', '0px'), true)) return null;
+                }
+                if ('auto' !== ($c['z-index'] ?? 'auto') && $c['z-index'] !== ($b['z-index'] ?? 'auto')) return null;
+            }
             foreach (self::NEVER_FOLD as $property => $inert) {
-                if ('z-index' === $property && $fill && $b[$property] === ($c[$property] ?? null)) continue;
+                if ('transform' === $property && self::identityTransform($b[$property] ?? 'none')) {
+                    if ('none' !== ($b[$property] ?? 'none')) {
+                        // Retain the stacking context and fixed-position containing block.
+                        if ('none' !== $c[$property] && $b[$property] !== $c[$property]) return null;
+                        $moves[$property] = $property;
+                        $containing = true;
+                    }
+                    continue;
+                }
+                if ('z-index' === $property && ($fill || $replaces) && $b[$property] === ($c[$property] ?? null)) continue;
                 if (isset($b[$property]) && !in_array(strtolower(trim($b[$property])), $inert, true)) return null;
             }
             // A square clipping child can take the box's rounded clip. The
@@ -450,9 +476,9 @@ final class BoxTreeClassifier
             // A box that establishes its own formatting context keeps the
             // child's margins from collapsing with the child's content; in a
             // block parent the child must establish one itself.
-            if (!$fill && 'block' !== $display && !$parentLays && !in_array($childDisplay, array('flex', 'grid', 'flow-root', 'table'), true)) return null;
-            if (!in_array($b['position'], array('static', 'relative', 'absolute'), true) || !in_array($c['position'], array('static', 'relative'), true)) return null;
-            if ($fill) {
+            if (!$fill && !$replaces && 'block' !== $display && !$parentLays && !in_array($childDisplay, array('flex', 'grid', 'flow-root', 'table'), true)) return null;
+            if (!in_array($b['position'], array('static', 'relative', 'absolute'), true) || (!$replaces && !in_array($c['position'], array('static', 'relative'), true))) return null;
+            if ($fill && !$replaces) {
                 foreach (array('top', 'right', 'bottom', 'left') as $offset) {
                     if ('0px' !== ($b[$offset] ?? null) || !in_array($c[$offset] ?? 'auto', array('auto', '0px'), true)) return null;
                 }
@@ -462,7 +488,7 @@ final class BoxTreeClassifier
                 foreach (array('top', 'right', 'bottom', 'left') as $offset) $offsets = $offsets || !in_array($b[$offset] ?? 'auto', array('auto', '0px'), true);
                 // Two relative offsets would add up on one box.
                 if ($offsets && 'relative' === $c['position']) return null;
-                if ('static' === $c['position']) $relative = true;
+                if ('static' === $c['position'] || $replaces) $relative = true;
             }
             $box = $observation['border_box'];
             $inner = $child['viewports'][$viewport]['border_box'];
@@ -472,6 +498,7 @@ final class BoxTreeClassifier
                 $margin = self::pixels($b['margin-' . $side]);
                 $childMargin = self::pixels($c['margin-' . $side]);
                 if (null === $padding || null === $margin || null === $childMargin) return null;
+                if ($replaces && 0.0 !== $padding) return null;
                 if (null === $border || 0.0 !== $border) {
                     // A bordered box paints around its child: only a non-painting border of zero width folds.
                     return null;
@@ -498,6 +525,10 @@ final class BoxTreeClassifier
             foreach (self::PLACEMENT_INITIAL as $property => $initial) {
                 // Four zero insets determine an absolute fill's placement;
                 // the child's former self-alignment is no longer relevant.
+                if ($replaces) {
+                    $moves[$property] = $property;
+                    continue;
+                }
                 if ($fill && in_array($property, array('align-self', 'justify-self'), true)) continue;
                 if ($b[$property] === $c[$property]) continue;
                 if ($initial !== $c[$property] && !self::fillsSoleGridCell($b, $property, $c[$property])) return null;
@@ -506,7 +537,7 @@ final class BoxTreeClassifier
             $childBorderBox = $childBorderBox && 'border-box' === ($c['box-sizing'] ?? null);
             foreach (self::CONSTRAINT_INITIAL as $property => $initial) {
                 if (in_array($b[$property], $initial, true)) continue;
-                if (!in_array($c[$property], $initial, true)) return null;
+                if (!$replaces && !in_array($c[$property], $initial, true)) return null;
                 $constrained = true;
             }
             if (self::boxPaints($b)) {
@@ -570,6 +601,11 @@ final class BoxTreeClassifier
             if ($relative) {
                 foreach (array('position', 'top', 'right', 'bottom', 'left') as $property) $moves[$property] = $property;
             }
+        }
+        if ($absoluteChild) {
+            // The child's absolute declarations described filling the old box,
+            // not placement or sizing in its new parent.
+            foreach (array('width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'z-index') as $property) $moves[$property] = $property;
         }
         if ($absolute) {
             foreach (array('position', 'top', 'right', 'bottom', 'left') as $property) $moves[$property] = $property;
