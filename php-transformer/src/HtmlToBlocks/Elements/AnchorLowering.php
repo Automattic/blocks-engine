@@ -406,7 +406,8 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
         }
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true)
+                && ! $this->isTextLabelSpan($child) ) {
                 return false;
             }
         }
@@ -423,6 +424,25 @@ final class AnchorLowering implements ButtonLinkLeftovers
         return $hasSummary && ($hasHeading || $hasImage
             || (null !== SourceDom::firstChildElement($anchor, 'div')
                 && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * Whether a card child is a text-only phrasing label (a trailing "→" or
+     * "Read more" cue). It lowers to a non-interactive paragraph, so the
+     * card's heading can still own the one destination.
+     */
+    private function isTextLabelSpan(DOMElement $child): bool
+    {
+        if ( 'span' !== strtolower($child->tagName) || $child->hasAttribute('role') || '' === trim($child->textContent) ) {
+            return false;
+        }
+        foreach ( $child->childNodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -528,7 +548,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         $path = $anchor->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
-        if ( '' !== $path && $projections->isControlPath($path) ) {
+        if ( ! $stretched && '' !== $path && $projections->isControlPath($path) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path));
         }
 

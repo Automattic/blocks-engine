@@ -8,13 +8,14 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 // A flow-content link keeps its unadorned content box without making that
 // box a generated block. Author margins must survive Core's layout defaults.
-// The trailing arrow keeps the card on the preserved-link path: without it a
-// headingless media card lowers to a native stretched link instead.
+// The trailing icon label keeps the card on the preserved-link path: without
+// it (or with a text-only arrow) a headingless media card lowers to a native
+// stretched link instead.
 $result = (new HtmlTransformer())->transform(
     '<style>p{margin:0}.title{margin-top:12px}</style>'
     . '<a href="/product"><img src="wheel.jpg" alt="Wheel"><div>'
     . '<span>Fits your vehicle</span><p class="title">Wheel set</p><p>R 48 999</p>'
-    . '</div><span>→</span></a>'
+    . '</div><span>View <svg viewBox="0 0 24 24"><path d="M5 12h14"></path></svg></span></a>'
 )->toArray();
 $card = $result['blocks'][0];
 $content = $card['innerBlocks'][1];
