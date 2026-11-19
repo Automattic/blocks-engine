@@ -325,6 +325,12 @@ PHP;
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }
         self::serve($lines, $served, $units, 'post_title_link_class');
+        if (self::markupContains($documents, 'blocks-engine-new-page-title')) {
+            // Imported pages already own their authored heading (or its absence).
+            // Only newly authored pages need the fallback template's title slot.
+            $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-new-page-title', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; return get_post_meta( get_the_ID(), '_blocks_engine_reconciliation_identity', true ) ? '' : \$content; }, 10, 2 );";
+        }
+        self::serve($lines, $served, $units, 'new_page_title');
         if (self::markupContains($documents, 'blocksEngineIcon')) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
