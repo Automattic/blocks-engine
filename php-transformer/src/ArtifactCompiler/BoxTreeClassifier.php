@@ -218,9 +218,15 @@ final class BoxTreeClassifier
             if ('contents' !== ($styles['display'] ?? null) || !is_array($own)) return false;
             // Do not erase a live ancestor state rule, or rebase an inherited
             // value the child derives from this wrapper.
-            foreach (array_merge(self::INHERITED, array('pointer-events')) as $property) {
+            foreach (self::INHERITED as $property) {
                 if (($styles[$property] ?? null) !== ($own[$property] ?? null)) return false;
             }
+            // A contents box cannot itself be hit. A sole child restoring
+            // pointer-events:auto already overrides its disabled ancestor;
+            // removing that ancestor changes neither it nor its descendants.
+            // Keep other values conservative (including missing evidence).
+            if (($styles['pointer-events'] ?? null) !== ($own['pointer-events'] ?? null)
+                && !('none' === ($styles['pointer-events'] ?? null) && 'auto' === ($own['pointer-events'] ?? null))) return false;
         }
         return !self::targetedByState($element, self::stateCompounds($element->ownerDocument));
     }
