@@ -21,7 +21,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  *
  * - all shim negations fold into one, `:not(be-t-0#be-i-0.be-c-0.be-c-0)`;
  * - a class the compound names twice is named once, its second weight folded
- *   in as a class shim;
+ *   in as a class shim (the compound's own, or one the caller allocated);
  * - inside `:where()`, which weighs nothing, shims are dropped.
  *
  * A `:where()` the engine wraps a carrier in stays as written: it is how
@@ -39,20 +39,27 @@ final class CssSpecificityShimCompactor
     private const ELEMENT_PSEUDOS = array('before', 'after', 'first-line', 'first-letter');
     private const IDENT = '(?:-?[A-Za-z_]|--)[\w-]*';
 
-    public static function stylesheet(string $css): string
+    /**
+     * @param string|null $classShim A class shim allocated against the markup
+     *        this stylesheet styles. With it, a class a compound names twice
+     *        folds even where no shim negation is written yet: `.x.x` weighs
+     *        what `.x:not(.be-c-0)` weighs and matches the same elements.
+     */
+    public static function stylesheet(string $css, ?string $classShim = null): string
     {
-        if (1 !== preg_match('/:not\([.#]?' . EngineMarker::specificityPatternBody() . '\)|:where\(/', $css)) return $css;
-        return (new CssStylesheetTransformer())->transform($css, static fn (string $prelude): string => self::selectorList($prelude));
+        if (null !== $classShim && !EngineMarker::isSpecificityShim($classShim)) $classShim = null;
+        if (null === $classShim && 1 !== preg_match('/:not\([.#]?' . EngineMarker::specificityPatternBody() . '\)|:where\(/', $css)) return $css;
+        return (new CssStylesheetTransformer())->transform($css, static fn (string $prelude): string => self::selectorList($prelude, false, $classShim));
     }
 
-    public static function selectorList(string $prelude, bool $weightless = false): string
+    public static function selectorList(string $prelude, bool $weightless = false, ?string $classShim = null): string
     {
         if (str_contains($prelude, '/*') || str_contains($prelude, '\\') || str_contains($prelude, '&')) return $prelude;
         $arms = CssStylesheetTransformer::splitSelectorList($prelude);
         if (null === $arms) return $prelude;
         $compacted = array();
         foreach ($arms as $arm) {
-            $arm = self::complex($arm, $weightless) ?? $arm;
+            $arm = self::complex($arm, $weightless, $classShim) ?? $arm;
             // Two arms the rewrite spells alike are one arm.
             if (!in_array($arm, $compacted, true)) $compacted[] = $arm;
         }
@@ -61,7 +68,7 @@ final class CssSpecificityShimCompactor
     }
 
     /** One complex selector, or null when it is not read whole. */
-    private static function complex(string $arm, bool $weightless): ?string
+    private static function complex(string $arm, bool $weightless, ?string $classShim): ?string
     {
         $output = '';
         $compound = '';
@@ -79,7 +86,7 @@ final class CssSpecificityShimCompactor
                 $combinator = '';
                 while ($offset < $length && (CssSyntaxScanner::isCssWhitespace($arm[$offset]) || in_array($arm[$offset], array('>', '+', '~'), true))) $combinator .= $arm[$offset++];
                 if ('' !== $compound) {
-                    $compacted = self::compound($compound, $weightless);
+                    $compacted = self::compound($compound, $weightless, $classShim);
                     if (null === $compacted) return null;
                     $output .= $compacted;
                     $compound = '';
@@ -92,7 +99,7 @@ final class CssSpecificityShimCompactor
             ++$offset;
         }
         if ('' !== $compound) {
-            $compacted = self::compound($compound, $weightless);
+            $compacted = self::compound($compound, $weightless, $classShim);
             if (null === $compacted) return null;
             $output .= $compacted;
         }
@@ -100,7 +107,7 @@ final class CssSpecificityShimCompactor
     }
 
     /** One compound selector, or null when it is not read whole. */
-    private static function compound(string $compound, bool $weightless): ?string
+    private static function compound(string $compound, bool $weightless, ?string $classShim): ?string
     {
         $pieces = self::pieces($compound);
         if (null === $pieces) return null;
@@ -115,7 +122,7 @@ final class CssSpecificityShimCompactor
                     $shims['#' === $match[1] ? 'id' : ('.' === $match[1] ? 'class' : 'type')][] = $match[2];
                     continue;
                 }
-                $piece['args'] = self::selectorList($piece['args'], $weightless || 'where' === $piece['name']);
+                $piece['args'] = self::selectorList($piece['args'], $weightless || 'where' === $piece['name'], $classShim);
                 $piece['text'] = ':' . $piece['name'] . '(' . $piece['args'] . ')';
             }
             $kept[] = $piece;
@@ -135,7 +142,7 @@ final class CssSpecificityShimCompactor
             if (!$element && 'class' === $piece['kind']) {
                 if (isset($classes[$piece['text']])) {
                     // A repeated class weighs one more class; a shim names it shorter.
-                    $name = $shims['class'][0] ?? null;
+                    $name = $shims['class'][0] ?? $classShim;
                     if ($weightless) continue;
                     if (null !== $name && strlen('.' . $name) < strlen($piece['text'])) { $shims['class'][] = $name; continue; }
                 }
