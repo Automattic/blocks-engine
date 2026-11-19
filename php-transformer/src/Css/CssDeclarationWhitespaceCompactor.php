@@ -10,7 +10,7 @@ final class CssDeclarationWhitespaceCompactor
     {
         return (new CssStylesheetTransformer())->transformStyleRules($css, static function (string $prelude, string $body): string {
             // Nested blocks, comments and escapes need their original token boundaries.
-            if (str_contains($body, '{') || str_contains($body, '/*') || str_contains($body, '\\') || preg_match('/(?:^|;)\s*--/', $body)) return $prelude . '{' . $body . '}';
+            if (str_contains($body, '{') || str_contains($body, '/*') || str_contains($body, '\\') || array() !== CssRuleAnalyzer::customProperties($body)) return $prelude . '{' . $body . '}';
             $declarations = CssValueSplitter::splitTopLevel($body, array(';'));
             foreach ($declarations as &$declaration) {
                 // Custom properties are token streams, including leading/trailing whitespace.
