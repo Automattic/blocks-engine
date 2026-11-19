@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageE
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 
 /**
  * Derives core/cover attributes and recognition gates from resolved CSS.
@@ -296,6 +297,43 @@ final class CoverStyleResolver
         );
 
         return $minHeight['minHeight'] >= $thresholds[ $minHeight['minHeightUnit'] ];
+    }
+
+    /**
+     * Whether the image layer stays fixed to the viewport
+     * (`background-attachment:fixed`), which core/cover expresses as parallax.
+     * The later of the longhand and the shorthand wins.
+     */
+    public function hasFixedBackgroundAttachment(string $style): bool
+    {
+        $declarations = $this->declarations($style);
+        foreach ( array_reverse(array_keys($declarations)) as $name ) {
+            if ( 'background-attachment' !== $name && 'background' !== $name ) {
+                continue;
+            }
+            $layers = CssValueSplitter::splitTopLevel(CssValueInspector::declared($declarations, $name), array( ',' ));
+            if ( 'background' === $name ) {
+                $layers = array_values(array_filter($layers, static fn (string $layer): bool => 1 === preg_match('/\burl\s*\(/i', $layer)));
+                return in_array('fixed', CssValueSplitter::splitTopLevelWhitespace((string) ($layers[0] ?? '')), true);
+            }
+            // Longhand values repeat across the image layers in order.
+            $layer = $layers[ $this->imageLayerIndex($style) % max(1, count($layers)) ] ?? '';
+            return 'fixed' === trim($layer);
+        }
+
+        return false;
+    }
+
+    private function imageLayerIndex(string $style): int
+    {
+        $declaration = $this->winningBackgroundDeclaration($style);
+        foreach ( CssValueSplitter::splitTopLevel((string) ($declaration['value'] ?? ''), array( ',' )) as $index => $layer ) {
+            if ( preg_match('/\burl\s*\(/i', $layer) ) {
+                return $index;
+            }
+        }
+
+        return 0;
     }
 
     public function hasRepeatingBackground(string $style): bool
