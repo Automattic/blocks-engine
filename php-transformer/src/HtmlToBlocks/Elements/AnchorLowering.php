@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -407,7 +408,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true)
-                && ! $this->isTextLabelSpan($child) ) {
+                && ! ($hasHeading && $this->isTextLabelSpan($child) && $child === $anchor->lastElementChild) ) {
                 return false;
             }
         }
@@ -443,6 +444,52 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
 
         return true;
+    }
+
+    /**
+     * Keep the row's label and icon as source boxes, not boxless RichText
+     * carriers or an icon-only Group plus a synthetic image figure.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    private function trailingLabelCardChildren(DOMElement $anchor, DOMElement $label, array &$fallbacks): array
+    {
+        $children = array();
+        foreach ( $anchor->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $elements = SourceDom::elementElementChildren($child);
+            $icon = 'div' === strtolower($child->tagName) && 1 === count($elements)
+                && 'svg' === strtolower($elements[0]->tagName) && '' === trim($child->textContent)
+                ? $elements[0] : null;
+            if ( $child === $label || $icon instanceof DOMElement ) {
+                $content = SourceDom::innerHtml($child);
+                if ( $icon instanceof DOMElement ) {
+                    $image = $this->tree->element($icon, $fallbacks, true);
+                    if ( 'core/image' !== ($image['blockName'] ?? '') || empty($image['attrs']['url']) ) {
+                        $block = $this->tree->element($child, $fallbacks, true);
+                        if ( null !== $block ) {
+                            $children[] = $block;
+                        }
+                        continue;
+                    }
+                    $content = '<img src="' . htmlspecialchars($image['attrs']['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+                        . '" alt="" class="' . htmlspecialchars(SourceDom::attr($icon, 'class'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"/>';
+                }
+                $attrs = $this->styleResolver->presentationAttributes($child);
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
+                $attrs['content'] = $content;
+                $children[] = $this->blocks->createBlock('core/paragraph', $attrs, array(), $child);
+            } else {
+                $block = $this->tree->element($child, $fallbacks, true);
+                if ( null !== $block ) {
+                    $children[] = $block;
+                }
+            }
+        }
+        return $children;
     }
 
     /**
@@ -486,7 +533,11 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         $eligible = ! $interactive && $this->isStretchedLinkCard($anchor);
         $preserveContainers = ! $eligible;
-        $children = $this->tree->children($anchor, $fallbacks, true, $preserveContainers && $this->sourceElementClassifier->isFlowContentAnchor($anchor));
+        $label = $anchor->lastElementChild;
+        $hasTrailingLabel = $eligible && $label instanceof DOMElement && $this->isTextLabelSpan($label);
+        $children = $hasTrailingLabel
+            ? $this->trailingLabelCardChildren($anchor, $label, $fallbacks)
+            : $this->tree->children($anchor, $fallbacks, true, $preserveContainers && $this->sourceElementClassifier->isFlowContentAnchor($anchor));
         if ( array() === $children && $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
             $children = $this->tree->children($anchor, $fallbacks, true, true);
         }
@@ -548,7 +599,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         $path = $anchor->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
-        if ( ! $stretched && '' !== $path && $projections->isControlPath($path) ) {
+        if ( '' !== $path && $projections->isControlPath($path) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path));
         }
 
