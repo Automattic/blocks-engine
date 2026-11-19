@@ -597,11 +597,7 @@ final class SitePlanRun
      */
     private static function withoutUnreferencedEngineClasses(array $units, ?string $references, array $declarations, array $records): ?array
     {
-        $markups = array();
-        foreach ($units as $group => $rows) foreach ($rows as $index => $row) {
-            foreach (array('canonical_block_markup', 'block_markup') as $field) if (is_string($row[$field] ?? null)) $markups[$group . "\0" . $index . "\0" . $field] = $row[$field];
-            if (is_string($row['archive']['presentation_markup'] ?? null)) $markups[$group . "\0" . $index . "\0archive"] = $row['archive']['presentation_markup'];
-        }
+        $markups = UnreferencedEngineClasses::markups($units);
         $dropped = UnreferencedEngineClasses::unreferenced($markups, $references);
         if (array() === $dropped) return null;
         $before = array();
