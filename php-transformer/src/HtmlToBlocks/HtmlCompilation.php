@@ -2597,8 +2597,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // An authored figure (or a custom image host lowered as the figure)
         // keeps its own box; the image it paints is styled from its own evidence.
+        // So is a core/media-text image, which its block saves bare in the
+        // media pane.
         $image = array();
         $paintedImage = 'core/image' === $name && ('figure' === $sourceTagName || str_contains($sourceTagName, '-')) ? $sourceElement->getElementsByTagName('img')->item(0) : null;
+        if ('core/media-text' === $name && 'image' === ($attrs['mediaType'] ?? null)) $paintedImage = $this->mediaTextSourceImage($sourceElement, 'right' === ($attrs['mediaPosition'] ?? null));
         if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
             $imageObservations = $this->session->boxTreeEvidence($paintedImage);
             $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
@@ -2632,6 +2635,20 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $attrs;
+    }
+
+    /**
+     * The source `<img>` a core/media-text block paints: the only image of
+     * its media pane, which MediaTextPattern resolved as a single-media chain.
+     */
+    private function mediaTextSourceImage(DOMElement $sourceElement, bool $mediaOnRight): ?DOMElement
+    {
+        $panes = array_values(array_filter(iterator_to_array($sourceElement->childNodes), static fn(\DOMNode $node): bool => $node instanceof DOMElement));
+        $pane = $panes[$mediaOnRight ? 1 : 0] ?? null;
+        if (!$pane instanceof DOMElement) return null;
+        if ('img' === strtolower($pane->tagName)) return $pane;
+        $images = $pane->getElementsByTagName('img');
+        return 1 === $images->length && $images->item(0) instanceof DOMElement ? $images->item(0) : null;
     }
 
     /**
