@@ -398,15 +398,10 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 }
             }
         }
-        // A trailing phrasing label (for example a read-more arrow) does not
-        // change a heading-and-summary card into a control. Keep headingless
-        // media labels on their existing path, and reject interactive spans
-        // through the descendant role check below.
+        $trailingLabel = $hasHeading ? $this->trailingTextLabel($anchor) : null;
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'span' === strtolower($child->tagName) && ! $hasHeading ) {
-                return false;
-            }
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture', 'span'), true) ) {
+            if ( $child instanceof DOMElement && $child !== $trailingLabel
+                && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
                 return false;
             }
         }
@@ -423,6 +418,33 @@ final class AnchorLowering implements ButtonLinkLeftovers
         return $hasSummary && ($hasHeading || $hasImage
             || (null !== SourceDom::firstChildElement($anchor, 'div')
                 && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * A heading card's last child may be a text-only span after its content
+     * (a read-more arrow). It names nothing and is not a control, so it does
+     * not stop the card from exposing its destination on the heading. Leading
+     * or nested phrasing (an eyebrow, a badge) keeps the existing lowering.
+     */
+    private function trailingTextLabel(DOMElement $anchor): ?DOMElement
+    {
+        $last = null;
+        $elements = 0;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $last = $child;
+                ++$elements;
+            } elseif ( $child instanceof \DOMText && '' !== trim($child->textContent) ) {
+                return null;
+            }
+        }
+        if ( ! $last instanceof DOMElement || $elements < 2 || 'span' !== strtolower($last->tagName)
+            || null !== $last->firstElementChild || '' === trim($last->textContent)
+            || $last->hasAttribute('role') || $last->hasAttribute('id') ) {
+            return null;
+        }
+
+        return $last;
     }
 
     /**
