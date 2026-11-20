@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -363,6 +364,42 @@ final class InlineGeometry
         return $this->className($element, $excludedProperties, $forced);
     }
 
+    /**
+     * Absolute inline properties whose observed used value differs between
+     * box-tree viewports. A constant `px` or unitless declaration cannot
+     * compute differently, so the difference proves a runtime rewrote it.
+     *
+     * @param array<string, string> $declarations
+     * @return list<string>
+     */
+    private function viewportRewrittenInlineProperties(DOMElement $element, array $declarations): array
+    {
+        $observations = $this->session->boxTreeEvidence($element);
+        if (count($observations) < 2 || count($observations) !== count($this->session->boxTreeViewports())) {
+            return array();
+        }
+        $properties = array();
+        foreach ($declarations as $property => $value) {
+            if (! in_array($property, BoxTree::PROPERTIES, true) || CssValueInspector::isImportant((string) $value)) {
+                continue;
+            }
+            if (1 !== preg_match('/^-?(?:\d+|\d*\.\d+)(?:px)?$/i', trim((string) $value))) {
+                continue;
+            }
+            $used = array();
+            foreach ($observations as $observation) {
+                if (! isset($observation['used_styles'][$property])) {
+                    continue 2;
+                }
+                $used[CssValueInspector::comparable((string) $observation['used_styles'][$property])] = true;
+            }
+            if (1 < count($used)) {
+                $properties[] = $property;
+            }
+        }
+        return $properties;
+    }
+
     /** Carry the source box properties a transparent figure cannot honour. */
     public function syntheticFlexImageBoxClassName(DOMElement $element): string
     {
@@ -587,6 +624,16 @@ final class InlineGeometry
             foreach ( $deviceStyles as $deviceStyle ) {
                 if ( is_string($deviceStyle) ) $deviceProperties += SourceDeclarations::parse($deviceStyle);
             }
+        }
+        // A runtime can rewrite an absolute inline value at each viewport,
+        // leaving only the capture viewport's value in the document. Complete
+        // box-tree evidence lets the projection restate each observed value;
+        // an important inline carrier would freeze it over those viewport rules.
+        foreach ($this->viewportRewrittenInlineProperties($element, $declarations) as $property) {
+            unset($geometry[$property]);
+        }
+        if (array() === $geometry) {
+            return '';
         }
         foreach ($geometry as $property => $value) {
             // Device runtimes replace the inline style after load. A promoted
