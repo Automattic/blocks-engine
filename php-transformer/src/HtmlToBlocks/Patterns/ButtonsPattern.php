@@ -703,8 +703,8 @@ final class ButtonsPattern
         return $wrapper;
     }
 
-    /** Core's title can name decorative artwork, but must not replace the
-     * semantics of a nested control or a non-decorative graphic.
+    /** Core's title can name an icon-only link, including unnamed SVG artwork.
+     * Keep the companion for nested controls and independently named graphics.
      */
     private function requiresAccessibleLinkSurface(DOMElement $anchor): bool
     {
@@ -712,7 +712,18 @@ final class ButtonsPattern
             return true;
         }
         foreach ( $anchor->getElementsByTagName('svg') as $svg ) {
-            if ( 'true' !== strtolower($svg->getAttribute('aria-hidden')) ) {
+            if ( 'true' === strtolower($svg->getAttribute('aria-hidden')) ) {
+                continue;
+            }
+            // Missing aria-hidden does not give an icon an independent name.
+            // An enclosing labelled link can use Core's title in that case;
+            // explicitly named or semantic graphics still need their surface.
+            if ( '' !== trim($svg->getAttribute('aria-label'))
+                || '' !== trim($svg->getAttribute('aria-labelledby'))
+                || '' !== trim($svg->getAttribute('aria-describedby'))
+                || '' !== trim($svg->getAttribute('role'))
+                || $svg->getElementsByTagName('title')->length > 0
+                || $svg->getElementsByTagName('desc')->length > 0 ) {
                 return true;
             }
         }

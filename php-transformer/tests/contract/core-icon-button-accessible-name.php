@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 // The name is not visible text: an icon-only link can use core/button's title.
 // A genuinely different visible label still needs the typed companion.
 $html = '<style>.control{display:inline-flex;padding:8px;background:#222;color:white;width:40px;height:40px}</style>'
-    . '<div><a class="control" href="/profile" aria-label="Visit profile"><svg class="profile-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z"/></svg></a></div>'
+    . '<div><a class="control" href="/profile" target="_blank" rel="noreferrer" aria-label="Visit profile"><svg class="profile-icon" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg></a></div>'
     . '<div><a class="control" href="/empty" aria-label="Empty control"></a></div>'
     . '<div><a class="control" href="/account" aria-label="Open account">Go</a></div>';
 $result = (new HtmlTransformer())->transform($html)->toArray();
@@ -23,6 +23,8 @@ $visit($result['blocks']);
 if (2 !== count($buttons)
     || 'Visit profile' !== ($buttons[0]['attrs']['title'] ?? '')
     || '/profile' !== ($buttons[0]['attrs']['url'] ?? '')
+    || '_blank' !== ($buttons[0]['attrs']['linkTarget'] ?? '')
+    || 'noreferrer' !== ($buttons[0]['attrs']['rel'] ?? '')
     || !str_contains($buttons[0]['attrs']['text'] ?? '', '<img')
     || 'Empty control' !== ($buttons[1]['attrs']['title'] ?? '')
     || !str_contains($buttons[1]['attrs']['text'] ?? '', 'Empty control')
@@ -39,7 +41,7 @@ if (!str_contains($inline['serialized_blocks'], 'wp:button ')
     throw new RuntimeException('Flattened icon button geometry must override Core link sizing.');
 }
 // Non-decorative graphics and nested controls retain their semantic surface.
-$semantic = (new HtmlTransformer())->transform('<style>.control{display:inline-flex;padding:8px;background:#222}</style><main><a class="control" href="/graphic" aria-label="Graphic"><svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg></a><a href="/nested" aria-label="Nested"><button class="control"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg></button></a></main>')->toArray();
+$semantic = (new HtmlTransformer())->transform('<style>.control{display:inline-flex;padding:8px;background:#222}</style><main><a class="control" href="/graphic" aria-label="Graphic"><svg viewBox="0 0 24 24"><title>Profile graphic</title><path d="M0 0h24v24H0z"/></svg></a><a href="/nested" aria-label="Nested"><button class="control"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg></button></a></main>')->toArray();
 if (2 !== substr_count($semantic['serialized_blocks'], '<!-- wp:custom/accessible-link ')
     || !str_contains($semantic['serialized_blocks'], '<button class="control">')) {
     throw new RuntimeException('Named graphical links and nested controls must retain their semantic surface.');
