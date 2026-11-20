@@ -71,6 +71,7 @@ final class AuthorStyleAnalysis
     /** @var array<string, string> */
     private array $sourceClassMarkers = array();
     private readonly string $authorCssIdentity;
+    private ?string $journalAtRuleIdentity = null;
     private ?\DOMXPath $sourceXPath = null;
     /** @var array{classes: array<string, true>, ids: array<string, true>, predicates: list<array{attribute: string, operator: string, value: string, insensitive: bool}>, raw: bool}|null */
     private ?array $markerContextPolicy = null;
@@ -482,11 +483,9 @@ final class AuthorStyleAnalysis
      */
     public function journalIdentity(DOMElement $element): ?string
     {
-        // At-rules can introduce non-selector dependencies (fonts, animations,
-        // layers, imports). Until those are modelled, convert normally.
-        if ( preg_match('/@(?!media\b|supports\b)[a-z-]+/i', $this->combinedCss)
-            || ! \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::parse($this->combinedCss)->recoverable
-        ) return null;
+        $tree = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::parse($this->combinedCss);
+        if ( ! $tree->recoverable ) return null;
+        $this->journalAtRuleIdentity ??= hash('sha256', serialize($this->journalAtRules($tree)));
         $nodes = array($element);
         foreach ( $element->getElementsByTagName('*') as $node ) $nodes[] = $node;
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) $nodes[] = $parent;
@@ -496,7 +495,12 @@ final class AuthorStyleAnalysis
             foreach ( $rule['selectors'] as $selector ) {
                 $parsed = $selector['parsed'];
                 if ( ! ($parsed['supported'] ?? false) ) $parsed = $selector['direct_child_parsed'] ?? array();
+                if ( ! ($parsed['supported'] ?? false) ) $parsed = CssSelectorMatcher::parse(self::withoutSimplePseudos($selector['selector']));
                 if ( ! ($parsed['supported'] ?? false) ) {
+                    // View-transition state cannot match a static document.
+                    // Limit this exemption to an unambiguous root subject;
+                    // other unsupported selectors retain the safe fallback.
+                    if ( 1 === preg_match('/^(?::root|html):active-view-transition$/i', trim($selector['selector'])) ) continue;
                     // The established whole-CSS context remains safe for
                     // selectors whose observable context we cannot narrow.
                     return hash('sha256', serialize(array($this->contextIdentity($element), $this->stylesheetAssets)));
@@ -508,13 +512,40 @@ final class AuthorStyleAnalysis
                 if ( array() !== $matches ) $selectors[] = array($selector['selector'], $matches);
             }
             if ( array() !== $selectors ) {
-                // URL bases and provenance are observable for declarations that
-                // refer to assets; do not guess their page-local dependencies.
-                if ( preg_match('/url\s*\(/i', serialize($rule['declarations'])) ) return null;
+                // Asset URL values are inputs, not a reason to decline. The
+                // prepared stylesheet supplies rebased URLs; ChromeJournal's
+                // page digest keys inline relative URLs by their resolved targets.
                 $rules[] = array($selectors, $rule['declarations'], $rule['conditions'] ?? array(), $rule['capture_only'] ?? false);
             }
         }
-        return hash('sha256', serialize(array($this->documentTypeIdentity($element), $rules)));
+        return hash('sha256', serialize(array($this->documentTypeIdentity($element), $this->journalAtRuleIdentity, $rules)));
+    }
+
+    /**
+     * Non-selector dependencies in source order (not a sorted set: layer,
+     * import and duplicate definition order can change the cascade). Grouping
+     * conditions stay attached to opaque blocks; style rules already carry
+     * media/supports/container/layer conditions in styleRules.
+     *
+     * @return list<mixed>
+     */
+    private function journalAtRules(\Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree $tree, int $scope = -1): array
+    {
+        $dependencies = array();
+        foreach ( $tree->rules($scope) as $rule ) {
+            $prelude = trim(\Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments(substr($tree->source, $rule['start'], $rule['boundary'] - $rule['start'])));
+            if ( ! str_starts_with($prelude, '@') ) continue;
+            if ( '{' === $tree->source[$rule['boundary']]
+                && preg_match('/^@(media|supports|container|layer)\b/i', $prelude, $match)
+            ) {
+                $children = $this->journalAtRules($tree, $rule['boundary']);
+                // Even an empty layer establishes cascade order.
+                if ( array() !== $children || 'layer' === strtolower($match[1]) ) $dependencies[] = array($prelude, $children);
+            } else {
+                $dependencies[] = substr($tree->source, $rule['start'], $rule['end'] - $rule['start'] + 1);
+            }
+        }
+        return $dependencies;
     }
 
     /**
@@ -544,6 +575,32 @@ final class AuthorStyleAnalysis
         }
         $node = $nodes->item(0);
         return $node instanceof DOMElement && $node->getNodePath() === $path ? $node : null;
+    }
+
+    /**
+     * The selector with each argument-free pseudo-class and pseudo-element
+     * (`:hover`, `:disabled`, `::before`, vendor names) made neutral. Dropping
+     * a condition only widens what a selector matches, so the result's matches
+     * cover every element the original could reach, in any state.
+     */
+    private static function withoutSimplePseudos(string $selector): string
+    {
+        $out = '';
+        for ( $i = 0, $length = strlen($selector); $i < $length; ++$i ) {
+            if ( '\\' === $selector[ $i ] ) {
+                $out .= substr($selector, $i++, 2);
+            } elseif ( '[' === $selector[ $i ] || '(' === $selector[ $i ] ) {
+                $close = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::matchingClose($selector, $i) ?? $length - 1;
+                $out .= substr($selector, $i, $close - $i + 1);
+                $i = $close;
+            } elseif ( preg_match('/\G::?[a-z-]++(?!\()/Ai', $selector, $match, 0, $i) ) {
+                $out .= ':where(*)';
+                $i += strlen($match[0]) - 1;
+            } else {
+                $out .= $selector[ $i ];
+            }
+        }
+        return $out;
     }
 
     private function documentTypeIdentity(DOMElement $element): string
