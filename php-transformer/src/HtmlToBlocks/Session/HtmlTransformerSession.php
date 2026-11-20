@@ -383,6 +383,26 @@ final class HtmlTransformerSession
         return isset($this->linkCarrierBoxTreeNodes[$element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)]);
     }
 
+    /** @var array<string, \DOMElement> Source boxes a block's carrier is observed on, by the block source's node id. */
+    private array $boxTreeBlockBoxes = array();
+
+    /**
+     * Record that the block lowered from a source element renders another
+     * source element's box: core's navigation item stands for the source
+     * item while the anchor it is built from keeps its own carrier inside.
+     */
+    public function substituteBoxTreeBlockBox(\DOMElement $source, \DOMElement $box): void
+    {
+        $id = $source->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
+        if ('' !== $id) $this->boxTreeBlockBoxes[$id] = $box;
+    }
+
+    /** The source element whose observed box the block lowered from this element renders. */
+    public function boxTreeBlockBox(\DOMElement $source): \DOMElement
+    {
+        return $this->boxTreeBlockBoxes[$source->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)] ?? $source;
+    }
+
     /** The nearest source ancestor that keeps its own box in the output. */
     public function boxTreeOutputParent(\DOMElement $element): ?\DOMElement
     {

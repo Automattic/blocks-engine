@@ -108,7 +108,7 @@ final class PresetBinding
     private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
 
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
-    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
+    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'cover', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');

@@ -6067,6 +6067,7 @@ final class StyleResolver implements ElementPresentationResolver
                     'grid-template-columns',
                     'gap',
                     'column-gap',
+                    'justify-content',
                     'min-width',
                     'max-width',
                     'perspective',

@@ -3632,6 +3632,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
+            $navigationContext->observeItemBoxOn($anchor, $item);
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit

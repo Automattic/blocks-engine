@@ -54,6 +54,11 @@ foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) {
     if ('frontend' !== $row['stylesheet_target']) $editor .= $content;
     if ('editor' !== $row['stylesheet_target']) $frontend .= $content;
 }
-$assert(str_contains($editor, $repair) && str_contains($editor, '.wp-block-group:has(>figure.blocks-engine-synthetic-image-figure.wp-block-image){display:block!important'), 'The evidence route delivers the editor repair that gives the hidden image a selectable box.');
+// Only the carrier the evidence hides gets a box; naming it by its geometry
+// carrier class keeps the repair on engine markup.
+preg_match('/<div class="wp-block-group [^"]*\\b(be-inline-geometry-[a-f0-9]{16})\\b[^"]*"[^>]*><!-- wp:image/', $compiled['serialized_blocks'], $carrier);
+$assert('' !== ($carrier[1] ?? ''), 'The hidden icon image sits in a geometry carrier group.');
+$assert(str_contains($editor, $repair) && 1 === preg_match('/\\.wp-block-group:has\\(>figure\\.blocks-engine-synthetic-image-figure\\.wp-block-image\\):is\\([^{]*\\.' . $carrier[1] . '\\b[^{]*\\)\\{display:block!important/', $editor), 'The evidence route delivers the editor repair that gives the hidden image carrier a selectable box.');
+$assert(!str_contains($editor, ':is(.icon'), 'The engine-owned repair names no author selector.');
 $assert(!str_contains($frontend, $repair), 'The repair never reaches the front end.');
 $assert(!str_contains($editor . $frontend, '.icon{display:none'), 'Author selector bytes stay retired on the evidence route.');

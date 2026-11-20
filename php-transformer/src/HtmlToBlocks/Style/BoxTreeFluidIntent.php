@@ -120,7 +120,8 @@ final class BoxTreeFluidIntent
         'flex-basis' => 'flex',
         'grid-column-start' => array('grid-column', 'grid-area'), 'grid-column-end' => array('grid-column', 'grid-area'),
         'grid-row-start' => array('grid-row', 'grid-area'), 'grid-row-end' => array('grid-row', 'grid-area'),
-        'row-gap' => 'gap', 'column-gap' => 'gap',
+        // `grid-gap` and `grid-*-gap` are legacy name aliases (CSS Box Alignment §8.4).
+        'row-gap' => array('gap', 'grid-gap', 'grid-row-gap'), 'column-gap' => array('gap', 'grid-gap', 'grid-column-gap'),
     );
 
     /**
@@ -289,7 +290,7 @@ final class BoxTreeFluidIntent
         foreach ($properties as $property) {
             $bands = $this->liftedAuthor($property, $widths, $authorSamples, $observations, $viewports, $parents)
                 ?? (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
-                ?? $this->liftedIntrinsic($property, $widths, $samples)
+                ?? $this->liftedIntrinsic($property, $widths, $samples, $observations)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
                 ?? $this->liftedInheritance($property, $widths, $samples, $observations, $parents, $inheriting);
@@ -312,6 +313,21 @@ final class BoxTreeFluidIntent
             if (null !== $this->declared($property, $width)) { $declared = true; break; }
         }
         if (!$declared) return null;
+        // Hidden panels expose computed placement, not a used containing block.
+        // Do not infer a new positioning scheme from an absent desktop winner
+        // and a media-only declaration observed solely on display:none boxes.
+        // Navigation recognition owns that panel's replacement with Core's
+        // overlay; these values are not evidence for moving its in-flow host.
+        if ('position' === $property || in_array($property, self::OFFSETS, true)) {
+            $visibleDeclaration = false;
+            $absent = false;
+            foreach ($widths as $key => $width) {
+                $value = $this->declared($property, $width);
+                $absent = $absent || null === $value;
+                if (null !== $value && 'none' !== ($observations[$key]['used_styles']['display'] ?? '')) $visibleDeclaration = true;
+            }
+            if ($absent && !$visibleDeclaration) return null;
+        }
         // An absent winner proves only a known, non-inherited initial value.
         // Keep this fallback at sampled widths too, so media-only rules lift.
         $winner = fn(float $width): ?string => $this->declared($property, $width) ?? BoxTreeDeclarationPruner::cascadeInitial($property);
@@ -320,6 +336,7 @@ final class BoxTreeFluidIntent
             $value = $winner($width);
             if (null === $value || '' === $value) return null;
             $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
+            if (in_array($property, self::GRID_TEMPLATES, true) && self::observedRepeatCount($value, $actual) !== $value) return null;
             if ($value !== $actual
                 && !('0' === $value && '0px' === $actual)
                 && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
@@ -453,13 +470,17 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedIntrinsic(string $property, array $widths, array $samples): ?array
+    private function liftedIntrinsic(string $property, array $widths, array $samples, array $observations): ?array
     {
         if (!isset(self::INTRINSIC[$property])) return null;
         $keywords = array();
         foreach ($widths as $key => $width) {
             $keyword = $this->intrinsicKeyword($property, $width);
             if (null === $keyword) return null;
+            if (in_array($property, self::GRID_TEMPLATES, true)) {
+                $keyword = self::observedRepeatCount($keyword, (string) ($observations[$key]['used_styles'][$property] ?? ''));
+                if (null === $keyword) return null;
+            }
             $keywords[$key] = $keyword;
         }
         // A track list the author switches at a breakpoint between captures
@@ -518,6 +539,11 @@ final class BoxTreeFluidIntent
         $declared = $this->declared($property, $width);
         $value = null === $declared ? $initial : strtolower($declared);
         if (in_array($value, array('initial', 'unset'), true)) $value = $initial;
+        if ('inherit' === $value) {
+            $value = $this->inheritedKeyword($property, $width);
+            if (null === $value) return null;
+            $declared = $value;
+        }
         if ($grid) {
             if ($value === $initial) return $initial;
             return self::flexibleTrackList((string) $declared) ? (string) $declared : null;
@@ -554,6 +580,21 @@ final class BoxTreeFluidIntent
     private static function percentHeight(string $value): bool
     {
         return 1 === preg_match('/\d%/', $value) && 0 === preg_match('/\bvar\(|\battr\(|\benv\(/i', $value);
+    }
+
+    /**
+     * Restate a serialized repeat count only when a capture proves a different
+     * count of equal pixel tracks. Unequal tracks cannot prove that the same
+     * author track was repeated by a runtime resize handler.
+     */
+    private static function observedRepeatCount(string $declared, string $observed): ?string
+    {
+        if (!preg_match('/^repeat\(\s*(\d+)\s*,\s*([^,()]+(?:\([^()]*\))?[^,()]*)\)$/i', trim($declared), $match)) return $declared;
+        if (!preg_match_all('/(-?\d*\.?\d+)px/', $observed, $tracks) || count($tracks[1]) !== count(preg_split('/\s+/', trim($observed)))) return $declared;
+        $count = count($tracks[1]);
+        if ($count === (int) $match[1]) return $declared;
+        if (max($tracks[1]) - min($tracks[1]) > self::TOLERANCE) return null;
+        return 'repeat(' . $count . ', ' . trim($match[2]) . ')';
     }
 
     /**
@@ -747,7 +788,8 @@ final class BoxTreeFluidIntent
             return self::gridLines($value, $shorthand)[$property] ?? '';
         }
         // `gap` is `<row-gap> <column-gap>?`, the first two box sides.
-        if ('gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
+        if ('grid-row-gap' === $shorthand || 'grid-column-gap' === $shorthand) return $value;
+        if ('gap' === $shorthand || 'grid-gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
         $side = self::SIDES['inset' === $shorthand ? $property : substr($property, (int) strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
     }
@@ -768,6 +810,30 @@ final class BoxTreeFluidIntent
             return self::expression(trim($this->resolver->customProperties->resolveAtViewport($value, $node, $width)));
         }
         return false;
+    }
+
+    /**
+     * The intrinsic keyword a sizing property's `inherit` takes from the
+     * nearest ancestor that does not itself inherit it, or null when that
+     * ancestor declares anything else (a length or percentage resolves
+     * against a different box there). A non-inherited property is
+     * otherwise its initial value: `.inner{height:inherit}` inside a
+     * content-sized parent is `auto`, so its captured pixels are layout's.
+     */
+    private function inheritedKeyword(string $property, float $width): ?string
+    {
+        [$initial] = self::INTRINSIC[$property];
+        $height = $this->captureHeight($width);
+        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $winners = $this->resolver->authorViewport->atViewport($node, self::INTRINSIC[$property], $width, viewportHeight: $height);
+            unset($winners[$initial]);
+            if (array() !== array_diff_key($winners, array($property => true))) return null;
+            $value = strtolower(trim(CssValueInspector::withoutImportant((string) ($winners[$property] ?? ''))));
+            if ('inherit' === $value) continue;
+            if ('' === $value || in_array($value, array('initial', 'unset'), true)) return $initial;
+            return in_array($value, self::INTRINSIC_KEYWORDS, true) ? $value : null;
+        }
+        return $initial;
     }
 
     /** Whether the element's resolved `writing-mode` at this width is horizontal (`horizontal-tb`, the initial value). */
