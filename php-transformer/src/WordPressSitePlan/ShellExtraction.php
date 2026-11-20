@@ -2369,52 +2369,73 @@ final class ShellExtraction
                 // Do not promote a second occurrence on a route that already
                 // contributed its shell, or one retained for unsafe placement.
                 if (isset($part['provenance']['sources'][$page['source_path']])) continue;
-                $excluded = array_filter($diagnostics, static fn(array $d): bool => $area === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)));
+                $excludedReasons = 'header' === $area ? array('non_equivalent', 'missing') : array('non_equivalent');
+                $excluded = array_filter($diagnostics, static fn(array $d): bool => $area === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && in_array($e['reason'] ?? null, $excludedReasons, true)));
                 if (array() === $excluded) continue;
                 $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], $area, $captureEdges);
-                if (1 !== count($rows)) continue;
-                $row = $rows[0];
-                $anchorVariant = 'header' === $area && $this->addsOnlySameDocumentAnchorItems($page, $part, $pages, $stylesheetIds);
-                $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
-                $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
-                $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
-                $sharedWrapper = $anchors[$attrs['anchor'] ?? ''] ?? null;
-                // An unanchored landmark can still prove route-shell ownership
-                // through the same authored wrapper and copy. Keep its layout
-                // in a route-local part rather than freezing the donor's paint.
-                if (null === $sharedWrapper && empty($attrs['anchor']) && in_array($wrapper, $wrappers, true)) $sharedWrapper = $wrapper;
-                // The shared header's copy proves this is the site chrome in a
-                // route-specific presentation (#6723), not an article header:
-                // it moves to its own variant part rather than staying content.
-                $copy = self::chromeCopy($row['markup']);
-                $pageChrome = !empty($row['document_level']) && $area === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? '')) && array() !== array_intersect(self::chromeReferences($row['markup']), self::chromeReferences($partLandmark));
-                if (!$anchorVariant && !$pageChrome && (array() === $copy || $copy !== $partCopy)) continue;
-                $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
-                if ($bindings['blocked']) continue;
-                // Navigation-only exclusions (which item is current) remain
-                // route-owned unless layout or the menu's own presentation
-                // differs. A bound control, however, must move with its shell
-                // into an editable part, even when block layout is identical.
-                if (!$anchorVariant && (!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
-                    && self::navigationClasses($row['markup']) === $partNavigationClasses
-                    && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
-                $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), $area);
-                if (array() !== $bindings['refs'] && null === $hoist) continue;
-                $edges = array($index => array($row + array('identity' => $row['identity_markup'], 'nested' => true)));
-                $slug = $area . '-' . substr(hash('sha256', $page['source_path']), 0, 12);
-                $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#' . $area;
-                $variantDeclarations = null === $hoist ? $runtimeDeclarations : self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $partSourcePath);
-                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), $area, array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
-                if (array() !== $variants['parts']) $runtimeDeclarations = $variantDeclarations;
-                if (($anchorVariant || $pageChrome) && array() !== $variants['parts']) {
-                    foreach ($diagnostics as &$diagnostic) {
-                        if ($area === ($diagnostic['area'] ?? null) && isset($diagnostic['exclusions'])) $diagnostic['exclusions'] = array_values(array_filter($diagnostic['exclusions'], static fn(array $exclusion): bool => $page['source_path'] !== ($exclusion['source_path'] ?? null)));
+                if (count($rows) <= 1 && !array_filter($excluded, static fn(array $d): bool => (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)))) continue;
+                // A captured route can have one header landmark per device
+                // document. They are independent presentation copies, not
+                // ambiguity. Move each in place, from the end so the remaining
+                // offsets stay valid.
+                if (count($rows) > 1 && ('header' !== $area || array_filter($rows, static fn(array $row): bool => null === self::responsiveVariantClass($row)))) continue;
+                usort($rows, static fn(array $a, array $b): int => $b['offset'] <=> $a['offset']);
+                foreach ($rows as $variant => $row) {
+                    $rowLandmark = $partLandmark;
+                    if (count($rows) > 1) {
+                        $matchingPartRows = array_values(array_filter($partRows, static fn(array $member): bool => self::chromeCopy($member['markup']) === self::chromeCopy($row['markup'])));
+                        $rowLandmark = $matchingPartRows[0]['markup'] ?? (1 === count($partRows) ? $partRows[0]['markup'] : $part['canonical_block_markup']);
                     }
-                    unset($diagnostic);
+                    $rowPartCopy = count($rows) > 1 ? self::chromeCopy($rowLandmark) : $partCopy;
+                    $rowNavigationClasses = count($rows) > 1 ? self::navigationClasses($rowLandmark) : $partNavigationClasses;
+                    $rowLayoutMarkup = count($rows) > 1 ? $rowLandmark : $part['canonical_block_markup'];
+                    $anchorVariant = 'header' === $area && $this->addsOnlySameDocumentAnchorItems($page, $part, $pages, $stylesheetIds);
+                    $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
+                    $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
+                    $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                    $sourceAnchor = preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '(?:mobile|desktop)$/', '', (string) ($attrs['anchor'] ?? ''));
+                    $sharedWrapper = $anchors[$sourceAnchor] ?? null;
+                    // Multiple device landmarks prove presentation, not ownership.
+                    // Require the shared shell's source anchor before moving them;
+                    // archive-owned responsive chrome must remain in its template.
+                    if (count($rows) > 1 && null === $sharedWrapper) continue;
+                    // An unanchored landmark can still prove route-shell ownership
+                    // through the same authored wrapper and copy. Keep its layout
+                    // in a route-local part rather than freezing the donor's paint.
+                    if (null === $sharedWrapper && empty($attrs['anchor']) && in_array($wrapper, $wrappers, true)) $sharedWrapper = $wrapper;
+                    // The shared header's copy proves this is the site chrome in a
+                    // route-specific presentation (#6723), not an article header:
+                    // it moves to its own variant part rather than staying content.
+                    $copy = self::chromeCopy($row['markup']);
+                    $pageChrome = !empty($row['document_level']) && $area === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? '')) && array() !== array_intersect(self::chromeReferences($row['markup']), self::chromeReferences($rowLandmark));
+                    if (!$anchorVariant && !$pageChrome && (array() === $copy || $copy !== $rowPartCopy)) continue;
+                    $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
+                    if ($bindings['blocked']) continue;
+                    // Navigation-only exclusions (which item is current) remain
+                    // route-owned unless layout or the menu's own presentation
+                    // differs. A bound control, however, must move with its shell
+                    // into an editable part, even when block layout is identical.
+                    if (!$anchorVariant && (!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
+                        && self::navigationClasses($row['markup']) === $rowNavigationClasses
+                        && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($rowLayoutMarkup)) continue;
+                    $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), $area);
+                    if (array() !== $bindings['refs'] && null === $hoist) continue;
+                    $edges = array($index => array($row + array('identity' => $row['identity_markup'], 'nested' => true)));
+                    $slug = $area . '-' . substr(hash('sha256', $page['source_path'] . (count($rows) > 1 ? ':' . $variant : '')), 0, 12);
+                    $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#' . $area;
+                    $variantDeclarations = null === $hoist ? $runtimeDeclarations : self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $partSourcePath);
+                    $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), $area, array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
+                    if (array() !== $variants['parts']) $runtimeDeclarations = $variantDeclarations;
+                    if (($anchorVariant || $pageChrome) && array() !== $variants['parts']) {
+                        foreach ($diagnostics as &$diagnostic) {
+                            if ($area === ($diagnostic['area'] ?? null) && isset($diagnostic['exclusions'])) $diagnostic['exclusions'] = array_values(array_filter($diagnostic['exclusions'], static fn(array $exclusion): bool => $page['source_path'] !== ($exclusion['source_path'] ?? null)));
+                        }
+                        unset($diagnostic);
+                    }
+                    $pages = $variants['pages'];
+                    array_push($parts, ...$variants['parts']);
+                    array_push($diagnostics, ...$variants['diagnostics']);
                 }
-                $pages = $variants['pages'];
-                array_push($parts, ...$variants['parts']);
-                array_push($diagnostics, ...$variants['diagnostics']);
             }
         }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
@@ -3446,11 +3467,21 @@ final class ShellExtraction
         }
         $routeFooter = false;
         if ($foldRouteFooter && isset($positions['header']) && !isset($positions['footer']) && $to > $from && $to === count($siblings) - 1) {
-            $last = $nodes[$siblings[$to]];
+            $footerPosition = $to;
+            // A fixed contact control may follow the route footer. It is
+            // document chrome, not part of the preceding article. Keep both
+            // verbatim in the frame, without changing their selector context.
+            while ($footerPosition > $from) {
+                $tail = $nodes[$siblings[$footerPosition]];
+                $tailMarkup = substr($markup, $tail['offset'], $tail['end'] - $tail['offset']);
+                if ('paragraph' !== $tail['name'] || 1 !== preg_match_all('/<a\b/i', $tailMarkup) || !preg_match('/<a\b[^>]*\bclass="[^"]*\bfixed\b[^"]*"/i', $tailMarkup) || !str_contains($tailMarkup, 'aria-label=')) break;
+                --$footerPosition;
+            }
+            $last = $nodes[$siblings[$footerPosition]];
             $footer = substr($markup, $last['offset'], $last['end'] - $last['offset']);
-            $rest = array_slice($siblings, $from, $to - $from);
+            $rest = array_slice($siblings, $from, $footerPosition - $from);
             if ('group' === $last['name'] && 1 === preg_match('/"tagName":"footer"/', $last['attributes']) && !self::containsMainLandmark($footer) && !str_contains($footer, 'wp:template-part') && (self::nodesHoldPageHeading($markup, $nodes, $rest) || self::nodesHoldMain($markup, $nodes, $rest))) {
-                --$to;
+                $to = $footerPosition - 1;
                 $routeFooter = true;
             }
         }
