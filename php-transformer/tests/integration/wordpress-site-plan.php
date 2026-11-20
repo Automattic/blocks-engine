@@ -141,7 +141,10 @@ $imageUrl = $assetBase . 'logo.svg';
 $assert(is_file($cssFile) && is_file($themeDir . '/assets/assets/logo.svg') && str_contains((string) file_get_contents($cssFile), 'url("logo.svg")') && str_starts_with($cssUrl, home_url('/')) && str_starts_with($imageUrl, home_url('/')) && !str_contains($cssUrl . $imageUrl, 'build.example.test'), 'A moved active theme exposes local CSS and SVG image fetch URLs under the runtime host and subdirectory without a source-origin URL.');
 $themeJson = json_decode((string) file_get_contents($themeDir . '/theme.json'), true);
 $globalStylesheet = wp_get_global_stylesheet();
-$assert(!isset($themeJson['styles']['typography']['fontFamily']) && !isset($themeJson['styles']['spacing']['padding']), 'A stylesheet loaded by only some pages cannot set the site-wide font or padding.');
+$assert(!isset($themeJson['styles']['typography']['fontFamily']) && array() === array_filter((array) ($themeJson['styles']['spacing']['padding'] ?? array())), 'A stylesheet loaded by only some pages cannot set the site-wide font or padding.');
+// That stylesheet's body padding stays source-owned, so core's own 0px root
+// padding default must not be printed over it either.
+$assert(1 !== preg_match('/(?:^|})\s*body\s*\{[^}]*padding/', $globalStylesheet), 'Global styles print no root padding over a source-owned body padding.');
 $presetGroups = array(
     'color' => $themeJson['settings']['color']['palette'] ?? array(),
     'font-family' => $themeJson['settings']['typography']['fontFamilies'] ?? array(),

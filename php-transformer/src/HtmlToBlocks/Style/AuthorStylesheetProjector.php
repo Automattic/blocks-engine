@@ -1067,12 +1067,17 @@ final class AuthorStylesheetProjector
 
         // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
         $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-        return implode(',', array_map(static function (string $selector) use ($shim): string {
+        $nativeFlex = 1 === preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $context->emittedMarkup);
+        return implode(',', array_map(static function (string $selector) use ($shim, $nativeFlex): string {
             $selector = trim($selector);
             // Legacy single-colon pseudo-elements must remain last. Appending the
             // shim after :before/:after invalidates their entire selector list.
             if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
-                return $selector . $shim;
+                // Native cover flex items need one more class tier than
+                // Core's inline reset and our UA-margin restoration. Apply
+                // it uniformly, so source specificity/order still arbitrate.
+                $flexItem = ':where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex>*)';
+                return $selector . $shim . ($nativeFlex ? ',' . $selector . $shim . $flexItem . $shim : '');
             }
             return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
         }, $selectors));
@@ -2843,10 +2848,10 @@ final class AuthorStylesheetProjector
         if ( count($moved) === count($selectors) ) {
             return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
         }
-        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false, false, array() !== $moved, false) . '}';
+        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false, false, array() !== $moved) . '}';
         $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
 
-        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit;object-position:inherit' . $fillBody . '}';
+        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit' . $fillBody . '}';
     }
 
     private function everySubjectStaysOnImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
@@ -2880,7 +2885,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true, bool $fillPercentageBox = false, bool $projectDimensions = true, bool $inheritObjectPosition = true): string
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true, bool $fillPercentageBox = false, bool $projectDimensions = true): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
@@ -2918,12 +2923,7 @@ final class AuthorStylesheetProjector
         }
         $objectFit = $this->explicitObjectFit($declarations);
         $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
-        // Bare image subjects keep their focal point on the leaf. Do not
-        // introduce a higher-specificity reset, even for rules that declare
-        // no position: those would erase another authored rule's focal point.
-        if ( $inheritObjectPosition ) {
-            $bridge[] = 'object-position:inherit';
-        }
+        $bridge[] = 'object-position:inherit';
         if ( $inheritRadius ) {
             $bridge[] = 'border-radius:inherit';
         }
@@ -2984,6 +2984,10 @@ final class AuthorStylesheetProjector
                 // Overlay lists still own an inner UL, not the opener's root.
                 $target = $context->selectorProjections->navigationListBoxSubject($path);
                 if ('' === $target) continue;
+                if ($context->selectorProjections->isMergedDeviceNavigationSource($path)
+                    && 'none' === CssValueInspector::comparable($box['display'] ?? '')) {
+                    $target .= ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+                }
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 $display = $this->navigationListBoxDisplay($box['display'] ?? null, $context->selectorProjections->navigationListShownDisplay($path));
                 $rendered = '' === $display ? $box : array('display' => $display) + $box;

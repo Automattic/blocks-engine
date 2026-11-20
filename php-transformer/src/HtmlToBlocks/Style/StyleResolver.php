@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
@@ -824,7 +825,7 @@ final class StyleResolver implements ElementPresentationResolver
             $parents = $this->session->boxTreeParentEvidence($source, $parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
-            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid, $target->tagName);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
     }
@@ -1173,7 +1174,7 @@ final class StyleResolver implements ElementPresentationResolver
             // A print or speech rule (Bootstrap's `@media print{.navbar{display:none}}`)
             // never draws a screen box, so it is not a viewport variant.
             foreach ( $conditions as $condition ) {
-                if ( preg_match('/^@media\s*(.*)$/is', $condition, $media ) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+                if ( preg_match('/^@media\s*(.*)$/is', $condition, $media ) && ! MediaCondition::targetsScreen($media[1]) ) {
                     continue 2;
                 }
             }
@@ -2265,7 +2266,7 @@ final class StyleResolver implements ElementPresentationResolver
             // A print or speech rule (`@media print{img{max-width:100%}}`)
             // never draws a screen box, so it is not a viewport variant.
             foreach ($rule['conditions'] ?? array() as $condition) {
-                if (preg_match('/^@media\s*(.*)$/is', trim($condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1])) {
+                if (preg_match('/^@media\s*(.*)$/is', trim($condition), $media) && ! MediaCondition::targetsScreen($media[1])) {
                     continue 2;
                 }
             }
@@ -5720,7 +5721,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $conditions = $rule['conditions'] ?? array();
                 if (array() === $conditions) continue;
                 foreach ($conditions as $condition) {
-                    if (!preg_match('/^@media\s+(.+)$/is', $condition, $match) || !CssCascade::mediaConditionTargetsScreen($match[1])) continue 2;
+                    if (!preg_match('/^@media\s+(.+)$/is', $condition, $match) || !MediaCondition::targetsScreen($match[1])) continue 2;
                 }
                 $stacks[serialize($conditions)] = $conditions;
             }
@@ -5745,7 +5746,7 @@ final class StyleResolver implements ElementPresentationResolver
             if (in_array('font', $declared, true)) array_push($declared, ...self::FONT_SHORTHAND_LONGHANDS);
             if (array() === $conditions || array() === array_intersect($properties, $declared)) continue;
             foreach ($conditions as $condition) {
-                if (!preg_match('/^@media\s*(.+)$/is', $condition, $match) || !CssCascade::mediaConditionTargetsScreen($match[1])) continue 2;
+                if (!preg_match('/^@media\s*(.+)$/is', $condition, $match) || !MediaCondition::targetsScreen($match[1])) continue 2;
             }
             $stacks[serialize($conditions)] = $conditions;
         }

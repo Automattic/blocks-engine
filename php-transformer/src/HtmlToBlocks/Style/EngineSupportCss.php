@@ -185,9 +185,11 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS) ) {
             // The converse of a layer fill image: a later positioned layer
-            // paints over an in-flow fill image. Put that layer in editor flow
+            // paints over the whole fill image. Put that layer in editor flow
             // after the image, so a click on the image reaches the image block.
-            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}';
+            // Other positioned siblings (a centered frame, a corner badge)
+            // cover only part of the image and keep their geometry.
+            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block.' . SourceBlockAttributeProjector::IMAGE_COVERING_LAYER_CLASS . '{position:static!important;inset:auto!important}';
         }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line
@@ -430,11 +432,13 @@ final class EngineSupportCss
             // control; synthesized boxes get their own zero-margin resets.
             $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
             // Native flex groups also have Core's physical margin:0 reset.
-            // Match its weight without outranking projected author margins.
+            // Beat Core's (0,1,1) inline reset. marginSelectorPrelude gives
+            // authored margins on these items the same two-class baseline,
+            // after this support sheet, preserving even universal author rules.
             // Emit only for markup using this contract, keeping unrelated
             // CSS-owned flow documents' stylesheets unchanged.
             if ( preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . self::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $serializedBlocks) ) {
-                $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox() . '){margin:revert}';
+                $parts[] = ':root:root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox() . '){margin:revert}';
             }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {

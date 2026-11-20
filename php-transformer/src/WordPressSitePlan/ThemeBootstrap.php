@@ -176,7 +176,10 @@ PHP;
     public const SINGLE_SOURCE_IMAGE_RUNTIME = <<<'PHP'
 $blocks_engine_single_source_images = new ArrayObject();
 add_filter( 'render_block_core/image', static function ( string $content, array $block ) use ( $blocks_engine_single_source_images ): string {
-    if ( isset( $block['attrs']['metadata']['blocksEngineImageSelection'] ) ) return $content;
+    $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
+    // Selection metadata also carries loading hints and empty picture shells.
+    // Neither authorizes core to invent responsive attachment candidates.
+    if ( is_array( $selection ) && ( ! empty( $selection['srcset'] ) || ! empty( $selection['sources'] ) ) ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'FIGURE' ) || ! $tag->has_class( 'blocks-engine-image' ) ) return $content;
     if ( ! $tag->next_tag( 'IMG' ) || null !== $tag->get_attribute( 'srcset' ) ) return $content;
@@ -313,7 +316,13 @@ add_action( 'init', static function (): void {
 } );
 PHP;
         self::serve($lines, $served, $units, 'button_variations');
-        $rootContext = DocumentRootContext::bootstrap(array_merge($pages, $rootDocuments));
+        $rootPages = array_merge($pages, $rootDocuments);
+        // Prune only against the complete published CSS.
+        $css = array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null));
+        if (array() === array_filter($css, static fn(array $asset): bool => !is_string($asset['content'] ?? null))) {
+            $rootPages = DocumentRootContext::withoutUnreferencedRouteClasses($rootPages, array_merge(array_column($css, 'content'), array_map(static fn(array $document): string => (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), array_merge($templates, $parts, $pages))));
+        }
+        $rootContext = DocumentRootContext::bootstrap($rootPages);
         if ('' !== $rootContext) $lines[] = $rootContext;
         self::serve($lines, $served, $units, 'document_attributes');
         $fields = ListingFieldProjection::bootstrap($pages);
@@ -355,12 +364,30 @@ PHP;
         $importLoaded = self::importLoadedStylesheets($assets);
         $stylesheetAttributes = array();
         $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages, $rootDocuments);
+        // A shared sheet names many pages and post designs. Number them once
+        // per request, so each sheet's condition lists numbers rather than
+        // restating every page's identity and every design's template test.
+        $lookup = self::scopeLookup($stylesheetEnqueues);
+        if (array() !== $lookup['identities']) $lines[] = '    $blocks_engine_page_scope = 0 === $blocks_engine_page_id ? -1 : ( \'\' !== $blocks_engine_page_identity ? ( ' . BootstrapData::literal($lookup['identities']) . '[ $blocks_engine_page_identity ] ?? -1 ) : ( null === $blocks_engine_page_uri ? -1 : ( ' . BootstrapData::literal($lookup['paths']) . '[ $blocks_engine_page_uri ] ?? -1 ) ) );';
+        if (array() !== $lookup['templates']) $lines[] = "    \$blocks_engine_design_scope = is_singular( 'post' ) && is_string( \$blocks_engine_design_template = get_page_template_slug( get_queried_object_id() ) ) ? ( " . BootstrapData::literal($lookup['templates']) . '[ $blocks_engine_design_template ] ?? -1 ) : -1;';
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
         $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
         if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
-        $routeRows = array();
-        foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
+        // A post replays its design's sequence (see stylesheetEnqueues()), so
+        // the posts of one design share one route row, selected by template,
+        // instead of one identity-tested row per imported post.
+        $routeRows = $routeKeys = array();
+        foreach ($evidencePages as $page) {
+            $scope = PageStylesheets::documentScope($page);
+            $key = $page['source_path'];
+            if ('post' === $scope['kind']) {
+                $scope = array('kind' => 'post_template', 'template' => $page['route_template'] ?? 'single', 'source_path' => $page['source_path']);
+                $key = "post_template\0" . $scope['template'];
+            }
+            $routeKeys[$page['source_path']] = $key;
+            $routeRows[$key] ??= array('condition' => self::bootstrapScopeCondition($scope, true), 'styles' => array(), 'handles' => array());
+        }
         // The route table sits where the first route instance falls in the
         // stylesheet order, so sheets ordered ahead of the author CSS (the
         // engine reset sheets that also declare the cascade layer order) keep
@@ -383,15 +410,16 @@ PHP;
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
             if (isset($enqueue['route'])) {
                 if (null === $routePosition) $routePosition = count($lines);
-                $routeRows[$enqueue['route']]['condition'] = $enqueue['condition'];
-                $routeRows[$enqueue['route']]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
-                $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
+                $key = $routeKeys[$enqueue['route']] ?? $enqueue['route'];
+                $routeRows[$key]['condition'] = $enqueue['condition'];
+                $routeRows[$key]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
+                $routeRows[$key]['handles'][] = $enqueue['handle'];
                 continue;
             }
             // A fallback reads the flag the route table sets: the table goes first.
             if (!empty($enqueue['fallback']) && null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
             if (!empty($enqueue['fallback']) && null === $fallbackPosition) $fallbackPosition = count($lines);
-            $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
+            $condition = empty($enqueue['fallback']) ? (count($enqueue['scopes'] ?? array()) > 1 ? self::indexedStylesheetCondition($enqueue['scopes'], $lookup) : $enqueue['condition']) : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
         if (null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
@@ -458,7 +486,7 @@ PHP;
             if (array_filter($parts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), WordPressSitePlan::TOKEN_PREFIX))) $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content ) use ( \$blocks_engine_resolve_template_assets ): string { return \$blocks_engine_resolve_template_assets( \$content ); }, 10, 1 );";
         }
         self::serve($lines, $served, $units, 'template_assets');
-        $editorStyles = array();
+        $editorStyles = $editorStyleKeys = array();
         $partSlugsBySource = array();
         foreach ($parts as $part) {
             $sourcePaths = is_array($part['placement']['source_paths'] ?? null) ? $part['placement']['source_paths'] : array((string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? ''))));
@@ -469,7 +497,15 @@ PHP;
             if (!StylesheetActivation::active($asset) || 'frontend' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $partSlugs = array();
             foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $owner) foreach ($partSlugsBySource[(string) ($owner['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $editorScope) $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($editorScope), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? self::editorStylesheetMedia($enqueue), 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $editorScope) {
+                // The editor matches a post design by its template alone, so
+                // that design's member posts share one scope and one entry.
+                if ('post_template' === ($editorScope['kind'] ?? null)) unset($editorScope['source_path']);
+                $style = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($editorScope), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? self::editorStylesheetMedia($enqueue), 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
+                if (isset($editorStyleKeys[$key = serialize($style)])) continue;
+                $editorStyleKeys[$key] = true;
+                $editorStyles[] = $style;
+            }
         }
         if (array() !== $editorStyles) {
             // Files and scopes own shared data; replay owns occurrence order,
@@ -493,6 +529,14 @@ PHP;
                     if ($entry[$field] !== $default) break;
                     array_pop($entry);
                 }
+                // A run of entries that differ only by scope (one resource
+                // delivered to many designs and pages in a row) is one entry
+                // with a scope list; the replay loop expands it in place.
+                $last = array_key_last($replay);
+                if (null !== $last && array_slice($replay[$last], 2) === array_slice($entry, 2) && $replay[$last][0] === $entry[0]) {
+                    $replay[$last][1] = array_merge((array) $replay[$last][1], array($scopeIndex));
+                    continue;
+                }
                 $replay[] = $entry;
             }
             foreach ($files as &$file) $file['scopes'] = array_values($file['scopes']);
@@ -501,12 +545,12 @@ PHP;
             $lines[] = BootstrapData::table('blocks_engine_presentation_styles', $files);
             $lines[] = '$blocks_engine_presentation_replay = ' . BootstrapData::literal($replay) . ';';
             $lines[] = '$blocks_engine_presentation_sequence = array();';
-            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3] ?? \'\'; $style[\'fallback\'] = $entry[4] ?? false; $style[\'template_part_slugs\'] = $entry[5] ?? array(); $blocks_engine_presentation_sequence[] = $style; }';
+            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) foreach ( (array) $entry[1] as $scope ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $scope ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3] ?? \'\'; $style[\'fallback\'] = $entry[4] ?? false; $style[\'template_part_slugs\'] = $entry[5] ?? array(); $blocks_engine_presentation_sequence[] = $style; }';
             $lines[] = "\$blocks_engine_presentation_matches = static function ( array \$style, ?WP_Post \$post, bool \$site_editor ): bool {";
             $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "        if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
-            $lines[] = "        if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
+            $lines[] = "        if ( 'post_template' === \$scope['kind'] && 'post' === \$post->post_type && ( 'single' === \$scope['template'] ? '' === get_page_template_slug( \$post->ID ) : \$scope['template'] === get_page_template_slug( \$post->ID ) ) ) { \$matches = true; break; }";
             $lines[] = "        if ( 'page' === \$scope['kind'] ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
             $lines[] = "    }";
             $lines[] = "    return \$matches;";
@@ -943,7 +987,28 @@ PHP;
                 $expanded[] = $part;
             }
         }
-        return $expanded;
+        // Replay a design's sequence once, rather than testing the identities
+        // of every imported post. Keep source ownership for publication clients.
+        $postTemplates = $representatives = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null)) continue;
+            $template = $page['route_template'] ?? 'single';
+            $postTemplates[$page['source_path']] = $template;
+            $representatives[$template] ??= $page['source_path'];
+        }
+        $designScope = static function (array $scope) use ($postTemplates): array {
+            if ('post' !== $scope['kind']) return $scope;
+            return array('kind' => 'post_template', 'template' => $postTemplates[$scope['source_path']] ?? 'single', 'source_path' => $scope['source_path']);
+        };
+        $result = array();
+        foreach ($expanded as $row) {
+            if (isset($row['route'], $postTemplates[$row['route']]) && $representatives[$postTemplates[$row['route']]] !== $row['route']) continue;
+            $row['scope'] = $designScope($row['scope']);
+            if (isset($row['scopes'])) $row['scopes'] = array_map($designScope, $row['scopes']);
+            $row['condition'] = self::compactStylesheetCondition($row['scopes'] ?? array($row['scope']));
+            $result[] = $row;
+        }
+        return $result;
     }
 
     /**
@@ -961,6 +1026,12 @@ PHP;
     {
         $assets = ArrayField::array($plan, 'assets');
         $importLoaded = self::importLoadedStylesheets($assets);
+        $pages = ArrayField::array($plan, 'pages');
+        $bySource = array_column($pages, null, 'source_path');
+        if ('post' === ($bySource[$sourcePath]['post_type'] ?? null)) {
+            $template = $bySource[$sourcePath]['route_template'] ?? 'single';
+            foreach ($pages as $page) if ('post' === ($page['post_type'] ?? null) && $template === ($page['route_template'] ?? 'single')) { $sourcePath = $page['source_path']; break; }
+        }
         $sequence = array();
         foreach (self::stylesheetEnqueues($assets, ArrayField::array($plan, 'pages'), $plan['theme']['document_roots'] ?? array()) as $enqueue) {
             $asset = $enqueue['asset'];
@@ -1015,6 +1086,55 @@ PHP;
         return '' !== $relative && ($sourcePath === $relative || str_ends_with($sourcePath, '/' . $relative));
     }
 
+    /**
+     * Numbers for the pages and post designs that multi-scope sheets name:
+     * page identities and URIs (for pages without one) share a page's number,
+     * and a design's template slug (`''` for the default) its design number.
+     *
+     * @param list<array<string,mixed>> $enqueues
+     * @return array{identities:array<string,int>,paths:array<string,int>,templates:array<string,int>}
+     */
+    private static function scopeLookup(array $enqueues): array
+    {
+        $lookup = array('identities' => array(), 'paths' => array(), 'templates' => array());
+        $pages = 0;
+        foreach ($enqueues as $enqueue) {
+            if (!empty($enqueue['fallback']) || count($enqueue['scopes'] ?? array()) < 2) continue;
+            foreach ($enqueue['scopes'] as $scope) {
+                if ('page' === $scope['kind'] && empty($scope['front_page']) && !isset($lookup['identities'][$scope['reconciliation_identity']])) {
+                    $lookup['identities'][$scope['reconciliation_identity']] = $pages;
+                    $lookup['paths'][$scope['route_path']] ??= $pages;
+                    ++$pages;
+                } elseif ('post_template' === $scope['kind']) {
+                    $slug = 'single' === $scope['template'] ? '' : (string) $scope['template'];
+                    $lookup['templates'][$slug] ??= count($lookup['templates']);
+                }
+            }
+        }
+        return $lookup;
+    }
+
+    /**
+     * The condition of a sheet with several scopes, read from the request's
+     * page and design numbers.
+     *
+     * @param list<array<string,mixed>> $scopes
+     * @param array{identities:array<string,int>,paths:array<string,int>,templates:array<string,int>} $lookup
+     */
+    private static function indexedStylesheetCondition(array $scopes, array $lookup): string
+    {
+        $conditions = $pages = $designs = array();
+        foreach ($scopes as $scope) {
+            if ('page' === $scope['kind'] && empty($scope['front_page'])) $pages[$lookup['identities'][$scope['reconciliation_identity']]] = true;
+            elseif ('post_template' === $scope['kind']) $designs[$lookup['templates']['single' === $scope['template'] ? '' : (string) $scope['template']]] = true;
+            else $conditions[] = '(' . self::bootstrapScopeCondition($scope, true) . ')';
+        }
+        $conditions = array_values(array_unique($conditions));
+        if (array() !== $designs) $conditions[] = 'in_array( $blocks_engine_design_scope, ' . BootstrapData::literal(array_keys($designs)) . ', true )';
+        if (array() !== $pages) $conditions[] = 'in_array( $blocks_engine_page_scope, ' . BootstrapData::literal(array_keys($pages)) . ', true )';
+        return implode(' || ', $conditions);
+    }
+
     /** @param list<array<string,mixed>> $scopes */
     private static function compactStylesheetCondition(array $scopes): string
     {
@@ -1026,6 +1146,8 @@ PHP;
                 $paths[] = $scope['route_path'];
             } else $conditions[] = '(' . self::bootstrapScopeCondition($scope, true) . ')';
         }
+        // Every post of one design has the same template condition; test it once.
+        $conditions = array_values(array_unique($conditions));
         if (array() !== $identities) $conditions[] = "( 0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? in_array( \$blocks_engine_page_identity, " . BootstrapData::literal($identities) . ", true ) : in_array( \$blocks_engine_page_uri, " . BootstrapData::literal($paths) . ", true ) ) )";
         return implode(' || ', $conditions);
     }
@@ -1037,6 +1159,7 @@ PHP;
         if ('archive' === ($scope['kind'] ?? null)) return var_export($scope['route_path'], true) . ' === blocks_engine_archive_path()';
         if (!empty($scope['front_page'])) return 'is_front_page()';
         if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
+        if ('post_template' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . ('single' === $scope['template'] ? "'' === get_page_template_slug( get_queried_object_id() )" : var_export($scope['template'], true) . " === get_page_template_slug( get_queried_object_id() )");
         if ($compact) return "0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : " . var_export($scope['route_path'], true) . " === \$blocks_engine_page_uri )";
         return "0 !== ( \$blocks_engine_page_id = " . self::DOCUMENT_ID_EXPRESSION . " ) && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : 'page' === get_post_type( \$blocks_engine_page_id ) && " . var_export($scope['route_path'], true) . " === trim( get_page_uri( \$blocks_engine_page_id ), '/' ) )";
     }

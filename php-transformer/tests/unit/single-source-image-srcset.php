@@ -84,4 +84,19 @@ $render('<figure class="wp-block-image blocks-engine-image"><img src="' . $famil
 if (true !== $srcset(true, '<img src="' . $family . '" class="wp-image-9"/>', 'the_content', 9)) {
     $fail('an authored srcset family is left to its selection renderer');
 }
+// Loading hints and a picture without sources still describe one file.
+// Exercise the public transformer and the runtime shipped in its site plan.
+foreach (array(
+    '<img src="portrait.jpg" alt="Portrait" fetchpriority="high">',
+    '<picture><img src="portrait.jpg" alt="Portrait" loading="lazy"></picture>',
+) as $index => $html) {
+    $selected = (new HtmlTransformer())->transform($html)->toArray()['blocks'][0];
+    $selection = $selected['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
+    if (!is_array($selection)) $fail('the fixture must carry image selection metadata');
+    $single = 'https://example.test/wp-content/uploads/selected-' . $index . '.jpg';
+    $render('<figure class="wp-block-image blocks-engine-image"><img src="' . $single . '"/></figure>', $selected);
+    if (false !== $srcset(true, '<img src="' . $single . '"/>', 'the_content', 10 + $index)) {
+        $fail('selection metadata without authored candidates must not acquire attachment renditions');
+    }
+}
 echo "Single-source image srcset passed\n";

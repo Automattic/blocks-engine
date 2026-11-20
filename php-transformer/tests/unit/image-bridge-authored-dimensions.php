@@ -19,7 +19,7 @@ foreach ( array('.photo img', '.photo *', '.photo img,.photo *', '.photo .pictur
         foreach ( $result['assets'] ?? array() as $asset ) {
             if ( 'css' !== ($asset['kind'] ?? '') ) continue;
             (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $prelude, string $body) use (&$bridges): string {
-                if ( str_contains($prelude, '.photo') && str_contains($prelude, '.wp-block-image') && str_contains($prelude, '> img') && str_contains($body, 'object-fit:inherit') ) {
+                if ( str_contains($prelude, '.photo') && str_contains($prelude, '.wp-block-image') && str_contains($prelude, '> img') && str_contains($body, 'object-position:inherit') ) {
                     $bridges[] = $body;
                 }
                 return $prelude . '{' . $body . '}';
