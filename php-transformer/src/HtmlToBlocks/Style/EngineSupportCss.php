@@ -142,9 +142,6 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none!important}';
-            // Retained accessibility text is still a native editable block.
-            // Hide it only on the front end, not from RichText in the canvas.
-            $parts[] = ':root .editor-styles-wrapper .' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '{display:block!important;position:static!important;clip:auto!important;clip-path:none!important;width:auto!important;height:auto!important;overflow:visible!important}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS) ) {
             // core/image inserts a figure between a source flex/grid item and
@@ -723,11 +720,14 @@ final class EngineSupportCss
             // Both variants share one rule per target: this sheet ships on
             // every route, so a repeated declaration block is page weight.
             $variants = ':is(' . implode(',', $editorVariants) . ')';
-            $list = static fn (string $suffix): string => ':root .editor-styles-wrapper ' . $variants . $suffix;
             $ancestors = ':root .editor-styles-wrapper .wp-block-group:has(' . $variants . ')';
-            $editorCss = $list('') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important;container-type:normal!important}'
-                . $list(' figure.wp-block-image') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
-                . $list(' img') . '{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+            // Nest descendant repairs so adding document markers does not
+            // repeat their long selector list for each image rule. This sheet
+            // also ships on the front end, where editor repairs must not add
+            // weight to every captured route.
+            $editorCss = ':root .editor-styles-wrapper ' . $variants . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important;container-type:normal!important;'
+                . '& figure.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . '& img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}}'
                 . $ancestors . '{display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important;container-type:normal!important}';
         }
         $editorRules = '' !== $editorCss

@@ -15,6 +15,17 @@ const html = `<style>
 const code = 'require $argv[1]."/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform(stream_get_contents(STDIN))->toArray());';
 const result = JSON.parse(execFileSync('php', ['-r', code, root], { input: html, encoding: 'utf8' }));
 const css = result.assets.filter(asset => asset.kind === 'css').map(asset => asset.content).join('\n');
+// The editor sheet is delivered on every front-end route too. Keep the
+// document repair below the previous island-only rule's 1309-byte budget.
+const mixed = JSON.parse(execFileSync('php', ['-r', code, root], {
+    input: html.replace('class="data-blocks-engine-capture-desktop-document"', 'class="data-blocks-engine-capture-desktop-document data-blocks-engine-capture-desktop-only"')
+        .replace('class="data-blocks-engine-capture-mobile-document"', 'class="data-blocks-engine-capture-mobile-document data-blocks-engine-capture-mobile-only"'),
+    encoding: 'utf8',
+}));
+const mixedCss = mixed.assets.filter(asset => asset.kind === 'css').map(asset => asset.content).join('\n');
+const editorRepair = mixedCss.match(/:root \.editor-styles-wrapper :is\(\.data-blocks-engine-capture-desktop-only[\s\S]*?overflow:visible!important;container-type:normal!important\}/);
+assert.ok(editorRepair, 'public output contains the document editor repair');
+assert.ok(editorRepair[0].length <= 1309, `document repair must not grow route CSS (${editorRepair[0].length} bytes)`);
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
 try {
     const page = await browser.newPage();
@@ -28,9 +39,7 @@ try {
         assert.equal(await page.getByText('Retained support text').isVisible(), false, 'support text stays hidden on the front end');
         await page.setContent(`<style>${css}</style><div class="editor-styles-wrapper">${markup}</div>`);
         const support = page.getByText('Retained support text');
-        // Serialized native paragraphs receive contenteditable from Gutenberg.
-        await support.evaluate(node => node.contentEditable = 'true');
-        await support.fill('Edited support text', { timeout: 2000 });
+        assert.equal(await support.isVisible(), false, 'image selection does not restyle unrelated hidden text');
         const figures = page.locator('figure.wp-block-image');
         assert.equal(await figures.count(), 2);
         for (let index = 0; index < 2; index++) {
