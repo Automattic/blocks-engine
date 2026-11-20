@@ -192,9 +192,50 @@ final class NavigationOpenerPresentation
         return array('artwork' => $artwork, 'button' => $button, 'icon' => array('' => array('width' => $boxWidth . 'px', 'height' => $boxHeight . 'px', 'fill' => 'none')));
     }
 
+    /**
+     * Core reparents the opener inside the navigation. Freeze explicitly
+     * inherited fonts against the original parent, even when both source
+     * boxes happen to have identical typography. With no authored inherit,
+     * leave the native button reset and existing replay unchanged.
+     *
+     * @param array<string,array<string,string>> $rules
+     * @return array<string,array<string,string>>
+     */
+    private function sourceFontInheritance(array $rules, DOMElement $source): array
+    {
+        $parent = $source->parentNode;
+        if (!$parent instanceof DOMElement) return $rules;
+        $defaults = array('font-family' => 'serif', 'font-size' => '16px', 'font-weight' => '400', 'font-style' => 'normal', 'font-variant' => 'normal', 'font-stretch' => 'normal', 'line-height' => 'normal');
+        $inherited = array_filter($rules[''] ?? array(), static fn (string $value, string $property): bool => 'inherit' === strtolower(trim(CssValueInspector::withoutImportant($value))) && ('font' === $property || isset($defaults[$property])), ARRAY_FILTER_USE_BOTH);
+        if (array() !== $inherited) {
+            for ($ancestor = $parent; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                foreach ($this->styles->authoredControlPresentation($ancestor, array_merge(array('font'), array_keys($defaults))) as $key => $declarations) {
+                    if ('' !== $key && array() !== $declarations) $rules[$key] = array_replace($inherited, $rules[$key] ?? array());
+                }
+            }
+        }
+        $result = array();
+        foreach ($rules as $condition => $values) {
+            $conditions = '' === $condition ? array() : explode('{', $condition);
+            foreach ($values as $property => $value) {
+                $keyword = strtolower(trim(CssValueInspector::withoutImportant($value)));
+                if ('inherit' !== $keyword || ('font' !== $property && !isset($defaults[$property]))) {
+                    $result[$condition][$property] = $value;
+                    continue;
+                }
+                foreach ('font' === $property ? $defaults : array($property => $defaults[$property]) as $longhand => $fallback) {
+                    $resolved = $this->styles->conditionedInheritedPropertyOrigin($parent, $longhand, $conditions)['value'];
+                    $result[$condition][$longhand] = '' === $resolved ? $fallback : $resolved;
+                }
+            }
+        }
+        return $result;
+    }
+
     /** @param array<string,array<string,string>> $rules */
     public function css(string $selector, array $rules, DOMElement $source): string
     {
+        $rules = $this->sourceFontInheritance($rules, $source);
         $css = '';
         foreach ($rules as $condition => $values) {
             $parts = array();

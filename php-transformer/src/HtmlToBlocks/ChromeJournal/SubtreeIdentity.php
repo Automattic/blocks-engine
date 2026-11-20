@@ -12,7 +12,7 @@ final class SubtreeIdentity
     {
         // Also cover attributes inside escaped dialog panel-state HTML.
         return (string) preg_replace(
-            '~(\b' . preg_quote(BoxTree::NODE_ATTRIBUTE, '~') . '\s*=\s*)("[^"]*"|\'[^\']*\'|&quot;.*?&quot;|&#34;.*?&#34;|[^\s>]+)~i',
+            '~(\b' . '(?:' . preg_quote(BoxTree::NODE_ATTRIBUTE, '~') . '|data-blocks-engine-richtext-marker)' . '\s*=\s*)("[^"]*"|\'[^\']*\'|&quot;.*?&quot;|&#34;.*?&#34;|[^\s>]+)~i',
             '$1""',
             $markup
         );

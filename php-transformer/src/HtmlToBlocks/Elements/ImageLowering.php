@@ -871,7 +871,8 @@ final class ImageLowering
     private function imageNeedsSeparateFigureBox(DOMElement $image, ?DOMElement $figure): bool
     {
         return $figure instanceof DOMElement
-            && '' !== $this->nonCoreImageClassName($image)
+            && ('' !== $this->nonCoreImageClassName($image)
+                || in_array(CssValueInspector::comparable($this->styleResolver->declaredPresentation($image, 'position')->resolvedValue()), array( 'absolute', 'fixed' ), true))
             && array() !== $this->styleResolver->authoredPresentationDeclarations($figure)
             && array() !== $this->styleResolver->authoredPresentationDeclarations($image);
     }

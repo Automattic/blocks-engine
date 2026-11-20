@@ -62,6 +62,11 @@ $relabeled = $compile(array(
     'work/index.html' => $page('q7v', 'Work', false),
     'about/index.html' => $page('x9d', 'About', false, 'Projects'),
 ));
-$exclusions = $headerDiagnostic($relabeled)['exclusions'] ?? null;
-$assert(array(array('source_path' => 'about/index.html', 'reason' => 'non_equivalent')) === $exclusions, 'A relabeled header stays out of the shared part: ' . json_encode($exclusions));
+$shared = array_values(array_filter($relabeled['template_parts'], static fn (array $part): bool => 'header' === $part['slug']))[0] ?? array();
+$sources = array_keys($shared['provenance']['sources'] ?? array());
+sort($sources);
+$assert(array('index.html', 'work/index.html') === $sources && !str_contains((string) $shared['canonical_block_markup'], 'Projects'), 'A relabeled header stays out of the shared part: ' . json_encode($sources));
+// It is still that route's site header, so it becomes the route's own part.
+$relabeledVariant = array_values(array_filter($relabeled['template_parts'], static fn (array $part): bool => 'header' === $part['area'] && array('about/index.html') === ($part['placement']['source_paths'] ?? null)))[0] ?? null;
+$assert(null !== $relabeledVariant, 'The relabeled header is the route\'s own header variant part.');
 echo "shared-shell-document-generated-ids: ok\n";

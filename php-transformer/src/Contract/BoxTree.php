@@ -20,11 +20,22 @@ final class BoxTree
     public const MAX_VIEWPORTS = 8;
     public const MAX_BYTES = 33554432;
     public const MOTION_PROPERTIES = array('animation-name', 'transition-property', 'transition-duration');
+    /**
+     * SVG paint, inherited down to shapes and text. Optional: evidence
+     * captured before producers recorded paint omits these keys, and a
+     * consumer then has no paint to restate.
+     */
+    public const PAINT_PROPERTIES = array(
+        'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity',
+        'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'stroke-dashoffset',
+    );
     public const INHERITED_PROPERTIES = array(
         'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height',
         'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent',
         'text-shadow', 'white-space', 'word-break', 'overflow-wrap',
         'list-style-type', 'list-style-position', 'visibility', 'cursor',
+        'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity',
+        'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'stroke-dashoffset',
     );
     public const PROPERTIES = array(
         'display', 'position', 'box-sizing', 'overflow-x', 'overflow-y',
