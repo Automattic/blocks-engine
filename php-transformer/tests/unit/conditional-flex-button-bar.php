@@ -20,7 +20,8 @@ foreach ($matches[1] as $marker) {
         $wrapper . '{display:block!important;gap:0!important',
         $wrapper . '{width:auto!important}',
         $button . '{width:100%!important;height:100%}',
-        $button . '>:where(.wp-block-button__link){width:100%!important;height:100%}',
+        // The fill sizes the padded content-box link's border box.
+        $button . '>:where(.wp-block-button__link){box-sizing:border-box!important;width:100%!important;height:100%}',
     ) as $rule) {
         if (!str_contains($css, $rule)) {
             fwrite(STDERR, "FAIL: conditional flex control fills its source flex share: {$rule}\n");
