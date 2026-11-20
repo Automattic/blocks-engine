@@ -1389,8 +1389,9 @@ final class SourceElementClassifier
      * Exactly two interactive controls beside a list of more than two
      * slides, not counting numbered or indexed slide selectors, are a
      * previous/next pair. A pager has one control per slide, so with two
-     * slides the pair is ambiguous. A thumbnail control shows the slide it
-     * selects; a collection with thumbnails keeps the gallery path. The signal is structural: it does not depend
+     * slides the pair is ambiguous. Several pairs, each in its own
+     * container, are breakpoint copies of the pair. A thumbnail control
+     * shows the slide it selects; a collection with thumbnails keeps the gallery path. The signal is structural: it does not depend
      * on the controls' wording.
      */
     private function hasSteppingControlPair(DOMElement $root, DOMElement $list, int $slideCount): bool
@@ -1434,8 +1435,27 @@ final class SourceElementClassifier
             }
             $controls[] = $candidate;
         }
+        if ( 2 === count($controls) ) {
+            return true;
+        }
 
-        return 2 === count($controls);
+        // Responsive sources ship one pair per breakpoint (a desktop pair
+        // and a mobile pair). Each pair shares its own container.
+        $pairs = array();
+        foreach ( $controls as $control ) {
+            $parent = $control->parentNode;
+            if ( ! $parent instanceof DOMElement ) {
+                return false;
+            }
+            $pairs[spl_object_id($parent)][] = $control;
+        }
+        foreach ( $pairs as $pair ) {
+            if ( 2 !== count($pair) ) {
+                return false;
+            }
+        }
+
+        return 2 <= count($pairs);
     }
 
     /**

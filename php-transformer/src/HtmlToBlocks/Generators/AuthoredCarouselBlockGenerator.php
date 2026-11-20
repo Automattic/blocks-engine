@@ -1169,7 +1169,7 @@ JS;
             }
         }
 
-        [$presentation, $initialSlide] = $this->slidePresentation($element, $list, $items, $pagerItems, $capturedGallery, $styleResolver);
+        [$presentation, $initialSlide, $visibleSlides] = $this->slidePresentation($element, $list, $items, $pagerItems, $capturedGallery, $styleResolver);
 
         $bullets = $this->bulletControls($element, $list, count($slides));
         $showDots = $paginationCount >= 2 || $this->hasSlideIndexControl($element) || count($this->paginationControls($element)) >= 2 || array() !== $bullets;
@@ -1257,7 +1257,7 @@ JS;
             'previousControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['previous'], $styleResolver) : array(),
             'nextControlPresentation' => $sourceControls['next'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['next'], $styleResolver) : array(),
             'nextControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['next'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['next'], $styleResolver) : array(),
-            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
+            'itemsPerView' => 'slideshow' === $presentation ? 1 : ($visibleSlides > 0 ? min(6, $visibleSlides) : min(4, count($slides))),
             'wrap' => $hasPrevious && $hasNext,
             'presentation' => $presentation,
             'slideCount' => count($slides),
@@ -1544,7 +1544,7 @@ JS;
      *
      * @param array<int, DOMElement> $items
      * @param array<int, DOMElement> $pagerItems
-     * @return array{0: string, 1: int}
+     * @return array{0: string, 1: int, 2: int} Presentation, initial slide and the source's visible track slide count (0 when unknown).
      */
     private function slidePresentation(DOMElement $element, DOMElement $list, array $items, array $pagerItems, bool $capturedGallery, StyleResolver $styleResolver): array
     {
@@ -1603,8 +1603,12 @@ JS;
             $presentation = 'slideshow';
             $initialSlide = $opaque[0];
         }
+        // Several frames exposed together while the rest are hidden from
+        // assistive technology is a multi-up track viewport, not a stage.
+        $exposedTogether = count(array_filter($items, static fn (DOMElement $item): bool => 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))));
+        $visibleCount = 1 < $exposedTogether && count($exposed) === $exposedTogether && $exposedTogether < count($items) ? $exposedTogether : 0;
         foreach ( $items as $index => $item ) {
-            if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
+            if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && 0 === $visibleCount && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
                 $presentation = 'slideshow';
             }
             if ( ('slideshow' === $presentation && 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))) || str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ) {
@@ -1615,7 +1619,7 @@ JS;
             $presentation = 'slideshow';
             $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute(CaptureEvidence::GALLERY_INITIAL)));
         }
-        return array($presentation, $initialSlide);
+        return array($presentation, $initialSlide, 'track' === $presentation ? $visibleCount : 0);
     }
 
     /** Whether any element selects a slide by its numeric index. */
