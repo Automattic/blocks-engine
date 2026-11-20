@@ -413,9 +413,10 @@ final class BoxTreeStyleProjector
      * @param string $tagName The emitted (source) element's tag, for UA defaults.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid {@see BoxTreeFluidIntent::liftPseudo()}, by name.
+     * @param array<string, array<string, string>> $currentPaint Route-current paint, by viewport.
      * @return string The carrier class, or '' when nothing observed differs from what the element gets anyway.
      */
-    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array()): string
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array(), array $currentPaint = array()): string
     {
         $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
         if (array() === $observations) return '';
@@ -429,7 +430,8 @@ final class BoxTreeStyleProjector
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, '', $tagName);
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
+        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid);
+        return $this->carrier($css . $this->currentPaintRule($currentPaint), $state);
     }
 
     /**
@@ -675,6 +677,21 @@ final class BoxTreeStyleProjector
             if ('none' !== $winner) return false;
         }
         return true;
+    }
+
+    /**
+     * The paint a shared navigation link shows only as the served route's
+     * current link, under WordPress's per-request current state. Only paint
+     * every observed viewport agrees on is restated.
+     *
+     * @param array<string, array<string, string>> $currentPaint
+     */
+    private function currentPaintRule(array $currentPaint): string
+    {
+        if (array() === $currentPaint) return '';
+        $shared = array_shift($currentPaint);
+        foreach ($currentPaint as $paint) $shared = array_intersect_assoc($shared, $paint);
+        return array() === $shared ? '' : $this->rule(self::SELECTOR . '[aria-current="page"]', $shared);
     }
 
     /** Register one carrier per distinct declaration set, not per source node. */

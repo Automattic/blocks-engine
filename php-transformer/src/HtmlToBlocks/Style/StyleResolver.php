@@ -882,7 +882,8 @@ final class StyleResolver implements ElementPresentationResolver
             $parents,
             strtolower($source->tagName),
             $intent->lift($source, $this, $observations, $viewports, $parents),
-            $pseudoFluid
+            $pseudoFluid,
+            $this->session->boxTreeCurrentPaint($source)
         );
     }
 

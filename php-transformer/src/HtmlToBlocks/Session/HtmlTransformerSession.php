@@ -344,6 +344,17 @@ final class HtmlTransformerSession
             ?? (null !== $parent ? $this->boxTreeEvidence($parent) : array());
     }
 
+    /**
+     * Paint a shared chrome node shows only while it is the served route's
+     * current link, by viewport.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public function boxTreeCurrentPaint(\DOMElement $element): array
+    {
+        return $this->boxTree['current_paint'][$element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)] ?? array();
+    }
+
     public function boxTreeEvidence(\DOMElement $element): array
     {
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
