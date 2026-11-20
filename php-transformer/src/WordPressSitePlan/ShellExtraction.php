@@ -3076,8 +3076,14 @@ final class ShellExtraction
             foreach ($slugs[1] as $slug) if (isset($areas[$slug], $boundAreas[$areas[$slug]])) continue 2;
             $groups[self::frameIdentity($frame)][] = $index;
         }
+        // Prefer the frame of a continuous body-text document when frame
+        // clusters tie. A leading notice or a landing-page label is not the
+        // site's authoring column.
         $generic = null;
-        foreach ($groups as $indexes) if (null === $generic || count($indexes) > count($generic)) $generic = $indexes;
+        foreach ($groups as $indexes) {
+            usort($indexes, static fn(int $a, int $b): int => self::bodyParagraphCount($split[$b]['content']) <=> self::bodyParagraphCount($split[$a]['content']));
+            if (null === $generic || count($indexes) > count($generic) || (count($indexes) === count($generic) && self::bodyParagraphCount($split[$indexes[0]]['content']) > self::bodyParagraphCount($split[$generic[0]]['content']))) $generic = $indexes;
+        }
         $genericSource = null !== $generic ? (string) $pages[$generic[0]]['source_path'] : null;
         $generic = null !== $generic ? $split[$generic[0]] : null;
         $postGroups = array();
@@ -3093,6 +3099,7 @@ final class ShellExtraction
         $excludedTemplates = array();
         foreach ($parts as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) $excludedTemplates[$slug] = true;
         $assigned = array_filter(array('page' => $generic, 'single' => $postFrame));
+        $assignedSlugs = array();
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
             $routeKey = TemplateSlugs::forPage($page);
@@ -3106,6 +3113,7 @@ final class ShellExtraction
                 $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
             }
             $assigned[$slug] = $frame;
+            $assignedSlugs[$index] = $slug;
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
             $pages[$index]['canonical_block_markup'] = $frame['content'];
@@ -3144,7 +3152,83 @@ final class ShellExtraction
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
         if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames[TemplateSlugs::forPage($page)] = array('opening' => '', 'closing' => '', 'shells' => array());
+        // The shell boundary is not necessarily the text column: page builders
+        // often nest the latter several groups inside main. New pages need that
+        // layout too, but captured pages already carry it in their post content.
+        if (null !== $generic && isset($frames['page'])) {
+            $column = self::pageTextColumn($generic['content']);
+            if (null !== $column) {
+                // The effective slug was resolved above, including inferred
+                // route overrides. An absent route_template is not proof that
+                // a captured page uses the generic frame.
+                foreach ($inner as $index => $page) if ('page' === ($assignedSlugs[$index] ?? null)) {
+                    $slug = TemplateSlugs::forPage(array_diff_key($page, array('route_template' => true)));
+                    $pages[$index]['route_template'] = $slug;
+                    $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
+                    $frames[$slug] = $frames['page'];
+                }
+                $frames['page']['opening'] .= $column['opening'];
+                $frames['page']['closing'] = $column['closing'] . $frames['page']['closing'];
+            }
+        }
         return array('pages' => $pages, 'frames' => $frames, 'generic_source' => $genericSource);
+    }
+
+    /** Size of the largest continuous paragraph run in a document. */
+    private static function bodyParagraphCount(string $markup): int
+    {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $counts = array();
+        foreach ($index->ranges() as $range) {
+            if (!preg_match('/^<!-- wp:paragraph(?: | -->)/', substr($markup, $range['offset'], $range['length']))) continue;
+            $parent = $index->parent($range);
+            $key = $parent['offset'] ?? -1;
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+        return empty($counts) ? 0 : max($counts);
+    }
+
+    /**
+     * Reuse only group ancestors of the dominant paragraph run, never captured
+     * text or sibling sections.
+     *
+     * @return array{opening:string,closing:string}|null
+     */
+    private static function pageTextColumn(string $markup): ?array
+    {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $ranges = $index->ranges();
+        $paragraphs = array();
+        foreach ($ranges as $range) {
+            $slice = substr($markup, $range['offset'], $range['length']);
+            if (!preg_match('/^<!-- wp:paragraph(?: | -->)/', $slice)) continue;
+            $parent = $index->parent($range);
+            $key = $parent['offset'] ?? -1;
+            $paragraphs[$key] = ($paragraphs[$key] ?? 0) + 1;
+        }
+        usort($ranges, static function (array $a, array $b) use ($index, $paragraphs): int {
+            $pa = $index->parent($a); $pb = $index->parent($b);
+            return ($paragraphs[$pb['offset'] ?? -1] ?? 0) <=> ($paragraphs[$pa['offset'] ?? -1] ?? 0);
+        });
+        foreach ($ranges as $range) {
+            $slice = substr($markup, $range['offset'], $range['length']);
+            if (!str_starts_with($slice, '<!-- wp:paragraph ') && !str_starts_with($slice, '<!-- wp:paragraph -->')) continue;
+            if ('' === trim(strip_tags($slice))) continue;
+            $opening = ''; $closing = ''; $depth = 0;
+            while (null !== ($range = $index->parent($range))) {
+                $slice = substr($markup, $range['offset'], $range['length']);
+                if ((!str_starts_with($slice, '<!-- wp:group ') && 1 !== preg_match('~^<!-- wp:[a-z0-9-]+/layout-shell ~', $slice)) || str_contains($slice, 'blocksEngineRuntimeAttributes')) return null;
+                ++$depth;
+                $children = $index->children($range);
+                $first = $children[0]; $last = $children[count($children) - 1];
+                $end = $last['offset'] + $last['length'];
+                $opening = substr($markup, $range['offset'], $first['offset'] - $range['offset']) . $opening;
+                $closing .= substr($markup, $end, $range['offset'] + $range['length'] - $end);
+            }
+            // A main landmark alone is not a separate text column.
+            return $depth > 1 ? array('opening' => $opening, 'closing' => $closing) : null;
+        }
+        return null;
     }
 
     /**
