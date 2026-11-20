@@ -27,7 +27,12 @@ add_filter( 'render_block_core/preformatted', static function ( string $content,
     }
     if ( array_key_exists( 'initialValue', $attrs ) ) $html .= ' data-blocks-engine-control-state="' . esc_attr( wp_json_encode( array( 'version' => 1, 'kind' => 'textarea', 'value' => (string) $attrs['initialValue'], 'defaultValue' => $value ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) ) . '"';
     $html .= '>' . ( str_starts_with( $value, "\n" ) ? "\n" : '' ) . htmlspecialchars( $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ) . '</textarea>';
-    if ( ! empty( $attrs['label'] ) ) $html = '<label' . ( ! empty( $attrs['labelClassName'] ) ? ' class="' . esc_attr( $attrs['labelClassName'] ) . '"' : '' ) . ( ! empty( $attrs['labelStyle'] ) ? ' style="' . esc_attr( $attrs['labelStyle'] ) . '"' : '' ) . '>' . wp_kses_post( ! empty( $attrs['labelMarkup'] ) ? $attrs['labelMarkup'] : esc_html( $attrs['label'] ) ) . $html . '</label>';
+    if ( ! empty( $attrs['label'] ) ) {
+        $caption = '<label' . ( ! empty( $attrs['labelFor'] ) ? ' for="' . esc_attr( $attrs['labelFor'] ) . '"' : '' ) . ( ! empty( $attrs['labelClassName'] ) ? ' class="' . esc_attr( $attrs['labelClassName'] ) . '"' : '' ) . ( ! empty( $attrs['labelStyle'] ) ? ' style="' . esc_attr( $attrs['labelStyle'] ) . '"' : '' ) . '>' . wp_kses_post( ! empty( $attrs['labelMarkup'] ) ? $attrs['labelMarkup'] : esc_html( $attrs['label'] ) );
+        $html = ! empty( $attrs['labelFor'] )
+            ? ( ! empty( $attrs['labelAfterControl'] ) ? $html . $caption . '</label>' : $caption . '</label>' . $html )
+            : $caption . $html . '</label>';
+    }
     return $html;
 }, 10, 2 );
 PHP;

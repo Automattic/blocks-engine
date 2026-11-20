@@ -39,7 +39,12 @@ add_filter( 'render_block_core/list', static function ( string $content, array $
     if ( $group ) $options .= '</optgroup>';
     if ( $has_state ) $html .= ' data-blocks-engine-control-state="' . esc_attr( wp_json_encode( array( 'version' => 1, 'kind' => 'select', 'options' => $state ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) ) . '"';
     $html .= '>' . $options . '</select>';
-    if ( ! empty( $attrs['label'] ) ) $html = '<label' . ( ! empty( $attrs['labelClassName'] ) ? ' class="' . esc_attr( $attrs['labelClassName'] ) . '"' : '' ) . ( ! empty( $attrs['labelStyle'] ) ? ' style="' . esc_attr( $attrs['labelStyle'] ) . '"' : '' ) . '>' . wp_kses_post( ! empty( $attrs['labelMarkup'] ) ? $attrs['labelMarkup'] : esc_html( $attrs['label'] ) ) . $html . '</label>';
+    if ( ! empty( $attrs['label'] ) ) {
+        $caption = '<label' . ( ! empty( $attrs['labelFor'] ) ? ' for="' . esc_attr( $attrs['labelFor'] ) . '"' : '' ) . ( ! empty( $attrs['labelClassName'] ) ? ' class="' . esc_attr( $attrs['labelClassName'] ) . '"' : '' ) . ( ! empty( $attrs['labelStyle'] ) ? ' style="' . esc_attr( $attrs['labelStyle'] ) . '"' : '' ) . '>' . wp_kses_post( ! empty( $attrs['labelMarkup'] ) ? $attrs['labelMarkup'] : esc_html( $attrs['label'] ) );
+        $html = ! empty( $attrs['labelFor'] )
+            ? ( ! empty( $attrs['labelAfterControl'] ) ? $html . $caption . '</label>' : $caption . '</label>' . $html )
+            : $caption . $html . '</label>';
+    }
     return $html;
 }, 10, 2 );
 PHP;
