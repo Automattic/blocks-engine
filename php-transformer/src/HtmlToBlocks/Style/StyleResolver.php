@@ -241,8 +241,17 @@ final class StyleResolver implements ElementPresentationResolver
         // child must retain its own colour when an ancestor's control changes.
         // Low-value text elements otherwise leave stylesheet presentation in
         // CSS, where core cannot distinguish it from inherited text.
-        if (1 === preg_match('/^(?:p|h[1-6])$/i', $element->tagName)) {
+        if (1 === preg_match('/^(?:p|h[1-6])$/i', $element->tagName)
+            && '' !== trim(SourceDom::attr($element, 'class'))
+            && !isset($presentation['color'])
+        ) {
+            // Presentation rules omit values that need source custom-property
+            // resolution. Read the source-value cascade, not that filtered view.
+            // Leave existing native values (including palette bindings) alone.
             $authored = SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element));
+            if (!isset($authored['color'])) {
+                $authored = SourceDeclarations::parse($this->resolvedCascadeStyle($element, 'cascaded-values'));
+            }
             if (isset($authored['color'])) {
                 // Resolve at the source scope before promoting a stylesheet
                 // color to native support. Nested author variables (e.g. the

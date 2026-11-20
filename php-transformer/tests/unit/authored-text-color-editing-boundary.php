@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // when its initial colour equals the parent's. Truly inherited text stays
 // unbound, so the parent's inspector control can still recolour it.
 $html = '<!doctype html><html><head><style>'
-    . '.panel{color:#1d1d1b}.ink{--tw-text-opacity:1;color:rgb(29 29 27 / var(--tw-text-opacity))}'
+    . '.panel{color:#1d1d1b}.ink{--tw-text-opacity:1;color:rgb(29 29 27 / var(--tw-text-opacity, 1))}'
     . '</style></head><body><main><div class="panel">'
     . '<p class="ink">Explicit paragraph</p><h2 class="ink">Explicit heading</h2>'
     . '<p>Inherited paragraph</p></div></main></body></html>';
@@ -43,5 +43,18 @@ foreach ($comments[1] as $json) {
 $inherited = $xpath->query('//p[text()="Inherited paragraph"]')->item(0);
 if (!$inherited || $inherited->hasAttribute('style') || str_contains($inherited->getAttribute('class'), 'has-text-color')) {
     throw new RuntimeException('Inherited text must remain editable through the parent.');
+}
+// Preserve the public site-plan palette contract: tag-level heading colour
+// remains stylesheet-owned. Promoting every heading changes binding order and
+// needlessly adds native colour supports outside the class editing boundary.
+$palette = (new ArtifactCompiler())->compile(require dirname(__DIR__) . '/fixtures/design-system/plain-css.php')->toArray();
+$plan = $palette['source_reports']['wordpress_site_plan'];
+$canonical = $plan['pages'][0]['canonical_block_markup'];
+if (preg_match('/<!-- wp:heading (\{[^\n]*?\}) -->/', $canonical, $heading)
+    && isset(json_decode($heading[1], true)['textColor'])) {
+    throw new RuntimeException('Tag-level heading colors must not acquire new palette bindings.');
+}
+if (!preg_match('/<!-- wp:paragraph (\{[^\n]*?"textColor":"primary"[^\n]*?\}) -->/', $canonical)) {
+    throw new RuntimeException('The inline paragraph must retain its palette binding.');
 }
 echo "Authored text color editing boundary passed\n";
