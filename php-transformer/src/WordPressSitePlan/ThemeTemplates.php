@@ -118,7 +118,6 @@ final class ThemeTemplates
      */
     public static function shareOverrides(array &$pages, array &$parts, array &$templates): array
     {
-        self::separatePageLifecycle($pages, $parts, $templates);
         $bySlug = array_column($templates, null, 'slug');
         $groups = array(); $renames = array(); $redundant = array();
         foreach ($pages as $index => $page) {
@@ -178,56 +177,64 @@ final class ThemeTemplates
     }
 
     /**
-     * Captured page bodies already own their headings. Keep their exact layout
-     * on a selectable template, leaving the native page lifecycle free to render
-     * a title for newly authored content (which has no captured heading).
+     * A new page has no captured body. Borrow a captured page's title/intro
+     * frame for that empty lifecycle, without changing any imported template
+     * assignments or moving source content out of its editor document.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $templates
      */
-    private static function separatePageLifecycle(array &$pages, array &$parts, array &$templates): void
+    public static function authoredPageContent(array $pages, array $templates): ?string
     {
-        foreach ($templates as $index => $template) {
-            if ('page' !== $template['slug'] || isset($template['source_path']) || str_contains($template['canonical_block_markup'], '<!-- wp:post-title')) continue;
-            $markup = $template['canonical_block_markup'];
-            $native = preg_replace('/(?=<!-- wp:post-content(?:\\s|\\/-->))/', '<!-- wp:post-title {"level":1} /-->' . "\n", $markup, 1, $count);
-            if (1 !== $count) continue;
-            $slug = 'page-captured-' . substr(hash('sha256', $markup), 0, 12);
-            $slugs = array_column($templates, 'slug');
-            while (in_array($slug, $slugs, true)) $slug .= '-captured';
-            // Redundancy removal may have made the captured front page fall
-            // back to page.html. Restore its original layout before changing it.
-            if (!in_array('front-page', $slugs, true) && array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint']) && 'page' === $page['post_type'])) {
-                $front = $template;
-                $front['slug'] = 'front-page';
-                $front['target_path'] = 'templates/front-page.html';
-                $front['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $front['target_path'], $front['target_path']);
-                $templates[] = $front;
-            }
-            $used = false;
-            foreach ($pages as &$page) {
-                if ('page' !== $page['post_type'] || !empty($page['entrypoint'])) continue;
-                $key = TemplateSlugs::forPage($page);
-                if ('page' !== $key && in_array($key, $slugs, true)) continue;
-                $page['route_template'] = $slug;
-                $page['metadata']['post_meta']['_wp_page_template'] = $slug;
-                $used = true;
-            }
-            unset($page);
-            if ($used) {
-                $captured = $template;
-                $captured['slug'] = $slug;
-                $captured['target_path'] = 'templates/' . $slug . '.html';
-                $captured['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $captured['target_path'], $captured['target_path']);
-                $templates[] = $captured;
-                foreach ($parts as &$part) {
-                    if (in_array('page', $part['placement']['template_slugs'] ?? array(), true)) $part['placement']['template_slugs'][] = $slug;
-                    if (in_array('page', $part['placement']['excluded_template_slugs'] ?? array(), true)) $part['placement']['excluded_template_slugs'][] = $slug;
-                    if (isset($part['placement']['template_wrappers']['page'])) $part['placement']['template_wrappers'][$slug] = $part['placement']['template_wrappers']['page'];
+        $native = array_column($templates, 'canonical_block_markup', 'slug')['page'] ?? null;
+        if (!is_string($native) || str_contains($native, '<!-- wp:post-title')) return null;
+        foreach ($templates as $template) if ('page' === $template['slug'] && isset($template['source_path'])) return null;
+        // Prefer the document already served by the default page lifecycle.
+        usort($pages, static fn(array $a, array $b): int => (('page' === TemplateSlugs::forPage($b) && empty($b['entrypoint'])) <=> ('page' === TemplateSlugs::forPage($a) && empty($a['entrypoint']))));
+        foreach ($pages as $page) {
+            if ('page' !== $page['post_type'] || !empty($page['entrypoint']) || !empty($page['synthetic'])) continue;
+            $markup = $page['canonical_block_markup'];
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+            foreach ($index->ranges() as $heading) {
+                $title = substr($markup, $heading['offset'], $heading['length']);
+                if (!str_starts_with($title, '<!-- wp:heading') || !preg_match('/<h1\b/', $title)) continue;
+                $parent = $index->parent($heading);
+                if (null === $parent) continue;
+                $parentSlice = substr($markup, $parent['offset'], $parent['length']);
+                if ('main' === (PostBlocks::sourceAttributes($parentSlice)['tagName'] ?? null)) continue;
+                $paragraph = null;
+                foreach ($index->children($parent) as $child) {
+                    if ($child['offset'] <= $heading['offset']) continue;
+                    $slice = substr($markup, $child['offset'], $child['length']);
+                    if (str_starts_with($slice, '<!-- wp:paragraph')) { $paragraph = $slice; break; }
                 }
-                unset($part);
+                if (null === $paragraph) continue;
+                // The intro paragraph owns the body column (often narrower
+                // than the title). Preserve its box, not its captured text.
+                $attrs = PostBlocks::sourceAttributes($paragraph);
+                unset($attrs['metadata']);
+                $attrs['tagName'] = 'div';
+                $classes = 'wp-block-group' . (isset($attrs['className']) ? ' ' . $attrs['className'] : '');
+                $body = '<!-- wp:group ' . \Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes::encode($attrs) . ' --><div class="' . htmlspecialchars($classes, ENT_QUOTES) . '"><!-- wp:post-content /--></div><!-- /wp:group -->';
+                $content = PostBlocks::title($title) . $body;
+                // Copy only the enclosing boxes, never their images, labels,
+                // menus or other page-specific siblings.
+                while (null !== $parent) {
+                    $slice = substr($markup, $parent['offset'], $parent['length']);
+                    $parentAttrs = PostBlocks::sourceAttributes($slice);
+                    if ('main' === ($parentAttrs['tagName'] ?? null) || in_array($parentAttrs['tagName'] ?? null, array('header', 'footer'), true)) break;
+                    if (!str_starts_with($slice, '<!-- wp:group')) break;
+                    $children = $index->children($parent);
+                    if (array() === $children) break;
+                    $first = $children[0]; $last = $children[array_key_last($children)];
+                    $content = substr($markup, $parent['offset'], $first['offset'] - $parent['offset']) . $content
+                        . substr($markup, $last['offset'] + $last['length'], $parent['offset'] + $parent['length'] - $last['offset'] - $last['length']);
+                    $parent = $index->parent($parent);
+                }
+                return $content;
             }
-            $templates[$index]['canonical_block_markup'] = $native;
-            $templates[$index]['content_hash'] = WordPressSitePlan::contentHash($native);
-            break;
         }
+        return null;
     }
 
     /** Captured landmarks remain content-owned until shell extraction removes them. */

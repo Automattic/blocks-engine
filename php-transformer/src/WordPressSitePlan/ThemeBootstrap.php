@@ -594,6 +594,19 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
+        $authoredPage = ThemeTemplates::authoredPageContent($pages, $templates);
+        if (null !== $authoredPage) {
+            $lines[] = '$blocks_engine_authored_page = ' . var_export($authoredPage, true) . ';';
+            $lines[] = <<<'PHP'
+add_filter( 'render_block_core/post-content', static function ( string $content ) use ( $blocks_engine_authored_page ): string {
+    $id = get_the_ID();
+    if ( ! $id || 'page' !== get_post_type( $id ) || '' !== get_page_template_slug( $id ) || (int) get_option( 'page_on_front' ) === (int) $id || '' !== get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) ) return $content;
+    // Render only the source-derived frame, not the content a second time.
+    $frame = str_replace( '<!-- wp:post-content /-->', '<!-- blocks-engine-authored-page-content -->', $blocks_engine_authored_page );
+    return str_replace( '<!-- blocks-engine-authored-page-content -->', $content, do_blocks( $frame ) );
+}, 11 );
+PHP;
+        }
         self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
