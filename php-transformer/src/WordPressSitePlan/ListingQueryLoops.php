@@ -1160,6 +1160,13 @@ final class ListingQueryLoops
     }
 
     /** @param array<int,string> $routes */
+    /** Whether every link in a block addresses the given post route. */
+    public function linksOnlyToRoute(string $slice, string $route): bool
+    {
+        foreach ($this->anchors($slice) as $anchor) if (!self::hrefMatchesRoute($anchor['href'], $route)) return false;
+        return true;
+    }
+
     private static function hrefMatchesRoute(string $href, string $route): bool
     {
         return in_array($route, self::routeKeys($href), true);
