@@ -1670,11 +1670,11 @@ final class PresetBinding
         if (!preg_match('/^<(h[1-6]|p|div|ul|ol|li|blockquote)\b/i', $html, $match)) return false;
         $tag = strtolower($match[1]);
         $default = $this->fontDefaults[$tag] ?? (str_starts_with($tag, 'h') ? null : ($this->fontDefaults['body'] ?? null));
-        // Equality at import time does not prove inheritance. Only heading
-        // rules are made to yield by bindStylesheet(), and even those stay
-        // authored when a competing font prevents that rewrite. Body-copy
-        // utilities keep their declarations, so they need a block preset.
-        if (str_starts_with($tag, 'h') ? $this->hasCompetingFont($tag) : array() !== $this->fontRules) return false;
+        // Body-copy utilities keep their declarations in bindStylesheet(),
+        // so equality with the root font does not prove inheritance: retain
+        // their block preset. Heading defaults use the separate heading-rule
+        // projection and must not acquire a redundant block font setting.
+        if (!str_starts_with($tag, 'h') && array() !== $this->fontRules) return false;
         return null !== $default && $this->sameFont($value, $default);
     }
 
