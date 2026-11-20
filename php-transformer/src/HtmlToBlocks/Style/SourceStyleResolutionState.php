@@ -84,9 +84,11 @@ final class SourceStyleResolutionState
 
     /**
      * Each source element's matching rules per collection, keyed by collection
-     * and node path, with values derived from exactly those rules.
+     * and selector-cache element identity, with values derived from exactly
+     * those rules. Rule changes can drop these entries without resetting the
+     * element identities; clearing the selector cache drops both.
      *
-     * @var array<string, array{node: DOMElement, rules: list<array<string, mixed>>, derived?: array<string, array<string, string>>}>
+     * @var array<string, array{rules: list<array<string, mixed>>, derived?: array<string, array<string, string>>}>
      */
     private array $matchedRules = array();
 
@@ -233,7 +235,7 @@ final class SourceStyleResolutionState
             return $derive($rules);
         }
         // matchingRules() just left this element's entry under this key.
-        $key = $collection . "\0" . $element->getNodePath();
+        $key = $collection . "\0" . $this->selectorMatchCache->keyForElement($element);
         return $this->matchedRules[$key]['derived'][$derivation] ??= $derive($rules);
     }
 
@@ -282,10 +284,10 @@ final class SourceStyleResolutionState
         if ( ! self::isInDocument($element) ) {
             return $compute($element);
         }
-        $key .= "\0" . $element->getNodePath();
+        $key .= "\0" . $this->selectorMatchCache->keyForElement($element);
         $entry = $this->matchedRules[$key] ?? null;
-        if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
-            $entry = $this->matchedRules[$key] = array( 'node' => $element, 'rules' => $compute($element) );
+        if ( null === $entry ) {
+            $entry = $this->matchedRules[$key] = array( 'rules' => $compute($element) );
         }
         return $entry['rules'];
     }

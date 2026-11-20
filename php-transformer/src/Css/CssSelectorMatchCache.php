@@ -726,6 +726,15 @@ final class CssSelectorMatchCache
         return $this->signatureIds[$signature] ??= count($this->signatureIds) + 1;
     }
 
+    /**
+     * Native-node identity shared with callers' per-element memos. Stable for
+     * this cache revision only; callers must discard their memos on clear().
+     */
+    public function keyForElement(DOMElement $element): string
+    {
+        return $this->elementKey($element);
+    }
+
     private function elementKey(DOMElement $element): string
     {
         if ( isset($this->connectedElementKeys[$element]) ) {
