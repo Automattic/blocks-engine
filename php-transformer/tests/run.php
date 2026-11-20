@@ -48,6 +48,9 @@ function run_tests(array $tests, int $jobs, string $root): array
     $running = array();
     $failures = array();
     $durations = array();
+    $total = count($tests);
+    $started = microtime(true);
+    $lastProgress = $started;
     while ( array() !== $tests || array() !== $running ) {
         while ( count($running) < $jobs && array() !== $tests ) {
             $test = array_shift($tests);
@@ -69,6 +72,12 @@ function run_tests(array $tests, int $jobs, string $root): array
             }
             fclose($job['log']);
             unset($running[$index]);
+        }
+        $now = microtime(true);
+        if ( $now - $lastProgress >= 30 ) {
+            printf("%d/%d done, %.1fs\n", count($durations), $total, $now - $started);
+            fflush(STDOUT);
+            $lastProgress = $now;
         }
         usleep(20000);
     }
