@@ -63,6 +63,11 @@ final class QuotePatternContext
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
 
+    public function movingFigureQuoteClassName(DOMElement $blockquote, ?DOMElement $caption): string
+    {
+        return $this->styleResolver->movingFigureQuoteClassName($blockquote, $caption);
+    }
+
     public function citationFromElement(DOMElement $element): string
     {
         foreach ( $element->childNodes as $child ) {

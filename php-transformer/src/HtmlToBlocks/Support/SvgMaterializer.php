@@ -597,12 +597,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $imageAttributes = array(
             'src' => (string) $attrs['url'],
             'alt' => (string) ($attrs['alt'] ?? ''),
-            // The replacement's media geometry is lowered above. Carry the
-            // source margins separately without changing its flex sizing:
-            // SVG and img have different intrinsic flex-size behavior.
-            'class' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->boxTreeElementCarrier($element, false, array(
-                'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-            ))),
+            'class' => (string) ($attrs['className'] ?? ''),
             'style' => $style,
         );
         // RichText serializes an inline image object as a bare void tag, the

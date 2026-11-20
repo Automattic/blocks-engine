@@ -860,10 +860,9 @@ final class StyleResolver implements ElementPresentationResolver
      * into their child (ADR 0005 neutral and folded) emit none.
      *
      * @param bool $block Whether the source element is the block itself.
-     * @param list<string>|null $properties Limit replacement carriers to these properties.
      * @return string The carrier class, or '' off an evidence route or when nothing differs.
      */
-    public function boxTreeElementCarrier(DOMElement $source, bool $block = false, ?array $properties = null): string
+    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string
     {
         $viewports = $this->session->boxTreeViewports();
         if (array() === $viewports) return '';
@@ -874,7 +873,7 @@ final class StyleResolver implements ElementPresentationResolver
         $intent = new BoxTreeFluidIntent();
         $pseudoFluid = array();
         foreach (array('before', 'after') as $pseudo) {
-            $pseudoFluid[$pseudo] = null === $properties ? $intent->liftPseudo($source, $this, $observations, $viewports, $pseudo) : array();
+            $pseudoFluid[$pseudo] = $intent->liftPseudo($source, $this, $observations, $viewports, $pseudo);
         }
         return (new BoxTreeStyleProjector())->elementCarrier(
             $observations,
@@ -884,8 +883,7 @@ final class StyleResolver implements ElementPresentationResolver
             strtolower($source->tagName),
             $intent->lift($source, $this, $observations, $viewports, $parents),
             $pseudoFluid,
-            $this->session->boxTreeCurrentPaint($source),
-            $properties
+            $this->session->boxTreeCurrentPaint($source)
         );
     }
 
@@ -2186,6 +2184,23 @@ final class StyleResolver implements ElementPresentationResolver
         }
         $className = $this->session->layoutGeometryState()->allocateCarrier('inherited-text:' . $body);
         $this->session->layoutGeometryState()->registerRule($className, '.' . $className . '{' . $body . '}');
+        return $className;
+    }
+
+    /** Keep consumed quotation boxes local to a moving, clipped figure. */
+    public function movingFigureQuoteClassName(DOMElement $blockquote, ?DOMElement $caption): string
+    {
+        if (!$this->movesTextAcrossClip($blockquote)) return '';
+        $declarations = $this->structuralPresentationDeclarations($blockquote);
+        $box = array_intersect_key($declarations, array_flip(array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left')));
+        $box['display'] = 'block';
+        $captionText = null === $caption ? array() : array_intersect_key($this->structuralPresentationDeclarations($caption), array_flip(array('font-size', 'line-height')));
+        $signature = "moving-figure-quote\n" . $this->cssDeclarationString($box) . "\n" . $this->cssDeclarationString($captionText);
+        $className = $this->session->layoutGeometryState()->allocateCarrier($signature);
+        $selector = '.' . $className . '.' . $className;
+        $rules = $selector . '>p{' . $this->cssDeclarationString($box) . '}';
+        if (array() !== $captionText) $rules .= $selector . '>cite{' . $this->cssDeclarationString($captionText) . '}';
+        $this->session->layoutGeometryState()->registerRule($className, $rules);
         return $className;
     }
 
