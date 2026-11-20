@@ -2405,8 +2405,20 @@ final class ShellExtraction
                 $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#' . $area;
                 $variantDeclarations = null === $hoist ? $runtimeDeclarations : self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $partSourcePath);
                 $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), $area, array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
-                if (array() !== $variants['parts']) $runtimeDeclarations = $variantDeclarations;
-                if (($anchorVariant || $pageChrome) && array() !== $variants['parts']) {
+                // Routes whose variant is byte-identical to an earlier route's
+                // render that route's part rather than a copy of it.
+                $twin = null === $hoist && 1 === count($variants['parts']) ? self::routeVariantTwin($parts, $variants['parts'][0]) : null;
+                if (null !== $twin) {
+                    $reserved = array_fill_keys(array_column($parts, 'slug'), true);
+                    unset($reserved[$parts[$twin]['slug']]);
+                    $shared = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), $area, $reserved, $variantDeclarations, $parts[$twin]['slug']);
+                    $parts[$twin]['placement']['source_paths'][] = $page['source_path'];
+                    $parts[$twin]['provenance']['sources'] += $shared['parts'][0]['provenance']['sources'] ?? array();
+                    ksort($parts[$twin]['provenance']['sources'], SORT_STRING);
+                    $variants = array('pages' => $shared['pages'], 'parts' => array(), 'diagnostics' => array());
+                }
+                if (array() !== $variants['parts'] || null !== $twin) $runtimeDeclarations = $variantDeclarations;
+                if (($anchorVariant || $pageChrome) && (array() !== $variants['parts'] || null !== $twin)) {
                     foreach ($diagnostics as &$diagnostic) {
                         if ($area === ($diagnostic['area'] ?? null) && isset($diagnostic['exclusions'])) $diagnostic['exclusions'] = array_values(array_filter($diagnostic['exclusions'], static fn(array $exclusion): bool => $page['source_path'] !== ($exclusion['source_path'] ?? null)));
                     }
@@ -2418,6 +2430,19 @@ final class ShellExtraction
             }
         }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Key of the route variant part with the same area and markup as `$variant`.
+     *
+     * @param array<int,array<string,mixed>> $parts @param array<string,mixed> $variant
+     */
+    private static function routeVariantTwin(array $parts, array $variant): ?int
+    {
+        foreach ($parts as $key => $part) {
+            if ('route_variant' === ($part['provenance']['reason'] ?? null) && $variant['area'] === ($part['area'] ?? null) && $variant['canonical_block_markup'] === ($part['canonical_block_markup'] ?? null)) return $key;
+        }
+        return null;
     }
 
     /**
