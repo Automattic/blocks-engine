@@ -153,6 +153,13 @@ final class QuotePattern implements PatternRecognizerInterface
         if ( '' === $citation && $caption instanceof DOMElement && preg_match(self::STRUCTURAL_CONTENT_PATTERN, SourceDom::innerHtml($caption)) ) {
             return null;
         }
+        // A caption with its own font metrics needs its own block line box.
+        // An inline RichText citation sits in the native cite's larger strut;
+        // styling a span cannot preserve the source figure's height. Keep the
+        // figure and lower both children independently instead.
+        if ( '' === $citation && $caption instanceof DOMElement && $quotes->captionNeedsLineBox($caption) ) {
+            return null;
+        }
         if ( '' === $citation && $caption instanceof DOMElement ) {
             $citation = $quotes->figureCaptionContent($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
