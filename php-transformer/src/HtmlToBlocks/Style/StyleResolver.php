@@ -237,28 +237,33 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $presentation = $this->presentationDeclarations($element);
-        // Text colour is also an editing boundary: an explicitly coloured
-        // child must retain its own colour when an ancestor's control changes.
-        // Low-value text elements otherwise leave stylesheet presentation in
-        // CSS, where core cannot distinguish it from inherited text.
-        if (1 === preg_match('/^(?:p|h[1-6])$/i', $element->tagName)
+        // Paragraph functional colors with nested source variables are not safe
+        // through WordPress's save sanitization. Preserve their editing boundary
+        // with a resolved, serializable color, without promoting ordinary
+        // stylesheet colors or replacing existing preset bindings.
+        if ('p' === strtolower($element->tagName)
             && '' !== trim(SourceDom::attr($element, 'class'))
-            && !isset($presentation['color'])
+            && (!isset($presentation['color']) || (str_contains($presentation['color'], 'var(')
+                && !str_contains($presentation['color'], '--wp--preset--color--')))
         ) {
             // Presentation rules omit values that need source custom-property
             // resolution. Read the source-value cascade, not that filtered view.
-            // Leave existing native values (including palette bindings) alone.
+            // Leave ordinary native values (including palette bindings) alone.
             $authored = SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element));
             if (!isset($authored['color'])) {
                 $authored = SourceDeclarations::parse($this->resolvedCascadeStyle($element, 'cascaded-values'));
             }
-            if (isset($authored['color'])) {
+            if (isset($authored['color'])
+                && preg_match('/^(?:rgb|rgba|hsl|hsla)\s*\(/i', $authored['color'])
+                && str_contains($authored['color'], 'var(')
+            ) {
                 // Resolve at the source scope before promoting a stylesheet
-                // color to native support. Nested author variables (e.g. the
-                // opacity in rgb()) are not safe native color attributes.
+                // color to native support. Hex also avoids WordPress's legacy
+                // rgb() sanitizer dropping space-separated functional values.
                 $color = $this->customProperties->resolve($authored['color'], $element);
-                if ( ! str_contains($color, 'var(') ) {
-                    $presentation['color'] = $color;
+                $hex = \Automattic\BlocksEngine\PhpTransformer\Css\CssColor::hex($color);
+                if (null !== $hex) {
+                    $presentation['color'] = $hex;
                 }
             }
         }

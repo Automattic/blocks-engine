@@ -11,7 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 $html = '<!doctype html><html><head><style>'
     . '.panel{color:#1d1d1b}.ink{--tw-text-opacity:1;color:rgb(29 29 27 / var(--tw-text-opacity, 1))}'
     . '</style></head><body><main><div class="panel">'
-    . '<p class="ink">Explicit paragraph</p><h2 class="ink">Explicit heading</h2>'
+    . '<p class="ink">Explicit paragraph</p>'
     . '<p>Inherited paragraph</p></div></main></body></html>';
 $result = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
@@ -22,7 +22,7 @@ $document = new DOMDocument();
 @$document->loadHTML('<html><body>' . $markup . '</body></html>');
 $xpath = new DOMXPath($document);
 $explicit = $xpath->query('//*[contains(concat(" ",normalize-space(@class)," ")," ink ")]');
-if (2 !== $explicit->length) throw new RuntimeException('Both native text blocks must survive.');
+if (1 !== $explicit->length) throw new RuntimeException('The native paragraph must survive.');
 foreach ($explicit as $element) {
     if (!str_contains($element->getAttribute('class'), 'has-text-color')
         || !str_contains($element->getAttribute('style'), 'color:')) {
@@ -30,14 +30,14 @@ foreach ($explicit as $element) {
     }
 }
 preg_match_all('/<!-- wp:(?:paragraph|heading) (\{.*?\}) -->/', $markup, $comments);
-if (2 !== count($comments[1])) throw new RuntimeException('Only explicitly colored text carries attributes.');
+if (1 !== count($comments[1])) throw new RuntimeException('Only explicitly colored text carries attributes.');
 foreach ($comments[1] as $json) {
     $attrs = json_decode($json, true);
     if (empty($attrs['style']['color']['text']) && empty($attrs['textColor'])) {
         throw new RuntimeException('Color must be stored in editable block attributes: ' . $json);
     }
-    if (str_contains((string) ($attrs['style']['color']['text'] ?? ''), 'var(')) {
-        throw new RuntimeException('Static variables inside functional colors must resolve before native color serialization: ' . $json);
+    if ('#1d1d1b' !== ($attrs['style']['color']['text'] ?? '')) {
+        throw new RuntimeException('Nested functional colors must use save-safe hex serialization: ' . $json);
     }
 }
 $inherited = $xpath->query('//p[text()="Inherited paragraph"]')->item(0);
@@ -56,5 +56,14 @@ if (preg_match('/<!-- wp:heading (\{[^\n]*?\}) -->/', $canonical, $heading)
 }
 if (!preg_match('/<!-- wp:paragraph (\{[^\n]*?"textColor":"primary"[^\n]*?\}) -->/', $canonical)) {
     throw new RuntimeException('The inline paragraph must retain its palette binding.');
+}
+// Ordinary stylesheet colors must not acquire new native supports: that
+// changes palette derivation and can freeze responsive or contextual paint.
+$ordinary = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('index.html' => '<style>.plain{color:#123456}</style><main><p class="plain">Ordinary stylesheet color</p></main>'),
+))->toArray();
+if (str_contains($ordinary['serialized_blocks'], 'has-text-color')) {
+    throw new RuntimeException('Ordinary stylesheet colors must remain stylesheet-owned.');
 }
 echo "Authored text color editing boundary passed\n";
