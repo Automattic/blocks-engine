@@ -13,8 +13,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations
 // unanimous and the theme root carries none. Once the box-tree route
 // retires the author stylesheet, carriers prune values equal to their
 // parent's, so the body has to restate the family and leading its content
-// inherits. The logo becomes the core/media-text image, which core sizes to
-// its pane (`width:100%`), so it needs a carrier of its own.
+// inherits. The header row spreads the logo and its action to opposite ends,
+// so it stays a group of a core/image and core/buttons (core/media-text would
+// stretch both panes across the row); the logo's `clamp()` width still needs
+// a carrier of its own once the stylesheet is retired.
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
     echo "PASS: $message\n";
@@ -58,14 +60,16 @@ $assert('Georgia,serif' === str_replace(', ', ',', $family), 'The body restates 
 
 $parts = array_column($plan['template_parts'], 'canonical_block_markup', 'slug');
 $header = (string) ($parts['header'] ?? '');
-$assert(1 === preg_match('/<!-- wp:media-text \{[^\n]*?"className":"([^"]*)"/', $header, $mediaText), 'The header row becomes a core/media-text block.');
+$assert(!str_contains($header, '<!-- wp:media-text'), 'The header row is not lowered to core/media-text.');
+$assert(1 === preg_match('/<!-- wp:image \{[^\n]*?"className":"([^"]*)"/', $header, $image), 'The header logo becomes a core/image block.');
+$assert(str_contains($header, '<!-- wp:buttons'), 'The header action stays a core/buttons block beside the logo.');
 $logo = null;
 foreach ($rules as $selector => $declarations) {
-    foreach (preg_split('/\s+/', $mediaText[1]) as $class) {
-        if (str_starts_with($class, 'be-inline-geometry-') && 1 === preg_match('/\.' . preg_quote($class, '/') . '\s*>\s*\.wp-block-media-text__media img$/', $selector)) $logo = $declarations;
+    foreach (preg_split('/\s+/', $image[1]) as $class) {
+        if (str_starts_with($class, 'be-inline-geometry-') && 1 === preg_match('/\.' . preg_quote($class, '/') . '(?:\.' . preg_quote($class, '/') . ')*\s+img$/', $selector)) $logo = $declarations;
     }
 }
-$assert('clamp(120px,12vw,160px)' === ($logo['width'] ?? null), 'The media-text image keeps the author logo width (' . json_encode($logo) . ').');
+$assert('clamp(120px,12vw,160px)' === ($logo['width'] ?? null), 'The logo image keeps the author logo width (' . json_encode($logo) . ').');
 
 $notes = (string) (array_column($plan['pages'], 'canonical_block_markup', 'slug')['notes'] ?? '');
 $linkColor = static function (string $markup, string $text) use ($rules): string {

@@ -153,7 +153,11 @@ foreach (array(
     );
 }
 
-// An empty, unpainted absolute overlay is not a reason to keep a Group.
+// Neutral removal cannot discharge a pseudo boundary: it has no
+// declaration or containing-block transfer, unlike a geometry-proven fold.
+$cases[] = array('rule' => 'containing-block', 'box' => array(), 'pseudo' => array(), 'refuse' => true);
+
+// An empty, unpainted absolute overlay may accompany a proven fold.
 // Changing its ink, extent or hit testing must still refuse the fold.
 foreach (array(
     array(),

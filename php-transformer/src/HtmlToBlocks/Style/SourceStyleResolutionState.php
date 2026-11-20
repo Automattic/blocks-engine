@@ -63,7 +63,7 @@ final class SourceStyleResolutionState
     private array $ariaControlledTargetIds = array();
 
     /**
-     * Each source element's interaction-state families, keyed by node path and
+     * Each source element's interaction-state families, keyed by element identity and
      * reused only for the same node; dropped with the selector match cache
      * that decided them.
      *
@@ -72,8 +72,8 @@ final class SourceStyleResolutionState
     private array $stateStyleFamilies = array();
 
     /**
-     * Each source element's matched cascaded-value declarations, keyed by node
-     * path. An entry is reused only for the same node with the same inline
+     * Each source element's matched cascaded-value declarations, keyed by element
+     * identity. An entry is reused only for the same node with the same inline
      * style, so a node replaced at that path or restyled in place is
      * recomputed; the selector matches behind it are dropped with the
      * selector match cache.
@@ -84,7 +84,7 @@ final class SourceStyleResolutionState
 
     /**
      * Each source element's matching rules per collection, keyed by collection
-     * and node path, with values derived from exactly those rules.
+     * and element identity, with values derived from exactly those rules.
      *
      * @var array<string, array{node: DOMElement, rules: list<array<string, mixed>>, derived?: array<string, array<string, string>>}>
      */
@@ -92,7 +92,7 @@ final class SourceStyleResolutionState
 
     /**
      * Each source element's inherited custom properties, keyed by resting flag
-     * and node path, with the ancestor chain and style attributes they were
+     * and element identity, with the ancestor chain and style attributes they were
      * cascaded from.
      *
      * @var array<string, array{chain: list<DOMElement>, styles: list<string>, properties: array<string, string>}>
@@ -176,7 +176,7 @@ final class SourceStyleResolutionState
             $declarations = $compute($element);
             return array( 'node' => $element, 'style' => $element->getAttribute('style'), 'declarations' => $declarations, 'custom' => self::customDeclarations($declarations) );
         }
-        $path = (string) $element->getNodePath();
+        $path = $this->selectorMatchCache->elementKey($element);
         $style = $element->getAttribute('style');
         $entry = $this->cascadedDeclarations[$path] ?? null;
         if ( null === $entry || $entry['style'] !== $style || ! $entry['node']->isSameNode($element) ) {
@@ -233,7 +233,7 @@ final class SourceStyleResolutionState
             return $derive($rules);
         }
         // matchingRules() just left this element's entry under this key.
-        $key = $collection . "\0" . $element->getNodePath();
+        $key = $collection . "\0" . $this->selectorMatchCache->elementKey($element);
         return $this->matchedRules[$key]['derived'][$derivation] ??= $derive($rules);
     }
 
@@ -282,7 +282,7 @@ final class SourceStyleResolutionState
         if ( ! self::isInDocument($element) ) {
             return $compute($element);
         }
-        $key .= "\0" . $element->getNodePath();
+        $key .= "\0" . $this->selectorMatchCache->elementKey($element);
         $entry = $this->matchedRules[$key] ?? null;
         if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
             $entry = $this->matchedRules[$key] = array( 'node' => $element, 'rules' => $compute($element) );
@@ -374,7 +374,7 @@ final class SourceStyleResolutionState
         if ( ! $node instanceof DOMDocument ) {
             return $compute($chain);
         }
-        $key = ( $resting ? 'resting' : 'desktop' ) . "\0" . $element->getNodePath();
+        $key = ( $resting ? 'resting' : 'desktop' ) . "\0" . $this->selectorMatchCache->elementKey($element);
         $entry = $this->cascadedCustomProperties[$key] ?? null;
         if ( null !== $entry && $entry['styles'] === $styles && self::sameNodes($entry['chain'], $chain) ) {
             return $entry['properties'];
@@ -437,7 +437,7 @@ final class SourceStyleResolutionState
         if ( ! self::isInDocument($element) ) {
             return $compute($element);
         }
-        $path = (string) $element->getNodePath();
+        $path = $this->selectorMatchCache->elementKey($element);
         $entry = $this->stateStyleFamilies[$path] ?? null;
         if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
             $entry = $this->stateStyleFamilies[$path] = array( 'node' => $element, 'families' => $compute($element) );

@@ -108,7 +108,7 @@ final class PresetBinding
     private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
 
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
-    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
+    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'cover', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');
@@ -1367,7 +1367,9 @@ final class PresetBinding
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
                 $tag = strtolower($selector);
-                if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
+                // Captured-body box materialization uses :root body. It is
+                // still the document body, not a component font override.
+                if (1 === preg_match('/^(?::root\s+)?body(?:\.editor-styles-wrapper)?$/', $tag)) $tag = 'body';
                 $kept = $body;
                 // A matching body paint belongs to Global Styles just like its
                 // font. Preset binding alone would keep the author declaration

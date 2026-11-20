@@ -77,7 +77,7 @@ $firstPassWalks = CssRuleAnalyzer::stylesheetWalks() - $warmStart;
 $secondStart = CssRuleAnalyzer::stylesheetWalks();
 $secondMany = array( $analyzeMany(array( 'color' )), $analyzeMany(array( 'margin' )) );
 $secondPassWalks = CssRuleAnalyzer::stylesheetWalks() - $secondStart;
-$assert(320 === $firstPassWalks, 'first multi-sheet pass walks each property-list key once; walked ' . $firstPassWalks);
+$assert(160 === $firstPassWalks, 'first multi-sheet pass walks each sheet once across property lists; walked ' . $firstPassWalks);
 $assert(0 === $secondPassWalks && $firstMany === $secondMany, 'second multi-sheet pass reuses all streams with identical results; walked ' . $secondPassWalks);
 
 $selectors = static fn(array $analysis): array => array_column($analysis['rules'], 'selector');
