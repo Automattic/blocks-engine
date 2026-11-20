@@ -66,7 +66,7 @@ final class RichTextMaterializer implements RichTextMaterialization
      */
     private static function isMaterializedInline(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true)
+        return in_array(strtolower($element->tagName), array( 'a', 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true)
             || RichTextInlineTags::isUnknownHtmlElement($element);
     }
 
@@ -149,7 +149,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             }, $withoutComments) ?? $content;
         }
         $content = $this->normalizeMarkupAttributes($content);
-        if ( '' === $content || ( ! preg_match('/<(?:span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) && ! RichTextInlineTags::containsUnknownElement($content) ) ) {
+        if ( '' === $content || ( ! preg_match('/<(?:a|span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) && ! RichTextInlineTags::containsUnknownElement($content) ) ) {
             return $content;
         }
 
@@ -197,6 +197,13 @@ final class RichTextMaterializer implements RichTextMaterialization
             }
 
             $inline = $this->inlineVisualDeclarations($sourceInline);
+            if ( 'a' === strtolower($sourceInline->tagName) ) {
+                // Link identity and box presentation already survive on the
+                // anchor. Only carry author text paint into RichText: native
+                // link styles can otherwise override layered author colors.
+                // Moving its display/spacing would change flex and grid items.
+                $inline = array_intersect_key($inline, array( 'color' => true ));
+            }
             $inline = $this->withoutKeptFormatTagDeclarations($sourceInline, $inline);
             $marker = $this->inlinePolicy->richTextMarker($sourceInline);
             if ( '' !== $marker ) {
