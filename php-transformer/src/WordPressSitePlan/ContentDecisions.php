@@ -509,6 +509,8 @@ final class ContentDecisions
         foreach (self::visiblePublicationEvidence($html, $timestamp, $dateSlots) as $row) {
             $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         }
+        $routeDay = self::routeDayShownOnPage($html, $route);
+        if (null !== $routeDay) $add($evidence, 'route:dated-day-visible', $routeDay);
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
             if (!is_array($meta) || !is_string($meta['content'] ?? null) || !in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('og:url', 'twitter:url'), true)) {
                 continue;
@@ -566,6 +568,26 @@ final class ContentDecisions
             }
         }
         return $rows;
+    }
+
+    /**
+     * The day a `/YYYY/MM/DD/` permalink names, when the page also shows that
+     * day as a date of its own. Either alone is weak (an event's day in its
+     * URL, a date mentioned in prose); a permalink day the reader also sees is
+     * the publication day, at the same day precision as a `Y-m-d` timestamp.
+     */
+    private static function routeDayShownOnPage(string $html, string $route): ?string
+    {
+        if (!preg_match('~/([0-9]{4})/(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])(?:/|$)~', $route, $match)) return null;
+        $day = PublicationDate::normalize($match[1] . '-' . $match[2] . '-' . $match[3]);
+        if (null === $day) return null;
+        foreach (self::publicationHtmlFragments($html) as $fragment) {
+            foreach (HtmlMarkupParser::htmlMarkupNodes($fragment) as $node) {
+                if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null) || !in_array($node['name'] ?? '', array('p', 'span', 'div', 'li', 'td', 'time', 'small', 'mark', 'h2', 'h3', 'h4', 'h5', 'h6'), true)) continue;
+                if ($day === PublicationDate::fromVisibleText(HtmlMarkupParser::innerText($fragment, (string) $node['name'], $node['inner_offset']))) return $day;
+            }
+        }
+        return null;
     }
 
     /** @return array<int,string> */

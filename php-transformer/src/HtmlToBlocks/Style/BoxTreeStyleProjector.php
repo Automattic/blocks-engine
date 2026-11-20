@@ -11,6 +11,9 @@ final class BoxTreeStyleProjector
 {
     private const SELECTOR = "\0carrier\0";
 
+    /** The carrier class once, for declarations retained source state rules must still override ({@see self::inlineCarrier()}). */
+    private const STATE_YIELDING_SELECTOR = "\0state-yielding\0";
+
     private readonly BoxTreeDeclarationPruner $pruner;
 
     public function __construct()
@@ -26,7 +29,7 @@ final class BoxTreeStyleProjector
      *        `before` and `after` pseudo-elements, by name ({@see BoxTreeFluidIntent::liftPseudo()}).
      * @param string $sourceTag The observed source element's tag name.
      * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>} $image
-     *        The painting `<img>` inside an authored core/image `<figure>`: its observations, its parent's, and its lifted author values.
+     *        The painting `<img>` inside an authored core/image `<figure>`, or the image of a core/media-text: its observations, its parent's, and its lifted author values.
      * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>, pseudoFluid?: array<string, array<string, list<array{0: float|null, 1: string}>>>} $summary
      *        The source `<summary>` of a core/details, the same way, plus its pseudo-elements' lifted author values.
      * @param bool $inlineSupports Whether invariant declarations may become block style attributes. A block whose
@@ -35,6 +38,10 @@ final class BoxTreeStyleProjector
     public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), array $summary = array(), bool $inlineSupports = true): array
     {
         $attrs = $this->projectBlock($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $sourceTag, $image, $inlineSupports);
+        $caption = $image['caption'] ?? array();
+        if ('core/image' === $blockName && array() !== ($caption['observations'] ?? array())) {
+            $attrs = $this->projectRenderedElement($attrs, $caption['observations'], $viewports, $state, $caption['parents'] ?? array(), $caption['fluid'] ?? array(), false, self::SELECTOR . ' > figcaption.wp-element-caption', 'core/image', 'figcaption');
+        }
         $summaryObservations = $summary['observations'] ?? array();
         if ('core/details' !== $blockName || array() === $summaryObservations) return $attrs;
         // core/details saves a bare `<summary>`: the source summary's whole
@@ -80,8 +87,8 @@ final class BoxTreeStyleProjector
                 : $this->projectRenderedElement($attrs, $observations, $viewports, $state, $parents, $fluid, true, $target, $blockName, $sourceTag, $pseudoFluid);
         }
         $imageObservations = $image['observations'] ?? array();
-        if ('core/image' !== $blockName || array() === $imageObservations) return $attrs;
-        return $this->projectRenderedElement($attrs, $imageObservations, $viewports, $state, $image['parents'] ?? array(), $image['fluid'] ?? array(), false, self::renderedElement('core/image', $attrs, 'img'), 'core/image', 'img');
+        if (!in_array($blockName, array('core/image', 'core/media-text'), true) || array() === $imageObservations) return $attrs;
+        return $this->projectRenderedElement($attrs, $imageObservations, $viewports, $state, $image['parents'] ?? array(), $image['fluid'] ?? array(), false, self::renderedElement($blockName, $attrs, 'img'), $blockName, 'img');
     }
 
     /** One carrier for the block's own box, from its source element's observations. */
@@ -96,23 +103,6 @@ final class BoxTreeStyleProjector
             $parent = $parents[$key]['used_styles'] ?? null;
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
-        }
-        // Core border support can supply a solid style on every side when
-        // only one observed side paints. Keep the other sides' zero widths
-        // on this box; pruning them would expose the browser's medium width.
-        foreach ($keys as $key) {
-            $styles = $observations[$key]['used_styles'];
-            $hasBorder = false;
-            foreach (self::BORDER_SIDES as $side) {
-                if (isset($declarations[$key][$side])) $hasBorder = true;
-            }
-            if (!$hasBorder) continue;
-            foreach (self::BORDER_SIDES as $side) {
-                if (isset($styles[$side]) && ($status[$key][$side] ?? '') === BoxTreeDeclarationPruner::INITIAL) {
-                    $status[$key][$side] = BoxTreeDeclarationPruner::KEPT;
-                    $declarations[$key][$side] = $styles[$side];
-                }
-            }
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);
         $baseKey = $keys[0];
@@ -136,6 +126,10 @@ final class BoxTreeStyleProjector
      */
     private function mapInlineSupports(array &$attrs, array $base, array $keys, array $observations, string $blockName): array
     {
+        // A block the runtime has no metadata for (a generated block, whose
+        // save builds its markup by hand) declares no style supports, so it
+        // would never serialize a style attribute: the carrier keeps them all.
+        if ('' !== $blockName && null === self::runtime()->blockMetadata($blockName)) return array();
         $baseKey = $keys[0];
         $mapper = new StyleAttributeMapper();
         $existing = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
@@ -336,6 +330,9 @@ final class BoxTreeStyleProjector
     {
         $sourceTag = strtolower($sourceTag);
         if ('core/image' === $blockName && 'img' === $sourceTag) return self::SELECTOR . ' img';
+        // core/media-text saves its image bare in the media pane, where core
+        // sizes it to the pane (`width:100%`).
+        if ('core/media-text' === $blockName && 'img' === $sourceTag) return self::SELECTOR . ' > .wp-block-media-text__media img';
         // core/button saves its link as `<button>` when its tagName says so,
         // and a core/buttons wrapper cannot see which element its source
         // `<button>` was saved as. A carrier aimed at `a.wp-block-button__link`
@@ -362,31 +359,49 @@ final class BoxTreeStyleProjector
      * attributes: its observed typography that differs from its source
      * parent's goes entirely to a carrier class. A value equal to the
      * parent's is left to inheritance, so a lifted fluid block value keeps
-     * reaching it between captures.
+     * reaching it between captures. Compare used values here, not author
+     * tokens: a smaller child inheriting a unitless line-height has different
+     * used pixels and must keep its own carrier when the parent lifts its
+     * factor. Freezing the parent's factor instead loses line-box rounding.
      *
+     * An element with a user-agent colour of its own (a link, a mark) also
+     * carries its observed colour, whether the source inherited it or set
+     * it: it never inherits its parent's, so left out, a link paints the
+     * browser's blue. That colour is the resting state only, so it is
+     * declared at single-class specificity: above the user agent and
+     * theme.json's `a:where(...)` element rule, below the source's retained
+     * `a:hover`, `:focus` and `:visited` rules and theme.json's link states,
+     * each at least a pseudo-class plus a type or class.
+     *
+     * @param string $tagName The emitted inline element's tag, for its user-agent defaults.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @return string The carrier class, or '' when the inline inherits everything observed.
      */
-    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array()): string
+    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array(), string $tagName = ''): string
     {
-        $properties = array_flip(self::INLINE_TYPOGRAPHY);
+        $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
+        if (array() === $observations) return '';
+        $yielding = BoxTreeDeclarationPruner::ownsDefault($tagName, 'color') ? array('color' => true) : array();
+        // A link the source left at the browser's colour keeps it, with the
+        // browser's `:visited` and `:active` colours, by declaring none.
+        if ('a' === strtolower($tagName) && array(self::UA_LINK_COLOR) === array_values(array_unique(array_map(static fn(array $observation): string => (string) ($observation['used_styles']['color'] ?? ''), $observations)))) $yielding = array();
+        $properties = array_flip(self::INLINE_TYPOGRAPHY) + $yielding;
         $typography = array();
-        foreach ($observations as $key => $observation) {
-            if (!isset($viewports[$key]['width']) || !is_array($observation['used_styles'] ?? null)) continue;
-            $typography[$key] = array('used_styles' => array_intersect_key($observation['used_styles'], $properties));
-        }
-        if (array() === $typography) return '';
+        foreach ($observations as $key => $observation) $typography[$key] = array('used_styles' => array_intersect_key($observation['used_styles'], $properties));
         $keys = array_keys($typography);
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
         $status = array();
         $declarations = array();
         foreach ($keys as $key) {
             $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($typography[$key]['used_styles'], is_array($parent) ? $parent : null);
-            $declarations[$key] = $this->kept($typography[$key]['used_styles'], $status[$key]);
+            $parent = is_array($parent) ? $parent : null;
+            $used = $typography[$key]['used_styles'];
+            $status[$key] = $this->pruner->classify(array_diff_key($used, $yielding), $parent) + $this->pruner->classify(array_intersect_key($used, $yielding), $parent, '', $tagName);
+            $declarations[$key] = $this->kept($used, $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties), $typography, $parents);
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $parents), $state);
+        $split = array() === $yielding ? null : fn(array $declared): string => $this->rule(self::SELECTOR, array_diff_key($declared, $yielding)) . $this->rule(self::STATE_YIELDING_SELECTOR, array_intersect_key($declared, $yielding));
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $parents, false, array(), self::SELECTOR, $split), $state);
     }
 
     /**
@@ -401,9 +416,10 @@ final class BoxTreeStyleProjector
      * @param string $tagName The emitted (source) element's tag, for UA defaults.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid {@see BoxTreeFluidIntent::liftPseudo()}, by name.
+     * @param array<string, array<string, string>> $currentPaint Route-current paint, by viewport.
      * @return string The carrier class, or '' when nothing observed differs from what the element gets anyway.
      */
-    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array()): string
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array(), array $currentPaint = array()): string
     {
         $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
         if (array() === $observations) return '';
@@ -417,7 +433,8 @@ final class BoxTreeStyleProjector
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, '', $tagName);
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
+        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid);
+        return $this->carrier($css . $this->currentPaintRule($currentPaint), $state);
     }
 
     /**
@@ -451,10 +468,6 @@ final class BoxTreeStyleProjector
         return $css;
     }
 
-    /**
-     * Inherited typography an inline can set apart from its block. Color
-     * stays with the link and state styles that already own it.
-     */
     /** Keyword properties BoxTreeFluidIntent lifts only when they explain every capture, pruned or not. */
     private const SWITCHED_KEYWORDS = array('display' => true, 'visibility' => true);
 
@@ -476,6 +489,13 @@ final class BoxTreeStyleProjector
      */
     private const LAYOUT_HEIGHTS = array('height' => true, 'min-height' => true);
 
+    /** The user agent's unvisited link colour, as evidence serializes it. */
+    private const UA_LINK_COLOR = 'rgb(0, 0, 238)';
+
+    /**
+     * Inherited typography an inline can set apart from its block. Colour
+     * joins only for an element that computes its own ({@see self::inlineCarrier()}).
+     */
     private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /**
@@ -507,13 +527,22 @@ final class BoxTreeStyleProjector
             $kept = 0;
             $layoutHeight = isset(self::LAYOUT_HEIGHTS[$property]) && array() === array_diff(array_column($propertyBands, 1), array('auto'));
             foreach ($keys as $key) {
+                // Hidden observations are not layout evidence: they neither
+                // keep nor veto the author's proven declaration.
+                if (self::unrendered($key, $observations, $parents)) continue;
                 if (isset($declarations[$key][$property])) {
                     ++$kept;
                     continue;
                 }
+                // A proven author switch can include an initial value that
+                // the pruner omitted (unitless zero minimums, media-only order).
+                $used = $observations[$key]['used_styles'] ?? array();
+                $parent = $parents[$key]['used_styles'] ?? null;
+                $reason = $this->pruner->classify($used, is_array($parent) ? $parent : null, $blockName, $tagName)[$property] ?? null;
+                if (count($propertyBands) > 1 && BoxTreeDeclarationPruner::INITIAL === $reason) continue;
                 if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property]) && !$layoutHeight) continue 2;
             }
-            if (0 === $kept && (isset(self::GRID_LINES[$property]) || $layoutHeight)) continue;
+            if (0 === $kept) continue;
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             if (1 === count($propertyBands) && 'display' !== $property) $unbanded[] = $property;
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
@@ -534,6 +563,13 @@ final class BoxTreeStyleProjector
         }
         foreach ($keys as $key) $declarations[$key] = array_diff_key($declarations[$key], $redundant);
         return $bands;
+    }
+
+    /** Whether the box is hidden itself or inside a hidden parent at a capture. */
+    private static function unrendered(string $key, array $observations, array $parents): bool
+    {
+        return 'none' === ($observations[$key]['used_styles']['display'] ?? null)
+            || 'none' === ($parents[$key]['used_styles']['display'] ?? null);
     }
 
     /**
@@ -656,13 +692,28 @@ final class BoxTreeStyleProjector
         return true;
     }
 
+    /**
+     * The paint a shared navigation link shows only as the served route's
+     * current link, under WordPress's per-request current state. Only paint
+     * every observed viewport agrees on is restated.
+     *
+     * @param array<string, array<string, string>> $currentPaint
+     */
+    private function currentPaintRule(array $currentPaint): string
+    {
+        if (array() === $currentPaint) return '';
+        $shared = array_shift($currentPaint);
+        foreach ($currentPaint as $paint) $shared = array_intersect_assoc($shared, $paint);
+        return array() === $shared ? '' : $this->rule(self::SELECTOR . '[aria-current="page"]', $shared);
+    }
+
     /** Register one carrier per distinct declaration set, not per source node. */
     private function carrier(string $css, LayoutGeometryState $state): string
     {
         if ('' === $css) return '';
         $class = $state->allocateCarrier('box-tree:' . $css);
         // Outrank core block/layout selectors without defeating editor inline styles.
-        $state->registerRule($class, str_replace(self::SELECTOR, '.' . $class . '.' . $class, $css));
+        $state->registerRule($class, str_replace(array(self::SELECTOR, self::STATE_YIELDING_SELECTOR), array('.' . $class . '.' . $class, '.' . $class), $css));
         return $class;
     }
 

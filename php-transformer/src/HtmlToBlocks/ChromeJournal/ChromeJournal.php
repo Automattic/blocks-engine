@@ -66,6 +66,7 @@ final class ChromeJournal
             $relative = $relative || (is_array($asset) && $page === ($asset['source_path'] ?? null)
                 && 1 === preg_match('~url\(\s*[\'"]?(?![a-z][a-z0-9+.-]*:|/|#|[\'"]?\))~i', (string) ($asset['content'] ?? '')));
         }
+        unset($options['author_stylesheet_assets'], $options['static_css'], $options['stylesheet_payloads'], $options['asset_metadata']);
         array_walk_recursive($options, static function (mixed &$value) use ($page): void {
             if ($value === $page) $value = "\0page";
         });
@@ -94,6 +95,7 @@ final class ChromeJournal
         // being recorded is part of that recording.
         if ($this->recording) return $convert($fallbacks);
         $key = $this->key($element);
+        if (null === $key) return $convert($fallbacks);
         $journal = $this->store->journal($key);
         if (null !== $journal) {
             $replay = $this->replay($journal, $element);
@@ -101,7 +103,11 @@ final class ChromeJournal
                 array_push($fallbacks, ...$replay['fallbacks']);
                 return $replay['block'];
             }
+            return $convert($fallbacks);
         }
+        // Most keys one page alone reaches (a post's own heading before it,
+        // say); recording starts at a key's second sighting.
+        if (!$this->store->sighted($key)) return $convert($fallbacks);
         $before = $this->state();
         $attributes = self::attributes($element);
         $fallbackCount = count($fallbacks);
@@ -115,16 +121,16 @@ final class ChromeJournal
             $this->recording = false;
             $allocations = $analysis->allocations();
         }
-        if (null === $journal) {
-            $recorded = $this->record($element, $before, $attributes, array_slice($fallbacks, $fallbackCount), $block, $nextSourceId, $allocations);
-            if (null !== $recorded) $this->store->record($key, $recorded);
-        }
+        $recorded = $this->record($element, $before, $attributes, array_slice($fallbacks, $fallbackCount), $block, $nextSourceId, $allocations);
+        if (null !== $recorded) $this->store->record($key, $recorded);
         return $block;
     }
 
     /** Hash of every input that converting $element reads. */
-    private function key(DOMElement $element): string
+    private function key(DOMElement $element): ?string
     {
+        $css = $this->session->authorStyleAnalysis()->journalIdentity($element);
+        if (null === $css) return null;
         $sourcePath = $this->session->sourcePath();
         $links = array();
         $relative = false;
@@ -142,7 +148,7 @@ final class ChromeJournal
         }
         return hash('sha256', serialize(array(
             $this->pageDigest,
-            $this->session->authorStyleAnalysis()->contextIdentity($element),
+            $css,
             SubtreeIdentity::normalize((string) $element->ownerDocument?->saveHTML($element)),
             // Source descriptions of the subtree read its root's preceding
             // heading and its ancestors below body.
@@ -403,8 +409,8 @@ final class ChromeJournal
     private static function ancestorStartTags(DOMElement $element): array
     {
         $tags = array();
-        for ($parent = $element->parentNode; $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName); $parent = $parent->parentNode) {
-            $tags[] = $parent->tagName . ' ' . $parent->getAttribute('class');
+        for ($parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode) {
+            $tags[] = SubtreeIdentity::normalize((string) $parent->ownerDocument?->saveHTML($parent->cloneNode(false)));
         }
         return $tags;
     }

@@ -111,7 +111,18 @@ final class InlineSvgTextGroupLowering
 
         $attrs = $this->styleResolver->presentationAttributes($element);
         $display = CssValueInspector::comparable((string) ($this->styleResolver->resolvedPresentationDeclarations($element)['display'] ?? ''));
-        if ( in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) {
+        $layoutDisplays = array('flex', 'inline-flex', 'grid', 'inline-grid');
+        $ownsLayoutBox = in_array($display, $layoutDisplays, true);
+        // Captured routes retire author CSS before lowering. Their observed
+        // display still belongs to this replacement box, at every breakpoint;
+        // the box-tree projector supplies the actual responsive declarations.
+        foreach ($this->session->boxTreeEvidence($element) as $box) {
+            if (in_array($box['used_styles']['display'] ?? '', $layoutDisplays, true)) {
+                $ownsLayoutBox = true;
+                break;
+            }
+        }
+        if ($ownsLayoutBox) {
             // This paragraph replaces the source layout box, not just an inline
             // text run. Do not let synthetic RichText carrier resets neutralize
             // its display (including when the text contains a link).

@@ -21,38 +21,22 @@ final class CssCascade
     }
 
     /**
-     * Whether any alternative of a media query list can match a screen. A
-     * list that names only `print` or `speech` never renders on screen at
-     * any width, so it states nothing about the page's viewport boxes.
+     * Evaluate a visual media query list at a viewport width and optional height.
+     * Orientation and height features stay unknown without a viewport height.
      */
-    public static function mediaConditionTargetsScreen(string $condition): bool
-    {
-        foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($condition, array(',')) as $alternative) {
-            $alternative = strtolower(trim($alternative));
-            $negated = str_starts_with($alternative, 'not ');
-            $type = (string) preg_replace('/^(?:not|only)\s+/', '', $alternative);
-            $type = strtok($type, " \t\n(") ?: '';
-            if ($negated || ! in_array($type, array('print', 'speech'), true)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** Evaluate a comma-separated visual media query list at a viewport width. */
-    public static function mediaConditionApplies(string $condition, float $viewportWidth, float $rootFontSize = 16.0): bool
+    public static function mediaConditionApplies(string $condition, float $viewportWidth, float $rootFontSize = 16.0, ?float $viewportHeight = null): bool
     {
         return (bool) \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::memo(
-            'media:' . serialize(array($viewportWidth, $rootFontSize)),
+            'media:' . serialize(array($viewportWidth, $rootFontSize, $viewportHeight)),
             $condition,
-            static fn (): int => (int) self::mediaConditionAppliesUncached($condition, $viewportWidth, $rootFontSize)
+            static fn (): int => (int) self::mediaConditionAppliesUncached($condition, $viewportWidth, $rootFontSize, $viewportHeight)
         );
     }
 
-    private static function mediaConditionAppliesUncached(string $condition, float $viewportWidth, float $rootFontSize): bool
+    private static function mediaConditionAppliesUncached(string $condition, float $viewportWidth, float $rootFontSize, ?float $viewportHeight): bool
     {
         foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($condition, array(',')) as $alternative) {
-            if (self::mediaAlternativeApplies($alternative, $viewportWidth, $rootFontSize)) {
+            if (self::mediaAlternativeApplies($alternative, $viewportWidth, $rootFontSize, $viewportHeight)) {
                 return true;
             }
         }
@@ -235,7 +219,7 @@ final class CssCascade
         return $terms;
     }
 
-    private static function mediaAlternativeApplies(string $alternative, float $viewportWidth, float $rootFontSize): bool
+    private static function mediaAlternativeApplies(string $alternative, float $viewportWidth, float $rootFontSize, ?float $viewportHeight = null): bool
     {
         $alternative = strtolower(trim($alternative));
         $negated = str_starts_with($alternative, 'not ');
@@ -244,7 +228,7 @@ final class CssCascade
         $applies = true;
         foreach (preg_split('/\s+and\s+/i', $alternative) ?: array() as $term) {
             $term = trim($term);
-            $termApplies = self::mediaTermApplies($term, $viewportWidth, $rootFontSize);
+            $termApplies = self::mediaTermApplies($term, $viewportWidth, $rootFontSize, $viewportHeight);
             // An unknown feature has no reliable truth value in this evaluator,
             // so it cannot qualify a rule even when the query is negated.
             if (null === $termApplies) {
@@ -258,7 +242,7 @@ final class CssCascade
         return $negated ? ! $applies : $applies;
     }
 
-    private static function mediaTermApplies(string $term, float $viewportWidth, float $rootFontSize): ?bool
+    private static function mediaTermApplies(string $term, float $viewportWidth, float $rootFontSize, ?float $viewportHeight = null): ?bool
     {
         if (in_array($term, array('', 'all', 'screen'), true)) return true;
         if (in_array($term, array('print', 'speech'), true)) return false;
@@ -266,6 +250,15 @@ final class CssCascade
         $term = trim($term, " \t\n\r\0\x0B()");
         if (preg_match('/^prefers-color-scheme\s*:\s*(dark|light)$/', $term, $match)) {
             return 'light' === $match[1];
+        }
+        if (null !== $viewportHeight) {
+            // Square viewports are portrait, per Media Queries 4.
+            if (preg_match('/^orientation\s*:\s*(portrait|landscape)$/', $term, $match)) {
+                return ('portrait' === $match[1]) === ($viewportHeight >= $viewportWidth);
+            }
+            if (preg_match('/^(min|max)-height\s*:\s*(\d*\.?\d+)\s*(px|r?em)$/i', $term, $match)) {
+                return self::compareWidth('min' === strtolower($match[1]) ? '>=' : '<=', $viewportHeight, self::widthPixels($match[2], $match[3], $rootFontSize));
+            }
         }
         return self::mediaWidthTermApplies($term, $viewportWidth, $rootFontSize);
     }

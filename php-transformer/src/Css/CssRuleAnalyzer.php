@@ -26,15 +26,15 @@ final class CssRuleAnalyzer
         foreach ( $stylesheets as $sheet ) {
             // cascade_content is the sheet with its @imports expanded where they occur.
             $css = (string) ( $sheet['cascade_content'] ?? $sheet['content'] ?? '' );
-            $stream = $this->stylesheetStream($css, (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ), (string) ( $sheet['source_hash'] ?? '' ), $this->linkCondition($sheet), $properties, $maxCssBytes, $maxConditionDepth);
-            if ( ! $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters) ) {
+            $stream = $this->stylesheetStream($css, (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ), (string) ( $sheet['source_hash'] ?? '' ), $this->linkCondition($sheet), $maxCssBytes, $maxConditionDepth);
+            if ( ! $this->replay($stream, $properties, $maxRules, $maxSelectors, $retainSelector, $result, $counters) ) {
                 break;
             }
         }
 
         if ( array() === $stylesheets && '' !== trim($inlineCss) ) {
-            $stream = $this->stylesheetStream($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxConditionDepth);
-            $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters);
+            $stream = $this->stylesheetStream($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $maxCssBytes, $maxConditionDepth);
+            $this->replay($stream, $properties, $maxRules, $maxSelectors, $retainSelector, $result, $counters);
         }
 
         $result['diagnostics'] = array_values(array_unique($result['diagnostics']));
@@ -53,11 +53,18 @@ final class CssRuleAnalyzer
      * The cache is bounded by the selector entries it holds, not by stream
      * count: one page can need hundreds of small streams (stylesheets times
      * property lists), while a few huge stylesheets must still evict. 100k
-     * entries holds a real 77-stylesheet page's ~316 streams.
+     * entries accommodates large pages without retaining unbounded streams.
      */
     private const STREAM_CACHE_ENTRY_BUDGET = 100000;
     private static int $streamEntries = 0;
     private static int $stylesheetWalks = 0;
+    private static int $streamedRules = 0;
+
+    /** Selector entries streamed on cache misses, observable independently of timing. */
+    public static function streamedRules(): int
+    {
+        return self::$streamedRules;
+    }
 
     /** Number of stylesheet walks performed since process start; observable for tests. */
     public static function stylesheetWalks(): int
@@ -67,24 +74,24 @@ final class CssRuleAnalyzer
 
     /**
      * The retention-independent analysis of one stylesheet: its style rules'
-     * selectors with filtered declarations and their diagnostics, in source
+     * selectors with all declarations and their diagnostics, in source
      * order. Each entry records where its condition or layer block ends, so a
      * replay that reaches a limit can leave that block exactly as the walk
      * would have.
      *
-     * @param list<string> $properties
      * @return list<array<string, mixed>>
      */
-    private function stylesheetStream(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxConditionDepth): array
+    private function stylesheetStream(string $css, string $path, string $hash, ?array $condition, int $maxCssBytes, int $maxConditionDepth): array
     {
-        $key = hash('xxh128', $css) . "\0" . serialize(array( $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth ));
+        $key = hash('xxh128', $css) . "\0" . serialize(array( $path, $hash, $condition, $maxCssBytes, $maxConditionDepth ));
         if ( isset(self::$streams[ $key ]) ) {
             $stream = self::$streams[ $key ];
             unset(self::$streams[ $key ]);
             return self::$streams[ $key ] = $stream;
         }
         ++self::$stylesheetWalks;
-        $stream = ( new CssStylesheetWalk($this->ruleTrees ??= new CssRuleTreeCache(), $path, $hash, $properties, $maxCssBytes, $maxConditionDepth) )->stream($css, $condition);
+        $stream = ( new CssStylesheetWalk($this->ruleTrees ??= new CssRuleTreeCache(), $path, $hash, array('*'), $maxCssBytes, $maxConditionDepth) )->stream($css, $condition);
+        self::$streamedRules += count(array_filter($stream, static fn (array $entry): bool => isset($entry['selector'])));
         if ( count($stream) > self::STREAM_CACHE_ENTRY_BUDGET ) {
             return $stream;
         }
@@ -101,17 +108,23 @@ final class CssRuleAnalyzer
      * Apply one caller's retention and limits to a stylesheet stream.
      *
      * @param list<array<string, mixed>> $stream
+     * @param list<string> $properties
      * @param array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool} $result
      * @param array{order: int, retained: int, scanned: int, max_scanned: int} $counters
      * @return bool False once the selector scan limit stops the analysis.
      */
-    private function replay(array $stream, int $maxRules, int $maxSelectors, ?callable $retainSelector, array &$result, array &$counters): bool
+    private function replay(array $stream, array $properties, int $maxRules, int $maxSelectors, ?callable $retainSelector, array &$result, array &$counters): bool
     {
         for ( $index = 0, $count = count($stream); $index < $count; ) {
             $entry = $stream[ $index ];
             if ( isset($entry['diagnostic']) ) {
                 $result['diagnostics'][] = $entry['diagnostic'];
                 $result['truncated'] = $result['truncated'] || $entry['truncated'];
+                ++$index;
+                continue;
+            }
+            $entry['declarations'] = array_values(array_filter($entry['declarations'], static fn (array $declaration): bool => in_array('*', $properties, true) || in_array($declaration['name'], $properties, true) || (in_array('--*', $properties, true) && str_starts_with($declaration['name'], '--'))));
+            if ( array() === $entry['declarations'] ) {
                 ++$index;
                 continue;
             }
