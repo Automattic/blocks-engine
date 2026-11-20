@@ -438,6 +438,7 @@ final class PresetBinding
     private function bindMarkup(string $markup): string
     {
         $markup = $this->bindNavigations($markup);
+        $markup = $this->bindSiteTitles($markup);
         $pattern = '/<!-- wp:(' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS))) . ') (\{.*?\}) (\/)?-->/s';
         $result = '';
         $offset = 0;
@@ -497,6 +498,48 @@ final class PresetBinding
             $attributes->textColor = $slug;
             ++$this->bound;
             return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
+        }, $markup);
+    }
+
+    /**
+     * Core renders a site title from its attributes alone (the block is
+     * self-closing), so a palette colour carried as a literal binds there:
+     * as `textColor`/`backgroundColor` where the `!important` preset class
+     * would not change the cascade (safe()), otherwise as the preset
+     * reference, which core renders as the same inline declaration now
+     * following the token. Only exact palette values bind. Shell extraction
+     * promotes shared wordmarks after page binding, so header parts call this
+     * directly.
+     */
+    public function bindSiteTitles(string $markup): string
+    {
+        if (!str_contains($markup, '<!-- wp:site-title ')) return $markup;
+        return (string) preg_replace_callback('/<!-- wp:site-title (\{(?:(?!-->).)*\}) \/-->/s', function (array $match): string {
+            $attributes = json_decode($match[1], false);
+            $color = $attributes instanceof \stdClass ? ($attributes->style->color ?? null) : null;
+            if (!$color instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1]) return $match[0];
+            $classes = 'wp-block-site-title ' . (is_string($attributes->className ?? null) ? $attributes->className : '');
+            $changed = false;
+            foreach (array('text' => array('textColor', 'color', 'has-text-color', 'has-%s-color'), 'background' => array('backgroundColor', 'background-color', 'has-background', 'has-%s-background-color')) as $key => [$preset, $property, $marker, $class]) {
+                $literal = $color->$key ?? null;
+                if (isset($attributes->$preset) || !is_string($literal) || str_starts_with($literal, 'var')) continue;
+                $slug = $this->slug('color', $literal);
+                if (null === $slug) continue;
+                $tokens = $this->tagTokens('<p>', $classes);
+                if ($this->safe($property, $tokens, array($marker, sprintf($class, $slug)))) {
+                    unset($color->$key);
+                    $attributes->$preset = $slug;
+                } elseif ($this->safe($property, $tokens, array(), true)) {
+                    $color->$key = 'var:preset|color|' . $slug;
+                } else {
+                    continue;
+                }
+                ++$this->bound;
+                $changed = true;
+            }
+            if (!$changed) return $match[0];
+            self::prune($attributes);
+            return '<!-- wp:site-title ' . BlockAttributes::encode($attributes) . ' /-->';
         }, $markup);
     }
 

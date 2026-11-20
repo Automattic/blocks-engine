@@ -271,6 +271,13 @@ final class SitePlanRun
         $compiledParts = is_array($this->compiled['template_parts'] ?? null) ? array_values(array_filter($this->compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $this->timer?->start('compose.site_plan.shell_extraction');
         ['pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'shell_frames' => $shellFrames, 'document_chrome' => $documentChrome, 'runtime_declarations' => $shellDeclarations, 'runtime_entity_records' => $runtimeEntityRecords, 'diagnostics' => $shellDiagnostics] = $this->extractedShells($pages, $compiledParts, $tokens, $runtimeDeclarations, $runtimeEntityRecords, $assets);
+        if (null !== $this->presetBinding) foreach ($parts as &$part) {
+            $bound = $this->presetBinding->bindSiteTitles((string) ($part['canonical_block_markup'] ?? ''));
+            if ($bound === ($part['canonical_block_markup'] ?? '')) continue;
+            $part['canonical_block_markup'] = $bound;
+            if (isset($part['content_hash'])) $part['content_hash'] = WordPressSitePlan::contentHash($bound);
+        }
+        unset($part);
         $assetTargetCollisions = array();
         // Element markers some emitted markup still carries. A rule naming
         // any other marker names an element extraction replaced (one route's
