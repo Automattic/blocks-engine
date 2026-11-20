@@ -1533,6 +1533,7 @@ final class SharedChromeStylesheets
     private static function sharedChromeAsset(array $asset, string $shared, string $contract, array $routeClasses): array
     {
         $sharedAsset = $asset;
+        $sharedAsset['_shared_chrome_typography'] = true;
         // Address the target by what is enqueued, not only the text: the same
         // rules under another media condition, target or capture device are another asset.
         $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';

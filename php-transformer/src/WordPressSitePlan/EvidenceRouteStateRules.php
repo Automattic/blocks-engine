@@ -27,8 +27,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * are dropped. The capture's device-island gate (`.data-blocks-engine-capture-
  * desktop-only` / `-mobile-only` under its viewport media) is engine contract,
  * not author selectors, and carriers render both islands: it is kept too.
- * Everything else is dropped, except `@font-face` and `@layer` order
- * statements.
+ * Shared-chrome projections also retain typography: their source route may
+ * lack box evidence, so captured page carriers do not own their text. Everything
+ * else is dropped, except `@font-face` and `@layer` order statements.
  */
 final class EvidenceRouteStateRules
 {
@@ -89,13 +90,15 @@ final class EvidenceRouteStateRules
     /**
      * @param list<string> $sheets Retired author sheets, in cascade order.
      * @param string $context Delivered CSS (for example carriers) whose animation names stay bound.
+     * @param list<int> $sharedTypography Sheet indexes projected exclusively for shared chrome.
      * @return list<string> Each sheet's retained bytes.
      */
-    public function retain(array $sheets, string $context = ''): array
+    public function retain(array $sheets, string $context = '', array $sharedTypography = array()): array
     {
         $trees = array_map(fn(string $css): array => $this->nodes($css), $sheets);
         foreach ($trees as $tree) $this->collectKeyframes($tree);
         foreach ($trees as $tree) $this->collectMotionProperties($tree);
+        foreach ($sharedTypography as $index) $this->markSharedTypography($trees[$index]);
         // State rules first: they define the custom properties resting
         // animation consumers read.
         foreach ($trees as &$tree) $this->markState($tree);
@@ -248,6 +251,28 @@ final class EvidenceRouteStateRules
     {
         return 1 === preg_match('/^\.([\w-]+)((?::not\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))*)$/', trim($selector), $match)
             && in_array($match[1], array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS), true);
+    }
+
+    /**
+     * Shared chrome may come from a route without box evidence. Its projected
+     * author rules are the only owner of that chrome's typography, even on a
+     * captured route. Keep text presentation, never its unobserved geometry.
+     */
+    private function markSharedTypography(array &$nodes): void
+    {
+        foreach ($nodes as &$node) {
+            if ('group' === $node['type']) $this->markSharedTypography($node['children']);
+            if ('style' !== $node['type']) continue;
+            $declarations = array();
+            foreach ($this->declarations($node['body']) as [$property, $value]) {
+                if (in_array(strtolower($property), array('font', 'font-family', 'font-size', 'font-weight', 'font-style', 'font-stretch', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-transform'), true)) $declarations[] = $property . ':' . $value;
+            }
+            if (array() === $declarations) continue;
+            $selectors = $this->reachable(CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array($node['prelude']));
+            if (array() === $selectors) continue;
+            $node['keep'] = array('selectors' => $selectors, 'declarations' => $declarations, 'state' => false);
+            $this->bind(implode(';', $declarations));
+        }
     }
 
     private function isState(string $selector): bool

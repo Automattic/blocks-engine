@@ -96,7 +96,9 @@ final class EvidenceRouteStylesheets
         if (array() === $author) return $assets;
         $reach = $markup . (string) json_encode(array_column($parts, 'canonical_block_markup'), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $rules = new EvidenceRouteStateRules(EvidenceRouteStateRules::stateAttributes($markup), $markup, $reach);
-        $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context);
+        $sharedTypography = array();
+        foreach ($author as $index => $key) if (!empty($assets[$key]['_shared_chrome_typography'])) $sharedTypography[] = $index;
+        $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context, $sharedTypography);
         foreach ($author as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
         return $assets;
     }
