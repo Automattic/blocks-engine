@@ -7,6 +7,25 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 final class MediaCondition
 {
     /**
+     * Whether any alternative of a media query list can match a screen. A
+     * list that names only `print` or `speech` never renders on screen at
+     * any width, so it states nothing about the page's viewport boxes.
+     */
+    public static function targetsScreen(string $condition): bool
+    {
+        foreach (CssValueSplitter::splitTopLevel($condition, array(',')) as $alternative) {
+            $alternative = strtolower(trim($alternative));
+            $negated = str_starts_with($alternative, 'not ');
+            $type = (string) preg_replace('/^(?:not|only)\s+/', '', $alternative);
+            $type = strtok($type, " \t\n(") ?: '';
+            if ($negated || ! in_array($type, array('print', 'speech'), true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Null means the intersection needs nested @media rules. In particular,
      * appending to `not screen and (...)` would negate the NEW condition too.
      * Media types cannot be parenthesized as MQ4 conditions, so nesting is the

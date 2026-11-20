@@ -2003,7 +2003,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // Absolute inset-zero placement replaces the child's former alignment,
         // rather than carrying either element's alignment bands forward.
-        if (isset($fold['moves']['position']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
+        if (isset($fold['moves']['position']) && !isset($fold['moves']['align-self']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
             unset($fluid['align-self'], $fluid['justify-self']);
         }
         $box = $element->parentNode;
@@ -2037,6 +2037,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         foreach ( self::FOLD_SIZING as $property ) {
+            // An absolute fill child replaces the box's sizing outright;
+            // the move above already lifted that sizing in the box's context.
+            if (isset($fold['moves'][$property])) continue;
             $bands = $boxFluid[$property] ?? null;
             $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
             if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
@@ -2594,8 +2597,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // An authored figure (or a custom image host lowered as the figure)
         // keeps its own box; the image it paints is styled from its own evidence.
+        // So is a core/media-text image, which its block saves bare in the
+        // media pane.
         $image = array();
         $paintedImage = 'core/image' === $name && ('figure' === $sourceTagName || str_contains($sourceTagName, '-')) ? $sourceElement->getElementsByTagName('img')->item(0) : null;
+        if ('core/media-text' === $name && 'image' === ($attrs['mediaType'] ?? null)) $paintedImage = $this->mediaTextSourceImage($sourceElement, 'right' === ($attrs['mediaPosition'] ?? null));
         if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
             $imageObservations = $this->session->boxTreeEvidence($paintedImage);
             $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
@@ -2629,6 +2635,20 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $attrs;
+    }
+
+    /**
+     * The source `<img>` a core/media-text block paints: the only image of
+     * its media pane, which MediaTextPattern resolved as a single-media chain.
+     */
+    private function mediaTextSourceImage(DOMElement $sourceElement, bool $mediaOnRight): ?DOMElement
+    {
+        $panes = array_values(array_filter(iterator_to_array($sourceElement->childNodes), static fn(\DOMNode $node): bool => $node instanceof DOMElement));
+        $pane = $panes[$mediaOnRight ? 1 : 0] ?? null;
+        if (!$pane instanceof DOMElement) return null;
+        if ('img' === strtolower($pane->tagName)) return $pane;
+        $images = $pane->getElementsByTagName('img');
+        return 1 === $images->length && $images->item(0) instanceof DOMElement ? $images->item(0) : null;
     }
 
     /**

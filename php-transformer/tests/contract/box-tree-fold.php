@@ -51,14 +51,42 @@ $cases = array(
     // The badge inside the child is placed against the box's padding box.
     array('rule' => 'containing-block', 'box' => array('position' => 'relative'), 'badge' => array('position' => 'absolute', 'top' => '0px', 'right' => '0px'),
         'expect' => array('position' => 'relative')),
-    // An absolute child is placed against the box itself.
-    array('rule' => 'containing-block', 'refuse' => true, 'box' => array('position' => 'relative'), 'child' => array('position' => 'absolute')),
+    // An equal-box absolute child takes over its positioned box.
+    array('rule' => 'containing-block', 'box' => array('position' => 'relative'), 'child' => array('position' => 'absolute'),
+        'expect' => array('position' => 'relative')),
     array('rule' => 'own-placement', 'parent' => array('display' => 'grid', 'grid-template-columns' => '400px'),
         'box' => array('grid-row-start' => '1', 'grid-row-end' => '2', 'grid-column-start' => '1', 'grid-column-end' => '2', 'justify-self' => 'start'),
         'expect' => array('grid-row' => '1 / 2', 'justify-self' => 'start')),
     array('rule' => 'own-placement', 'refuse' => true, 'parent' => array('display' => 'grid', 'grid-template-columns' => '400px'),
         'box' => array('grid-row-start' => '1', 'justify-self' => 'start'), 'child' => array('justify-self' => 'end')),
 );
+
+// Absolute fills: each refusal changes one part of the equal-box proof.
+$positioned = array('position' => 'relative', 'width' => '400px', 'height' => '100px',
+    'grid-row-start' => '2', 'grid-column-start' => '1', 'align-self' => 'start', 'justify-self' => 'start');
+$absoluteChild = array('position' => 'absolute', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px');
+foreach (array(
+    array(),
+    array('box' => array('position' => 'absolute', 'top' => '20px', 'left' => '30px', 'transform' => 'matrix(1, 0, 0, 1, 0, 0)')),
+    array('box' => array('background-color' => 'rgb(255, 0, 0)')),
+    array('child' => array('left' => '1px'), 'refuse' => true),
+    array('child' => array('z-index' => '1'), 'refuse' => true),
+    array('box' => array('transform' => 'matrix(1, 0, 0, 1, 1, 0)'), 'refuse' => true),
+    array('box' => array('padding-left' => '1px'), 'refuse' => true),
+    array('child_box' => $inset, 'refuse' => true),
+) as $change) {
+    $position = $change['box']['position'] ?? 'relative';
+    $cases[] = array(
+        'rule' => 'containing-block', 'refuse' => $change['refuse'] ?? false,
+        'parent' => array('display' => 'grid'),
+        'box' => array_replace($positioned, $change['box'] ?? array()),
+        'box_style' => 'width:400px;height:100px' . ('absolute' === $position ? ';position:absolute;top:20px;left:30px;transform:matrix(1, 0, 0, 1, 0, 0)' : ''),
+        'child' => array_replace($absoluteChild, $change['child'] ?? array()),
+        'child_box' => $change['child_box'] ?? $box,
+        'expect' => array('position' => $position, 'width' => '400px', 'height' => '100px')
+            + ('relative' === $position ? array('grid-row-start' => '2', 'place-self' => 'start') : array('top' => '20px', 'left' => '30px')),
+    );
+}
 
 // Equal-box background layers: every refusal changes just one piece of evidence.
 $layer = array('display' => 'grid', 'position' => 'absolute', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px',
@@ -129,7 +157,7 @@ foreach ($cases as $case) {
     $name = $case['rule'] . (empty($case['refuse']) ? ' folds' : ' refuses');
     $html = '<!doctype html><html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head"><title data-blocks-engine-node-id="title">Fold</title></head>'
         . '<body data-blocks-engine-node-id="body"><main class="fold-parent" data-blocks-engine-node-id="parent">'
-        . '<div class="fold-box" data-blocks-engine-node-id="box"><p data-blocks-engine-node-id="child">Folded child <span data-blocks-engine-node-id="badge">!</span></p></div>'
+        . '<div class="fold-box" style="' . ($case['box_style'] ?? '') . '" data-blocks-engine-node-id="box"><p data-blocks-engine-node-id="child">Folded child <span data-blocks-engine-node-id="badge">!</span></p></div>'
         . '<p data-blocks-engine-node-id="sibling">Sibling</p></main></body></html>';
     $tree = $base;
     $tree['source_hash'] = hash('sha256', $html);

@@ -85,7 +85,7 @@ $assert(str_contains($behaviorSelectorMarkup, 'js:escaped') && str_contains($beh
 $assert(! str_contains($behaviorSelectorMarkup, 'js-short') && ! str_contains($behaviorSelectorMarkup, 'js-attribute-value'), 'class prefixes and attribute values do not count as authored class selectors');
 
 $candidateDom = new DOMDocument();
-$candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span></body>');
+$candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span><span id="dual"></span><span class="dual-mobile"></span></body>');
 $candidateBody = $candidateDom->getElementsByTagName('body')->item(0);
 if (! $candidateBody instanceof DOMElement) {
     throw new RuntimeException('Attribute candidate fixture did not produce a body element.');
@@ -111,6 +111,15 @@ $assert(
         && array_reduce($attributeCandidates, static fn (bool $matched, DOMElement $element): bool => $matched && $element->hasAttribute('data-color'), true),
     'rightmost attributes lazily narrow selector candidates instead of scanning the full source document'
 );
+$candidateCount = static fn (string $selector): int => count($candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse($selector)));
+$sourceElementCount = $candidateCount('*');
+foreach ( array(
+    ':is(#dual,.dual-mobile)' => 2,
+    'div :where(#dual,span)' => 3,
+    ':is(#dual,*)' => $sourceElementCount,
+) as $selector => $expected ) {
+    $assert($expected === $candidateCount($selector), "an :is()/:where() subject narrows candidates to its alternatives' keys, once each: {$selector}");
+}
 
 $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose text</span><p>Paragraph</p>');
 $paragraphClass = (string) ($paragraph['blocks'][1]['attrs']['className'] ?? '');

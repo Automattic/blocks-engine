@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
@@ -269,8 +270,12 @@ final class PresetBinding
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
-                $this->indexRule($prelude, $body);
+            $printOnly = $conditional && !MediaCondition::targetsScreen((string) $asset['media']);
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $printOnly, $asset): void {
+                // A rule that never renders on screen (print or speech
+                // media) cannot override a screen preset, so it does not
+                // block binding.
+                if (!$printOnly && !self::offScreen($ancestors)) $this->indexRule($prelude, $body);
                 $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -2047,6 +2052,10 @@ final class PresetBinding
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
+                // A compound subject (`.a.b`) applies only where every one of
+                // its classes stands; sharing one class is not enough.
+                $classes = array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'class:'));
+                if (array() !== array_diff_key(array_flip($classes), $finalClasses)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
                     foreach ($rule['attributes'] as [$name, $value]) {
@@ -2274,6 +2283,15 @@ final class PresetBinding
                 else $this->rootVariables[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
             } else $this->scopedVariables[$name][$value] = true;
         }
+    }
+
+    /** Whether a rule's at-rule ancestors include a media list no screen matches. */
+    private static function offScreen(array $ancestors): bool
+    {
+        foreach ($ancestors as $ancestor) {
+            if (1 === preg_match('/^@media\s+(.+)$/is', $ancestor, $match) && !MediaCondition::targetsScreen($match[1])) return true;
+        }
+        return false;
     }
 
     private function indexRule(string $prelude, string $body): void

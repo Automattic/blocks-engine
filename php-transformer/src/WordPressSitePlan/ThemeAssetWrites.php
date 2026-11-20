@@ -37,11 +37,10 @@ final class ThemeAssetWrites
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = PlanWrites::reference('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
             // Delimiter whitespace is a transport concern, not new source
             // evidence for cascade folding, editor extraction or diagnostics.
-            // Compact only copied author sheets, after semantic consumers have
-            // run. Generated support/editor sheets carry runtime contracts and
-            // must retain their generator's serialization.
+            // Generated support sheets repeat delimiter spacing per carrier.
+            // Keep values, selectors and frontend document contracts untouched.
             if ('css' === ($asset['kind'] ?? null) && is_string($content)
-                && in_array($asset['source'] ?? null, array('files', 'inline-style'), true)
+                && in_array($asset['source'] ?? null, array('engine-support', 'wordpress-compat'), true)
                 && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
                 $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationWhitespaceCompactor::stylesheet($content);
             }
