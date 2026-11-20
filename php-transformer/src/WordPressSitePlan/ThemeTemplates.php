@@ -233,6 +233,12 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
+                 // Captured page titles remain in post content. The generic
+                 // lifecycle also serves newly authored pages, whose content
+                 // does not contain that captured heading.
+                 if ('page' === $templateSlug && !isset($postTemplates[$templateSlug])) {
+                     $content = '<!-- wp:post-title {"level":1} /-->' . "\n" . $content;
+                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -275,6 +281,19 @@ final class ThemeTemplates
         unset($template);
         $templates = self::withoutRedundant($templates, $pages);
         foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
+        // Pages previously falling through to page.html retain its complete
+        // frame and chrome, but not the new authoring title: their heading is
+        // already content-owned. Native route overrides preserve assignment.
+        $bySlug = array_column($templates, null, 'slug');
+        if (isset($bySlug['page']) && !isset($postTemplates['page'])) foreach ($pages as $page) {
+            $slug = TemplateSlugs::forPage($page);
+            if ('page' !== ($page['post_type'] ?? null) || !empty($page['entrypoint']) || isset($bySlug[$slug])) continue;
+            $content = str_replace('<!-- wp:post-title {"level":1} /-->' . "\n", '', $bySlug['page']['canonical_block_markup']);
+            $template = $make($slug, 'templates/' . $slug . '.html', $content);
+            if (isset($bySlug['page']['shell_frame'])) $template['shell_frame'] = $bySlug['page']['shell_frame'];
+            $templates[] = $template;
+            $bySlug[$slug] = $template;
+        }
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
          $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));
          foreach ($surfaces as $surface) {
