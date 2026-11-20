@@ -264,6 +264,9 @@ final class ThemeTemplates
             // Keep each lifecycle's native content inside the shared app frame.
             if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells']) {
                 if ('<!-- wp:post-content /-->' === $content) $content = '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->';
+                // A frame that is the page's main landmark already holds the
+                // lifecycle content; a document has one main.
+                if (str_contains($frames[$templateSlug]['opening'], '"tagName":"main"')) $content = str_replace(array('<!-- wp:group {"tagName":"main",', '<main class="wp-block-group">', '</main>'), array('<!-- wp:group {', '<div class="wp-block-group">', '</div>'), $content);
                 $content = $frames[$templateSlug]['opening'] . $content . $frames[$templateSlug]['closing'];
             }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;
