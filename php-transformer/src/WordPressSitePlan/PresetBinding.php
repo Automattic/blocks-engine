@@ -1065,6 +1065,19 @@ final class PresetBinding
                 ++$d->bound;
                 continue;
             }
+            if (!$safe && 'important' === $reason && $d->isLink && isset($tokens['class:blocks-engine-role-control']) && null !== $slug && is_string($literal)) {
+                // Projected native controls can carry competing base and variant
+                // paints. Neither class alone proves the rendered colour, and a
+                // preset class would change which projected rules yield. Bind the
+                // inline value in place instead: important and interaction rules
+                // still outrank it, in precisely the same cascade slot. Style-text
+                // observers must still be checked before changing the value.
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
+                    ++$d->bound;
+                    continue;
+                }
+                $reason ??= 'inconsistent_source';
+            }
             if (!$safe) {
                 $this->refuse($reason);
                 continue;
