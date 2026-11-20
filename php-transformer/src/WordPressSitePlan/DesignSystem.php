@@ -375,7 +375,7 @@ final class DesignSystem
         }
         $nearShades = array();
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles, $nearShades);
-        foreach ($colors as &$color) $color['name'] = self::sourceName($sourceRoles, $color['color']) ?? $color['name'];
+        foreach ($colors as &$color) $color['name'] = self::sourceName($sourceRoles, $color['color'], 'color') ?? $color['name'];
         unset($color);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
@@ -397,9 +397,9 @@ final class DesignSystem
             $px = CssLength::toPx($value, self::renderedRootPx($usage) ?? $rootFontPx);
             if (null !== $px) $lengthNames[$name][CssLength::format($px)] = ($lengthNames[$name][CssLength::format($px)] ?? 0) + 1;
         }
-        foreach ($fontSizes as &$size) $size['name'] = self::sourceName($lengthNames, CssLength::format($size['px'])) ?? $size['name'];
+        foreach ($fontSizes as &$size) $size['name'] = self::sourceName($lengthNames, CssLength::format($size['px']), 'font') ?? $size['name'];
         unset($size);
-        foreach ($spacing as &$step) $step['name'] = self::sourceName($lengthNames, CssLength::format($step['px'])) ?? $step['name'];
+        foreach ($spacing as &$step) $step['name'] = self::sourceName($lengthNames, CssLength::format($step['px']), 'spacing') ?? $step['name'];
         unset($step);
         $layout = self::layout($widthRows, $sharedRoot);
 
@@ -1175,11 +1175,30 @@ final class DesignSystem
     }
 
     /** @param array<string,array<string,int>> $votes */
-    private static function sourceName(array $votes, string $value): ?string
+    private static function sourceName(array $votes, string $value, string $kind): ?string
     {
         $names = array();
         foreach ($votes as $name => $values) {
-            $label = ucwords(trim((string) preg_replace('/[-_]+/', ' ', ltrim($name, '-'))));
+            if (!isset($values[$value])) continue;
+            // Split both ordinary camelCase and acronym boundaries before
+            // classifying words; source tokens carry no usage provenance.
+            $words = preg_replace('/([A-Z]+)([A-Z][a-z])/', '$1 $2', ltrim($name, '-'));
+            $words = preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', $words);
+            $words = strtolower((string) preg_replace('/[-_]+/', ' ', $words));
+            if ('spacing' === $kind && 1 === preg_match('/\b(?:font|heading|text|line)\b.*\b(?:size|height)\b/', $words)) continue;
+            if ('font' === $kind && 1 === preg_match('/\b(?:space|spacing|padding|gap|margin)\b/', $words)) continue;
+            if ('color' === $kind) {
+                $words = trim((string) preg_replace('/\b(?:hsl|rgb|rgba|hex)\b/', '', $words));
+                $words = trim((string) preg_replace('/\bcolor$/', '', $words));
+                $family = strtolower(self::colorTraits($value)['family']);
+                // Include common hue synonyms, but leave descriptive names
+                // such as Warm Sand untouched when their family agrees.
+                $hues = array('black' => 'black', 'white' => 'white', 'gray' => 'gray', 'grey' => 'gray', 'red' => 'red', 'brown' => 'brown', 'sand' => 'sand', 'gold' => 'gold', 'yellow' => 'gold', 'green' => 'green', 'teal' => 'teal', 'blue' => 'blue', 'purple' => 'purple', 'rose' => 'rose', 'pink' => 'rose', 'orange' => 'brown|sand');
+                foreach (explode(' ', $words) as $word) {
+                    if (isset($hues[$word]) && !in_array($family, explode('|', $hues[$word]), true)) continue 2;
+                }
+            }
+            $label = ucwords(trim((string) preg_replace('/\s+/', ' ', $words)));
             if (isset($values[$value]) && 1 === preg_match('/[a-z]{3}/i', $label) && 1 !== preg_match('/^(?:Color|Accent|Size|Spacing|Font)\s*\d+$/i', $label)) $names[$label] = ($names[$label] ?? 0) + $values[$value];
         }
         $labels = array_keys($names);
