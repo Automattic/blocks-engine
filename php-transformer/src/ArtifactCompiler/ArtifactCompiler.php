@@ -2879,7 +2879,24 @@ final class ArtifactCompiler
                     $groups[$variant][$row['source_identity']][$path] = $document;
                 }
             }
-            foreach ($groups as $variant => $variantGroups) $groups[$variant] = self::withChromePeerGroups($variantGroups, $area, $variant);
+            foreach ($groups as $variant => $variantGroups) {
+                $partitioned = array();
+                foreach (self::withChromePeerGroups($variantGroups, $area, $variant) as $identity => $members) {
+                    $modes = array();
+                    foreach ($members as $path => $document) {
+                        // Measured routes retire author stylesheets. Their shell
+                        // carriers cannot also replace the CSS-backed shell of
+                        // an unmeasured route, even when the source markup agrees.
+                        $mode = array() !== $this->boxTreeForSource($files, $path) ? 'measured' : 'authored';
+                        $modes[$mode][$path] = $document;
+                    }
+                    foreach ($modes as $mode => $modeMembers) {
+                        $key = count($modes) > 1 && 'measured' === $mode ? $identity . ':measured' : $identity;
+                        $partitioned[$key] = $modeMembers;
+                    }
+                }
+                $groups[$variant] = $partitioned;
+            }
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
                 // A member whose landmark styles come from another stylesheet
                 // renders it under other rules and keeps its own copy, unless
@@ -2888,18 +2905,13 @@ final class ArtifactCompiler
                 [$styleMembers, $members] = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
                 if (count($members) < 2 || array() === $styleMembers) continue;
                 $sourcePath = isset($styleMembers[$entryPath]) ? $entryPath : (string) array_key_first($styleMembers);
-                // Evidence routes retire author CSS, so their shared shell must
-                // be compiled from an accepted box tree when a member has one.
-                // Within that tier prefer observed entrance state, even when
-                // the entry route was too short to trigger it.
+                // Within a delivery mode, prefer observed entrance state even
+                // when the entry route was too short to trigger it.
                 $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
                 $evidenceSourcePath = $sourcePath;
                 foreach ($styleMembers as $memberPath => $member) {
                     $candidate = $member['rows'][$area][$variant]['markup'];
-                    $candidateHasTree = array() !== $this->boxTreeForSource($files, $memberPath);
-                    $canonicalHasTree = array() !== $this->boxTreeForSource($files, $evidenceSourcePath);
-                    if (($candidateHasTree && !$canonicalHasTree)
-                        || ($candidateHasTree === $canonicalHasTree && SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource))) {
+                    if (SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource)) {
                         $canonicalSource = $candidate;
                         $evidenceSourcePath = $memberPath;
                     }
