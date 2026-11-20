@@ -55,8 +55,9 @@ final class EmptyStylesheets
     {
         $writeIndex = array();
         foreach ($writes as $index => $write) if ('theme_asset' === ($write['kind'] ?? null) && 'utf8' === ($write['payload']['encoding'] ?? null) && is_string($write['target_path'] ?? null)) $writeIndex[$write['target_path']] = $index;
-        $delivering = self::delivering($assets);
         do {
+            $assets = self::withoutEmptyParts($assets);
+            $delivering = self::delivering($assets);
             $empty = array();
             foreach ($assets as $asset) if (self::isEmpty($asset) && is_string($asset['token'] ?? null) && !self::delivers($asset, $delivering)) $empty[$asset['token']] = true;
             $changed = false;
@@ -104,6 +105,52 @@ final class EmptyStylesheets
     {
         $stylesheets = array_fill_keys(array_column(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'target_path'), true);
         return count(array_filter(self::writtenText($writes), static fn(string $text, int|string $target): bool => isset($stylesheets[(string) $target]) && '' === trim($text), ARRAY_FILTER_USE_BOTH));
+    }
+
+    /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,mixed>> */
+    private static function withoutEmptyParts(array $assets): array
+    {
+        $empty = array();
+        foreach ($assets as $asset) if (self::isEmpty($asset)) $empty[$asset['target_path']] = true;
+        $owners = array();
+        $prune = static function (array $asset) use (&$prune, &$owners, $empty): array {
+            if (isset($asset['stylesheet_parts'])) {
+                $asset['stylesheet_parts'] = array_values(array_filter($asset['stylesheet_parts'], static fn(string $path): bool => !isset($empty[$path])));
+                if (array() === $asset['stylesheet_parts']) {
+                    unset($asset['stylesheet_parts']);
+                    $asset = CompiledAssets::withRewrittenTextContent($asset, '');
+                }
+            }
+            if (isset($asset['stylesheet_replays'])) {
+                $replays = array();
+                foreach ($asset['stylesheet_replays'] as $replay) {
+                    $replay = $prune($replay);
+                    if (self::isEmpty($replay) && !isset($replay['stylesheet_parts'])) $owners[] = $replay;
+                    else $replays[] = $replay;
+                }
+                unset($asset['stylesheet_replays']);
+                if (array() !== $replays) $asset['stylesheet_replays'] = $replays;
+            }
+            return $asset;
+        };
+        $assets = array_map($prune, $assets);
+        // An empty resource must not survive just to host replay metadata.
+        // Move each occurrence to its first remaining resource; an exhausted
+        // owner becomes an ordinary empty sheet, subject to the usual rules.
+        $byTarget = array();
+        foreach ($assets as $index => $asset) $byTarget[$asset['target_path']] = $index;
+        foreach ($assets as &$asset) {
+            if (!self::isEmpty($asset) || !isset($asset['stylesheet_replays'])) continue;
+            array_push($owners, ...$asset['stylesheet_replays']);
+            unset($asset['stylesheet_replays']);
+        }
+        unset($asset);
+        foreach ($owners as $owner) {
+            $target = $owner['stylesheet_parts'][0] ?? null;
+            if (isset($byTarget[$target])) $assets[$byTarget[$target]]['stylesheet_replays'][] = $owner;
+            else $assets[] = $owner;
+        }
+        return $assets;
     }
 
     /** @param array<int,array<string,mixed>> $assets @return array<string,true> Sheets another asset delivers through. */
@@ -158,6 +205,7 @@ final class EmptyStylesheets
      */
     public static function elide(array $assets, array $documentSets, array $pages, array $rootDocuments, string $consumers, array $writes = array()): array
     {
+        $assets = self::withoutEmptyParts($assets);
         $unchanged = array('assets' => $assets, 'document_sets' => $documentSets, 'tokens' => array());
         $delivering = self::delivering($assets);
         $stylesheets = array();
