@@ -454,7 +454,7 @@ final class FormControlMetadataBuilder
     private function formStylesheets(): array
     {
         return array(
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
+            $this->session->authorStyleAnalysis()->stylesheetAssets(true),
             $this->session->sourceStyleResolutionState()->formLayoutCss(),
         );
     }

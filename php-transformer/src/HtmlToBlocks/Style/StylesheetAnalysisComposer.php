@@ -60,6 +60,10 @@ final class StylesheetAnalysisComposer
             ? array()
             : $this->inlineStylesheetPayloads($html);
         $payloads = array_merge($staticPayloads, $inlinePayloads);
+        $sitePruner = $options['site_selector_pruner'] ?? null;
+        if ($sitePruner instanceof \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner && $this->hasSafeStylesheetBoundaries($payloads)) {
+            $payloads = array_map(static fn (string $css): string => $sitePruner->prune($css, true), $payloads);
+        }
         if ( ! $this->hasSafeStylesheetBoundaries($payloads) ) {
             // Preserve the legacy parser's recovery across a concatenated stream.
             $combined = trim($staticCss . ('' === trim($staticCss) || array() === $inlinePayloads ? '' : "\n") . implode("\n", $inlinePayloads));
@@ -166,10 +170,14 @@ final class StylesheetAnalysisComposer
     }
 
     /** @param list<array{content: string, source_path: string, source_hash: string}> $payloads @return array{source_tags: array<string, bool>, rules: list<array<string, mixed>>} */
-    public function composedAuthorSelectorAnalysis(array $payloads): array
+    public function composedAuthorSelectorAnalysis(array $payloads, ?\Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner $sitePruner = null): array
     {
         $composed = array('source_tags' => array(), 'rules' => array());
         foreach ( $payloads as $payload ) {
+            // Keep authored hashes for provenance, but never parse or match
+            // arms that whole-site evidence proves unreachable. ID ancestry
+            // remains available for route reconciliation.
+            $payload['content'] = $sitePruner?->prune($payload['content'], true) ?? $payload['content'];
             $key = hash('sha256', $payload['content']);
             $analysis = $this->analysisCache->authorSelectors($key);
             if ( null === $analysis ) {

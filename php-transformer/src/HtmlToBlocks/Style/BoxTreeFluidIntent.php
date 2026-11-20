@@ -306,12 +306,37 @@ final class BoxTreeFluidIntent
      */
     private function liftedAuthor(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
     {
+        // This path needs author intent somewhere, not merely initial captures.
+        $declared = false;
+        foreach (array_merge(array_values($widths), array_values($samples)) as $width) {
+            if (null !== $this->declared($property, $width)) { $declared = true; break; }
+        }
+        if (!$declared) return null;
+        // Hidden panels expose computed placement, not a used containing block.
+        // Do not infer a new positioning scheme from an absent desktop winner
+        // and a media-only declaration observed solely on display:none boxes.
+        // Navigation recognition owns that panel's replacement with Core's
+        // overlay; these values are not evidence for moving its in-flow host.
+        if ('position' === $property || in_array($property, self::OFFSETS, true)) {
+            $visibleDeclaration = false;
+            $absent = false;
+            foreach ($widths as $key => $width) {
+                $value = $this->declared($property, $width);
+                $absent = $absent || null === $value;
+                if (null !== $value && 'none' !== ($observations[$key]['used_styles']['display'] ?? '')) $visibleDeclaration = true;
+            }
+            if ($absent && !$visibleDeclaration) return null;
+        }
+        // An absent winner proves only a known, non-inherited initial value.
+        // Keep this fallback at sampled widths too, so media-only rules lift.
+        $winner = fn(float $width): ?string => $this->declared($property, $width) ?? BoxTreeDeclarationPruner::cascadeInitial($property);
         $proven = array();
         foreach ($widths as $key => $width) {
-            $value = $this->declared($property, $width);
+            $value = $winner($width);
             if (null === $value || '' === $value) return null;
             $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
             if ($value !== $actual
+                && !('0' === $value && '0px' === $actual)
                 && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
                 && null === $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents)
                 && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
@@ -319,7 +344,7 @@ final class BoxTreeFluidIntent
         }
         if ('line-height' === $property && count(array_unique(array_column(array_column($observations, 'used_styles'), $property))) < 2
             && count(array_filter($proven, static fn(string $value): bool => 1 === preg_match('/^\d*\.?\d+$/', $value))) === count($proven)) return null;
-        $sample = fn(float $width): ?string => $this->declared($property, $width);
+        $sample = $winner;
         // Missing declarations outside the captures are optional extrapolation,
         // not a reason to freeze proven intermediate author variants. Omit only
         // those missing samples: other outer variants still carry author intent,
@@ -370,6 +395,13 @@ final class BoxTreeFluidIntent
         $predicted = $factor
             ? (null === $em ? null : (float) $value * $em)
             : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+        // A calculated <number> is just as font-relative as a literal one.
+        // The length evaluator deliberately rejects nonzero dimensionless
+        // results. Multiplying by 1em admits only those number expressions;
+        // length expressions would have dimension two and still fail closed.
+        if (null === $predicted && 'line-height' === $property && null !== $em) {
+            $predicted = CssFluidLength::evaluate('calc((' . $value . ') * 1em)', $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+        }
         if (null !== $predicted && isset(self::CLAMPS[$property])) $predicted = self::clamped($predicted, $styles, ...self::CLAMPS[$property]);
         if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
         return $value;
@@ -686,13 +718,31 @@ final class BoxTreeFluidIntent
     }
 
     /**
+     * Use a capture's recorded height at its own width. Between captures, scale
+     * the nearest capture's aspect ratio to preserve its orientation: a portrait
+     * band then ends at the author's width breakpoint, not an arbitrary height.
+     * Without a recorded height, orientation and height queries remain unknown.
+     */
+    private function captureHeight(float $width): ?float
+    {
+        $nearest = null;
+        foreach ($this->viewports as $viewport) {
+            if (!isset($viewport['width'], $viewport['height']) || (float) $viewport['width'] <= 0 || (float) $viewport['height'] <= 0) continue;
+            $distance = abs((float) $viewport['width'] - $width);
+            if (null === $nearest || $distance < $nearest[0]) $nearest = array($distance, (float) $viewport['width'], (float) $viewport['height']);
+        }
+        if (null === $nearest) return null;
+        return $nearest[0] < 0.01 ? $nearest[2] : $width * $nearest[2] / $nearest[1];
+    }
+
+    /**
      * The author value that wins for a longhand at one width, read through
      * its shorthand when the shorthand is declared later in the cascade. null
      * when nothing is declared; '' when the declaration cannot be resolved.
      */
     private function declared(string $property, float $width): ?string
     {
-        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo);
+        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo, viewportHeight: $this->captureHeight($width));
         $order = array_flip(array_keys($winners));
         $shorthand = null;
         foreach ((array) (self::SHORTHANDS[$property] ?? array()) as $candidate) {

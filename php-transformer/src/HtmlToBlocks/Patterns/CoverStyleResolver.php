@@ -212,7 +212,12 @@ final class CoverStyleResolver
             return null;
         }
 
-        $parts = CssValueSplitter::splitTopLevelWhitespace($value);
+        // Position lists repeat across all background layers, not just urls.
+        // Use the same image index as background-attachment before interpreting
+        // the selected position with the existing single-value mapping.
+        $positions = CssValueSplitter::splitTopLevel($value, array( ',' ));
+        $value     = trim($positions[ $this->imageLayerIndex($style) % max(1, count($positions)) ] ?? '');
+        $parts     = CssValueSplitter::splitTopLevelWhitespace($value);
         if ( count($parts) < 1 || count($parts) > 2 ) {
             return null;
         }

@@ -46,6 +46,7 @@ $store = new class implements ChromeJournalStore {
         return $journal;
     }
     public function record(string $key, array $journal): void { $this->inner->record($key, $journal); }
+    public function sighted(string $key): bool { return $this->inner->sighted($key); }
 };
 $untimed = static function (mixed $value) use (&$untimed): mixed {
     if (!is_array($value)) return $value;
@@ -61,14 +62,15 @@ foreach (array('one', 'two') as $page) {
     $expected = $compile($plan);
     $actual = $compile($plan, $store);
     $assert($expected === $actual, $page . ': shared and unshared receipts must be byte-identical.');
-    $journals = $property->getValue($store->inner);
-    $assert(1 === count($journals), 'The captured footer must record and reuse one key.');
 }
-$assert(1 === $store->hits, 'Second captured page must hit the footer journal once (trunk: zero hits).');
+// The first page sights the footer's key and the second, whose unrelated CSS
+// differs, reaches the same key and records it.
+$journals = $property->getValue($store->inner);
+$assert(1 === count($journals), 'Pages differing only in unrelated CSS must share one footer key.');
 $third = $compiler->preparePage($artifact, $shared, 'three.html');
-$assert($compile($third) === $compile($third, $store), 'Relevant footer CSS must preserve the unshared receipt.');
-$assert(1 === $store->hits, 'Matching footer CSS must not hit the journal.');
-$assert(2 === count($property->getValue($store->inner)), 'Matching footer CSS must miss and record a different key.');
+foreach (array(1, 2) as $_) $assert($compile($third) === $compile($third, $store), 'Relevant footer CSS must preserve the unshared receipt.');
+$assert(0 === $store->hits, 'Matching footer CSS must not hit the journal.');
+$assert(2 === count($property->getValue($store->inner)), 'Matching footer CSS must reach and record a different key.');
 // A hit alone does not prove replay succeeded: make the recorded block visibly
 // different and compile page two again. Only a replay can emit this text.
 $key = array_key_first($journals);

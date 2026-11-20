@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * Contract for a desktop Superfish menu merged with its mobile-only accordion
- * copy into one responsive core/navigation (#6697).
+ * copy into one core/navigation (#6697, #6868).
  *
  * - Core repeats the source list classes on the `<nav>` and on its top-level
  *   `ul.wp-block-navigation__container`, so the authored submenu rule
@@ -30,7 +30,7 @@ $assert = static function (bool $condition, string $message): void {
 
 $links = '<li><a href="/about/">About Us</a><ul><li><a href="/about/chair/">Chair</a></li></ul></li><li><a href="/people/">People</a></li><li><a href="/research/">Research</a></li>';
 $html = '<style>.sf-menu,.sf-menu ul{list-style:none;margin:0;padding:0}.sf-menu ul{position:absolute;top:-99999em;left:0;width:12em}'
-    . "\n" . '.sf-menu li{float:left;position:relative}.sf-accordion li{float:none}'
+    . "\n" . '.sf-menu li{float:left;position:relative}.sf-accordion{display:block}.sf-accordion li{float:none;background-color:#ffdd55}.sf-accordion a{padding:8px 20px;color:#222}'
     . "\n" . '@media(min-width:781px){.data-blocks-engine-capture-mobile-only{display:none!important}}'
     . "\n" . '@media(max-width:780px){#superfish-1{display:none!important}}</style>'
     . "\n" . '<div id="nav"><div class="sf-accordion-toggle sf-style-none data-blocks-engine-capture-mobile-only"></div>'
@@ -42,7 +42,7 @@ $markup = (string) ($result['serialized_blocks'] ?? '');
 $assert(1 === substr_count($markup, '<!-- wp:navigation '), 'the two menus merge into one navigation');
 preg_match('/<!-- wp:navigation (.*?) -->/', $markup, $match);
 $attrs = json_decode($match[1] ?? '{}', true);
-$assert(is_array($attrs) && 'mobile' === ($attrs['overlayMenu'] ?? null), 'Core provides the mobile toggle for the merged menu');
+$assert(is_array($attrs) && 'never' === ($attrs['overlayMenu'] ?? null), 'the expanded mobile copy does not become a hamburger');
 foreach ( array( 'About Us', 'Chair', 'People', 'Research' ) as $label ) {
     $assert(str_contains($markup, '"label":"' . $label . '"'), 'merged navigation keeps ' . $label);
 }
@@ -54,6 +54,14 @@ foreach ( $result['assets'] ?? array() as $asset ) {
     }
 }
 $assert(str_contains($css, '.sf-menu ul'), 'the authored submenu rule is still emitted');
+$assert(str_contains($css, '@media(max-width:780px)') && str_contains($css, 'flex-direction:column!important'), 'the merged menu stacks at the source breakpoint');
+$assert(str_contains($css, 'background-color:#ffdd55') && str_contains($css, 'padding:8px 20px'), 'mobile item and link author presentation survives the merge');
+$assert(! str_contains($attrs['className'] ?? '', 'blocks-engine-native-responsive-navigation'), 'the expanded menu does not receive overlay host repairs');
+
+$collapsed = str_replace('<div class="sf-accordion-toggle sf-style-none data-blocks-engine-capture-mobile-only"></div>', '<button class="menu-toggle data-blocks-engine-capture-mobile-only" aria-label="Open menu">☰</button>', $html);
+$collapsed = str_replace('</style>', '@media(max-width:780px){#superfish-1-accordion{display:none}}</style>', $collapsed);
+$collapsedResult = (new HtmlTransformer())->transform($collapsed)->toArray();
+$assert(str_contains($collapsedResult['serialized_blocks'], '"overlayMenu":"mobile"'), 'a real toggle with a closed mobile list retains the overlay');
 
 // Core's render of the kept navigation: the anchor and className land on the
 // `<nav>` and, through the block wrapper attributes, on the top-level list.
