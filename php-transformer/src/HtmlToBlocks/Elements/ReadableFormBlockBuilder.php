@@ -269,7 +269,7 @@ final class ReadableFormBlockBuilder
         $this->layoutGraph = FormBuildScope::layoutGraph(
             $form,
             $this->controlElements,
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
+            $this->session->authorStyleAnalysis()->stylesheetAssets(true),
             $this->session->sourceStyleResolutionState()->formLayoutCss(),
             $structure
         );
