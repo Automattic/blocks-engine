@@ -317,6 +317,12 @@ final class SourceStyleResolutionState
             'image-shape' => $this->imageShapeRules,
             // Interaction-state rules indexed by their resting selector, each
             // carrying the property families it declares.
+            // Reveal-state rules indexed by their resting selector, each
+            // carrying its source rule.
+            'reveal-state' => array_map(static fn (array $rule): array => array(
+                'selector' => (string) ($rule['base_selector'] ?? ''),
+                'rule' => $rule,
+            ), $this->revealStateRules),
             'state-families' => array_map(static fn (array $rule): array => array(
                 'selector' => (string) ($rule['base_selector'] ?? ''),
                 'families' => array_fill_keys(array_map(static fn (int|string $property): string => ResponsivePropertyFamily::of((string) $property), array_keys($rule['declarations'] ?? array())), true),
@@ -403,11 +409,8 @@ final class SourceStyleResolutionState
      */
     private static function isInDocument(DOMElement $element): bool
     {
-        $node = $element;
-        while ( null !== $node->parentNode ) {
-            $node = $node->parentNode;
-        }
-        return $node instanceof \DOMDocument;
+        // Whether the root of the element's tree is its document.
+        return $element->isConnected;
     }
 
     /**
@@ -475,6 +478,21 @@ final class SourceStyleResolutionState
     public function revealStateRules(): array
     {
         return $this->revealStateRules;
+    }
+
+    /**
+     * The reveal-state rules whose resting selector matches the element, in
+     * source order: what a walk of {@see revealStateRules()} that matches each
+     * `base_selector` keeps, read through the candidate index instead.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function matchingRevealStateRules(DOMElement $element): array
+    {
+        if ( array() === $this->revealStateRules ) {
+            return array();
+        }
+        return array_map(static fn (array $entry): array => $entry['rule'], $this->matchingRules($element, 'reveal-state'));
     }
 
     public function isAriaControlledTarget(DOMElement $element): bool

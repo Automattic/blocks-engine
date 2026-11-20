@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Device documents</title>
+<style data-blocks-engine-capture-device-visibility>
+[data-blocks-engine-capture-device-document]{display:none!important}
+[data-blocks-engine-capture-device-unavailable]{display:none}
+html:not([data-blocks-engine-capture-selected-document]) [data-blocks-engine-capture-device-document="desktop"]{display:contents!important}
+html[data-blocks-engine-capture-selected-document="desktop"] [data-blocks-engine-capture-device-document="desktop"]{display:contents!important}
+html[data-blocks-engine-capture-selected-document="mobile"] [data-blocks-engine-capture-device-document="mobile"]{display:contents!important}
+html[data-blocks-engine-capture-document-unavailable] [data-blocks-engine-capture-device-unavailable]{display:block!important}
+</style>
+</head>
+<body>
+<div data-blocks-engine-capture-device-document="desktop" data-blocks-engine-capture-document-scope>
+<main><h1>Desktop heading</h1><p>Desktop content.</p></main>
+</div>
+<div data-blocks-engine-capture-device-document="mobile" data-blocks-engine-capture-document-scope>
+<main><h1>Mobile heading</h1><p>Mobile content.</p></main>
+</div>
+<p data-blocks-engine-capture-device-unavailable role="status">This source device document was not captured.</p>
+<footer><p>Shared footer.</p></footer>
+</body>
+</html>

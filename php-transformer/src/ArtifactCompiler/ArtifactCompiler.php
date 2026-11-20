@@ -297,7 +297,8 @@ final class ArtifactCompiler
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $normalized['source_css_bytes'] = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
         $this->layoutGeometryProof = ArrayField::array($normalized, 'layout_geometry_proof');
-        $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
+        $runtimeOwned = (new RuntimeOwnedRegionProjector())->project($normalized['files']);
+        $capturedDialogs = (new CapturedDialogProjector())->project($runtimeOwned['files']);
         $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
         $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
@@ -313,7 +314,7 @@ final class ArtifactCompiler
             // reporting bucket. Selectable-set counts stay separate so
             // projected_dialog_count is not inflated.
             'captured_dialogs' => array(
-                'diagnostics' => CapturedInteractionReport::mergeDiagnostics($capturedDialogs['diagnostics'], $collections['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
+                'diagnostics' => CapturedInteractionReport::mergeDiagnostics($runtimeOwned['diagnostics'], $capturedDialogs['diagnostics'], $collections['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
                 'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
                 'projected_selectable_set_count' => $selectableSets['projected_count'],
                 'projected_choice_group_count' => $choiceGroups['projected_count'],
@@ -1494,7 +1495,10 @@ final class ArtifactCompiler
         foreach ($files as $file) {
             if ($sourcePath !== ($file['path'] ?? null) || 'html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
             $proof = is_array($file['layout_geometry_proof'] ?? null) ? $file['layout_geometry_proof'] : $this->layoutGeometryProof;
-            $reductions = array_values(array_filter($proof['reductions'] ?? array(), static fn(mixed $reduction): bool => is_array($reduction) && $sourcePath === ($reduction['source_path'] ?? null) && hash('sha256', $file['content']) === ($reduction['source_hash'] ?? null)));
+            $structure = null;
+            $reductions = array_values(array_filter($proof['reductions'] ?? array(), static function (mixed $reduction) use ($sourcePath, $file, &$structure): bool {
+                return is_array($reduction) && $sourcePath === ($reduction['source_path'] ?? null) && LayoutGeometryProof::boundTo($reduction, $file['content'], $structure);
+            }));
             return array() === $reductions ? array() : array('schema' => LayoutGeometryProof::SCHEMA, 'reductions' => $reductions);
         }
         return array();
@@ -2730,6 +2734,50 @@ final class ArtifactCompiler
         );
     }
 
+    /**
+     * A route that sampled an extra viewport carries a responsive projection
+     * hook its peers lack, so its chrome reads as a different source group.
+     * Merge groups that differ only by projection hooks when box-tree
+     * evidence records their routes as chrome peers: their observations
+     * agree on every viewport they share ({@see BoxTreeReport}). Without that
+     * evidence a hook may select distinct responsive rules, so it keeps its
+     * own group.
+     *
+     * @param array<string,array<string,array<string,mixed>>> $groups Members by source identity.
+     * @return array<string,array<string,array<string,mixed>>>
+     */
+    private static function withChromePeerGroups(array $groups, string $area, int|string $variant): array
+    {
+        if (count($groups) < 2) return $groups;
+        $hook = '/\s*\b' . preg_quote(CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX, '/') . '[a-f0-9]{12}\b/';
+        $buckets = array();
+        foreach ($groups as $identity => $members) {
+            $row = current($members)['rows'][$area][$variant];
+            $withoutHooks = preg_replace('/\sclass="\s*"/', '', preg_replace($hook, '', (string) $row['identity']) ?? '') ?? '';
+            $buckets[hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup($withoutHooks))][] = $identity;
+        }
+        $peers = static function (array $members) use ($area, $variant): array {
+            $paths = array();
+            foreach ($members as $document) {
+                $root = preg_match('/^<[^>]*\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="([^"]*)"/', (string) $document['rows'][$area][$variant]['markup'], $match) ? $match[1] : null;
+                if (null !== $root) $paths = array_merge($paths, $document['chrome_peers'][$root] ?? array());
+            }
+            return $paths;
+        };
+        foreach ($buckets as $identities) {
+            if (count($identities) < 2) continue;
+            // Largest group first: it names the merged group.
+            usort($identities, static fn(string $a, string $b): int => count($groups[$b]) <=> count($groups[$a]));
+            $target = array_shift($identities);
+            foreach ($identities as $identity) {
+                if (array() === array_intersect($peers($groups[$identity]), array_keys($groups[$target]))) continue;
+                $groups[$target] += $groups[$identity];
+                unset($groups[$identity]);
+            }
+        }
+        return $groups;
+    }
+
     private static function withoutBoxTreeNodeIds(string $markup): string
     {
         return preg_replace('/\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $markup) ?? $markup;
@@ -2831,6 +2879,7 @@ final class ArtifactCompiler
                     $groups[$variant][$row['source_identity']][$path] = $document;
                 }
             }
+            foreach ($groups as $variant => $variantGroups) $groups[$variant] = self::withChromePeerGroups($variantGroups, $area, $variant);
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
                 // A member whose landmark styles come from another stylesheet
                 // renders it under other rules and keeps its own copy, unless

@@ -90,6 +90,36 @@ final class FormControlMetadataBuilder
      */
     public function controls(DOMElement $form, array $additionalControls = array(), ?array $manifestControls = null, ?array &$emittedElements = null): array
     {
+        if ( array() !== $additionalControls ) {
+            return $this->buildControls($form, $additionalControls, $manifestControls, $emittedElements);
+        }
+        // The control inventory, the fallback finding and the runtime island
+        // of one form dispatch read the same rows (#6789).
+        [ $controls, $emittedElements ] = FormBuildScope::remember(
+            $form,
+            // One entry per inventory, so a manifest build does not evict
+            // the form's own inventory between its readers.
+            'control_metadata:' . spl_object_id($this) . ':' . (null === $manifestControls ? 'form' : implode(',', array_map(spl_object_id(...), $manifestControls))),
+            array( $this, $manifestControls ),
+            function () use ($form, $manifestControls): array {
+                $emitted = array();
+                $controls = $this->buildControls($form, array(), $manifestControls, $emitted);
+
+                return array( $controls, $emitted );
+            }
+        );
+
+        return $controls;
+    }
+
+    /**
+     * @param list<DOMElement> $additionalControls
+     * @param list<DOMElement>|null $manifestControls
+     * @param list<DOMElement>|null $emittedElements
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildControls(DOMElement $form, array $additionalControls, ?array $manifestControls, ?array &$emittedElements): array
+    {
         $controls = array();
         $emittedElements = array();
         $order = 0;
@@ -150,6 +180,13 @@ final class FormControlMetadataBuilder
 
     /** @return array<string, mixed> */
     public function form(DOMElement $form): array
+    {
+        // A dispatch's fallback finding and runtime island describe the same form (#6789).
+        return FormBuildScope::remember($form, 'form_metadata:' . spl_object_id($this), array( $this ), fn (): array => $this->buildForm($form));
+    }
+
+    /** @return array<string, mixed> */
+    private function buildForm(DOMElement $form): array
     {
         ++self::$formMetadataBuilds;
         $submission = self::submission($form);
@@ -283,14 +320,16 @@ final class FormControlMetadataBuilder
                 continue;
             }
 
-            $item = $this->inFormContextItem($node, $form);
+            $item = $this->inFormContextCopy($node);
             if ( null === $item ) {
                 continue;
             }
+            // Copy a control owns is withheld, so its presentation is not resolved.
             if ( $this->isControlOwnedCopy($node, $item['text'], $claimedLabels, $claimedTexts)
                 || $this->isRecordedCopy($node, $recorded) ) {
                 continue;
             }
+            $item = $this->inFormContextItem($node, $form, $item);
             $recorded[] = $node;
             if ( 0 === $seenControls ) {
                 $before[] = $item;
@@ -315,8 +354,13 @@ final class FormControlMetadataBuilder
         );
     }
 
-    /** @return array<string, mixed>|null */
-    private function inFormContextItem(DOMElement $node, DOMElement $form): ?array
+    /**
+     * The copy an in-form element contributes as context, before its
+     * presentation is resolved: its type and text, or null for no context.
+     *
+     * @return array{type: string, text: string, level?: int}|null
+     */
+    private function inFormContextCopy(DOMElement $node): ?array
     {
         if ( $this->isValidationFeedbackCopy($node) ) {
             return null;
@@ -344,6 +388,15 @@ final class FormControlMetadataBuilder
             return null;
         }
 
+        return $item;
+    }
+
+    /**
+     * @param array{type: string, text: string, level?: int} $item The element's {@see inFormContextCopy()}.
+     * @return array<string, mixed>
+     */
+    private function inFormContextItem(DOMElement $node, DOMElement $form, array $item): array
+    {
         $item['source_selector'] = SourceDom::elementSelector($node);
 
         // Author rules address the element itself, so a consumer reproducing
@@ -929,8 +982,52 @@ final class FormControlMetadataBuilder
                 return $this->contentStartsWith($label, $control);
             }
         }
+        $follows = self::followsOutsideAncestry($label, $control);
+        if ( null !== $follows ) {
+            return $follows;
+        }
         $xpath = new \DOMXPath($control->ownerDocument);
         return (int) $xpath->evaluate('count(preceding::*)', $label) > (int) $xpath->evaluate('count(preceding::*)', $control);
+    }
+
+    /**
+     * Whether `$later` comes after `$earlier` in document order, read from
+     * their nearest common ancestor's children instead of counting every
+     * preceding element of the document twice per control (#6752). When
+     * neither contains the other, that is exactly whether `$later` has more
+     * preceding elements. Null when one contains the other or they share no
+     * ancestor, which the count answers.
+     */
+    private static function followsOutsideAncestry(DOMElement $later, DOMElement $earlier): ?bool
+    {
+        $laterChain = array();
+        for ( $node = $later; null !== $node; $node = $node->parentNode ) {
+            $laterChain[] = $node;
+        }
+        $branches = array();
+        foreach ( $laterChain as $position => $node ) {
+            $branches[spl_object_id($node)] = $position;
+        }
+        $earlierBranch = null;
+        for ( $node = $earlier; null !== $node; $node = $node->parentNode ) {
+            $position = $branches[spl_object_id($node)] ?? null;
+            if ( null !== $position && $laterChain[$position]->isSameNode($node) ) {
+                if ( 0 === $position || null === $earlierBranch ) {
+                    return null;
+                }
+                $laterBranch = $laterChain[$position - 1];
+                for ( $sibling = $earlierBranch->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+                    if ( $sibling->isSameNode($laterBranch) ) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            $earlierBranch = $node;
+        }
+
+        return null;
     }
 
     private function contentStartsWith(DOMElement $container, DOMElement $control): bool

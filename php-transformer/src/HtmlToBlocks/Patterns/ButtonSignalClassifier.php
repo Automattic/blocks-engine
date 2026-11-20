@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 
 final class ButtonSignalClassifier
@@ -60,7 +61,11 @@ final class ButtonSignalClassifier
             return false;
         }
 
-        $hasExplicitControlBox = $this->hasClassSignal($element) && (
+        // Empty same-document links already keep their painted decoration in
+        // a native link host. Do not reroute those placeholder icon controls.
+        $href = trim(SourceDom::attr($element, 'href'));
+        $hasEmptyDestinationBox = '' === trim($element->textContent) && '' !== $href && '#' !== $href;
+        $hasExplicitControlBox = ($this->hasClassSignal($element) || $hasEmptyDestinationBox) && (
             ($this->hasPositiveDimension($style, 'width') && $this->hasPositiveDimension($style, 'height'))
             || $this->fillsPositionedContainer($style)
         );

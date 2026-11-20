@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -35,7 +36,7 @@ final class CoverPattern implements PatternRecognizerInterface
     use PatternGateHelpersTrait;
 
     public const CONSUMED_BACKGROUND_CLASS = 'blocks-engine-cover-consumed-background';
-    /** A column hero whose child grows to fill it: the inner container and wrapper group must fill the cover too. */
+    /** A column hero: the inner container and wrapper group fill it to project main-axis alignment. */
     public const FILL_CLASS = 'blocks-engine-cover-fill';
     /** A flex/grid hero with an authored gap: the wrapper group lays out its children with that gap. */
     public const GAP_CLASS = 'blocks-engine-cover-gap';
@@ -44,6 +45,11 @@ final class CoverPattern implements PatternRecognizerInterface
      * inner container (`blocks-engine-cover-stack-<z-index>`).
      */
     public const STACK_CLASS_PREFIX = 'blocks-engine-cover-stack-';
+    /**
+     * A hero the source sizes by aspect-ratio or height with no min-height of
+     * its own: core's default cover min-height must not floor it.
+     */
+    public const SOURCE_SIZED_CLASS = 'blocks-engine-cover-source-sized';
 
     private CoverStyleResolver $styleResolver;
     private BackgroundImageExtractor $backgroundImageExtractor;
@@ -75,7 +81,8 @@ final class CoverPattern implements PatternRecognizerInterface
             $media->resolveImageUrl(...),
             $this->createBlock->createBlock(...),
             $media->hasConditionalMinHeight(...),
-            $media->presentationDeclarations(...)
+            $media->presentationDeclarations(...),
+            $media->isSizedWithoutMinHeight(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -91,6 +98,7 @@ final class CoverPattern implements PatternRecognizerInterface
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @param (callable(DOMElement): bool)|null $hasConditionalMinHeight
      * @param (callable(DOMElement): array<string, string>)|null $presentationDeclarations
+     * @param (callable(DOMElement): bool)|null $isSizedWithoutMinHeight
      * @return array<string, mixed>|null
      */
     public function match(
@@ -103,7 +111,8 @@ final class CoverPattern implements PatternRecognizerInterface
         callable $resolveAssetUrl,
         callable $createBlock,
         ?callable $hasConditionalMinHeight = null,
-        ?callable $presentationDeclarations = null
+        ?callable $presentationDeclarations = null,
+        ?callable $isSizedWithoutMinHeight = null
     ): ?array {
         try {
             $style = $mergedPresentationStyle($element);
@@ -176,12 +185,18 @@ final class CoverPattern implements PatternRecognizerInterface
         $this->removeConsumedDimensions($attrs);
         $declarations = $this->styleResolver->declarations($style);
         $display = CssValueInspector::declared($declarations, 'display');
-        if ( in_array($display, array( 'flex', 'grid' ), true) ) {
-            $column = 'grid' === $display || 'column' === CssValueInspector::declared($declarations, 'flex-direction');
-            $align = (string) ($declarations['align-items'] ?? 'stretch');
-            $justify = (string) ($declarations['justify-content'] ?? 'normal');
-            $vertical = 'flex' === $display && $column ? $justify : $align;
-            $horizontal = 'flex' === $display && $column ? $align : $justify;
+        $ownsLayout = in_array($display, array( 'flex', 'grid' ), true);
+        // A block-level hero whose sole child fills it (height:100%) and is
+        // itself the flex/grid box positions the content on that child's
+        // behalf, so the child's alignment becomes the cover's position.
+        $alignment = $ownsLayout ? $declarations : $this->fillingChildAlignment($element, $presentationDeclarations);
+        if ( null !== $alignment ) {
+            $alignDisplay = CssValueInspector::declared($alignment, 'display');
+            $column = 'grid' === $alignDisplay || 'column' === CssValueInspector::declared($alignment, 'flex-direction');
+            $align = CssValueInspector::declared($alignment, 'align-items') ?: 'stretch';
+            $justify = CssValueInspector::declared($alignment, 'justify-content') ?: 'normal';
+            $vertical = 'flex' === $alignDisplay && $column ? $justify : $align;
+            $horizontal = 'flex' === $alignDisplay && $column ? $align : $justify;
             // A stacked hero whose inline axis stretches (column flex cross
             // axis, grid track) gives its content the full hero width. Core
             // shrinks the inner container to its content for any left/right
@@ -197,6 +212,8 @@ final class CoverPattern implements PatternRecognizerInterface
             foreach ( $this->unpaddedSides($declarations) as $side ) {
                 $attrs['style']['spacing']['padding'][$side] ??= '0';
             }
+        }
+        if ( $ownsLayout ) {
             $layout = array(
                 'type' => 'flex',
                 'orientation' => $column ? 'vertical' : 'horizontal',
@@ -204,14 +221,21 @@ final class CoverPattern implements PatternRecognizerInterface
                 'justifyContent' => $fillsInline ? 'stretch' : $horizontalToken,
                 'verticalAlignment' => $this->positionToken($vertical, 'top', 'bottom'),
             );
-            $children = array($createBlock('core/group', array('layout' => $layout), $children, null));
+            // Flex items retain UA/authored margins rather than Core's layout
+            // resets, just like a plain source stack. Keep the default gap at
+            // zero; an authored gap is inherited below.
+            $groupAttrs = AuthorLayoutOwnership::withCssOwnedFlow(array('layout' => $layout));
+            $children = array($createBlock('core/group', $groupAttrs, $children, null));
             // The stacked children are laid out by the wrapper group inside
             // the inner container, not by the cover wrapper that keeps the
             // authored gap; the group inherits it at every breakpoint.
             if ( array() !== array_intersect_key($declarations, array_flip(array( 'gap', 'row-gap', 'column-gap' ))) ) {
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::GAP_CLASS);
             }
-            if ( 'flex' === $display && $column && null !== $presentationDeclarations && $this->hasGrowingChild($element, $presentationDeclarations) ) {
+            // Source CSS may align the cover itself, but the wrapper group
+            // owns the children. Give it the available height so its native
+            // verticalAlignment can position them on the source main axis.
+            if ( 'flex' === $display && $column ) {
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::FILL_CLASS);
             }
         }
@@ -286,6 +310,15 @@ final class CoverPattern implements PatternRecognizerInterface
             // stylesheet: an inline minHeight would freeze the base value.
             $attrs['minHeight'] = $minHeight['minHeight'];
             $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
+        }
+        // The authored aspect-ratio/height keeps sizing the hero from the
+        // source stylesheet only once core's default min-height is neutralized.
+        if ( ! isset($attrs['minHeight']) && null !== $isSizedWithoutMinHeight && $isSizedWithoutMinHeight($element) ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::SOURCE_SIZED_CLASS);
+        }
+        // Core falls back to a scrolling background on touch devices itself.
+        if ( $this->styleResolver->hasFixedBackgroundAttachment($style) ) {
+            $attrs['hasParallax'] = true;
         }
 
         try {
@@ -401,29 +434,45 @@ final class CoverPattern implements PatternRecognizerInterface
         return array_keys(array_filter($sides, static fn (string $value): bool => 1 === preg_match('/^(?:[+-]?0*\.?0+(?:[a-z]+|%)?)?$/', $value)));
     }
 
-    /** @param callable(DOMElement): array<string, string> $childDeclarations */
-    private function hasGrowingChild(DOMElement $element, callable $childDeclarations): bool
+    /**
+     * Declarations of the cover's sole element child when that child fills
+     * the cover's height (height:100%) and lays out the content as a flex or
+     * grid box with alignment a cover position can express.
+     *
+     * @param (callable(DOMElement): array<string, string>)|null $childDeclarations
+     * @return array<string, string>|null
+     */
+    private function fillingChildAlignment(DOMElement $element, ?callable $childDeclarations): ?array
     {
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            try {
-                $declarations = $childDeclarations($child);
-            } catch ( Throwable ) {
-                continue;
-            }
-            $grow = (string) ($declarations['flex-grow'] ?? '');
-            if ( '' === $grow && isset($declarations['flex']) ) {
-                $flex = strtolower(trim((string) $declarations['flex']));
-                $grow = 'auto' === $flex ? '1' : ('none' === $flex ? '0' : (string) strtok($flex, ' '));
-            }
-            if ( is_numeric($grow) && (float) $grow > 0 ) {
-                return true;
+        if ( null === $childDeclarations || 1 !== SourceDom::childElementCount($element) || SourceDom::hasDirectText($element) ) {
+            return null;
+        }
+        $child = SourceDom::elementElementChildren($element)[0] ?? null;
+        if ( ! $child instanceof DOMElement ) {
+            return null;
+        }
+        try {
+            $declarations = $childDeclarations($child);
+        } catch ( Throwable ) {
+            return null;
+        }
+        if ( '100%' !== CssValueInspector::comparable(CssValueInspector::declared($declarations, 'height')) ) {
+            return null;
+        }
+        $display = CssValueInspector::declared($declarations, 'display');
+        if ( ! in_array($display, array( 'flex', 'grid' ), true) ) {
+            return null;
+        }
+        if ( 'flex' === $display && ! in_array(CssValueInspector::declared($declarations, 'flex-direction') ?: 'row', array( 'row', 'column' ), true) ) {
+            return null;
+        }
+        foreach ( array( 'align-items', 'justify-content' ) as $property ) {
+            if ( ! in_array(CssValueInspector::comparable((string) ($declarations[$property] ?? 'normal')), array( 'normal', 'stretch', 'start', 'end', 'flex-start', 'flex-end', 'center' ), true) ) {
+                return null;
             }
         }
 
-        return false;
+        return $declarations;
     }
 
     /**

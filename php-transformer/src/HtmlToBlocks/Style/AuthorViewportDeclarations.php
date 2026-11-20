@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use DOMElement;
@@ -19,7 +20,7 @@ final class AuthorViewportDeclarations
 {
     /** @var list<array<string, mixed>> */
     private array $ruleSource = array();
-    /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
+    /** @var array<string, array{rules: list<array<string, mixed>>, pseudo: array<string, list<array<string, mixed>>>, parsed: array<string, array<string, mixed>>, declaring: array<string, array{index: array<string, mixed>, collection: string}>}> */
     private array $rulesByViewport = array();
     /** @var list<array<string, mixed>>|null */
     private ?array $breakpointSource = null;
@@ -95,12 +96,15 @@ final class AuthorViewportDeclarations
             $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
         }
         ['parsed' => $parsedBySelector] = $this->rules($styleRules, $viewportWidth);
-        $rules = $this->rulesDeclaring($viewportWidth, $properties, $pseudoElement);
+        $declaring = $this->rulesDeclaring($viewportWidth, $properties, $pseudoElement);
         $selectorCache = $authorStyles->selectorMatchCache();
         if ( array() !== $stateClasses ) {
             $selectorCache = new CssSelectorMatchCache();
             $selectorCache->assumeClasses($element, $stateClasses);
         }
+        // Only rules one of whose selectors' subject the element could match
+        // are matched; every other rule is a supported non-match (#6752).
+        $rules = $selectorCache->styleRuleCandidates($element, $declaring['collection'], $declaring['index']);
         $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
             $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
 
@@ -236,10 +240,11 @@ final class AuthorViewportDeclarations
      * A rule declaring none of them cannot contribute a fact, so matching its
      * selectors against every element asked about is wasted work. Callers ask
      * about a handful of fixed property sets, so each filtered list is built
-     * once per rule set, viewport and property set.
+     * once per rule set, viewport and property set, with a subject index so
+     * an element is matched only against the rules it could match.
      *
      * @param list<string> $properties
-     * @return list<array<string, mixed>>
+     * @return array{index: array<string, mixed>, collection: string}
      */
     private function rulesDeclaring(float $viewportWidth, array $properties, string $pseudoElement = ''): array
     {
@@ -254,6 +259,14 @@ final class AuthorViewportDeclarations
             static fn(array $rule): bool => array() !== array_intersect_key($rule['declarations'], $requested)
         ));
 
-        return $this->rulesByViewport[ $key ]['declaring'][ $set ] = $rules;
+        $parsedBySelector = $this->rulesByViewport[ $key ]['parsed'];
+
+        return $this->rulesByViewport[ $key ]['declaring'][ $set ] = array(
+            'index' => CssSubjectIndex::buildForSelectorLists(
+                $rules,
+                static fn(array $rule): array => array_map(static fn(string $selector): array => $parsedBySelector[ $selector ] ?? array(), $rule['selectors'])
+            ),
+            'collection' => CssSelectorMatchCache::uniqueCandidateCollection('author-viewport'),
+        );
     }
 }

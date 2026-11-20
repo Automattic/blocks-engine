@@ -54,6 +54,17 @@ final class FormLayoutGraphBuilder
     /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
     private FormCustomPropertyResolver $customProperties;
 
+    private static int $builds = 0;
+
+    /**
+     * Layout graphs built since process start; observable for tests. A form
+     * dispatch shares each of its graphs between readers (#6752).
+     */
+    public static function builds(): int
+    {
+        return self::$builds;
+    }
+
     /** @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order. */
     public function __construct(private readonly ?array $controlElements = null)
     {
@@ -68,6 +79,7 @@ final class FormLayoutGraphBuilder
      */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = '', ?array &$structure = null): array
     {
+        ++self::$builds;
         $this->diagnostics = array();
         $this->truncated = false;
         // One match memo per build: the layout analyses and both presentation
@@ -134,15 +146,30 @@ final class FormLayoutGraphBuilder
                 if ( $child instanceof DOMElement ) $scope[] = $child;
             }
         }
-        // The custom-property pass walks each scope element's ancestor chain on
-        // every scanned selector; resolve the chains once so every pass reads
-        // stable wrappers through the match memo.
-        $ancestorVisits = array();
+        // Every scanned selector is asked of each scope element and, for the
+        // custom-property pass, of each element on their ancestor chains.
+        // Sibling controls share almost all of those chains, so ask each
+        // element once per selector: listing a shared wrapper per descendant
+        // made every non-matching selector cost scope size times depth.
+        // Held wrappers keep spl_object_id() stable for the whole build.
+        $scopeElements = array();
         foreach ( $scope as $element ) {
+            $scopeElements[spl_object_id($element)] = $element;
+        }
+        $scopeElements = array_values($scopeElements);
+        $ancestorVisits = array();
+        foreach ( $scopeElements as $element ) {
             for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                $ancestorVisits[] = $ancestor;
+                if ( isset($ancestorVisits[$id = spl_object_id($ancestor)]) ) {
+                    break;
+                }
+                $ancestorVisits[$id] = $ancestor;
             }
         }
+        // Each selector is matched only against the elements carrying its
+        // rightmost compound's key.
+        $scopeIndex = $selectorCache->subjectElementIndex($scopeElements);
+        $ancestorIndex = $selectorCache->subjectElementIndex(array_values($ancestorVisits));
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -151,15 +178,7 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($scope, $selectorCache): bool {
-                foreach ( $scope as $element ) {
-                    $match = $selectorCache->matches($element, $selectorText, $selector);
-                    if ( ! $match['supported'] || $match['matches'] ) {
-                        return true;
-                    }
-                }
-                return false;
-            },
+            static fn (array $selector, string $selectorText): bool => $selectorCache->anySubjectMatches($scopeIndex, $selectorText, $selector, true),
             CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $analysis['diagnostics']);
@@ -172,14 +191,7 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($ancestorVisits, $selectorCache): bool {
-                foreach ( $ancestorVisits as $ancestor ) {
-                    if ( $selectorCache->matches($ancestor, $selectorText, $selector)['matches'] ) {
-                        return true;
-                    }
-                }
-                return false;
-            },
+            static fn (array $selector, string $selectorText): bool => $selectorCache->anySubjectMatches($ancestorIndex, $selectorText, $selector, false),
             CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);

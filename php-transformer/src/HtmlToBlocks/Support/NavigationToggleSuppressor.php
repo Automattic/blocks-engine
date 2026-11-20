@@ -91,6 +91,21 @@ final class NavigationToggleSuppressor
             }
         }
 
+        $previous = $this->labelsByFor;
+        try {
+            $this->collectProjectedNavigationRelationshipsFrom($root, $elementsById);
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    /** @param array<string, DOMElement> $elementsById */
+    private function collectProjectedNavigationRelationshipsFrom(DOMElement $root, array $elementsById): void
+    {
+        // Most elements are rejected as toggles by reads alone, so they share
+        // one label index; a recognised toggle's projection may edit the DOM,
+        // so the index starts over after each (#6752).
+        $this->labelsByFor = new \WeakMap();
         foreach ( $root->getElementsByTagName('*') as $control ) {
             if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isInsideNativeDisclosurePanel($control) ) {
                 continue;
@@ -98,6 +113,7 @@ final class NavigationToggleSuppressor
             if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
                 continue;
             }
+            $this->labelsByFor = new \WeakMap();
 
             $ownedPanels = array();
             foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
@@ -1109,12 +1125,56 @@ final class NavigationToggleSuppressor
      */
     public function collectSupersededNavToggleSelectors(DOMElement $root): void
     {
-        foreach ( $root->getElementsByTagName('*') as $element ) {
-            if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
-                $this->recordSupersededNavToggleSelectors($element);
-                $this->recordSupersededControlPaths($element);
+        // The pass only records selectors and paths, so each document's
+        // labels are indexed by their trimmed `for` once for it (#6752).
+        $previous = $this->labelsByFor;
+        $this->labelsByFor = new \WeakMap();
+        try {
+            foreach ( $root->getElementsByTagName('*') as $element ) {
+                if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
+                    $this->recordSupersededNavToggleSelectors($element);
+                    $this->recordSupersededControlPaths($element);
+                }
+            }
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    /** @var \WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Document labels by trimmed `for`, while {@see collectSupersededNavToggleSelectors()} runs. */
+    private ?\WeakMap $labelsByFor = null;
+
+    /**
+     * The document's labels whose trimmed `for` is `$id`, in document order.
+     *
+     * @return list<DOMElement>
+     */
+    private function labelsNaming(DOMDocument $document, string $id): iterable
+    {
+        if ( null !== $this->labelsByFor ) {
+            if ( ! isset($this->labelsByFor[$document]) ) {
+                $index = array();
+                foreach ( $document->getElementsByTagName('label') as $label ) {
+                    if ( $label instanceof DOMElement ) {
+                        $index[trim(SourceDom::attr($label, 'for'))][] = $label;
+                    }
+                }
+                $this->labelsByFor[$document] = $index;
+            }
+
+            return $this->labelsByFor[$document][$id] ?? array();
+        }
+        // Outside that pass the DOM may change between lookups. A `for` that
+        // trims to the id contains it, so XPath narrows the labels to those
+        // without reading each one in PHP per checkbox.
+        $labels = array();
+        foreach ( (new \DOMXPath($document))->query('//*[contains(@for, ' . SourceDom::xpathLiteral($id) . ')]') ?: array() as $label ) {
+            if ( $label instanceof DOMElement && 'label' === $label->tagName && $id === trim(SourceDom::attr($label, 'for')) ) {
+                $labels[] = $label;
             }
         }
+
+        return $labels;
     }
 
     /**
@@ -1394,7 +1454,9 @@ final class NavigationToggleSuppressor
     private function isCheckboxBoundEmptyLabel(DOMElement $element): bool
     {
         $controlId = trim(SourceDom::attr($element, 'for'));
-        if ( '' === $controlId || '' !== $this->visibleMenuToggleLabel($element) ) {
+        // A label in a form is never the toggle; decide that before reading
+        // its visible text through the cascade.
+        if ( '' === $controlId || self::isInsideForm($element) || '' !== $this->visibleMenuToggleLabel($element) ) {
             return false;
         }
 
@@ -1407,15 +1469,18 @@ final class NavigationToggleSuppressor
             return false;
         }
 
-        foreach ( array( $element, $control ) as $candidate ) {
-            for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-                if ( 'form' === strtolower($node->tagName) ) {
-                    return false;
-                }
+        return ! self::isInsideForm($control);
+    }
+
+    private static function isInsideForm(DOMElement $element): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'form' === strtolower($node->tagName) ) {
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     private function hasCheckboxNavigationToggleSignal(DOMElement $label, DOMElement $control): bool
@@ -1442,11 +1507,8 @@ final class NavigationToggleSuppressor
             return false;
         }
 
-        foreach ( $document->getElementsByTagName('label') as $label ) {
-            if ( $label instanceof DOMElement
-                && $controlId === trim(SourceDom::attr($label, 'for'))
-                && $this->isCheckboxBoundEmptyLabel($label)
-            ) {
+        foreach ( $this->labelsNaming($document, $controlId) as $label ) {
+            if ( $this->isCheckboxBoundEmptyLabel($label) ) {
                 return true;
             }
         }
@@ -1787,6 +1849,9 @@ final class NavigationToggleSuppressor
     public function navigationOverlayMenu(DOMElement $navigation): string
     {
         if ('' !== $this->inlineMirrorMarker($navigation)) return 'never';
+        if ( null !== $this->expandedMobileNavigation($navigation) ) {
+            return 'never';
+        }
         if ( $this->hasEquivalentSourceNavigationVariant($navigation) ) {
             return 'mobile';
         }
@@ -2045,9 +2110,38 @@ final class NavigationToggleSuppressor
 
     private function hasEquivalentSourceNavigationVariant(DOMElement $navigation): bool
     {
+        return null !== $this->equivalentSourceNavigationVariant($navigation);
+    }
+
+    /**
+     * An expanded list is content, not evidence of a hamburger.
+     *
+     * @return array{source: DOMElement, breakpoint: float}|null
+     */
+    public function expandedMobileNavigation(DOMElement $navigation): ?array
+    {
+        $candidate = $this->equivalentSourceNavigationVariant($navigation);
+        if ( ! $candidate instanceof DOMElement || $this->navigationToggleControl($navigation) instanceof DOMElement
+            || $this->navigationToggleControl($candidate) instanceof DOMElement
+            || ! in_array(strtolower($candidate->tagName), array('ul', 'ol'), true) ) {
+            return null;
+        }
+        $boundary = $this->sourceCollapseBreakpoint($navigation, $candidate);
+        if ( null === $boundary ) return null;
+        for ( $node = $candidate; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $values = $this->styleResolver->authorViewport->atViewport($node, array('display', 'visibility', 'opacity'), $boundary);
+            if ( 'none' === CssValueInspector::comparable($values['display'] ?? '')
+                || in_array(CssValueInspector::comparable($values['visibility'] ?? ''), array('hidden', 'collapse'), true)
+                || '0' === CssValueInspector::comparable($values['opacity'] ?? '') ) return null;
+        }
+        return array('source' => $candidate, 'breakpoint' => $boundary);
+    }
+
+    private function equivalentSourceNavigationVariant(DOMElement $navigation): ?DOMElement
+    {
         $document = $navigation->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
-            return false;
+            return null;
         }
 
         $navigationRoot = $this->navigationLandmarkAncestor($navigation) ?? $navigation;
@@ -2055,14 +2149,14 @@ final class NavigationToggleSuppressor
         // It remains an independent mobile surface, rather than evidence that a
         // sibling desktop navigation should be replaced by Core's overlay toggle.
         if ( $this->isInsideNativeDisclosure($navigationRoot) ) {
-            return false;
+            return null;
         }
         $signature = $this->sourceNavigationSignature($navigationRoot);
         if ( '' === $signature ) {
-            return false;
+            return null;
         }
         if ( $this->hasNativeDisclosureNavigation($document, $signature) ) {
-            return false;
+            return null;
         }
 
         $variantRoot = SourceDom::documentVariantRoot($navigationRoot);
@@ -2083,11 +2177,11 @@ final class NavigationToggleSuppressor
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
                 && (null === $variantRoot || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
-                return true;
+                return $candidate;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
@@ -2129,6 +2223,13 @@ final class NavigationToggleSuppressor
      */
     private function isEquivalentNavigationVariantCandidate(DOMElement $element): bool
     {
+        // A branch inherits its mobile menu's signal, but is not a device
+        // counterpart of an independent navigation with the same links.
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'li' === strtolower($node->tagName) ) {
+                return false;
+            }
+        }
         if ( $this->isNavigationMenuCandidate($element) ) {
             return true;
         }

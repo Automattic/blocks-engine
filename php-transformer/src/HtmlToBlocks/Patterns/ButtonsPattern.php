@@ -534,7 +534,9 @@ final class ButtonsPattern
             return $html;
         }
 
-        return '';
+        // Core omits buttons with empty RichText. A zero-width character keeps
+        // the authored control box without inventing a visible or accessible name.
+        return '' !== $this->buttonAccessibleTitle($element) ? '' : '&#8203;';
     }
 
     /** Keep an icon's authored layout boxes in the inline-only button label. */

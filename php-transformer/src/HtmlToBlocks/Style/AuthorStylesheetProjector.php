@@ -51,6 +51,8 @@ final class AuthorStylesheetProjector
     /** Projects source selectors onto the block markup they convert to. */
     private readonly AuthorSelectorProjector $selectors;
 
+    private readonly NavigationContainerHostScope $navigationContainerScope;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
@@ -59,6 +61,7 @@ final class AuthorStylesheetProjector
     ) {
         $this->buttonDeclarationRouting = new ButtonDeclarationRouting($styleResolver, $semanticPreparer);
         $this->selectors = new AuthorSelectorProjector($styleResolver, $semanticPreparer);
+        $this->navigationContainerScope = new NavigationContainerHostScope();
     }
 
     /**
@@ -70,18 +73,24 @@ final class AuthorStylesheetProjector
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         $bridges = array();
+        $navigationHosts = array();
+        $navigationRoots = $this->navigationContainerScope->navigationRootClassLists($context->emittedMarkup);
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, &$bridges, &$navigationHosts): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
                 $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
+                foreach ( $this->navigationContainerHosts($prelude, $context, $navigationRoots) as $host ) {
+                    if ( ! in_array($host, $navigationHosts, true) ) $navigationHosts[] = $host;
+                }
                 return $css;
             }
         );
         $projected .= implode('', array_keys($bridges));
+        $projected .= $this->navigationContainerScope->neutralizingRules($projected, $navigationHosts);
         $projected = $this->buttonLinkWidthRules($projected, $context);
         if ( str_contains($context->emittedMarkup, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
             // A materialized background is paint, not another author subject.
@@ -116,6 +125,24 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * Navigation wrapper hosts a source rule names (see NavigationContainerHostScope).
+     *
+     * @param list<list<string>> $roots Navigation root class lists for this projection.
+     * @return list<list<string>>
+     */
+    private function navigationContainerHosts(string $prelude, AuthorStylesheetProjectionContext $context, array $roots): array
+    {
+        return $this->navigationContainerScope->hostClassSets(
+            $prelude,
+            $roots,
+            function (string $compound) use ($context): array {
+                $parsed = $context->sourceStyles->parsedSelector($compound);
+                return $parsed['supported'] ? $this->selectors->matchingSourceElements($compound, $parsed, $context) : array();
+            }
+        );
     }
 
     /**
@@ -1040,12 +1067,17 @@ final class AuthorStylesheetProjector
 
         // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
         $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-        return implode(',', array_map(static function (string $selector) use ($shim): string {
+        $nativeFlex = 1 === preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $context->emittedMarkup);
+        return implode(',', array_map(static function (string $selector) use ($shim, $nativeFlex): string {
             $selector = trim($selector);
             // Legacy single-colon pseudo-elements must remain last. Appending the
             // shim after :before/:after invalidates their entire selector list.
             if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
-                return $selector . $shim;
+                // Native cover flex items need one more class tier than
+                // Core's inline reset and our UA-margin restoration. Apply
+                // it uniformly, so source specificity/order still arbitrate.
+                $flexItem = ':where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex>*)';
+                return $selector . $shim . ($nativeFlex ? ',' . $selector . $shim . $flexItem . $shim : '');
             }
             return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
         }, $selectors));
@@ -2217,9 +2249,10 @@ final class AuthorStylesheetProjector
      * through a restatement, because the editor iframe's root does not carry
      * the source identity until the canvas runtime reconciles it. That
      * restatement never speaks over a body-level style: inherited
-     * presentation restates wholly inside `:where()`, weighing (0,0,0), so it
-     * stays the inherited default that any body rule — the source's own
-     * body rule or theme.json body typography — outranks, while root-owned
+     * presentation restates inside `:where()` plus one type shim, weighing
+     * (0,0,1), so it stays the inherited default that any body rule — the
+     * source's own body rule or theme.json body typography — outranks, yet
+     * beats editor-only zero-weight plugin body defaults, while root-owned
      * custom properties are tokens no body-level style competes with and
      * carry on the canvas-body carrier the reconciled canvas root
      * satisfies.
@@ -2277,10 +2310,15 @@ final class AuthorStylesheetProjector
         }
 
         // The root restatement carries disjoint declarations on two arms.
-        // Presentation restates wholly inside :where() and weighs (0,0,0): it
-        // acts as the inherited default and every body-level rule — theme.json
-        // body typography or the source's own body rule — outranks it, exactly
-        // as it does on the frontend where the declaration stays on the root.
+        // Presentation restates inside :where() plus one type shim, weighing
+        // (0,0,1): it acts as the inherited default and every body-level rule
+        // — theme.json body typography or the source's own body rule —
+        // outranks it, exactly as it does on the frontend where the
+        // declaration stays on the root. The type weight is the element
+        // default the frontend body inherits over: a plugin's editor-only
+        // zero-weight body default (Jetpack ships :where(body){font-family:
+        // -apple-system…} into the canvas) is not on the frontend and must
+        // not replace the source root's inherited font in the editor.
         // Custom properties are route-scoped tokens rather than presentation,
         // so they carry on the canvas-body carrier without any body-level
         // style to outrank.
@@ -2297,7 +2335,7 @@ final class AuthorStylesheetProjector
             $rootSelectors
         ));
         return $css
-            . ('' === $default ? '' : ':where(' . $defaultSelectors . '){' . $default . '}')
+            . ('' === $default ? '' : ':where(' . $defaultSelectors . '):not(' . $context->authorStyles->specificityShim() . '){' . $default . '}')
             . ('' === $carrier ? '' : ':where(' . $carrierSelectors . ') .editor-styles-wrapper{' . $carrier . '}');
     }
 
@@ -2942,10 +2980,14 @@ final class AuthorStylesheetProjector
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if (!$parsed['supported']) continue;
             foreach ($this->selectors->matchingSourceElements($selector, $parsed, $context) as $element) {
-                $path = $element->getNodePath() ?? '';
+                $path = $context->authorStyles->sourcePath($element);
                 // Overlay lists still own an inner UL, not the opener's root.
                 $target = $context->selectorProjections->navigationListBoxSubject($path);
                 if ('' === $target) continue;
+                if ($context->selectorProjections->isMergedDeviceNavigationSource($path)
+                    && 'none' === CssValueInspector::comparable($box['display'] ?? '')) {
+                    $target .= ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+                }
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 $display = $this->navigationListBoxDisplay($box['display'] ?? null, $context->selectorProjections->navigationListShownDisplay($path));
                 $rendered = '' === $display ? $box : array('display' => $display) + $box;

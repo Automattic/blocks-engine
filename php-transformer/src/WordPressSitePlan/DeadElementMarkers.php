@@ -14,8 +14,14 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
  */
 final class DeadElementMarkers
 {
-    /** Markers that name one carrier element: rich text, control and semantic. */
-    public const PATTERN = '/blocks-engine-(?:richtext|control|semantic)-[a-f0-9]+-\d+/';
+    /**
+     * Markers that name one carrier element: rich text, control and semantic,
+     * and the content-addressed toggle marker of a native navigation. Each
+     * route compiles its own toggle marker for a source-equal header; once the
+     * header is extracted into a shared part, the other routes' markers name
+     * a menu no markup renders.
+     */
+    public const PATTERN = '/blocks-engine-(?:(?:richtext|control|semantic)-[a-f0-9]+-\d+|native-navigation-toggle-[a-f0-9]{12}(?![\w-]))/';
 
     /**
      * An element marker no emitted markup, runtime declaration or entity

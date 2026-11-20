@@ -73,7 +73,8 @@ final class AuthorSelectorSemanticPreparer
         }
 
         $authorAnalysis = $this->stylesheetAnalysisComposer->composedAuthorSelectorAnalysis(
-            $this->stylesheetAnalysisComposer->authorStylesheetPayloads($html, $staticCss, $authorStyles)
+            $this->stylesheetAnalysisComposer->authorStylesheetPayloads($html, $staticCss, $authorStyles),
+            $authorStyles->siteSelectorPruner
         );
         $authorStyleRules = $authorAnalysis['rules'];
         $authorSelectors = array_merge(...array_column($authorStyleRules, 'selectors'));
@@ -120,12 +121,7 @@ final class AuthorSelectorSemanticPreparer
         if ( ! $authorStyles->selectorCanMatch($parsed) ) {
             return $authorStyles->rememberSelectorMatches($selector, array());
         }
-        $matches = array();
-        foreach ( $authorStyles->selectorCandidates($parsed) as $element ) {
-            if ( CssSelectorMatcher::matches($element, $parsed, true, $authorStyles->selectorMatchCache())['matches'] ) {
-                $matches[] = $element;
-            }
-        }
+        $matches = CssSelectorMatcher::filterMatching($authorStyles->selectorCandidates($parsed), $parsed, true, $authorStyles->selectorMatchCache());
         return $authorStyles->rememberSelectorMatches($selector, $matches);
     }
 
@@ -202,8 +198,12 @@ final class AuthorSelectorSemanticPreparer
                 // Empty icon spans retain their source element rather than
                 // becoming a RichText mark; no new carrier is needed for them.
                 if (null !== $host && !$element->hasChildNodes()) continue;
-                $path = $element->getNodePath() ?? '';
                 $inlineTag = strtolower($element->tagName);
+                // Only inline content gets a semantic path; skip the rest first.
+                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) ) {
+                    continue;
+                }
+                $path = $element->getNodePath() ?? '';
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element);
                 // Format tags lose their class hooks in RichText too. Contextual
@@ -249,12 +249,19 @@ final class AuthorSelectorSemanticPreparer
     /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
     private function discoverInlineLayoutCarrierPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
     {
+        // The decision reads only the element and state this pass does not
+        // write, so an element many selectors match is decided once.
+        $decided = array();
         foreach ( $authorSelectors as $authorSelector ) {
             if ( ! $authorSelector['parsed']['supported'] ) {
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $authorSelector['parsed']) as $element ) {
                 $path = $element->getNodePath() ?? '';
+                if ( isset($decided[$path]) ) {
+                    continue;
+                }
+                $decided[$path] = true;
                 $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
                 if ( '' !== $path
                     && $this->context->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element)
@@ -908,8 +915,14 @@ final class AuthorSelectorSemanticPreparer
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
-                $layoutTable = 'table' === strtolower($element->tagName) ? $element : SourceDom::ancestorElement($element, 'table');
-                if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
+                $tag = strtolower($element->tagName);
+                // Only table parts take a table path; skip the ancestor walk
+                // for every other matched element.
+                if ( ! in_array($tag, array( 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true) ) {
+                    continue;
+                }
+                $layoutTable = 'table' === $tag ? $element : SourceDom::ancestorElement($element, 'table');
+                if (in_array($tag, array('table', 'tr', 'td'), true)
                     && $layoutTable instanceof DOMElement
                     && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($layoutTable)
                 ) {

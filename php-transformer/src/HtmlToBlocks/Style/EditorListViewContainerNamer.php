@@ -61,7 +61,8 @@ final class EditorListViewContainerNamer
             return null;
         }
 
-        $tag  = strtolower((string) ($attrs['tagName'] ?? $sourceElement->tagName));
+        // A content item's header/footer saved as a plain group is not a landmark.
+        $tag  = strtolower((string) ($attrs['tagName'] ?? (ShellLandmarkPolicy::isContentItemLandmarkTag($sourceElement) ? 'div' : $sourceElement->tagName)));
         $role = strtolower(SourceDom::attr($sourceElement, 'role'));
         $landmark = ShellLandmarkPolicy::landmarkKind($tag, $role);
         if ( isset(ShellLandmarkPolicy::LANDMARK_LABELS[ $landmark ]) ) {

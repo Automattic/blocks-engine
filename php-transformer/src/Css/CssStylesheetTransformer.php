@@ -546,16 +546,46 @@ final class CssStylesheetTransformer
     }
 
     /**
-     * Whether a selector list names the document (`:root`, `html`, `body`)
-     * or every element (`*`). Those rules are not restatements of one author
-     * block across carriers: they are the document-context and reset
-     * surfaces that Global Styles, the editor canvas and route-scoped resets
-     * each own by their own selector, so they stay standalone.
+     * Whether an arm of a selector list selects the document (`:root`,
+     * `html`, `body`, the editor canvas body) or every element (`*`). Those
+     * rules are not restatements of one author block across carriers: they
+     * are the document-context and reset surfaces that Global Styles, the
+     * editor canvas and route-scoped resets each own by their own selector,
+     * so they stay standalone.
+     *
+     * Only an arm's subject compound decides, outside functional
+     * pseudo-class arguments; an editor-canvas restatement keeps its own
+     * selector for the editor extract wherever it names the canvas. A route gate (`:where(:root.be-rs-…) a`,
+     * `X:where(:root:not(.be-rs-…),:root:not(.be-rs-…) *)`) or a specificity
+     * shim (`:root:root:root :is(…)`) names the root only to condition or
+     * weigh a carrier rule; the rule still styles that carrier, and its
+     * restatements for other carriers ship their shared block once.
      */
     private static function namesDocumentOrEveryElement(string $prelude): bool
     {
-        $bare = preg_replace(array( '/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'/s', '/\\\\./s', '/\\[[^\\]]*\\]/' ), '', $prelude) ?? $prelude;
-        return 1 === preg_match('/(?:^|[\\s,>+~(])(?:\\*|html|body|:root)(?![\\w-])/i', $bare);
+        $strip = static fn (string $selector): string => preg_replace(array( '/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'/s', '/\\\\./s', '/\\[[^\\]]*\\]/' ), '', $selector) ?? $selector;
+        $document = '/(?:^|[\\s,>+~(])(?:\\*|html|body|:root)(?![\\w-])/i';
+        foreach ( self::splitSelectorList($prelude) ?? array( $prelude ) as $arm ) {
+            if ( 1 === preg_match('/\\.editor-styles-wrapper(?![\\w-])/', $arm) ) {
+                return true;
+            }
+            $tokens = CssSelectorTokenizer::tokenize(trim($arm));
+            // An arm this cannot read keeps the whole-arm reading.
+            if ( ! $tokens['supported'] || '' === $tokens['rightmost_compound'] ) {
+                if ( 1 === preg_match($document, $strip($arm)) ) {
+                    return true;
+                }
+                continue;
+            }
+            $subject = $strip($tokens['rightmost_compound']);
+            do {
+                $subject = preg_replace('/\\([^()]*\\)/', '', $subject, -1, $count) ?? $subject;
+            } while ( $count > 0 );
+            if ( 1 === preg_match('/^(?:\\*|html|body)(?![\\w-])|:root(?![\\w-])/i', trim($subject)) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -96,6 +96,16 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** A dialog entry carried into the overlay; hidden where the row shows in full. */
     private const MENU_FOLD_OVERLAY_ONLY_CLASS = 'blocks-engine-menu-fold-overlay-only';
 
+    /**
+     * Whether a menu toggle's controlled panel holds its list through
+     * sole-child wrappers, so the panel itself becomes the navigation rather
+     * than deferring to the wrapper (#6807).
+     */
+    public function ownsToggledPanelList(DOMElement $element, ?NavigationPatternContext $navigationContext): bool
+    {
+        return array() !== $this->toggledPanelListWrappers($element, $navigationContext);
+    }
+
     public function claimsBeforeAuthorOwnedLayout(DOMElement $element): bool
     {
         $tag = strtolower($element->tagName);
@@ -341,7 +351,8 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
             }
         }
-        if ( 'nav' !== strtolower($element->tagName) && ! $isLandmarkList && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
+        if ( 'nav' !== strtolower($element->tagName) && ! $isLandmarkList && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element)
+            && array() === $this->toggledPanelListWrappers($element, $navigationContext) ) {
             return null;
         }
 
@@ -471,7 +482,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
+        }
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -1011,7 +1024,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
+        }
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
@@ -1732,7 +1747,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * Carry a source list that stacks block items onto core's flow layout.
+     * Carry a source list that stacks block items onto core's stacked layout.
      *
      * An in-flow list navigation renders its generated list as
      * `display:contents`, so the items lay out in the navigation host. With no
@@ -1744,7 +1759,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * `.item{display:flex}`, as it does in the browser). Floated
      * block items still need flow: a flex row ignores the float that the
      * projected item rule carries. UA-only floated items keep the existing
-     * horizontal output rather than being mistaken for a stack.
+     * horizontal output rather than being mistaken for a stack. An explicitly
+     * block-displayed list uses a vertical, non-wrapping flex layout because its
+     * list-box projection maps the authored display onto the native flex root.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -1759,10 +1776,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $items = 0;
+        $floated = false;
         foreach ( $list->childNodes as $child ) {
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
+            $floated = $floated || $navigationContext->isFloated($child);
             $itemDisplay = $navigationContext->cascadeDisplay($child);
             if ( '' === $itemDisplay && $navigationContext->isFloated($child) ) {
                 return $attrs;
@@ -1774,7 +1793,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( 0 < $items ) {
-            $attrs['layout'] = array( 'type' => 'default' );
+            // The list-box projector maps authored block display to flex.
+            // Keep that box vertical; floated items still require flow.
+            $attrs['layout'] = ! $floated && in_array($navigationContext->cascadeDisplay($list), array( 'block', 'flow-root' ), true)
+                ? array( 'type' => 'flex', 'orientation' => 'vertical', 'flexWrap' => 'nowrap' )
+                : array( 'type' => 'default' );
         }
 
         return $attrs;
@@ -2808,6 +2831,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $blocks = array();
         $collected = array();
+        $previousItem = null;
         foreach ( $list->childNodes as $item ) {
             if ( XML_COMMENT_NODE === $item->nodeType ) {
                 continue;
@@ -2825,6 +2849,23 @@ final class NavigationPattern implements PatternRecognizerInterface
 
             if ( ! $item instanceof DOMElement ) {
                 return array();
+            }
+            if ( in_array(strtolower($item->tagName), array( 'ul', 'ol' ), true) ) {
+                // A list misnested directly in a list stays a sibling of the
+                // item before it in the DOM and renders as that item's child
+                // menu, so it nests under that item as a submenu.
+                $parent = array() === $blocks ? null : $blocks[ count($blocks) - 1 ];
+                if ( ! $previousItem instanceof DOMElement
+                    || ! in_array($parent['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+                    return array();
+                }
+                $nested = $this->navigationBlocksFromList($item, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
+                if ( array() === $nested ) {
+                    return array();
+                }
+                array_pop($blocks);
+                $blocks[] = $createBlock('core/navigation-submenu', $parent['attrs'] ?? array(), array_merge($parent['innerBlocks'] ?? array(), $nested), $previousItem);
+                continue;
             }
             if ( 'li' !== strtolower($item->tagName) ) {
                 // Malformed but common authored menus put a link wrapper directly
@@ -2888,6 +2929,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $blocks[] = $block;
+            $previousItem = $item;
         }
 
         if ( null !== $listItems ) {
@@ -3075,8 +3117,16 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $submenuBlocks = array();
+        $titleLink = null;
         foreach ( $this->submenuContainers($element, $anchor) as $submenuContainer ) {
             $submenuAnchors = null;
+            $titled = null === $siblingLabel ? $this->titledSubmenuPanel($submenuContainer, $anchor) : null;
+            if ( null !== $titled ) {
+                // The title list only restates the toggle as a link to the
+                // section; core's submenu parent carries that destination.
+                $titleLink = $titled['title'];
+                $submenuContainer = $titled['list'];
+            }
             $children = $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, true, false, $submenuAnchors, $listItems);
             if ( array() === $children ) {
                 // A candidate child menu still owns its content when native
@@ -3090,7 +3140,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( array() !== $submenuBlocks ) {
-            if ( null === $siblingLabel && 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
+            if ( null === $siblingLabel && ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) || $this->holdsTextOutsideAnchor($element, $anchor) ) ) {
                 return null;
             }
 
@@ -3098,7 +3148,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 'label' => null !== $siblingLabel && 'a' !== strtolower($anchor->tagName)
                     ? trim(preg_replace('/\s+/', ' ', $this->visibleText($anchor)) ?? '')
                     : $this->anchorLabel($anchor, $innerHtml, $navigationContext),
-                'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+                'url'   => SourceDom::safeNavigationUrl(null !== $titleLink ? $titleLink->getAttribute('href') : ($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : '')),
                 'kind'  => 'custom',
             );
             if ( null !== $siblingLabel && '' === $submenuAttrs['url'] ) {
@@ -3108,11 +3158,62 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes, $navigationContext), $submenuBlocks, $element);
         }
 
-        if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
+        if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor))
+            || ( null === $siblingLabel && $this->holdsTextOutsideAnchor($element, $anchor) ) ) {
             return null;
         }
 
         return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element, $navigationContext);
+    }
+
+    /**
+     * Whether a menu item shows words or numbers outside its one anchor.
+     *
+     * An item becomes a navigation link (or submenu parent) that holds only
+     * its anchor's label; anything else the item renders is dropped. A row
+     * that lists an index and a year beside its linked title
+     * (`<div><span>1.</span><a>Title</a><span>2026</span></div>`) is a
+     * listing, not a menu item, and reducing it to the title loses content.
+     * Declining the item leaves the whole landmark to ordinary block
+     * conversion, which keeps every part and the row layout.
+     *
+     * What a menu item legitimately keeps beside its anchor does not count:
+     * its submenu, its toggle and other navigation chrome, controls, text
+     * hidden from sight or from assistive technology (icon-font ligatures),
+     * and glyph-only indicators or separators (no letter or digit).
+     */
+    private function holdsTextOutsideAnchor(DOMElement $item, DOMElement $anchor): bool
+    {
+        $excluded = $this->submenuContainers($item, $anchor);
+        $stack = array( $item );
+        while ( null !== ( $node = array_pop($stack) ) ) {
+            foreach ( $node->childNodes as $child ) {
+                if ( XML_TEXT_NODE === $child->nodeType ) {
+                    if ( 1 === preg_match('/[\p{L}\p{N}]/u', $child->textContent ?? '') ) {
+                        return true;
+                    }
+                    continue;
+                }
+                if ( ! $child instanceof DOMElement || $child->isSameNode($anchor) ) {
+                    continue;
+                }
+                foreach ( $excluded as $container ) {
+                    if ( $child->isSameNode($container) ) {
+                        continue 2;
+                    }
+                }
+                if ( in_array(strtolower($child->tagName), array( 'a', 'button', 'input', 'select', 'textarea', 'label', 'script', 'style', 'template' ), true)
+                    || $child->hasAttribute('hidden')
+                    || 'true' === strtolower(trim($child->getAttribute('aria-hidden')))
+                    || 1 === preg_match('/(?:^|[\s_-])(?:visually-hidden|sr-only|screen-reader-only|screen-reader-text)(?:$|[\s_-])/', strtolower($child->getAttribute('class')))
+                    || $this->isNavigationChromeElement($child) ) {
+                    continue;
+                }
+                $stack[] = $child;
+            }
+        }
+
+        return false;
     }
 
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?NavigationPatternContext $navigationContext = null): array
@@ -4111,6 +4212,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $list instanceof DOMElement && ! $list->isSameNode($element) ) {
             $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
             $listClasses = trim((string) ($listAttrs['className'] ?? ''));
+            foreach ( array_reverse($this->toggledPanelListWrappers($element, $navigationContext)) as $wrapper ) {
+                $listClasses = SourceDom::mergeClassNames(trim((string) ($this->withoutCoreNavigationClasses($presentationAttributes($wrapper))['className'] ?? '')), $listClasses);
+            }
             if ( '' !== $listClasses ) {
                 if ( true === ($attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] ?? false) ) {
                     // The list renders inside that panel, so its classes follow it.
@@ -4552,6 +4656,81 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return 1 === count($anchors) ? $anchors[0] : null;
+    }
+
+    /**
+     * A submenu panel opened by an href-less toggle and made of exactly two
+     * lists: a title list whose single link names the section with the
+     * toggle's own label, then the section's child links. Recognized by
+     * structure alone, never by class names.
+     *
+     * @return array{title: DOMElement, list: DOMElement}|null
+     */
+    private function titledSubmenuPanel(DOMElement $panel, DOMElement $toggle): ?array
+    {
+        if ( 'a' !== strtolower($toggle->tagName) || '' !== trim($toggle->getAttribute('href')) ) {
+            return null;
+        }
+        $lists = array();
+        foreach ( $panel->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return null;
+            }
+            $lists[] = $child;
+        }
+        if ( 2 !== count($lists) ) {
+            return null;
+        }
+
+        $items = array();
+        foreach ( $lists[0]->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                return null;
+            }
+            $items[] = $child;
+        }
+        // Panel chrome (back and close controls: no destination, no text)
+        // travels with the source script; core's submenu supersedes it.
+        $items = array_values(array_filter($items, fn (DOMElement $item): bool => ! $this->isControlOnlyItem($item)));
+        if ( 1 !== count($items) || 1 !== $items[0]->getElementsByTagName('a')->length
+            || 0 < $items[0]->getElementsByTagName('ul')->length || 0 < $items[0]->getElementsByTagName('ol')->length
+        ) {
+            return null;
+        }
+        $title = $items[0]->getElementsByTagName('a')->item(0);
+        if ( ! $title instanceof DOMElement || ! $this->leadsToPage($title) ) {
+            return null;
+        }
+
+        $normalize = fn (DOMElement $node): string => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $this->visibleText($node)) ?? ''));
+        $label = $normalize($toggle);
+        if ( '' === $label || $label !== $normalize($title) || $label !== $normalize($items[0]) ) {
+            return null;
+        }
+
+        return array( 'title' => $title, 'list' => $lists[1] );
+    }
+
+    /** A list item holding only href-less controls and no visible text. */
+    private function isControlOnlyItem(DOMElement $item): bool
+    {
+        if ( '' !== trim(preg_replace('/\s+/u', ' ', $this->visibleText($item)) ?? '')
+            || 0 < $item->getElementsByTagName('ul')->length || 0 < $item->getElementsByTagName('ol')->length ) {
+            return false;
+        }
+        foreach ( $item->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && '' !== trim($anchor->getAttribute('href')) ) {
+                return false;
+            }
+        }
+
+        return 0 < $item->getElementsByTagName('a')->length + $item->getElementsByTagName('button')->length;
     }
 
     /**
@@ -5702,6 +5881,58 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return true;
+    }
+
+    /**
+     * The sole-child wrappers between a menu toggle's controlled panel and its
+     * navigation list, outer first. Folding the menu into such a wrapper would
+     * leave Core's opener inside the hidden panel, so the panel itself becomes
+     * the navigation and the wrappers' classes follow the list's onto it.
+     *
+     * @return list<DOMElement> Empty unless $element is that panel.
+     */
+    private function toggledPanelListWrappers(DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    {
+        $id = trim(SourceDom::attr($element, 'id'));
+        if ( '' === $id || null === $navigationContext ) {
+            return array();
+        }
+        $wrappers = array();
+        for ( $node = $this->soleElementChild($element); $node instanceof DOMElement && in_array(strtolower($node->tagName), array( 'div', 'span', 'section' ), true); $node = $this->soleElementChild($node) ) {
+            $wrappers[] = $node;
+        }
+        if ( array() === $wrappers || ! $node instanceof DOMElement
+            || ! in_array(strtolower($node->tagName), array( 'ul', 'ol' ), true) || ! $this->hasNavigationSignal($node) ) {
+            return array();
+        }
+        $toggle = $navigationContext->navigationToggleControl($element);
+        if ( ! $toggle instanceof DOMElement ) {
+            return array();
+        }
+        $targets = array_map(
+            static fn (string $token): string => ltrim($token, '#'),
+            SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls') . ' ' . ( SourceDom::attr($toggle, 'data-bs-target') ?: SourceDom::attr($toggle, 'data-target') ))
+        );
+
+        return in_array($id, $targets, true) ? $wrappers : array();
+    }
+
+    private function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        $sole = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return null;
+            }
+            if ( $child instanceof DOMElement ) {
+                if ( $sole instanceof DOMElement ) {
+                    return null;
+                }
+                $sole = $child;
+            }
+        }
+
+        return $sole;
     }
 
     private function hasDirectListNavigationSignal(DOMElement $element): bool

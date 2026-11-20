@@ -22,7 +22,8 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     echo "PASS: $message\n";
 };
 
-$author = '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:17px 30px;font-size:10px;line-height:17px}'
+$author = '.floating{box-sizing:border-box;background:#111;color:#fff;display:inline-flex;position:fixed;right:20px;bottom:20px;width:165px;height:47px;z-index:9}'
+    . '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:17px 30px;font-size:10px;line-height:17px}'
     . '@media (max-width:850px){.cta{gap:12px}}'
     . 'footer p{font-size:10px;line-height:17px;margin:0}'
     // A plan card: a flex column whose CTA is spaced from the price by its own
@@ -38,6 +39,15 @@ $author = '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:
     // An add-on line: a block-level `<b>` beside bare text, so it becomes the
     // only content of a boxless inline-layout carrier paragraph.
     . '.addon{font-size:12px}.addon b{display:block;font:26px "Playfair Display";margin-top:15px}'
+    // Pricing cards: a three-track grid that collapses to one track under
+    // 850px, of flex columns no author rule sizes. At 1440 grid stretch makes
+    // the cards one height; that used height is layout, not author intent.
+    // Logical auto sizes (also common reset rules) do not declare a height.
+    . '.cards{display:grid;grid-template-columns:repeat(3,1fr)}@media (max-width:850px){.cards{grid-template-columns:1fr}}'
+    . '.package{display:flex;flex-direction:column;block-size:auto;min-block-size:auto}.package p{margin:0}'
+    // A FAQ question: the author hides the UA disclosure marker and draws
+    // its own indicator after the label.
+    . '.faq summary{list-style:none;cursor:pointer}.faq summary::-webkit-details-marker{display:none}.faq summary::after{content:"+";float:right}'
     . '.legal{font-size:10px;line-height:17px}@media (max-width:1000px){.legal{line-height:1.7}}'
     . '.hero{height:min(880px,100svh);min-height:680px}'
     . '@media (max-width:520px){.hero{min-height:650px}}'
@@ -60,7 +70,9 @@ $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $autho
     . '<section class="contact"><a class="cta" href="/contact" style="display:inline-flex;padding:17px 30px;font-size:10px">Contact us</a></section>'
     . '<section class="plan"><p class="price">RM 99 <small>FROM RM</small></p><a class="buy" href="/buy">Buy</a></section>'
     . '<section class="pricing"><div class="addon">EXTRA HOUR<b>RM150/hr</b></div></section>'
-    . '</main><footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
+    . '<section class="cards"><div class="package"><h3>Basic</h3><p>One</p></div><div class="package"><h3>Plus</h3><p>Two</p></div><div class="package"><h3>Pro</h3><p>Three</p></div></section>'
+    . '<section class="faq"><details><summary>How long is a session?</summary><p>Two hours.</p></details></section>'
+    . '</main><a class="floating cta" href="/date">CHECK YOUR DATE ↗</a><footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
     . '</body></html>';
 $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 640));
 
@@ -80,7 +92,22 @@ $priceStyles = array('display' => 'block', 'height' => '38px', 'font-size' => '3
 $smallStyles = array('display' => 'inline', 'font-size' => '11px', 'line-height' => '13.2px');
 $addonStyles = array('display' => 'block', 'height' => '30px', 'font-size' => '26px', 'font-family' => '"Playfair Display"', 'line-height' => 'normal', 'margin-top' => '15px');
 $legalStyles = array('display' => 'inline', 'font-size' => '10px', 'line-height' => '17px');
+// The capture reports each card's used size: at 1440 grid stretch makes all
+// three 560px tall (min-height included), at 390 each is its content height.
+$package = static fn(string $mobileHeight): array => array(
+    'desktop' => array('display' => 'flex', 'flex-direction' => 'column', 'width' => '480px', 'height' => '560px', 'min-height' => '560px'),
+    'mobile' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => $mobileHeight),
+);
+$summaryStyles = array('display' => 'list-item', 'list-style-type' => 'none', 'list-style-position' => 'inside', 'cursor' => 'pointer', 'height' => '18px');
 $observed = array(
+    '//section[@class="cards"]' => array(
+        'desktop' => array('display' => 'grid', 'grid-template-columns' => '480px 480px 480px', 'height' => '560px'),
+        'mobile' => array('display' => 'grid', 'grid-template-columns' => '390px', 'height' => '1482px'),
+    ),
+    '//div[@class="package"][1]' => $package('486px'),
+    '//div[@class="package"][2]' => $package('510px'),
+    '//div[@class="package"][3]' => $package('486px'),
+    '//section[@class="faq"]//summary' => array('desktop' => $summaryStyles, 'mobile' => $summaryStyles),
     '//section[@class="plan"]' => array('desktop' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => '111px'), 'mobile' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => '111px')),
     '//a[@class="buy"]' => array('desktop' => $buyStyles, 'mobile' => $buyStyles),
     '//p[@class="price"]' => array('desktop' => $priceStyles, 'mobile' => $priceStyles),
@@ -128,6 +155,8 @@ $observed['//section[@class="portfolio"]'] = array(
     'mobile' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '32.5px'))),
 );
 
+$observed['//a[@class="floating cta"]'] = array_fill_keys(array_keys($viewports), array_replace($buttonStyles, array('box-sizing' => 'border-box', 'background-color' => 'rgb(17, 17, 17)', 'display' => 'inline-flex', 'position' => 'fixed', 'right' => '20px', 'bottom' => '20px', 'width' => '165px', 'height' => '47px', 'z-index' => '9')));
+
 $fixture = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
 $defaults = $fixture['nodes']['n5']['viewports']['desktop']['used_styles'];
 foreach ($defaults as $property => $value) {
@@ -163,6 +192,9 @@ foreach ($xpath->query('//*') as $element) {
         if (in_array($element->tagName, array('head', 'title', 'style'), true)) $styles['display'] = 'none';
         $styles = array_replace($styles, $targets[$node][$name] ?? array());
         $captures[$name] = array('border_box' => array('x' => 0, 'y' => 0, 'width' => (float) $styles['width'], 'height' => (float) $styles['height']), 'used_styles' => $styles);
+        if ('summary' === $element->tagName) {
+            $captures[$name]['pseudo']['after'] = array('content' => '"+"', 'border_box' => array('x' => 0, 'y' => 0, 'width' => 8.0, 'height' => 18.0), 'used_styles' => array_replace($styles, array('display' => 'block', 'float' => 'right', 'width' => '8px', 'height' => '18px')));
+        }
     }
     $nodes[$node] = array('children' => $children, 'viewports' => $captures);
 }
@@ -267,13 +299,18 @@ $split = static function (string $list, string $separator): array {
 };
 $parsedRules = $rules($css);
 /** The cascaded value of a property on an element at one viewport width. */
-$cascaded = static function (DOMElement $target, string $property, int $width) use ($parsedRules, $applies, $split): ?string {
+$cascaded = static function (DOMElement $target, string $property, int $width, string $pseudo = '') use ($parsedRules, $applies, $split): ?string {
     $winner = null;
     $rank = null;
     foreach ($parsedRules as $order => [$media, $selectors, $body]) {
         if (!$applies($media, $width)) continue;
         $specificity = null;
         foreach ($split($selectors, ',') as $selector) {
+            // A pseudo-element's rules are its originating element's selector plus `::name`.
+            if ('' !== $pseudo) {
+                if (!str_ends_with($selector, '::' . $pseudo)) continue;
+                $selector = substr($selector, 0, -strlen('::' . $pseudo));
+            }
             if (str_contains($selector, '::')) continue;
             $parsed = CssSelectorMatcher::parse($selector);
             if (CssSelectorMatcher::matches($target, $parsed)['matches']) $specificity = max($specificity ?? 0, CssSelectorMatcher::specificity($parsed));
@@ -290,7 +327,7 @@ $cascaded = static function (DOMElement $target, string $property, int $width) u
             }
         }
     }
-    foreach ($split($target->getAttribute('style'), ';') as $declaration) {
+    foreach ('' === $pseudo ? $split($target->getAttribute('style'), ';') : array() as $declaration) {
         [$name, $value] = array_map('trim', explode(':', $declaration, 2)) + array(1 => '');
         if (strtolower($name) === $property && (null === $rank || $rank[0] < 2)) $winner = $value;
     }
@@ -348,6 +385,44 @@ foreach (array(1440, 768, 390) as $width) {
     $assert('Playfair Display' === $family($cascaded($addon, 'font-family', $width)), "At {$width}px the add-on's <b> keeps its font-family.", (string) $cascaded($addon, 'font-family', $width) . ' ' . json_encode($fontFamilies));
     $top = $marginTop($cascaded($addon, 'margin', $width), $cascaded($addon, 'margin-top', $width));
     $assert('15px' === $top, "At {$width}px the add-on's <b> keeps its margin-top.", (string) $top);
+}
+
+$floating = $element('//a[@href="/date"]');
+foreach (array($floating->parentNode, $floating->parentNode->parentNode) as $wrapper) {
+    $expect($wrapper, 'floating CTA synthetic wrapper', 'display', array_fill_keys(array(1440, 768, 390), 'contents'));
+}
+$expect($floating, 'floating CTA source link', 'position', array_fill_keys(array(1440, 768, 390), 'fixed'));
+$expect($floating, 'floating CTA source link', 'right', array_fill_keys(array(1440, 768, 390), '20px'));
+$expect($floating, 'floating CTA source link', 'bottom', array_fill_keys(array(1440, 768, 390), '20px'));
+$expect($floating, 'floating CTA source link', 'width', array_fill_keys(array(1440, 768, 390), '165px'));
+$expect($floating, 'floating CTA source link', 'z-index', array_fill_keys(array(1440, 768, 390), '9'));
+
+// Issue #6580: a used height that results from layout (grid stretch at 1440,
+// content at 390) is not author intent. No author rule sizes the cards, so no
+// carrier may restate a height or min-height: at the uncaptured 768 each
+// single-column card is its own content height, not the 1440 stretch height.
+foreach (array(1, 2, 3) as $index) {
+    $card = $element('//*[contains(concat(" ", @class, " "), " package ")][' . $index . ']');
+    foreach (array(1440, 768, 390) as $width) {
+        foreach (array('height' => array(null, 'auto'), 'min-height' => array(null, 'auto', '0', '0px')) as $property => $layout) {
+            $value = $cascaded($card, $property, $width);
+            $assert(in_array($value, $layout, true), "At {$width}px pricing card $index carries no layout-derived $property.", 'Got ' . var_export($value, true) . "\n" . $css);
+        }
+    }
+}
+
+// A `<summary>` is no block of its own: its author styles reach core/details'
+// rendered `<summary>` through the source-node mapping. The author hid the UA
+// disclosure marker (both the list-item marker and WebKit's pseudo-element)
+// and drew its own indicator after the label.
+$summary = $element('//details[contains(concat(" ", @class, " "), " wp-block-details ")]/summary');
+foreach (array(1440, 768, 390) as $width) {
+    $listStyle = $cascaded($summary, 'list-style-type', $width) ?? $cascaded($summary, 'list-style', $width);
+    $assert(null !== $listStyle && str_contains($listStyle, 'none'), "At {$width}px the FAQ summary has no list-item marker.", 'Got ' . var_export($listStyle, true) . "\n" . $result['serialized_blocks'] . "\n" . $css);
+    $assert('none' === $cascaded($summary, 'display', $width, '-webkit-details-marker'), "At {$width}px the FAQ summary hides WebKit's disclosure marker.", $css);
+    $assert('"+"' === $cascaded($summary, 'content', $width, 'after'), "At {$width}px the FAQ summary draws its own ::after indicator.", var_export($cascaded($summary, 'content', $width, 'after'), true) . "\n" . $css);
+    $assert('right' === $cascaded($summary, 'float', $width, 'after'), "At {$width}px the FAQ summary's indicator keeps its float.", $css);
+    $assert('pointer' === $cascaded($summary, 'cursor', $width), "At {$width}px the FAQ summary keeps its cursor.", $css);
 }
 
 // A carrier splits by role: the CTA's margin and flex-item placement stay on

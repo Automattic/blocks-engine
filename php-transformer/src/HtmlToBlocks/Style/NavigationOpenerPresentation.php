@@ -127,9 +127,25 @@ final class NavigationOpenerPresentation
     /** Materialize a passive, text-free stack of painted CSS bars as the native icon. */
     private function barArtwork(DOMElement $control): ?array
     {
+        $properties = array('display', 'position', 'width', 'height', 'background', 'background-color', 'transform', 'top', 'bottom', 'left', 'right', 'margin-top', 'margin-bottom', 'margin-left');
+        $resolved = function (DOMElement $node) use ($properties): array {
+            $values = array_replace(
+                $this->styles->cascade->collapsedViewportDeclarations($node, $properties),
+                $this->styles->authorViewport->collapsed($node, $properties)
+            );
+            foreach ($values as &$value) $value = $this->styles->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($value), $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
+            return $values;
+        };
+        $pixels = static function (string $value, float $reference = 0): ?float {
+            if (preg_match('/^(-?[\d.]+)px$/D', $value, $match) || '0' === $value) return (float) ($match[1] ?? 0);
+            if ($reference > 0 && preg_match('/^([\d.]+)%$/D', $value, $match)) return $reference * (float) $match[1] / 100;
+            return null;
+        };
         $bars = array();
-        $boxWidth = 0.0;
-        $boxHeight = 0.0;
+        $controlBox = $resolved($control);
+        $boxWidth = $pixels($controlBox['width'] ?? '') ?? 0.0;
+        $boxHeight = $pixels($controlBox['height'] ?? '') ?? 0.0;
+        $flowY = 0.0;
         foreach ($control->getElementsByTagName('*') as $node) {
             $hidden = false;
             for ($ancestor = $node; $ancestor instanceof DOMElement && !$ancestor->isSameNode($control); $ancestor = $ancestor->parentNode) {
@@ -137,8 +153,7 @@ final class NavigationOpenerPresentation
                 $hidden = $hidden || $ancestor->hasAttribute('hidden') || 'none' === CssValueInspector::withoutImportant($rest['display'] ?? '') || 'hidden' === CssValueInspector::withoutImportant($rest['visibility'] ?? '');
             }
             if ($hidden) continue;
-            $values = $this->styles->cascade->collapsedViewportDeclarations($node, array('display', 'width', 'height', 'background-color', 'transform', 'top', 'bottom'));
-            $values = array_replace($values, $this->styles->authorViewport->collapsed($node, array('transform', 'display', 'background', 'background-color')));
+            $values = $resolved($node);
             if ('none' === CssValueInspector::withoutImportant($values['display'] ?? '')) continue;
             if ($node->childElementCount > 0) {
                 if (preg_match('/^([\d.]+)px$/', $values['width'] ?? '', $w) && preg_match('/^([\d.]+)px$/', $values['height'] ?? '', $h)) {
@@ -151,14 +166,25 @@ final class NavigationOpenerPresentation
             $color = $this->styles->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($values['background-color'] ?? $values['background'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
             if (null === CssColor::parse($color) || CssValueInspector::isTransparentColor($color)) continue;
             if (preg_match('/scale\(\s*0\s*\)/i', $values['transform'] ?? '')) continue;
-            $width = '100%' === ($values['width'] ?? '') ? $boxWidth : (float) ($values['width'] ?? 0);
-            $height = (float) ($values['height'] ?? 0);
+            $width = $pixels($values['width'] ?? '', $boxWidth) ?? 0;
+            $height = $pixels($values['height'] ?? '', $boxHeight) ?? 0;
             if ($width < 8 || $height <= 0 || $height > $width / 4 || $boxHeight <= 0) return null;
-            $y = ($boxHeight - $height) / 2;
-            if (preg_match('/translatey\(\s*([-\d.]+)px\s*\)/i', $values['transform'] ?? '', $offset)) $y += (float) $offset[1];
-            elseif (isset($values['top']) && !isset($values['bottom'])) $y = (float) $values['top'];
-            elseif (isset($values['bottom']) && !isset($values['top'])) $y = $boxHeight - $height - (float) $values['bottom'];
-            $bars[] = '<rect x="0" y="' . $y . '" width="' . $width . '" height="' . $height . '" fill="' . htmlspecialchars($color, ENT_QUOTES) . '"/>';
+            $absolute = 'absolute' === ($values['position'] ?? '');
+            $top = $pixels($values['top'] ?? '', $boxHeight);
+            $bottom = $pixels($values['bottom'] ?? '', $boxHeight);
+            $left = $pixels($values['left'] ?? '', $boxWidth);
+            $right = $pixels($values['right'] ?? '', $boxWidth);
+            $x = $left ?? (null !== $right ? $boxWidth - $width - $right : 0);
+            $y = $absolute ? ($top ?? (null !== $bottom ? $boxHeight - $height - $bottom : 0)) : $flowY;
+            $y += $pixels($values['margin-top'] ?? '') ?? 0;
+            $x += $pixels($values['margin-left'] ?? '') ?? 0;
+            if (!$absolute) $flowY = $y + $height + ($pixels($values['margin-bottom'] ?? '') ?? 0);
+            if (preg_match('/translatey\(\s*([-\d.]+)px\s*\)/i', $values['transform'] ?? '', $offset)) {
+                // Existing centered bar stacks use top/bottom:0 with translateY.
+                if (null !== $top && null !== $bottom) $y = ($boxHeight - $height) / 2;
+                $y += (float) $offset[1];
+            }
+            $bars[] = '<rect x="' . $x . 'px" y="' . $y . 'px" width="' . $width . '" height="' . $height . '" fill="' . htmlspecialchars($color, ENT_QUOTES) . '"/>';
         }
         if (count($bars) < 2 || count($bars) > 3 || $boxWidth <= 0) return null;
         $artwork = '<svg xmlns="http://www.w3.org/2000/svg" width="' . $boxWidth . '" height="' . $boxHeight . '" viewBox="0 0 ' . $boxWidth . ' ' . $boxHeight . '" aria-hidden="true">' . implode('', $bars) . '</svg>';

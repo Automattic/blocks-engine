@@ -250,7 +250,9 @@ final class ShellExtraction
         preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*\/?-->/s', $markup, $items);
         foreach ($items[1] as $json) {
             $attrs = json_decode($json, true);
-            if (is_array($attrs)) $copy[] = (string) ($attrs['label'] ?? '') . "\0" . (string) ($attrs['url'] ?? '');
+            // A label is rich text: compare the words it shows, not its
+            // generated classes, which carry the route's current-item state.
+            if (is_array($attrs)) $copy[] = implode(' ', self::textRuns((string) ($attrs['label'] ?? ''))) . "\0" . (string) ($attrs['url'] ?? '');
         }
         return $copy;
     }
@@ -3057,6 +3059,7 @@ final class ShellExtraction
             unset($frame['route_footer']);
             $split[$index] = self::withSharedDialogId($frame, $parts);
         }
+        $split = self::withoutRouteListViewNames($split);
         // The generic page template carries the frame most inner pages share in
         // structure (compared without per-document marker seeds and dialog ids),
         // so a page made later in WordPress gets the site chrome. Its marker
@@ -3325,6 +3328,38 @@ final class ShellExtraction
         $frame['opening'] = str_replace($dialogs[1][0], reset($triggers), $frame['opening']);
         $frame['closing'] = str_replace($dialogs[1][0], reset($triggers), $frame['closing']);
         return $frame;
+    }
+
+    /**
+     * A frame container's List View label (`metadata.name`) is derived from
+     * the heading it held, so each route's article frame is named after that
+     * route's own title once the heading moves into post content. The label
+     * is comment-only and never rendered: frames that differ only by it are
+     * one layout, and the label is dropped from them rather than naming a
+     * shared template after one of its routes.
+     *
+     * @param array<int,array{opening:string,closing:string,content:string}> $frames
+     * @return array<int,array{opening:string,closing:string,content:string}>
+     */
+    private static function withoutRouteListViewNames(array $frames): array
+    {
+        $unnamed = static fn(string $markup): string => preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs) || !isset($attrs['metadata']['name'])) return $match[0];
+            unset($attrs['metadata']['name']);
+            if (array() === $attrs['metadata']) unset($attrs['metadata']);
+            return '<!-- wp:' . $match[1] . (array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs)) . $match[3] . '-->';
+        }, $markup) ?? $markup;
+        $layouts = array();
+        foreach ($frames as $index => $frame) {
+            $plain = array('opening' => $unnamed($frame['opening']), 'closing' => $unnamed($frame['closing']));
+            $layouts[self::frameIdentity($plain)][$index] = $plain;
+        }
+        foreach ($layouts as $members) {
+            if (1 === count(array_unique(array_map(static fn(int $index): string => self::frameIdentity($frames[$index]), array_keys($members))))) continue;
+            foreach ($members as $index => $plain) $frames[$index] = $plain + $frames[$index];
+        }
+        return $frames;
     }
 
     /** @param array{opening:string,closing:string} $frame */

@@ -20,25 +20,6 @@ final class CssCascade
         return \Automattic\BlocksEngine\PhpTransformer\Css\DeclarationCascade::apply($facts, $property, $candidate);
     }
 
-    /**
-     * Whether any alternative of a media query list can match a screen. A
-     * list that names only `print` or `speech` never renders on screen at
-     * any width, so it states nothing about the page's viewport boxes.
-     */
-    public static function mediaConditionTargetsScreen(string $condition): bool
-    {
-        foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($condition, array(',')) as $alternative) {
-            $alternative = strtolower(trim($alternative));
-            $negated = str_starts_with($alternative, 'not ');
-            $type = (string) preg_replace('/^(?:not|only)\s+/', '', $alternative);
-            $type = strtok($type, " \t\n(") ?: '';
-            if ($negated || ! in_array($type, array('print', 'speech'), true)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /** Evaluate a comma-separated visual media query list at a viewport width. */
     public static function mediaConditionApplies(string $condition, float $viewportWidth, float $rootFontSize = 16.0): bool
     {
@@ -95,8 +76,22 @@ final class CssCascade
             || ('aspect-ratio' === $property && 1 === preg_match('#^\d*\.?\d+\s*(?:/\s*\d*\.?\d+)?$#', $value))
             || ('object-fit' === $property && in_array($value, array( 'cover', 'contain' ), true))
             || self::declaresWidelyAvailableColorFunction($property, $value)
+            || self::testsCustomProperty($property, $value)
             ? true
             : null;
+    }
+
+    /**
+     * Whether a support test declares a custom property. A custom property
+     * accepts any token sequence, so every browser that evaluates `@supports`
+     * also supports `(--name: value)`. Squarespace gates its whole site-width
+     * system behind `@supports (--test-custom-property: true)`; reading that
+     * gate as unknown leaves its definitions conditional and resolves every
+     * reference to its fallback.
+     */
+    private static function testsCustomProperty(string $property, string $value): bool
+    {
+        return 1 === preg_match('/^--[a-z0-9_-]+$/', $property) && '' !== $value;
     }
 
     /**

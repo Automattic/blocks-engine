@@ -20,8 +20,9 @@ final class BoxTreeReport
         foreach ($files as $file) {
             if (!BoxTree::isSidecarPath($file['path'])) continue;
             $content = $file['content'] ?? '';
-            $tree = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
-            $code = self::validate($tree, $sources);
+            $decoded = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
+            $tree = BoxTree::expandCompact($decoded);
+            $code = null === $tree && null !== $decoded ? 'box_tree_styles_invalid' : self::validate($tree, $sources);
             if (null === $code) {
                 $path = $tree['source_path'];
                 if (isset($seen[$path])) {
@@ -31,7 +32,7 @@ final class BoxTreeReport
                 $seen[$path] = true;
             }
             if (null !== $code) {
-                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($tree) && is_string($tree['source_path'] ?? null) ? $tree['source_path'] : null)));
+                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($decoded) && is_string($decoded['source_path'] ?? null) ? $decoded['source_path'] : null)));
                 continue;
             }
             $trees[$tree['source_path']] = $tree;
@@ -83,10 +84,15 @@ final class BoxTreeReport
                         if (!$node instanceof DOMElement || !$node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
                         $id = $node->getAttribute(BoxTree::NODE_ATTRIBUTE);
                         $ids[] = $id;
+                        // Only navigation carries route-current state; a
+                        // current token elsewhere is the chrome's own design.
+                        $marked = $inNavigation = false;
                         for ($ancestor = $node; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-                            if ($ancestor->hasAttribute('aria-current') || array_filter(preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $current[$path][$id] = true;
+                            if ($ancestor->hasAttribute('aria-current') || array_filter(preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $marked = true;
+                            if ('nav' === strtolower($ancestor->tagName) || 'navigation' === strtolower($ancestor->getAttribute('role'))) $inNavigation = true;
                             if ($ancestor === $child) break;
                         }
+                        if ($marked && $inNavigation) $current[$path][$id] = true;
                     }
                     if (array() === $ids) continue;
                     for ($ancestor = $child->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {

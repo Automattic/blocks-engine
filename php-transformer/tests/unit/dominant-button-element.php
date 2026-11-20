@@ -34,6 +34,10 @@ $assert('var:preset|color|primary' === ($button['color']['background'] ?? null),
 $palette = array_column($theme['settings']['color']['palette'], 'color', 'slug');
 $assert('#ffffff' === ($palette[substr($button['color']['text'], strlen('var:preset|color|'))] ?? null), 'white text uses the palette');
 $sizes = array_column($theme['settings']['typography']['fontSizes'], 'size', 'slug');
+$resolveSize = static function (string $size, array $presets): string {
+    $slug = preg_replace('/^var:preset\|font-size\||^var\(--wp--preset--font-size--|\)$/', '', $size);
+    return $presets[$slug] ?? $size;
+};
 $assert('14.72px' === ($sizes[substr($type['fontSize'], strlen('var:preset|font-size|'))] ?? null), 'button size belongs to the type scale');
 preg_match_all('/<!-- wp:button (\{.*?\}) -->/', $markup, $matches);
 $assert(count($matches[1]) >= 6, 'public multi-route compiler emits native buttons');
@@ -46,7 +50,7 @@ foreach ($matches[1] as $json) {
     if (isset($style['typography']['fontSize'])) {
         ++$small;
         $size = $style['typography']['fontSize'];
-        $resolvedSize = $sizes[str_replace('var:preset|font-size|', '', $size)] ?? $size;
+        $resolvedSize = $resolveSize($size, $sizes);
         $assert('.84rem' === $resolvedSize || '13.44px' === $resolvedSize, 'small CTA keeps only its actual size');
         $assert(isset($style['spacing']['padding']), 'small CTA retains its different padding');
     } else {
@@ -86,7 +90,7 @@ foreach ($variantMatches[1] as $json) {
         ++$close;
         $size = $attrs['style']['typography']['fontSize'] ?? '';
         $variationSizes = array_column($variationTheme['settings']['typography']['fontSizes'], 'size', 'slug');
-        $resolvedSize = $variationSizes[str_replace('var:preset|font-size|', '', $size)] ?? $size;
+        $resolvedSize = $resolveSize($size, $variationSizes);
         $assert('1.2rem' === $resolvedSize || '19.2px' === $resolvedSize, 'close keeps its own size');
     } else {
         ++$styled;

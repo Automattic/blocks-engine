@@ -53,11 +53,47 @@ final class RestyleCoverage
     private function __construct(array $assets)
     {
         $visitor = new CssStylesheetTransformer();
+        $rules = array();
+        $derivations = array();
+        $variables = array();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body): void {
-                $this->indexRule($prelude, $body);
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$rules, &$derivations, &$variables, $visitor): void {
+                $relative = in_array('@supports (color:rgb(from red r g b))', $ancestors, true);
+                $context = array_values(array_diff($ancestors, array('@supports (color:rgb(from red r g b))')));
+                $key = json_encode(array($context, trim($prelude)));
+                $declarations = '';
+                foreach ($visitor->splitStyleRuleBody($body) as $part) {
+                    if (isset($part['declarations'])) $declarations .= $part['declarations'];
+                    elseif ('@supports (color:rgb(from red r g b))' === trim($part['prelude'])) {
+                        foreach (CssRuleAnalyzer::declarationList($part['body']) as $declaration) {
+                            $derivations[$key][$declaration['name']] = $declaration['value'];
+                        }
+                    }
+                }
+                foreach (CssRuleAnalyzer::declarationList($declarations) as $declaration) {
+                    if ($relative) $derivations[$key][$declaration['name']] = $declaration['value'];
+                    if (str_starts_with($declaration['name'], '--') && in_array(trim($prelude), array(':root', 'html'), true)) {
+                        $variables[$declaration['name']] = $declaration['value'];
+                    }
+                }
+                $rules[] = array($prelude, $declarations, $key);
             });
+        }
+        // Evaluate the feature-queried derivation, not both it and its literal
+        // fallback. Other selectors/conditions remain separate observations.
+        foreach ($rules as [$prelude, $body, $key]) {
+            $effective = '';
+            foreach (CssRuleAnalyzer::declarationList($body) as $declaration) {
+                $value = $derivations[$key][$declaration['name']] ?? $declaration['value'];
+                for ($depth = 0; $depth < count($variables); $depth++) {
+                    $resolved = preg_replace_callback('/var\((--[\w-]+)\)/', static fn (array $match): string => $variables[$match[1]] ?? $match[0], $value);
+                    if ($resolved === $value) break;
+                    $value = $resolved;
+                }
+                $effective .= $declaration['name'] . ':' . $value . ';';
+            }
+            $this->indexRule($prelude, $effective);
         }
     }
 

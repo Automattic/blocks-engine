@@ -4,8 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -15,13 +13,21 @@ final class FormWorkflowControlInventory
     /** @return list<DOMElement> */
     public static function elements(DOMElement $form, FormControlMetadataBuilder $metadata, HtmlTransformerSession $session): array
     {
+        // The readable block and its finding enumerate the same form in one
+        // dispatch; they share one inventory (#6752).
+        return FormBuildScope::remember($form, 'workflow_control_inventory', array( $metadata, $session ), static fn (): array => self::enumerate($form, $metadata, $session));
+    }
+
+    /** @return list<DOMElement> */
+    private static function enumerate(DOMElement $form, FormControlMetadataBuilder $metadata, HtmlTransformerSession $session): array
+    {
         $controls = $metadata->controls($form, array(), null, $elements);
         if ('form' !== strtolower($form->tagName)) return $elements;
 
         $assets = $session->authorStyleAnalysis()->stylesheetAssets();
         $css = $session->sourceStyleResolutionState()->formLayoutCss();
-        $layout = (new FormLayoutGraphBuilder())->build($form, $assets, $css);
-        $steps = true === ($layout['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($form, $layout, $assets, $css);
+        $layout = FormBuildScope::layoutGraph($form, null, $assets, $css);
+        $steps = true === ($layout['truncated'] ?? true) ? null : FormBuildScope::stepTrack($form, $layout, $assets, $css);
         $intent = FormRuntimeRequirementAnalyzer::intentControls($form);
         if (null === $steps) {
             $panels = (new FormWorkflowPanelDetector())->controls($form, $intent);
