@@ -52,7 +52,10 @@ $author = '.floating{box-sizing:border-box;background:#111;color:#fff;display:in
     . '.hero{height:min(880px,100svh);min-height:680px}'
     . '@media (max-width:520px){.hero{min-height:650px}}'
     . '.story figure{margin:0}.story img{display:block;width:100%;max-height:650px;object-fit:cover}'
-    . '.intro img{display:block;width:100%;max-height:650px;object-fit:cover}'
+    . '.intro{display:flex;flex-direction:column}.intro img{display:block;width:100%;max-height:650px;object-fit:cover}'
+    // Corrected C, F and G from #6580's real-import measurements.
+    . '.declared-package{display:flex;min-height:560px}@media (max-width:850px){.declared-package{min-height:0}.intro figure{order:-1}}'
+    . ':root{--gold:#b99b62}.intro .image-note{font-family:"Playfair Display";font-size:18px;font-style:italic;color:var(--gold);margin:18px 0}'
     . '.approach{display:grid;grid-template-columns:1fr 1fr;column-gap:40px}'
     . '.approach-image img{display:block;width:100%;height:680px;object-fit:cover}'
     . '.portfolio{display:grid;grid-template-columns:repeat(12,1fr)}'
@@ -63,7 +66,8 @@ $author = '.floating{box-sizing:border-box;background:#111;color:#fff;display:in
 $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $author . '</style></head><body><main>'
     . '<section class="hero"><h1>Hero</h1></section>'
     . '<section class="story"><figure><img src="https://example.com/story.jpg" alt="Story"></figure></section>'
-    . '<section class="intro"><h1>Intro</h1><img src="https://example.com/intro.jpg" alt="Intro"></section>'
+    . '<section class="intro"><h1>Intro</h1><img src="https://example.com/intro.jpg" alt="Intro"><figure><img src="https://example.com/note.jpg" alt="Note"><figcaption class="image-note">Image note</figcaption></figure></section>'
+    . '<section class="declared-package"><h2>Declared minimum</h2><p>Content</p></section>'
     . '<section class="approach"><div class="approach-text"><h2>Approach</h2><p>How we work.</p></div>'
     . '<div class="approach-image"><img src="https://example.com/approach.jpg" alt="Approach"></div></section>'
     . '<section class="portfolio"><div class="pic"><p>First picture</p></div><div class="pic"><p>Second picture</p></div></section>'
@@ -74,16 +78,16 @@ $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $autho
     . '<section class="faq"><details><summary>How long is a session?</summary><p>Two hours.</p></details></section>'
     . '</main><a class="floating cta" href="/date">CHECK YOUR DATE ↗</a><footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
     . '</body></html>';
-$viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 640));
+$viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 402, 'height' => 640));
 
 // Used values the browser reports for the boxes the author rules size. Every
 // other box fills the viewport width; the intro and story images are 2:3,
 // clamped to 650px. The hero is min(880px, 100svh) tall, at least 680px (650px
 // at 520px and below): at the 640px-tall mobile capture its min-height wins.
-$column = array('desktop' => array('width' => '700px'), 'mobile' => array('width' => '390px'));
+$column = array('desktop' => array('width' => '700px'), 'mobile' => array('width' => '402px'));
 $clampedImage = array(
     'desktop' => array('display' => 'block', 'width' => '1440px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
-    'mobile' => array('display' => 'block', 'width' => '390px', 'height' => '585px', 'max-height' => '650px', 'object-fit' => 'cover'),
+    'mobile' => array('display' => 'block', 'width' => '402px', 'height' => '603px', 'max-height' => '650px', 'object-fit' => 'cover'),
 );
 $buttonStyles = array('display' => 'inline-flex', 'width' => '110px', 'height' => '51px', 'padding-top' => '17px', 'padding-right' => '30px', 'padding-bottom' => '17px', 'padding-left' => '30px', 'font-size' => '10px', 'line-height' => '17px', 'row-gap' => '24px', 'column-gap' => '24px');
 $footerStyles = array('display' => 'block', 'height' => '17px', 'font-size' => '10px', 'line-height' => '17px');
@@ -93,16 +97,27 @@ $smallStyles = array('display' => 'inline', 'font-size' => '11px', 'line-height'
 $addonStyles = array('display' => 'block', 'height' => '30px', 'font-size' => '26px', 'font-family' => '"Playfair Display"', 'line-height' => 'normal', 'margin-top' => '15px');
 $legalStyles = array('display' => 'inline', 'font-size' => '10px', 'line-height' => '17px');
 // The capture reports each card's used size: at 1440 grid stretch makes all
-// three 560px tall (min-height included), at 390 each is its content height.
+// three 560px tall (min-height included), at 402 each is its content height.
 $package = static fn(string $mobileHeight): array => array(
     'desktop' => array('display' => 'flex', 'flex-direction' => 'column', 'width' => '480px', 'height' => '560px', 'min-height' => '560px'),
     'mobile' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => $mobileHeight),
 );
 $summaryStyles = array('display' => 'list-item', 'list-style-type' => 'none', 'list-style-position' => 'inside', 'cursor' => 'pointer', 'height' => '18px');
+$captionStyles = array('display' => 'block', 'font-family' => '"Playfair Display"', 'font-size' => '18px', 'font-style' => 'italic', 'color' => 'rgb(185, 155, 98)', 'margin-top' => '18px', 'margin-bottom' => '18px');
 $observed = array(
+    '//section[@class="declared-package"]' => array(
+        'desktop' => array('min-height' => '560px'),
+        'mobile' => array('min-height' => '0px'),
+    ),
+    '//section[@class="intro"]' => array_fill_keys(array('desktop', 'mobile'), array('display' => 'flex', 'flex-direction' => 'column')),
+    '//section[@class="intro"]/figure' => array(
+        'desktop' => array('order' => '0'),
+        'mobile' => array('order' => '-1'),
+    ),
+    '//figcaption[@class="image-note"]' => array('desktop' => $captionStyles, 'mobile' => $captionStyles),
     '//section[@class="cards"]' => array(
         'desktop' => array('display' => 'grid', 'grid-template-columns' => '480px 480px 480px', 'height' => '560px'),
-        'mobile' => array('display' => 'grid', 'grid-template-columns' => '390px', 'height' => '1482px'),
+        'mobile' => array('display' => 'grid', 'grid-template-columns' => '402px', 'height' => '1482px'),
     ),
     '//div[@class="package"][1]' => $package('486px'),
     '//div[@class="package"][2]' => $package('510px'),
@@ -114,7 +129,7 @@ $observed = array(
     '//p[@class="price"]/small' => array('desktop' => $smallStyles, 'mobile' => $smallStyles),
     '//footer' => array(
         'desktop' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px', 'padding-left' => '115px', 'padding-right' => '115px'),
-        'mobile' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px', 'padding-left' => '31.2px', 'padding-right' => '31.2px'),
+        'mobile' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px', 'padding-left' => '32.16px', 'padding-right' => '32.16px'),
     ),
     '//div[@class="addon"]' => array('desktop' => array('font-size' => '12px'), 'mobile' => array('font-size' => '12px')),
     '//div[@class="addon"]/b' => array('desktop' => $addonStyles, 'mobile' => $addonStyles),
@@ -128,19 +143,19 @@ $observed = array(
     ),
     '//section[@class="story"]/figure' => array(
         'desktop' => array('display' => 'block', 'height' => '650px'),
-        'mobile' => array('display' => 'block', 'height' => '585px'),
+        'mobile' => array('display' => 'block', 'height' => '603px'),
     ),
     '//section[@class="story"]/figure/img' => $clampedImage,
     '//section[@class="intro"]/img' => $clampedImage,
     '//section[@class="approach"]' => array(
         'desktop' => array('display' => 'grid', 'grid-template-columns' => '700px 700px', 'column-gap' => '40px'),
-        'mobile' => array('display' => 'grid', 'grid-template-columns' => '390px', 'column-gap' => '40px'),
+        'mobile' => array('display' => 'grid', 'grid-template-columns' => '402px', 'column-gap' => '40px'),
     ),
     '//div[@class="approach-text"]' => $column,
     '//div[@class="approach-image"]' => $column,
     '//div[@class="approach-image"]/img' => array(
         'desktop' => array('display' => 'block', 'width' => '700px', 'height' => '680px', 'object-fit' => 'cover'),
-        'mobile' => array('display' => 'block', 'width' => '390px', 'height' => '450px', 'object-fit' => 'cover'),
+        'mobile' => array('display' => 'block', 'width' => '402px', 'height' => '450px', 'object-fit' => 'cover'),
     ),
 );
 
@@ -152,7 +167,7 @@ foreach (array(1, 2) as $index) {
 }
 $observed['//section[@class="portfolio"]'] = array(
     'desktop' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '120px'))),
-    'mobile' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '32.5px'))),
+    'mobile' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '33.5px'))),
 );
 
 $observed['//a[@class="floating cta"]'] = array_fill_keys(array_keys($viewports), array_replace($buttonStyles, array('box-sizing' => 'border-box', 'background-color' => 'rgb(17, 17, 17)', 'display' => 'inline-flex', 'position' => 'fixed', 'right' => '20px', 'bottom' => '20px', 'width' => '165px', 'height' => '47px', 'z-index' => '9')));
@@ -318,6 +333,12 @@ $cascaded = static function (DOMElement $target, string $property, int $width, s
         if (null === $specificity) continue;
         foreach ($split($body, ';') as $declaration) {
             [$name, $value] = array_map('trim', explode(':', $declaration, 2)) + array(1 => '');
+            if (in_array($name, array('margin', 'padding'), true) && str_starts_with($property, $name . '-')) {
+                $parts = preg_split('/\s+/', $value);
+                $sides = array($parts[0], $parts[1] ?? $parts[0], $parts[2] ?? $parts[0], $parts[3] ?? $parts[1] ?? $parts[0]);
+                $side = array_search(substr($property, strlen($name) + 1), array('top', 'right', 'bottom', 'left'), true);
+                if (false !== $side) { $name = $property; $value = $sides[$side]; }
+            }
             if (strtolower($name) !== $property) continue;
             $important = (bool) preg_match('/!\s*important$/i', $value);
             $candidate = array($important ? 2 : 0, $specificity, $order);
@@ -344,15 +365,15 @@ $expect = static function (DOMElement $target, string $label, string $property, 
 $buttonLink = $element('//a[@href="/contact"]');
 $buttonWrapper = $buttonLink->parentNode;
 $assert($buttonWrapper instanceof DOMElement && str_contains($buttonWrapper->getAttribute('class'), 'wp-block-button'), 'The CTA becomes core/button.');
-foreach (array(1440, 768, 390) as $width) {
+foreach (array(1440, 768, 402) as $width) {
     $assert(in_array($cascaded($buttonWrapper, 'padding', $width), array(null, '0', '0px'), true), 'The button wrapper has no padding.');
     $assert(null === $cascaded($buttonWrapper, 'padding-top', $width), 'No captured padding lands on the button wrapper.');
 }
-$expect($buttonLink, 'button link', 'padding', array(1440 => '17px 30px', 768 => '17px 30px', 390 => '17px 30px'));
-$expect($buttonLink, 'button link', 'display', array(1440 => 'inline-flex', 768 => 'inline-flex', 390 => 'inline-flex'));
-$expect($buttonLink, 'button link', 'gap', array(1440 => '24px', 768 => '12px', 390 => '12px'));
+$expect($buttonLink, 'button link', 'padding', array(1440 => '17px 30px', 768 => '17px 30px', 402 => '17px 30px'));
+$expect($buttonLink, 'button link', 'display', array(1440 => 'inline-flex', 768 => 'inline-flex', 402 => 'inline-flex'));
+$expect($buttonLink, 'button link', 'gap', array(1440 => '24px', 768 => '12px', 402 => '12px'));
 $footerParagraph = $element('//footer//p');
-$expect($footerParagraph, 'footer paragraph line box', 'line-height', array(1440 => '17px', 768 => '17px', 390 => '17px'));
+$expect($footerParagraph, 'footer paragraph line box', 'line-height', array(1440 => '17px', 768 => '17px', 402 => '17px'));
 
 // The footer renders from its template part. Its author variants apply there
 // exactly as on page content: 61px at the uncaptured 768px, and the 8% band
@@ -363,7 +384,7 @@ $footerPart = new DOMDocument();
 $footerPart->loadHTML('<!doctype html><html><body>' . $parts['footer']['canonical_block_markup'] . '</body></html>', LIBXML_NOERROR);
 $footer = (new DOMXPath($footerPart))->query('//footer')->item(0) ?? throw new RuntimeException('No footer in the footer template part.');
 foreach (array('padding-left', 'padding-right') as $property) {
-    $expect($footer, 'footer template part', $property, array(1440 => '115px', 851 => '115px', 850 => '61px', 768 => '61px', 521 => '61px', 520 => '8%', 390 => '8%'));
+    $expect($footer, 'footer template part', $property, array(1440 => '115px', 851 => '115px', 850 => '61px', 768 => '61px', 521 => '61px', 520 => '8%', 402 => '8%'));
 }
 
 // A block-level `<b>` that is the only content of a boxless inline-layout
@@ -379,7 +400,7 @@ $marginTop = static function (?string $margin, ?string $longhand): ?string {
     if (null !== $longhand) return $longhand;
     return null === $margin ? null : (preg_split('/\s+/', trim($margin))[0] ?? null);
 };
-foreach (array(1440, 768, 390) as $width) {
+foreach (array(1440, 768, 402) as $width) {
     $assert('block' === $cascaded($addon, 'display', $width), "At {$width}px the add-on's <b> keeps display:block.", (string) $cascaded($addon, 'display', $width) . "\n" . $result['serialized_blocks']);
     $assert(str_contains((string) $cascaded($addon, 'font-size', $width), '26px'), "At {$width}px the add-on's <b> keeps its font-size.", (string) $cascaded($addon, 'font-size', $width));
     $assert('Playfair Display' === $family($cascaded($addon, 'font-family', $width)), "At {$width}px the add-on's <b> keeps its font-family.", (string) $cascaded($addon, 'font-family', $width) . ' ' . json_encode($fontFamilies));
@@ -387,23 +408,42 @@ foreach (array(1440, 768, 390) as $width) {
     $assert('15px' === $top, "At {$width}px the add-on's <b> keeps its margin-top.", (string) $top);
 }
 
+// C: unitless zero proves 0px and cancels the minimum at the author band.
+$declaredPackage = $element('//*[contains(concat(" ", @class, " "), " declared-package ")]');
+$expect($declaredPackage, 'declared package', 'min-height', array(1440 => '560px', 851 => '560px', 850 => '0', 768 => '0', 402 => '0'));
+// F: the undeclared desktop order is initial; the mobile-only rule lifts.
+$noteFigure = $element('//img[@src="https://example.com/note.jpg"]')->parentNode;
+$expect($noteFigure, 'media-only ordered figure', 'order', array(850 => '-1', 768 => '-1', 402 => '-1'));
+$assert(in_array($cascaded($noteFigure, 'order', 1440), array(null, '0'), true), 'The undeclared desktop order remains initial.');
+// G: typography belongs on core/image's rendered caption, alongside margins.
+$noteCaption = $element('//figcaption[contains(concat(" ", @class, " "), " wp-element-caption ")]');
+foreach (array(1440, 768, 402) as $width) {
+    $assert('Playfair Display' === $family($cascaded($noteCaption, 'font-family', $width)), "At {$width}px the image caption keeps its font-family.");
+    foreach (array('font-size' => '18px', 'font-style' => 'italic', 'color' => 'rgb(185, 155, 98)') as $property => $value) {
+        $actual = $cascaded($noteCaption, $property, $width);
+        $assert(null !== $actual && str_contains($actual, $value), "At {$width}px the image caption keeps $property.", (string) $actual);
+    }
+    $assert('18px' === $marginTop($cascaded($noteCaption, 'margin', $width), $cascaded($noteCaption, 'margin-top', $width)), "At {$width}px the image caption keeps its top margin.");
+    $assert('18px' === ($cascaded($noteCaption, 'margin-bottom', $width) ?? $marginTop($cascaded($noteCaption, 'margin', $width), null)), "At {$width}px the image caption keeps its bottom margin.");
+}
+
 $floating = $element('//a[@href="/date"]');
 foreach (array($floating->parentNode, $floating->parentNode->parentNode) as $wrapper) {
-    $expect($wrapper, 'floating CTA synthetic wrapper', 'display', array_fill_keys(array(1440, 768, 390), 'contents'));
+    $expect($wrapper, 'floating CTA synthetic wrapper', 'display', array_fill_keys(array(1440, 768, 402), 'contents'));
 }
-$expect($floating, 'floating CTA source link', 'position', array_fill_keys(array(1440, 768, 390), 'fixed'));
-$expect($floating, 'floating CTA source link', 'right', array_fill_keys(array(1440, 768, 390), '20px'));
-$expect($floating, 'floating CTA source link', 'bottom', array_fill_keys(array(1440, 768, 390), '20px'));
-$expect($floating, 'floating CTA source link', 'width', array_fill_keys(array(1440, 768, 390), '165px'));
-$expect($floating, 'floating CTA source link', 'z-index', array_fill_keys(array(1440, 768, 390), '9'));
+$expect($floating, 'floating CTA source link', 'position', array_fill_keys(array(1440, 768, 402), 'fixed'));
+$expect($floating, 'floating CTA source link', 'right', array_fill_keys(array(1440, 768, 402), '20px'));
+$expect($floating, 'floating CTA source link', 'bottom', array_fill_keys(array(1440, 768, 402), '20px'));
+$expect($floating, 'floating CTA source link', 'width', array_fill_keys(array(1440, 768, 402), '165px'));
+$expect($floating, 'floating CTA source link', 'z-index', array_fill_keys(array(1440, 768, 402), '9'));
 
 // Issue #6580: a used height that results from layout (grid stretch at 1440,
-// content at 390) is not author intent. No author rule sizes the cards, so no
+// content at 402) is not author intent. No author rule sizes the cards, so no
 // carrier may restate a height or min-height: at the uncaptured 768 each
 // single-column card is its own content height, not the 1440 stretch height.
 foreach (array(1, 2, 3) as $index) {
     $card = $element('//*[contains(concat(" ", @class, " "), " package ")][' . $index . ']');
-    foreach (array(1440, 768, 390) as $width) {
+    foreach (array(1440, 768, 402) as $width) {
         foreach (array('height' => array(null, 'auto'), 'min-height' => array(null, 'auto', '0', '0px')) as $property => $layout) {
             $value = $cascaded($card, $property, $width);
             $assert(in_array($value, $layout, true), "At {$width}px pricing card $index carries no layout-derived $property.", 'Got ' . var_export($value, true) . "\n" . $css);
@@ -416,7 +456,7 @@ foreach (array(1, 2, 3) as $index) {
 // disclosure marker (both the list-item marker and WebKit's pseudo-element)
 // and drew its own indicator after the label.
 $summary = $element('//details[contains(concat(" ", @class, " "), " wp-block-details ")]/summary');
-foreach (array(1440, 768, 390) as $width) {
+foreach (array(1440, 768, 402) as $width) {
     $listStyle = $cascaded($summary, 'list-style-type', $width) ?? $cascaded($summary, 'list-style', $width);
     $assert(null !== $listStyle && str_contains($listStyle, 'none'), "At {$width}px the FAQ summary has no list-item marker.", 'Got ' . var_export($listStyle, true) . "\n" . $result['serialized_blocks'] . "\n" . $css);
     $assert('none' === $cascaded($summary, 'display', $width, '-webkit-details-marker'), "At {$width}px the FAQ summary hides WebKit's disclosure marker.", $css);
@@ -431,10 +471,10 @@ foreach (array(1440, 768, 390) as $width) {
 $buyLink = $element('//a[@href="/buy"]');
 $buyButtons = $buyLink->parentNode?->parentNode;
 $assert($buyButtons instanceof DOMElement && str_contains($buyButtons->getAttribute('class'), 'wp-block-buttons'), 'The plan CTA becomes core/buttons.');
-$expect($buyButtons, 'plan CTA buttons wrapper', 'margin', array(1440 => '22px 0px 0px', 768 => '22px 0px 0px', 390 => '22px 0px 0px'));
-$expect($buyButtons, 'plan CTA buttons wrapper', 'align-self', array(1440 => 'flex-start', 390 => 'flex-start'));
-$expect($buyLink, 'plan CTA link', 'padding', array(1440 => '17px 30px', 390 => '17px 30px'));
-foreach (array(1440, 768, 390) as $width) {
+$expect($buyButtons, 'plan CTA buttons wrapper', 'margin', array(1440 => '22px 0px 0px', 768 => '22px 0px 0px', 402 => '22px 0px 0px'));
+$expect($buyButtons, 'plan CTA buttons wrapper', 'align-self', array(1440 => 'flex-start', 402 => 'flex-start'));
+$expect($buyLink, 'plan CTA link', 'padding', array(1440 => '17px 30px', 402 => '17px 30px'));
+foreach (array(1440, 768, 402) as $width) {
     foreach (array('margin', 'margin-top') as $property) {
         $assert(in_array($cascaded($buyLink, $property, $width), array(null, '0', '0px', 'initial'), true), "At {$width}px the plan CTA link has no $property of its own.");
     }
@@ -444,27 +484,27 @@ foreach (array(1440, 768, 390) as $width) {
 // An inline phrasing element keeps its own captured typography on its own
 // box, not on a nested carrier: otherwise `<small>` takes the price's size.
 $small = $element('//small');
-foreach (array(1440, 768, 390) as $width) {
+foreach (array(1440, 768, 402) as $width) {
     $assert(str_contains((string) $cascaded($small, 'font-size', $width), '11px'), "At {$width}px the price's <small> keeps its own font-size.", (string) $cascaded($small, 'font-size', $width));
     $assert('13.2px' === $cascaded($small, 'line-height', $width), "At {$width}px the price's <small> keeps its own line-height.", (string) $cascaded($small, 'line-height', $width));
 }
 
-// Only 1440 and 390 were captured; 768 exercises the unobserved author variant.
-$widths = array(1440, 1000, 800, 768, 390);
+// Only 1440 and 402 were captured; 768 exercises the unobserved author variant.
+$widths = array(1440, 1000, 800, 768, 402);
 $expect($introImage, 'intro image', 'max-height', array_fill_keys($widths, '650px'));
 $expect($introImage, 'intro image', 'object-fit', array_fill_keys($widths, 'cover'));
 // No author rule sizes the intro image's height: it is the 2:3 image's own
-// ratio at its width, clamped. The captures' heights (650px, 585px) must not
-// freeze, or a 343px-wide image at an uncaptured width keeps 585px (#6580).
+// ratio at its width, clamped. The captures' heights (650px, 603px) must not
+// freeze, or a 343px-wide image at an uncaptured width keeps 603px (#6580).
 $expect($introImage, 'intro image', 'height', array_fill_keys($widths, 'auto'));
 foreach (array(1, 2) as $index) {
     $pic = $element('//*[contains(concat(" ", @class, " "), " pic ")][' . $index . ']');
-    $expect($pic, 'portfolio item ' . $index, 'grid-column-start', array(1440 => 1 === $index ? 'span 5' : 'span 7', 851 => 1 === $index ? 'span 5' : 'span 7', 850 => 1 === $index ? 'span 12' : 'span 6', 768 => 1 === $index ? 'span 12' : 'span 6', 521 => 1 === $index ? 'span 12' : 'span 6', 520 => 'span 12', 390 => 'span 12'));
-    $expect($pic, 'portfolio item ' . $index, 'height', array(1440 => 1 === $index ? '640px' : '610px', 768 => 1 === $index ? '500px' : '340px', 390 => '280px'));
+    $expect($pic, 'portfolio item ' . $index, 'grid-column-start', array(1440 => 1 === $index ? 'span 5' : 'span 7', 851 => 1 === $index ? 'span 5' : 'span 7', 850 => 1 === $index ? 'span 12' : 'span 6', 768 => 1 === $index ? 'span 12' : 'span 6', 521 => 1 === $index ? 'span 12' : 'span 6', 520 => 'span 12', 402 => 'span 12'));
+    $expect($pic, 'portfolio item ' . $index, 'height', array(1440 => 1 === $index ? '640px' : '610px', 768 => 1 === $index ? '500px' : '340px', 402 => '280px'));
 }
-$expect($approachImage, 'approach image', 'height', array(1440 => '680px', 1000 => '680px', 800 => '450px', 768 => '450px', 390 => '450px'));
+$expect($approachImage, 'approach image', 'height', array(1440 => '680px', 1000 => '680px', 800 => '450px', 768 => '450px', 402 => '450px'));
 $expect($approachImage, 'approach image', 'object-fit', array_fill_keys($widths, 'cover'));
-$expect($approach, 'approach grid', 'grid-template-columns', array(1440 => '1fr 1fr', 1000 => '1fr 1fr', 800 => '1fr', 768 => '1fr', 390 => '1fr'));
+$expect($approach, 'approach grid', 'grid-template-columns', array(1440 => '1fr 1fr', 1000 => '1fr 1fr', 800 => '1fr', 768 => '1fr', 402 => '1fr'));
 
 // The source has no box between the section and its image: a wrapper the
 // engine adds must not generate one with its own geometry.
@@ -513,10 +553,10 @@ foreach (array(1 => 500, 2 => 340) as $index => $height) {
 $expectHeight($hero, 'hero', array(
     array(1440, 1000, 880), array(1440, 760, 760), array(1440, 600, 680),
     array(768, 700, 700), array(600, 660, 680), array(500, 660, 660),
-    array(390, 844, 844), array(390, 600, 650),
+    array(402, 844, 844), array(402, 600, 650),
 ));
-$expectHeight($storyImage, 'story image', array(array(1440, 700, 650), array(768, 600, 650), array(390, 844, 585)));
-$expectHeight($introImage, 'intro image', array(array(1440, 900, 650), array(768, 1024, 650), array(390, 844, 585), array(343, 700, 514.5)));
+$expectHeight($storyImage, 'story image', array(array(1440, 700, 650), array(768, 600, 650), array(402, 844, 603)));
+$expectHeight($introImage, 'intro image', array(array(1440, 900, 650), array(768, 1024, 650), array(402, 844, 603), array(343, 700, 514.5)));
 
 // Compare actual browser boxes, including the line box around inline text.
 $chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v chromium || command -v google-chrome'));
@@ -534,7 +574,7 @@ try {
     $baseline = '<style>body{font-family:Arial;font-size:16px}a{box-sizing:border-box}</style>';
     file_put_contents($directory . '/source.html', $markup . $baseline . $probe('source'));
     file_put_contents($directory . '/compiled.html', '<!doctype html><style>' . $css . '</style>' . $baseline . $result['serialized_blocks'] . $probe('compiled'));
-    foreach (array(1440, 768, 390) as $width) {
+    foreach (array(1440, 768, 402) as $width) {
         $boxes = array();
         foreach (array('source', 'compiled') as $document) {
             $output = shell_exec(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome)

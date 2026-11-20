@@ -306,12 +306,22 @@ final class BoxTreeFluidIntent
      */
     private function liftedAuthor(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
     {
+        // This path needs author intent somewhere, not merely initial captures.
+        $declared = false;
+        foreach (array_merge(array_values($widths), array_values($samples)) as $width) {
+            if (null !== $this->declared($property, $width)) { $declared = true; break; }
+        }
+        if (!$declared) return null;
+        // An absent winner proves only a known, non-inherited initial value.
+        // Keep this fallback at sampled widths too, so media-only rules lift.
+        $winner = fn(float $width): ?string => $this->declared($property, $width) ?? BoxTreeDeclarationPruner::cascadeInitial($property);
         $proven = array();
         foreach ($widths as $key => $width) {
-            $value = $this->declared($property, $width);
+            $value = $winner($width);
             if (null === $value || '' === $value) return null;
             $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
             if ($value !== $actual
+                && !('0' === $value && '0px' === $actual)
                 && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
                 && null === $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents)
                 && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
@@ -319,7 +329,7 @@ final class BoxTreeFluidIntent
         }
         if ('line-height' === $property && count(array_unique(array_column(array_column($observations, 'used_styles'), $property))) < 2
             && count(array_filter($proven, static fn(string $value): bool => 1 === preg_match('/^\d*\.?\d+$/', $value))) === count($proven)) return null;
-        return $this->bands($widths, $samples, $proven, fn(float $width): ?string => $this->declared($property, $width), false);
+        return $this->bands($widths, $samples, $proven, $winner, false);
     }
 
     /**

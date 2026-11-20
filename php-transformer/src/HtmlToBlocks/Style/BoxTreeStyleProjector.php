@@ -38,6 +38,10 @@ final class BoxTreeStyleProjector
     public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), array $summary = array(), bool $inlineSupports = true): array
     {
         $attrs = $this->projectBlock($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $sourceTag, $image, $inlineSupports);
+        $caption = $image['caption'] ?? array();
+        if ('core/image' === $blockName && array() !== ($caption['observations'] ?? array())) {
+            $attrs = $this->projectRenderedElement($attrs, $caption['observations'], $viewports, $state, $caption['parents'] ?? array(), $caption['fluid'] ?? array(), false, self::SELECTOR . ' > figcaption.wp-element-caption', 'core/image', 'figcaption');
+        }
         $summaryObservations = $summary['observations'] ?? array();
         if ('core/details' !== $blockName || array() === $summaryObservations) return $attrs;
         // core/details saves a bare `<summary>`: the source summary's whole
@@ -522,6 +526,12 @@ final class BoxTreeStyleProjector
                     ++$kept;
                     continue;
                 }
+                // A proven author switch can include an initial value that
+                // the pruner omitted (unitless zero minimums, media-only order).
+                $used = $observations[$key]['used_styles'] ?? array();
+                $parent = $parents[$key]['used_styles'] ?? null;
+                $reason = $this->pruner->classify($used, is_array($parent) ? $parent : null, $blockName, $tagName)[$property] ?? null;
+                if (count($propertyBands) > 1 && BoxTreeDeclarationPruner::INITIAL === $reason) continue;
                 if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property]) && !$layoutHeight) continue 2;
             }
             if (0 === $kept && (isset(self::GRID_LINES[$property]) || $layoutHeight)) continue;
