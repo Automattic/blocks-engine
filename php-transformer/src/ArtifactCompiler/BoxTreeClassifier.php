@@ -646,7 +646,7 @@ final class BoxTreeClassifier
             $s = $pseudo['used_styles'] ?? array();
             if ('absolute' !== ($s['position'] ?? null) || self::boxPaints($s)) return true;
             $box = $pseudo['border_box'] ?? array();
-            foreach (array('width', 'height') as $dimension) {
+            foreach (array('x', 'y', 'width', 'height') as $dimension) {
                 if (!isset($box[$dimension], $observation['border_box'][$dimension])
                     || abs($box[$dimension] - $observation['border_box'][$dimension]) > 0.01) return true;
             }

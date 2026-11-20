@@ -160,6 +160,8 @@ foreach (array(
     array('styles' => array('background-color' => 'rgb(255, 0, 0)'), 'refuse' => true),
     array('styles' => array('pointer-events' => 'none'), 'refuse' => true),
     array('width' => 401, 'refuse' => true),
+    array('x' => 1, 'refuse' => true),
+    array('y' => 1, 'refuse' => true),
     array('content' => '"visible"', 'refuse' => true),
 ) as $pseudo) {
     $cases[] = array('rule' => 'containing-block', 'box' => array('position' => 'relative'),
@@ -202,7 +204,8 @@ foreach ($cases as $case) {
                 $pseudo = $case['pseudo'];
                 $observation['pseudo']['before'] = array(
                     'content' => $pseudo['content'] ?? '" "',
-                    'border_box' => array_replace($box, array('width' => $pseudo['width'] ?? $box['width'])),
+                    'border_box' => array_replace($box, array('width' => $pseudo['width'] ?? $box['width'],
+                        'x' => $pseudo['x'] ?? $box['x'], 'y' => $pseudo['y'] ?? $box['y'])),
                     'used_styles' => array_replace($observation['used_styles'], $absoluteChild,
                         array('pointer-events' => 'auto', 'cursor' => 'auto', 'animation-name' => 'none', 'transition-duration' => '0s'), $pseudo['styles'] ?? array()),
                 );
