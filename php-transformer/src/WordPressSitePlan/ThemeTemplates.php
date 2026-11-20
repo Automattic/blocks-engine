@@ -173,6 +173,17 @@ final class ThemeTemplates
             }
         }
         unset($part);
+        // Decide only after identical overrides have collapsed onto page.html.
+        // An unused page fallback serves new content, whose title is not already
+        // an imported heading. Captured pages keep their content-owned titles.
+        $liveTemplates = array_fill_keys(array_column($templates, 'slug'), true);
+        $hasGenericPage = (bool) array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && ('page' === TemplateSlugs::forPage($page) || !isset($liveTemplates[TemplateSlugs::forPage($page)])));
+        if (!$hasGenericPage) foreach ($templates as &$template) {
+            if ('page' !== $template['slug'] || isset($template['source_path']) || str_contains($template['canonical_block_markup'], '<!-- wp:post-title')) continue;
+            $template['canonical_block_markup'] = preg_replace('/(?=<!-- wp:post-content(?:\s|\/))/', '<!-- wp:post-title {"level":1} /-->' . "\n", $template['canonical_block_markup'], 1) ?? $template['canonical_block_markup'];
+            $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
+        }
+        unset($template);
         return $titles;
     }
 
