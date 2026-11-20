@@ -331,6 +331,22 @@ PHP;
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }
         self::serve($lines, $served, $units, 'post_title_link_class');
+        // Captured headings belong to post_content. Supply the missing title
+        // for new pages without cloning route templates or moving shared chrome.
+        $pageTemplate = array_column($templates, null, 'slug')['page']['canonical_block_markup'] ?? '';
+        $capturedPageTitles = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && 1 === preg_match('/<h1\b/i', $page['canonical_block_markup']));
+        if ($capturedPageTitles && '' !== $pageTemplate && !str_contains($pageTemplate, '<!-- wp:post-title')) {
+            $lines[] = <<<'PHP'
+add_filter( 'render_block_core/post-content', static function ( string $content, array $block, $instance ): string {
+    $id = (int) ( $instance->context['postId'] ?? 0 );
+    if ( ! $id || ! is_page( $id ) || $id !== get_queried_object_id() || 'page' !== get_post_type( $id ) ) return $content;
+    if ( '' !== get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) || '' !== get_page_template_slug( $id ) ) return $content;
+    if ( preg_match( '/<h1\b/i', $content ) || '' === trim( get_the_title( $id ) ) ) return $content;
+    return render_block( array( 'blockName' => 'core/post-title', 'attrs' => array( 'level' => 1 ), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array() ) ) . $content;
+}, 10, 3 );
+PHP;
+        }
+        self::serve($lines, $served, $units, 'page_authoring_title');
         if (self::markupContains($documents, 'blocksEngineIcon')) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
