@@ -533,6 +533,11 @@ final class BoxTreeFluidIntent
         $declared = $this->declared($property, $width);
         $value = null === $declared ? $initial : strtolower($declared);
         if (in_array($value, array('initial', 'unset'), true)) $value = $initial;
+        if ('inherit' === $value) {
+            $value = $this->inheritedKeyword($property, $width);
+            if (null === $value) return null;
+            $declared = $value;
+        }
         if ($grid) {
             if ($value === $initial) return $initial;
             return self::flexibleTrackList((string) $declared) ? (string) $declared : null;
@@ -783,6 +788,30 @@ final class BoxTreeFluidIntent
             return self::expression(trim($this->resolver->customProperties->resolveAtViewport($value, $node, $width)));
         }
         return false;
+    }
+
+    /**
+     * The intrinsic keyword a sizing property's `inherit` takes from the
+     * nearest ancestor that does not itself inherit it, or null when that
+     * ancestor declares anything else (a length or percentage resolves
+     * against a different box there). A non-inherited property is
+     * otherwise its initial value: `.inner{height:inherit}` inside a
+     * content-sized parent is `auto`, so its captured pixels are layout's.
+     */
+    private function inheritedKeyword(string $property, float $width): ?string
+    {
+        [$initial] = self::INTRINSIC[$property];
+        $height = $this->captureHeight($width);
+        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $winners = $this->resolver->authorViewport->atViewport($node, self::INTRINSIC[$property], $width, viewportHeight: $height);
+            unset($winners[$initial]);
+            if (array() !== array_diff_key($winners, array($property => true))) return null;
+            $value = strtolower(trim(CssValueInspector::withoutImportant((string) ($winners[$property] ?? ''))));
+            if ('inherit' === $value) continue;
+            if ('' === $value || in_array($value, array('initial', 'unset'), true)) return $initial;
+            return in_array($value, self::INTRINSIC_KEYWORDS, true) ? $value : null;
+        }
+        return $initial;
     }
 
     /** Whether the element's resolved `writing-mode` at this width is horizontal (`horizontal-tb`, the initial value). */
