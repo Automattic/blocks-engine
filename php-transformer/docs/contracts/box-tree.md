@@ -142,6 +142,14 @@ and the deciding `criterion`. Criteria are `paints`, `clips`, `multi-child-layou
 `own-sizing`; neutral nodes have `equal-child-geometry`. Precedence follows that
 order. Neutrality requires one element child, no direct non-whitespace text, and
 matching x/y/width/height at **every** viewport (0.01 CSS pixel tolerance).
+Equal geometry is not neutral when reparenting the child would size it from
+content in the nearest non-collapsed flex ancestor. A block-level in-flow
+wrapper is kept as `own-sizing` (and cannot fold) if, at any capture, it is a
+row flex container's sole in-flow item, fills the content width including its
+margins (0.5 CSS pixel tolerance), and has zero flex-grow; or if it is a column
+flex item with a resolved non-stretch alignment such as `center` or `flex-end`.
+Siblings or a row item short of the line prove nothing. Column alignment uses
+known non-stretch values only: unknown values do not prove shrinkage.
 Containing-block ownership is resolved separately at each viewport, including
 transformed ancestors of fixed descendants. These are reports, not collapse
 instructions; converted blocks and author styles are unchanged.

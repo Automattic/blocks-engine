@@ -78,16 +78,23 @@ final class EntityBindings
         // stays static. These are dropped below and reported, not thrown.
         [$groups, $unanchored] = self::bindingGroups($declarations, $markupBySource);
         $anchored = array();
+        // Groups on one page share its document and projected source markup;
+        // index each distinct document once for this pass.
+        $indexes = array();
+        $indexOf = static function (string $markup) use (&$indexes): BlockMarkupIndex {
+            return $indexes[$markup] ??= new BlockMarkupIndex($markup);
+        };
         foreach ($groups as $bindings) {
             $claims = self::groupClaims($bindings);
             $markup = $bindings[0]['markup']; $search = $bindings[0]['search'];
-            $documentIndex = new BlockMarkupIndex($markup);
+            $documentIndex = $indexOf($markup);
             // Claims beyond the emitted matching blocks find no candidate below and are dropped.
             $claimedOffsets = array(); $resolved = array();
             foreach ($claims as $members) {
                 $identity = $members[0];
                 $anchor = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor'] ?? null;
-                $range = self::claimRange($anchor, $identity, $markup, $search, $documentIndex, $sourceMarkupBySource[$identity['source']] ?? null, $claimedOffsets);
+                $sourceMarkup = $sourceMarkupBySource[$identity['source']] ?? null;
+                $range = self::claimRange($anchor, $identity, $markup, $search, $documentIndex, is_string($sourceMarkup) ? $indexOf($sourceMarkup) : null, $claimedOffsets);
                 if (null === $range) {
                     foreach ($members as $member) $unanchored[] = array('declaration' => $member['declaration'], 'entity' => $member['entity'], 'binding' => $member['binding'], 'reason_code' => 'anchor_not_emitted');
                     continue;
@@ -177,6 +184,14 @@ final class EntityBindings
     /** Projects entity and binding markup through the source page's asset and route projections. */
     private function projectBindingMarkup(array $declarations, AssetReferenceCanonicalizer $references, array $templateTargets, array $partSources): array
     {
+        // Many entities quote the same source block: every product of a
+        // collection carries the whole grid as its search markup. Projection
+        // depends only on the markup and its source page, so each distinct
+        // pair is projected once per pass instead of once per binding.
+        $projected = array();
+        $project = function (string $markup, string $source) use ($references, &$projected): string {
+            return $projected[$source][$markup] ??= $this->links->markup($references->content($markup, $source), $source);
+        };
         foreach ( $declarations as &$declaration ) {
             if ( ! is_array($declaration) || ! isset($declaration['payload']['entities']) || ! is_array($declaration['payload']['entities']) ) {
                 continue;
@@ -186,7 +201,7 @@ final class EntityBindings
                     continue;
                 }
                 if (is_string($entity['source_path'] ?? null)) {
-                    $entity = EntityMarkup::map($entity, fn(string $markup): string => $this->links->markup($references->content($markup, $entity['source_path']), $entity['source_path']));
+                    $entity = EntityMarkup::map($entity, static fn(string $markup): string => $project($markup, $entity['source_path']));
                 }
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
@@ -197,8 +212,7 @@ final class EntityBindings
                         // markup when the chrome moved; it needs no source projection, and the
                         // part markup is its own projected source.
                         if (isset($partSources[$binding['source_path']])) continue;
-                        $markup = $references->content($sourceMarkup, $binding['source_path']);
-                        $binding['search_block_markup'] = $this->links->markup($markup, $binding['source_path']);
+                        $binding['search_block_markup'] = $project($sourceMarkup, $binding['source_path']);
                     }
                 }
                 unset($binding);
@@ -308,12 +322,13 @@ final class EntityBindings
      * @param array<int,true> $claimedOffsets
      * @return array{offset:int,length:int}|null
      */
-    private static function claimRange(mixed $anchor, array $identity, string $markup, string $search, BlockMarkupIndex $documentIndex, ?string $sourceMarkup, array $claimedOffsets): ?array
+    private static function claimRange(mixed $anchor, array $identity, string $markup, string $search, BlockMarkupIndex $documentIndex, ?BlockMarkupIndex $sourceIndex, array $claimedOffsets): ?array
     {
         if (!is_array($anchor) || 'blocks-engine/projected-binding-anchor/v2' !== ($anchor['schema'] ?? null) || !is_string($anchor['source_block_hash'] ?? null) || !is_int($anchor['source_block_length'] ?? null)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
         $isAnchorSource = static fn(string $markup, array $range): bool => $anchor['source_block_length'] === $range['length'] && hash_equals($anchor['source_block_hash'], hash('sha256', substr($markup, $range['offset'], $range['length'])));
-        if (!is_string($sourceMarkup)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
-        $sourceRanges = (new BlockMarkupIndex($sourceMarkup))->ranges(); $canonicalRanges = $documentIndex->ranges();
+        if (null === $sourceIndex) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+        $sourceMarkup = $sourceIndex->markup;
+        $sourceRanges = $sourceIndex->ranges(); $canonicalRanges = $documentIndex->ranges();
         $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $isAnchorSource($sourceMarkup, $range)));
         if (isset($anchor['source_occurrence_count']) && $anchor['source_occurrence_count'] !== count($sourceMatches)) throw new InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.');
         $canonicalMatches = array_values(array_filter($canonicalRanges, static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));

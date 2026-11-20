@@ -26,6 +26,8 @@ $author = '.nav{display:flex;justify-content:space-between}.links{display:flex;g
     . '.menu{display:none;border:0;background:transparent;font-size:24px}'
     . '@media(max-width:850px){.menu{display:block}.links{display:none;position:absolute;top:65px;left:0;right:0;flex-direction:column;align-items:flex-start}}'
     . '.placement-probe{display:block}@media(max-width:850px){.placement-probe{display:none;position:absolute;top:65px;left:0;right:0}}'
+    . 'body{color:#24201e;background:#fff}.palette{color:#71675f;background:#b99b62}.other-accent{color:#2357ac}'
+    . '.bodycopy{font-size:14px;line-height:2.05;color:#766b61;max-width:480px}'
     . '.floating{box-sizing:border-box;background:#111;color:#fff;display:inline-flex;position:fixed;right:20px;bottom:20px;width:165px;height:47px;z-index:9}'
     . '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:17px 30px;font-size:10px;line-height:17px}'
     . '@media (max-width:850px){.cta{gap:12px}}'
@@ -54,7 +56,7 @@ $author = '.nav{display:flex;justify-content:space-between}.links{display:flex;g
     . '.faq summary{list-style:none;cursor:pointer}.faq summary::-webkit-details-marker{display:none}.faq summary::after{content:"+";float:right}'
     . '.legal{font-size:10px;line-height:17px}@media (max-width:1000px){.legal{line-height:1.7}}'
     // #7109: invariant factors must retain the browser's line-box rounding.
-    . '.bodycopy{font-size:14px;line-height:2.05;margin:0}'
+    . '.rounding-copy{font-size:14px;line-height:2.05;margin:0}'
     . '.hero{height:min(880px,100svh);min-height:680px}'
     . '@media (max-width:520px){.hero{min-height:650px}}'
     . '.story figure{margin:0}.story img{display:block;width:100%;max-height:650px;object-fit:cover}'
@@ -71,9 +73,9 @@ $author = '.nav{display:flex;justify-content:space-between}.links{display:flex;g
     . '@media (max-width:520px){.pic:nth-child(n){grid-column:span 12;height:280px}}';
 $markup = '<!doctype html><html><head><meta charset="utf-8"><title>Responsive</title><style>' . $author . '</style></head><body>'
     . '<header class="nav"><a class="brand" href="/">Studio</a><button class="menu" onclick="document.querySelector(\'.links\').classList.toggle(\'show\')">☰</button><nav class="links"><a href="/one">One</a><a href="/two">Two</a><a href="/three">Three</a><a href="/four">Four</a><a href="/five">Five</a></nav></header><main>'
-    . '<section class="rounding"><p class="bodycopy">First line<br>Second line<br>Third line</p><div class="following">Following element</div></section>'
+    . '<section class="rounding"><p class="rounding-copy">First line<br>Second line<br>Third line</p><div class="following">Following element</div></section>'
     . '<section class="placement-probe"><p>Panel placement evidence</p></section>'
-    . '<section class="hero"><h1>Hero</h1></section>'
+    . '<section class="hero"><h1>Hero</h1><p class="other-accent">Another palette family with enough text to rank before the muted brown family in the usage-weighted palette.</p><p class="palette">Palette representative</p><p class="bodycopy">Every story is different.</p></section>'
     . '<section class="story"><figure><img src="https://example.com/story.jpg" alt="Story"></figure></section>'
     . '<section class="intro"><h1>Intro</h1><img src="https://example.com/intro.jpg" alt="Intro"><figure><img src="https://example.com/note.jpg" alt="Note"><figcaption class="image-note">Image note</figcaption></figure></section>'
     . '<section class="declared-package"><h2>Declared minimum</h2><p>Content</p></section>'
@@ -114,7 +116,11 @@ $package = static fn(string $mobileHeight): array => array(
 $summaryStyles = array('display' => 'list-item', 'list-style-type' => 'none', 'list-style-position' => 'inside', 'cursor' => 'pointer', 'height' => '18px');
 $captionStyles = array('display' => 'block', 'font-family' => '"Playfair Display"', 'font-size' => '18px', 'font-style' => 'italic', 'color' => 'rgb(185, 155, 98)', 'margin-top' => '18px', 'margin-bottom' => '18px');
 $observed = array(
-    '//p[@class="bodycopy"]' => array_fill_keys(array('desktop', 'mobile'), array('display' => 'block', 'font-size' => '14px', 'line-height' => '28.7px', 'margin-top' => '0px', 'margin-bottom' => '0px')),
+    '//p[@class="rounding-copy"]' => array_fill_keys(array('desktop', 'mobile'), array('display' => 'block', 'font-size' => '14px', 'line-height' => '28.7px', 'margin-top' => '0px', 'margin-bottom' => '0px')),
+    '//body' => array_fill_keys(array('desktop', 'mobile'), array('color' => 'rgb(36, 32, 30)', 'background-color' => 'rgb(255, 255, 255)')),
+    '//p[@class="other-accent"]' => array_fill_keys(array('desktop', 'mobile'), array('color' => 'rgb(35, 87, 172)', 'height' => '200px')),
+    '//p[@class="palette"]' => array_fill_keys(array('desktop', 'mobile'), array('color' => 'rgb(113, 103, 95)', 'background-color' => 'rgb(185, 155, 98)')),
+    '//p[@class="bodycopy"]' => array_fill_keys(array('desktop', 'mobile'), array('color' => 'rgb(118, 107, 97)', 'font-size' => '14px', 'line-height' => '28.7px', 'max-width' => '480px')),
     '//section[@class="placement-probe"]' => array(
         'desktop' => array('display' => 'block', 'position' => 'static', 'top' => 'auto', 'left' => 'auto', 'right' => 'auto'),
         'mobile' => array('display' => 'none', 'position' => 'absolute', 'top' => '65px', 'left' => '0px', 'right' => '0px'),
@@ -260,6 +266,9 @@ $worker = new ArtifactCompiler();
 $composed = $worker->compose($shared, array_values($worker->compilePreparedPages($shared, array_values($plans), $reader)), $reader);
 $result = $composed->toArray();
 $plan = $composed->toWordPressSitePlanView()['wordpress_site_plan'];
+$assert('#71675f' === ($plan['theme']['design_system']['near_shades']['#766b61'] ?? null), 'The paragraph colour is consolidated as a near shade of its palette family.');
+$palette = array_column($plan['theme']['design_system']['palette'], 'color', 'slug');
+$assert(in_array('#71675f', $palette, true), 'The near shade\'s representative is a palette preset.', json_encode($palette));
 
 $assert(count($nodes) === ($result['source_reports']['box_tree']['index.html']['nodes_with_evidence'] ?? null), 'The staged compile accepts the multi-viewport evidence.');
 $assert(!empty($plan['pages'][0]['document_metadata']['engine_owned_styles']), 'The route is engine-owned, so its author stylesheets are retired.');
@@ -607,7 +616,7 @@ $expectHeight($hero, 'hero', array(
 $expectHeight($storyImage, 'story image', array(array(1440, 700, 650), array(768, 600, 650), array(402, 844, 603)));
 $expectHeight($introImage, 'intro image', array(array(1440, 900, 650), array(768, 1024, 650), array(402, 844, 603), array(343, 700, 514.5)));
 
-$bodycopy = $compiledPath->query('//p[contains(@class,"bodycopy")]')->item(0);
+$bodycopy = $compiledPath->query('//p[contains(@class,"rounding-copy")]')->item(0);
 $assert($bodycopy instanceof DOMElement, 'The body copy remains a paragraph.');
 $assert('2.05' === $cascaded($bodycopy, 'line-height', 768), 'The proven invariant author line-height is emitted as 2.05.', (string) $cascaded($bodycopy, 'line-height', 768));
 
@@ -623,22 +632,27 @@ try {
         'compiled' => '[document.querySelector("a[href=\"/contact\"]"),document.querySelector("footer p"),document.querySelector("a[href=\"/buy\"]").closest(".wp-block-buttons"),document.querySelector(".plan"),document.querySelector("small"),document.querySelector("footer")]',
     );
     $probe = static fn(string $document): string => '<script>document.body.dataset.boxes=JSON.stringify(' . $probes[$document]
-        . '.map(e=>{const b=e.getBoundingClientRect();return [b.width,b.height]}));document.body.dataset.following=JSON.stringify(document.querySelector(".following").getBoundingClientRect().y);</script>';
+        . '.map(e=>{const b=e.getBoundingClientRect();return [b.width,b.height]}));document.body.dataset.bodycopyColor=getComputedStyle(document.querySelector(".bodycopy")).color;document.body.dataset.following=JSON.stringify(document.querySelector(".following").getBoundingClientRect().y);</script>';
     $baseline = '<style>body{font-family:Arial;font-size:16px}a{box-sizing:border-box}</style>';
     file_put_contents($directory . '/source.html', $markup . $baseline . $probe('source'));
     $rendered = preg_replace('/<!-- wp:navigation .*?<!-- \/wp:navigation -->/s', $compiled->saveHTML($navigationHost), $result['serialized_blocks']);
     $coreNavigationCss = '.wp-block-navigation{display:flex}.wp-block-navigation__responsive-container-open{display:none}.wp-block-navigation__responsive-container{display:block}@media(max-width:599px){.wp-block-navigation__responsive-container-open{display:flex}.wp-block-navigation__responsive-container{display:none}}';
     $navigationProbe = '<script>const n=document.querySelector(".wp-block-navigation"),t=n.querySelector("button"),p=n.querySelector(".wp-block-navigation__responsive-container");document.body.dataset.navigation=JSON.stringify({toggle:getComputedStyle(t).display,right:t.getBoundingClientRect().right,edge:n.parentElement.getBoundingClientRect().right,links:getComputedStyle(p).display});</script>';
     file_put_contents($directory . '/compiled.html', '<!doctype html><style>' . $coreNavigationCss . $css . '</style>' . $baseline . $rendered . $probe('compiled') . $navigationProbe);
+    // Colour binding happens during composition, after serialized_blocks.
+    file_put_contents($directory . '/canonical.html', '<!doctype html><style>' . $css . '</style>' . $baseline . $plan['pages'][0]['canonical_block_markup'] . $parts['footer']['canonical_block_markup'] . $probe('compiled'));
     foreach (array(1440, 768, 402, 390) as $width) {
         $boxes = array();
         $following = array();
-        foreach (array('source', 'compiled') as $document) {
+        foreach (array('source', 'compiled', 'canonical') as $document) {
             $output = shell_exec(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome)
                 . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($directory . '/profile')
                 . ' --window-size=' . $width . ',900 --dump-dom --virtual-time-budget=1000 '
                 . escapeshellarg('file://' . $directory . '/' . $document . '.html') . ' 2>/dev/null');
             if (!preg_match('/data-boxes="([^"\n]+)"/', (string) $output, $match)) throw new RuntimeException('Missing browser boxes: ' . $output);
+            if (in_array($width, array(1440, 402), true)) {
+                $assert(1 === preg_match('/data-bodycopy-color="rgb\(118, 107, 97\)"/', (string) $output), "At {$width}px the $document near-shade paragraph renders its exact author colour.", (string) $output);
+            }
             if ('compiled' === $document && 1440 !== $width) {
                 if (!preg_match('/data-navigation="([^"\n]+)"/', (string) $output, $navigationMatch)) throw new RuntimeException('Missing navigation probe.');
                 $navigationBox = json_decode(html_entity_decode($navigationMatch[1], ENT_QUOTES), true, 32, JSON_THROW_ON_ERROR);

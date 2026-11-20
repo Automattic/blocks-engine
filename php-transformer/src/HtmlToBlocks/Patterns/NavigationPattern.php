@@ -313,6 +313,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function recognizeNavigation(DOMElement $element, PatternContext $context, NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
+        // No destination or list means neither a menu nor a breadcrumb can
+        // be produced. Avoid cascade and toggle ownership reads for plain boxes.
+        if (0 === $element->getElementsByTagName('a')->length
+            && 0 === $element->getElementsByTagName('ul')->length
+            && 0 === $element->getElementsByTagName('ol')->length
+            && !in_array(strtolower($element->tagName), array('nav', 'ul', 'ol'), true)
+            && !$this->hasNavigationSignal($element)) {
+            return null;
+        }
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $this->createBlock->createBlock(...);
@@ -3631,6 +3640,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // stays on the plain linked-submenu path.
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
+            $navigationContext->observeItemBoxOn($anchor, $item);
             $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
