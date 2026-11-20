@@ -52,7 +52,9 @@ $assert(str_contains($titleAttrs['style']['typography']['fontFamily'], 'Georgia'
 $assert(array('700', '.06em', '1', 'uppercase') === array($titleAttrs['style']['typography']['fontWeight'] ?? null, $titleAttrs['style']['typography']['letterSpacing'] ?? null, $titleAttrs['style']['typography']['lineHeight'] ?? null, $titleAttrs['style']['typography']['textTransform'] ?? null), $cell . ': Title weight, tracking, leading and case survive lowering.');
 $assert('inherit' === $titleAttrs['style']['elements']['link']['color']['text'], $cell . ': The home link uses wordmark colour, not generic theme link colour.');
 if ('' !== $titlePresentation) {
-    $assert('rgba(51,51,51,1)' === $titleAttrs['style']['color']['text'], $cell . ': Title colour survives lowering.');
+    $palette = array_column(json_decode(array_column($plan['writes'], null, 'target_path')['theme.json']['payload']['data'], true)['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $titleColor = isset($titleAttrs['textColor']) ? ($palette[$titleAttrs['textColor']] ?? null) : ($titleAttrs['style']['color']['text'] ?? null);
+    $assert(in_array(strtolower((string) $titleColor), array('#333333', '#333', 'rgba(51,51,51,1)'), true), $cell . ': Title colour survives lowering (as its palette preset when one matches).');
     $assert('none' === $titleAttrs['style']['typography']['textDecoration'], $cell . ': Title decoration survives lowering.');
 }
 $assert(!str_contains($plan['menus'][0]['block_markup'], 'is-active-menu-item'), 'The shared menu does not freeze the captured selection.');

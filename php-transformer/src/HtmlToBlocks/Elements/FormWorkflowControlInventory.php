@@ -24,7 +24,7 @@ final class FormWorkflowControlInventory
         $controls = $metadata->controls($form, array(), null, $elements);
         if ('form' !== strtolower($form->tagName)) return $elements;
 
-        $assets = $session->authorStyleAnalysis()->stylesheetAssets();
+        $assets = $session->authorStyleAnalysis()->stylesheetAssets(true);
         $css = $session->sourceStyleResolutionState()->formLayoutCss();
         $layout = FormBuildScope::layoutGraph($form, null, $assets, $css);
         $steps = true === ($layout['truncated'] ?? true) ? null : FormBuildScope::stepTrack($form, $layout, $assets, $css);

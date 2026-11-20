@@ -726,7 +726,8 @@ final class CssSelectorMatchCache
         return $this->signatureIds[$signature] ??= count($this->signatureIds) + 1;
     }
 
-    private function elementKey(DOMElement $element): string
+    /** Element identity within this cache revision, shared by per-element style memos. */
+    public function elementKey(DOMElement $element): string
     {
         if ( isset($this->connectedElementKeys[$element]) ) {
             ++$this->connectedElementKeyHits;

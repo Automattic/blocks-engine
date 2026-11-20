@@ -52,6 +52,20 @@ final class NavigationToggleSuppressor
     /** @var SplObjectStorage<DOMElement, DOMElement|null> Control-independent hidden-target recognition. */
     private SplObjectStorage $hiddenNavigationTargets;
 
+    /** @var SplObjectStorage<DOMElement, DOMElement|null> Equivalent variants, including misses. */
+    private SplObjectStorage $equivalentNavigationVariants;
+
+    /** @var SplObjectStorage<DOMElement, bool> Mobile signal per candidate. */
+    private SplObjectStorage $mobileNavigationSignals;
+
+    /** @var SplObjectStorage<DOMElement, bool> Visibility evidence per candidate. */
+    private SplObjectStorage $menuVisibilityEvidence;
+
+    /** Cache-miss counters for deterministic work-bound checks. */
+    public int $navigationVariantEvaluations = 0;
+    public int $mobileNavigationSignalEvaluations = 0;
+    public int $menuVisibilityEvidenceEvaluations = 0;
+
     /** Recognizer executions behind {@see self::convertsToCoreNavigation()}. */
     public int $coreNavigationRecognitionExecutions = 0;
 
@@ -60,15 +74,19 @@ final class NavigationToggleSuppressor
         private readonly NavigationToggleSuppressionContext $context,
         private readonly StyleResolver $styleResolver
     ) {
-        $this->coreNavigationRecognitions = new SplObjectStorage();
-        $this->hiddenNavigationTargets = new SplObjectStorage();
+        $this->forgetCoreNavigationRecognitions();
     }
 
     /** Source markup changed after selector analysis, so memoized recognitions are stale. */
     public function forgetCoreNavigationRecognitions(): void
     {
+        $this->toggleCandidates = new SplObjectStorage();
+        $this->navigationToggles = new SplObjectStorage();
         $this->coreNavigationRecognitions = new SplObjectStorage();
         $this->hiddenNavigationTargets = new SplObjectStorage();
+        $this->equivalentNavigationVariants = new SplObjectStorage();
+        $this->mobileNavigationSignals = new SplObjectStorage();
+        $this->menuVisibilityEvidence = new SplObjectStorage();
     }
     /**
      * Bind a hidden dialog/menu to its source hamburger before recursive
@@ -96,6 +114,9 @@ final class NavigationToggleSuppressor
             $this->collectProjectedNavigationRelationshipsFrom($root, $elementsById);
         } finally {
             $this->labelsByFor = $previous;
+            // Relationships and mirror ownership have now settled. Reads
+            // made while collecting them must not survive into conversion.
+            $this->navigationToggles = new SplObjectStorage();
         }
     }
 
@@ -694,6 +715,9 @@ final class NavigationToggleSuppressor
 
     private function recognizeHiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
+        // Hidden text and paint-only wrappers cannot own destinations. This
+        // runs during scope searches, before any visibility cascade is needed.
+        if (0 === $target->getElementsByTagName('a')->length) return null;
         // Large linked stylesheets can carry visibility/opacity outside the
         // structural presentation collection. Read that state through the
         // author cascade, without claiming a native/captured dialog's panel.
@@ -1141,7 +1165,7 @@ final class NavigationToggleSuppressor
         }
     }
 
-    /** @var \WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Document labels by trimmed `for`, while {@see collectSupersededNavToggleSelectors()} runs. */
+    /** @var \WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Document labels by trimmed `for`, during read-only scans. */
     private ?\WeakMap $labelsByFor = null;
 
     /**
@@ -1942,9 +1966,39 @@ final class NavigationToggleSuppressor
     public function releaseCapturedMenuFold(CapturedMenuDialogFold $fold): void
     {
         $this->session->navigationProjectionState()->releaseFold($fold);
+        $this->navigationToggles = new SplObjectStorage();
     }
 
+    /** @var SplObjectStorage<DOMDocument, list<DOMElement>> */
+    private SplObjectStorage $toggleCandidates;
+
+    /** @var SplObjectStorage<DOMElement, array<int, DOMElement|null>> */
+    private SplObjectStorage $navigationToggles;
+
     public function navigationToggleControl(DOMElement $navigation): ?DOMElement
+    {
+        $mode = (int) $this->session->navigationProjectionState()->isBuildingMirror();
+        $entries = $this->navigationToggles[$navigation] ?? array();
+        if (array_key_exists($mode, $entries)) return $entries[$mode];
+        $entries[$mode] = $this->lookupNavigationToggleControl($navigation);
+        $this->navigationToggles[$navigation] = $entries;
+        return $entries[$mode];
+    }
+
+    private function lookupNavigationToggleControl(DOMElement $navigation): ?DOMElement
+    {
+        // This read-only scan may inspect every checkbox. Share one label index
+        // for the scan, but do not retain it across possible source mutations.
+        $previous = $this->labelsByFor;
+        $this->labelsByFor ??= new \WeakMap();
+        try {
+            return $this->findNavigationToggleControl($navigation);
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    private function findNavigationToggleControl(DOMElement $navigation): ?DOMElement
     {
         $fold = $this->session->navigationProjectionState()->foldForRow($navigation);
         if ( $fold instanceof CapturedMenuDialogFold ) {
@@ -1962,7 +2016,7 @@ final class NavigationToggleSuppressor
         }
 
         $navigationVariantRoot = SourceDom::documentVariantRoot($navigation);
-        foreach ( $document->getElementsByTagName('*') as $toggle ) {
+        foreach ( $this->candidateToggleControls($document) as $toggle ) {
             // Prefer the authored collapse target to an unrelated captured dialog.
             if ( $toggle instanceof DOMElement && $this->authoredCollapseControlsNavigation($toggle, $navigation) ) {
                 return $this->concreteToggleControl($toggle);
@@ -2022,6 +2076,21 @@ final class NavigationToggleSuppressor
         }
 
         return null;
+    }
+
+    /** @return list<DOMElement> Stable control candidates in source order. */
+    private function candidateToggleControls(DOMDocument $document): array
+    {
+        if (isset($this->toggleCandidates[$document])) return $this->toggleCandidates[$document];
+        $candidates = array();
+        foreach ($document->getElementsByTagName('*') as $element) {
+            if ('collapse' === trim(SourceDom::attr($element, 'data-bs-toggle') ?: SourceDom::attr($element, 'data-toggle'))
+                || (!$this->isCapturedDialogControl($element)
+                    && ($this->isHamburgerMenuToggleControl($element) || $this->isProjectableHashAnchorMenuToggle($element)))) {
+                $candidates[] = $element;
+            }
+        }
+        return $this->toggleCandidates[$document] = $candidates;
     }
 
     private function authoredCollapseControlsNavigation(DOMElement $toggle, DOMElement $navigation): bool
@@ -2138,6 +2207,15 @@ final class NavigationToggleSuppressor
     }
 
     private function equivalentSourceNavigationVariant(DOMElement $navigation): ?DOMElement
+    {
+        if ( ! $this->equivalentNavigationVariants->contains($navigation) ) {
+            ++$this->navigationVariantEvaluations;
+            $this->equivalentNavigationVariants[$navigation] = $this->findEquivalentSourceNavigationVariant($navigation);
+        }
+        return $this->equivalentNavigationVariants[$navigation];
+    }
+
+    private function findEquivalentSourceNavigationVariant(DOMElement $navigation): ?DOMElement
     {
         $document = $navigation->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
@@ -2272,6 +2350,15 @@ final class NavigationToggleSuppressor
 
     private function hasMobileNavigationSignal(DOMElement $element): bool
     {
+        if ( ! $this->mobileNavigationSignals->contains($element) ) {
+            ++$this->mobileNavigationSignalEvaluations;
+            $this->mobileNavigationSignals[$element] = $this->computeMobileNavigationSignal($element);
+        }
+        return $this->mobileNavigationSignals[$element];
+    }
+
+    private function computeMobileNavigationSignal(DOMElement $element): bool
+    {
         // Device-document names describe the whole capture, not a collapsed
         // menu. A document variant needs its own hidden menu as evidence.
         if ( null !== SourceDom::documentVariantRoot($element) && $this->hasMenuVisibilityEvidence($element) ) {
@@ -2292,6 +2379,15 @@ final class NavigationToggleSuppressor
     }
 
     private function hasMenuVisibilityEvidence(DOMElement $element): bool
+    {
+        if ( ! $this->menuVisibilityEvidence->contains($element) ) {
+            ++$this->menuVisibilityEvidenceEvaluations;
+            $this->menuVisibilityEvidence[$element] = $this->computeMenuVisibilityEvidence($element);
+        }
+        return $this->menuVisibilityEvidence[$element];
+    }
+
+    private function computeMenuVisibilityEvidence(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
             if ( SourceDom::isDocumentVariantRoot($node) ) {

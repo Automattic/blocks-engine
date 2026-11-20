@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
@@ -41,8 +43,13 @@ final class AuthorStyleAnalysis
     private ?CssSelectorMatchCache $selectorMatchCache;
     /** @var list<array<string, mixed>> */
     private array $styleRules = array();
+    /** @var list<array{selector: string, parsed: array<string, mixed>, names: list<string>}>|null */
+    private ?array $dataAttributeSelectorCompounds = null;
     /** @var array<string, mixed>|null */
     private ?array $styleRuleCandidateIndex = null;
+    /** @var array<string, mixed>|null */
+    private ?array $subjectRuleCandidateIndex = null;
+    private ?string $subjectRuleCandidateCollection = null;
     /** @var array<string, true>|null */
     private ?array $captureOnlySelectors = null;
     /** @var list<array{parsed: array<string, mixed>, weight: list<int>}>|null */
@@ -55,12 +62,16 @@ final class AuthorStyleAnalysis
     private ?array $markerCollisionIndex = null;
     /** @var list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
     private readonly array $stylesheetAssets;
+    /** @var list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}>|null */
+    private ?array $prunedStylesheetAssets = null;
+    private ?\Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner $prunedStylesheetAssetsPruner = null;
     private readonly string $specificityShim;
     private readonly string $classSpecificityShim;
     private readonly string $idSpecificityShim;
     /** @var array<string, string> */
     private array $sourceClassMarkers = array();
     private readonly string $authorCssIdentity;
+    private ?string $journalAtRuleIdentity = null;
     private ?\DOMXPath $sourceXPath = null;
     /** @var array{classes: array<string, true>, ids: array<string, true>, predicates: list<array{attribute: string, operator: string, value: string, insensitive: bool}>, raw: bool}|null */
     private ?array $markerContextPolicy = null;
@@ -78,6 +89,7 @@ final class AuthorStyleAnalysis
     {
         $this->combinedCss = $combinedCss;
         $this->stylesheetAssets = $stylesheetAssets;
+        $this->prunedStylesheetAssets = null;
         $this->sourceBody = $sourceBody;
         $this->selectorMatchCache = new CssSelectorMatchCache();
         // Ignore generated-looking markers while hashing each input separately,
@@ -132,8 +144,28 @@ final class AuthorStyleAnalysis
 
     /** Whole-site subject evidence, never stylesheet inventory. */
     public ?\Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner $siteSelectorPruner = null;
-    /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> */
-    public function stylesheetAssets(): array { return $this->stylesheetAssets; }
+    /**
+     * Analysis consumers can prune unreachable arms without changing authored
+     * provenance or the raw assets used for materialization.
+     *
+     * @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}>
+     */
+    public function stylesheetAssets(bool $pruned = false): array
+    {
+        // The pruner is publicly assignable; observe replacements here rather
+        // than requiring callers to use a new setter. Assets are readonly.
+        if ( $this->prunedStylesheetAssetsPruner !== $this->siteSelectorPruner ) {
+            $this->prunedStylesheetAssets = null;
+            $this->prunedStylesheetAssetsPruner = $this->siteSelectorPruner;
+        }
+        if ( ! $pruned || null === $this->siteSelectorPruner ) return $this->stylesheetAssets;
+        return $this->prunedStylesheetAssets ??= array_map(function (array $asset): array {
+            foreach ( array('content', 'cascade_content') as $key ) {
+                if ( isset($asset[$key]) ) $asset[$key] = $this->siteSelectorPruner->prune($asset[$key], true);
+            }
+            return $asset;
+        }, $this->stylesheetAssets);
+    }
     /** @return list<DOMElement> */
     public function sourceElementsByClass(string $class): array { return $this->sourceElementsByClass[$class] ?? array(); }
     /** @return list<string> */
@@ -168,7 +200,10 @@ final class AuthorStyleAnalysis
     public function installStyleRules(array $rules): void
     {
         $this->styleRules = $rules;
+        $this->dataAttributeSelectorCompounds = null;
         $this->styleRuleCandidateIndex = null;
+        $this->subjectRuleCandidateIndex = null;
+        $this->subjectRuleCandidateCollection = null;
         $this->captureOnlySelectors = null;
         $this->typeSubjectSelectors = null;
         $this->positionalParents = null;
@@ -179,6 +214,50 @@ final class AuthorStyleAnalysis
     public function styleRules(): array
     {
         return $this->styleRules;
+    }
+
+    /**
+     * Data predicates in rule, selector and compound order, derived once per installation.
+     *
+     * @return list<array{selector: string, parsed: array<string, mixed>, names: list<string>}>
+     */
+    public function dataAttributeSelectorCompounds(): array
+    {
+        if ( null !== $this->dataAttributeSelectorCompounds ) return $this->dataAttributeSelectorCompounds;
+        $entries = array();
+        foreach ( $this->styleRules as $rule ) {
+            foreach ( $rule['selectors'] as $selector ) {
+                foreach ( $selector['parsed']['compounds'] ?? array() as $compound ) {
+                    $names = CssSelectorCompoundInspector::dataAttributeNames($compound);
+                    if ( array() === $names ) continue;
+                    $entries[] = array(
+                        'selector' => $selector['selector'],
+                        'parsed' => array_replace($selector['parsed'], array('compounds' => array($compound), 'combinators' => array(), 'pseudo_state_suffix_span' => null)),
+                        'names' => $names,
+                    );
+                }
+            }
+        }
+        return $this->dataAttributeSelectorCompounds = $entries;
+    }
+
+    /**
+     * Whole author rules in source order whose subjects could name the element.
+     * Unlike the projection index, retain all conditions and unsupported selectors.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function subjectRuleCandidates(DOMElement $element): array
+    {
+        $this->subjectRuleCandidateIndex ??= CssSubjectIndex::buildForSelectorLists(
+            $this->styleRules,
+            static fn (array $rule): array => array_map(
+                static fn (array $selector): array => $selector['parsed'] ?? array(),
+                $rule['selectors']
+            )
+        );
+        $this->subjectRuleCandidateCollection ??= CssSelectorMatchCache::uniqueCandidateCollection('author-subject-rules');
+        return $this->selectorMatchCache()->styleRuleCandidates($element, $this->subjectRuleCandidateCollection, $this->subjectRuleCandidateIndex);
     }
 
     /**
@@ -404,11 +483,9 @@ final class AuthorStyleAnalysis
      */
     public function journalIdentity(DOMElement $element): ?string
     {
-        // At-rules can introduce non-selector dependencies (fonts, animations,
-        // layers, imports). Until those are modelled, convert normally.
-        if ( preg_match('/@(?!media\b|supports\b)[a-z-]+/i', $this->combinedCss)
-            || ! \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::parse($this->combinedCss)->recoverable
-        ) return null;
+        $tree = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::parse($this->combinedCss);
+        if ( ! $tree->recoverable ) return null;
+        $this->journalAtRuleIdentity ??= hash('sha256', serialize($this->journalAtRules($tree)));
         $nodes = array($element);
         foreach ( $element->getElementsByTagName('*') as $node ) $nodes[] = $node;
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) $nodes[] = $parent;
@@ -418,7 +495,12 @@ final class AuthorStyleAnalysis
             foreach ( $rule['selectors'] as $selector ) {
                 $parsed = $selector['parsed'];
                 if ( ! ($parsed['supported'] ?? false) ) $parsed = $selector['direct_child_parsed'] ?? array();
+                if ( ! ($parsed['supported'] ?? false) ) $parsed = CssSelectorMatcher::parse(self::withoutSimplePseudos($selector['selector']));
                 if ( ! ($parsed['supported'] ?? false) ) {
+                    // View-transition state cannot match a static document.
+                    // Limit this exemption to an unambiguous root subject;
+                    // other unsupported selectors retain the safe fallback.
+                    if ( 1 === preg_match('/^(?::root|html):active-view-transition$/i', trim($selector['selector'])) ) continue;
                     // The established whole-CSS context remains safe for
                     // selectors whose observable context we cannot narrow.
                     return hash('sha256', serialize(array($this->contextIdentity($element), $this->stylesheetAssets)));
@@ -430,13 +512,40 @@ final class AuthorStyleAnalysis
                 if ( array() !== $matches ) $selectors[] = array($selector['selector'], $matches);
             }
             if ( array() !== $selectors ) {
-                // URL bases and provenance are observable for declarations that
-                // refer to assets; do not guess their page-local dependencies.
-                if ( preg_match('/url\s*\(/i', serialize($rule['declarations'])) ) return null;
+                // Asset URL values are inputs, not a reason to decline. The
+                // prepared stylesheet supplies rebased URLs; ChromeJournal's
+                // page digest keys inline relative URLs by their resolved targets.
                 $rules[] = array($selectors, $rule['declarations'], $rule['conditions'] ?? array(), $rule['capture_only'] ?? false);
             }
         }
-        return hash('sha256', serialize(array($this->documentTypeIdentity($element), $rules)));
+        return hash('sha256', serialize(array($this->documentTypeIdentity($element), $this->journalAtRuleIdentity, $rules)));
+    }
+
+    /**
+     * Non-selector dependencies in source order (not a sorted set: layer,
+     * import and duplicate definition order can change the cascade). Grouping
+     * conditions stay attached to opaque blocks; style rules already carry
+     * media/supports/container/layer conditions in styleRules.
+     *
+     * @return list<mixed>
+     */
+    private function journalAtRules(\Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree $tree, int $scope = -1): array
+    {
+        $dependencies = array();
+        foreach ( $tree->rules($scope) as $rule ) {
+            $prelude = trim(\Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments(substr($tree->source, $rule['start'], $rule['boundary'] - $rule['start'])));
+            if ( ! str_starts_with($prelude, '@') ) continue;
+            if ( '{' === $tree->source[$rule['boundary']]
+                && preg_match('/^@(media|supports|container|layer)\b/i', $prelude, $match)
+            ) {
+                $children = $this->journalAtRules($tree, $rule['boundary']);
+                // Even an empty layer establishes cascade order.
+                if ( array() !== $children || 'layer' === strtolower($match[1]) ) $dependencies[] = array($prelude, $children);
+            } else {
+                $dependencies[] = substr($tree->source, $rule['start'], $rule['end'] - $rule['start'] + 1);
+            }
+        }
+        return $dependencies;
     }
 
     /**
@@ -466,6 +575,32 @@ final class AuthorStyleAnalysis
         }
         $node = $nodes->item(0);
         return $node instanceof DOMElement && $node->getNodePath() === $path ? $node : null;
+    }
+
+    /**
+     * The selector with each argument-free pseudo-class and pseudo-element
+     * (`:hover`, `:disabled`, `::before`, vendor names) made neutral. Dropping
+     * a condition only widens what a selector matches, so the result's matches
+     * cover every element the original could reach, in any state.
+     */
+    private static function withoutSimplePseudos(string $selector): string
+    {
+        $out = '';
+        for ( $i = 0, $length = strlen($selector); $i < $length; ++$i ) {
+            if ( '\\' === $selector[ $i ] ) {
+                $out .= substr($selector, $i++, 2);
+            } elseif ( '[' === $selector[ $i ] || '(' === $selector[ $i ] ) {
+                $close = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::matchingClose($selector, $i) ?? $length - 1;
+                $out .= substr($selector, $i, $close - $i + 1);
+                $i = $close;
+            } elseif ( preg_match('/\G::?[a-z-]++(?!\()/Ai', $selector, $match, 0, $i) ) {
+                $out .= ':where(*)';
+                $i += strlen($match[0]) - 1;
+            } else {
+                $out .= $selector[ $i ];
+            }
+        }
+        return $out;
     }
 
     private function documentTypeIdentity(DOMElement $element): string
@@ -739,8 +874,20 @@ final class AuthorStyleAnalysis
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
     public function selectorCandidates(array $parsed): array
     {
-        $compounds = $parsed['compounds'] ?? array();
-        $rightmost = CssSelectorCompoundInspector::rightmost($compounds);
+        return $this->compoundCandidates(CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array())) ?? $this->sourceElements;
+    }
+
+    /**
+     * Elements that can match a subject compound, read from its smallest
+     * keyed index. A subject keyed only inside an `:is()`/`:where()` group
+     * matches through one of the group's alternatives, so it unions their
+     * candidates. Null when the compound has no key.
+     *
+     * @param array<string, mixed> $rightmost
+     * @return list<DOMElement>|null
+     */
+    private function compoundCandidates(array $rightmost): ?array
+    {
         $candidates = array();
         foreach ( $rightmost['ids'] ?? array() as $id ) {
             // A projected captured dialog stands in for the id's holder through
@@ -759,11 +906,27 @@ final class AuthorStyleAnalysis
                 $candidates[] = $this->sourceElementsByAttribute($name);
             }
         }
-        if ( array() === $candidates ) {
-            return $this->sourceElements;
+        if ( array() !== $candidates ) {
+            usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
+            return $candidates[0];
         }
-        usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
-        return $candidates[0];
+        foreach ( $rightmost['any'] ?? array() as $group ) {
+            $union = array();
+            foreach ( $group['alternatives'] ?? array() as $alternative ) {
+                $compounds = $alternative['compounds'] ?? array();
+                $keyed = array() === $compounds ? null : $this->compoundCandidates(CssSelectorCompoundInspector::rightmost($compounds));
+                if ( null === $keyed ) {
+                    continue 2;
+                }
+                foreach ( $keyed as $element ) {
+                    $union[spl_object_id($element)] = $element;
+                }
+            }
+            if ( array() !== ($group['alternatives'] ?? array()) ) {
+                return array_values($union);
+            }
+        }
+        return null;
     }
 
     /** @return list<DOMElement> */
@@ -843,7 +1006,7 @@ final class AuthorStyleAnalysis
     private static function rendersOnScreen(array $conditions): bool
     {
         foreach ( $conditions as $condition ) {
-            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! MediaCondition::targetsScreen($media[1]) ) {
                 return false;
             }
         }

@@ -106,6 +106,10 @@ $distinctPage = (string) ($distinctWrites['templates/page.html']['payload']['dat
 $distinctChildTemplate = (string) ($distinctWrites['templates/page-child.html']['payload']['data'] ?? '');
 $distinctChild = (string) (array_column($distinct['pages'], null, 'source_path')['parent/child/index.html']['canonical_block_markup'] ?? '');
 $assert(1 === substr_count($distinctPage, '"slug":"header"') && 1 === substr_count($distinctPage, '"slug":"footer"'), "The generic page template binds the shared shell even when the only inner page diverges: {$distinctPage}");
-$assert('' !== $distinctChildTemplate && !str_contains($distinctChildTemplate, '"slug":"header"') && !str_contains($distinctChildTemplate, '"slug":"footer"') && str_contains($distinctChild, 'child-header') && str_contains($distinctChild, 'child-footer'), 'The divergent plain page keeps its own chrome behind its override template.');
+$assert('' !== $distinctChildTemplate && !str_contains($distinctChildTemplate, '"slug":"header"') && !str_contains($distinctChildTemplate, '"slug":"footer"') && str_contains($distinctChild, 'child-header'), 'The divergent plain page keeps its own unrelated header behind its override template.');
+// Its footer carries the site's footer copy in another presentation: that is
+// the site footer, so it moves to the route's own footer variant part.
+$childFooter = current(array_filter($distinct['template_parts'], static fn(array $part): bool => 'footer' === $part['area'] && array('parent/child/index.html') === ($part['placement']['source_paths'] ?? null)));
+$assert(is_array($childFooter) && str_contains((string) $childFooter['canonical_block_markup'], 'child-footer') && str_contains($distinctChildTemplate, '"slug":"' . $childFooter['slug'] . '"') && !str_contains($distinctChild, 'child-footer'), 'The divergent footer renders from its own variant part.');
 
 fwrite(STDOUT, "Capture-variant plain-page shell contract passed.\n");

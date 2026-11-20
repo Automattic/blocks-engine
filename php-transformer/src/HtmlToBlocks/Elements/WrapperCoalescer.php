@@ -1226,9 +1226,48 @@ final class WrapperCoalescer
             // canonical structural selector, not a reusable author class.
             if (!is_array($proof) || SourceDom::elementSelector($element) !== ($proof['wrapper_selector'] ?? null)) continue;
             $child = ($this->soleElementChild)($element);
-            if ($child instanceof DOMElement && SourceDom::elementSelector($child) === ($proof['target_selector'] ?? null)) return $proof;
+            if ($child instanceof DOMElement && SourceDom::elementSelector($child) === ($proof['target_selector'] ?? null)) {
+                return $this->definesConsumedCustomProperties($element) ? null : $proof;
+            }
         }
         return null;
+    }
+
+    /** @var array<string, bool> */
+    private array $consumedCustomPropertyDefinitions = array();
+
+    /**
+     * A layout-geometry proof compares boxes with and without the wrapper; it
+     * says nothing about inherited state. Reduction drops the wrapper's
+     * classes, so custom properties its rules define stop reaching the
+     * descendants that read them (an icon `fill:rgb(var(--icon))` falls back
+     * to its default paint). Such a wrapper is not covered by the proof.
+     */
+    private function definesConsumedCustomProperties(DOMElement $element): bool
+    {
+        $key = (string) $element->getNodePath();
+        if (isset($this->consumedCustomPropertyDefinitions[$key])) return $this->consumedCustomPropertyDefinitions[$key];
+        $defined = array();
+        foreach (array_keys($this->matchingAuthorDeclarations($element)) as $name) {
+            if (str_starts_with((string) $name, '--')) $defined[(string) $name] = true;
+        }
+        $consumed = false;
+        if (array() !== $defined) {
+            $pending = array($element);
+            while (!$consumed && null !== ($node = array_pop($pending))) {
+                foreach ($node->childNodes as $child) {
+                    if (!$child instanceof DOMElement) continue;
+                    $pending[] = $child;
+                    foreach ($this->matchingAuthorDeclarations($child) as $value) {
+                        if (!str_contains((string) $value, 'var(') || !preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', (string) $value, $matches)) continue;
+                        foreach ($matches[1] as $name) {
+                            if (isset($defined[$name])) { $consumed = true; break 3; }
+                        }
+                    }
+                }
+            }
+        }
+        return $this->consumedCustomPropertyDefinitions[$key] = $consumed;
     }
 
     /**

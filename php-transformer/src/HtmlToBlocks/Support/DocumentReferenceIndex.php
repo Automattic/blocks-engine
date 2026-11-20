@@ -22,6 +22,18 @@ final class DocumentReferenceIndex
     /** @var array<string, true> */
     private array $cssFragments = array();
 
+    /** @var array<int, array{node: DOMElement, root: DOMElement|null}> */
+    private array $variantRoots = array();
+
+    public function documentVariantRoot(DOMElement $element): ?DOMElement
+    {
+        $key = spl_object_id($element);
+        if (!isset($this->variantRoots[$key])) {
+            $this->variantRoots[$key] = array('node' => $element, 'root' => SourceDom::uncachedDocumentVariantRoot($element));
+        }
+        return $this->variantRoots[$key]['root'];
+    }
+
     public function referencesCssFragment(string $id): bool
     {
         return isset($this->cssFragments[$id]);

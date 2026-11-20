@@ -56,11 +56,11 @@ $compile = static function (callable $store) use ($compiler, $shared, $plans): s
 $separate = $compile(static fn (): MemoryChromeJournalStore => new MemoryChromeJournalStore());
 $sharedStore = $compile(static fn (): DirectoryChromeJournalStore => new DirectoryChromeJournalStore($directory));
 $journals = glob($directory . '/*.journal') ?: array();
-array_map('unlink', $journals);
+array_map('unlink', glob($directory . '/*') ?: array());
 @rmdir($directory);
 
 if ($separate !== $sharedStore) throw new RuntimeException('Replayed chrome compiled differently from converted chrome.');
-// The entry page compiles under its own scope, so it records the footer and
-// so does the first other page; the remaining two replay it.
-if (2 !== count($journals)) throw new RuntimeException('Expected two footer journals, got ' . count($journals) . '.');
+// The entry page compiles under its own scope. Of the others, the first
+// sights the footer's key, the second records it and the third replays it.
+if (1 !== count($journals)) throw new RuntimeException('Expected one footer journal, got ' . count($journals) . '.');
 echo "ok\n";

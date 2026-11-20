@@ -56,9 +56,13 @@ final class AuthorStylesheetMaterialization
         return $this->projectedSelectorBindings;
     }
 
+    /** @var list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}>|null */
+    private ?array $projections = null;
+
     /** @return list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> */
     public function projections(): array
     {
+        if (null !== $this->projections) return $this->projections;
         $projections = array();
         $contentBoxRestatements = new ContentBoxRestatements();
         foreach ( $this->session->authorStyleAnalysis()->stylesheetAssets() as $asset ) {
@@ -87,7 +91,7 @@ final class AuthorStylesheetMaterialization
             );
         }
         $this->contentBoxCss = $contentBoxRestatements->css();
-        return $projections;
+        return $this->projections = $projections;
     }
 
 
@@ -282,6 +286,14 @@ final class AuthorStylesheetMaterialization
         // carriers prune a value equal to their parent's, so no block below
         // restates them.
         'background-color' => 'rgba(0, 0, 0, 0)', 'color' => 'rgb(0, 0, 0)',
+        // The rest of the typography every block inherits, for the same
+        // reason: a paragraph whose leading or family equals the body's
+        // prunes it, so without the body restating them the content falls
+        // back to WordPress's `normal` leading and the user agent's family.
+        // `Times` is how Chromium reports its default family.
+        'font-family' => 'Times', 'font-weight' => '400', 'font-style' => 'normal', 'line-height' => 'normal',
+        'letter-spacing' => 'normal', 'word-spacing' => '0px', 'text-transform' => 'none', 'text-indent' => '0px',
+        'text-shadow' => 'none',
     );
 
     /**

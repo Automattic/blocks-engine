@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
@@ -107,7 +108,7 @@ final class PresetBinding
     private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
 
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
-    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
+    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'cover', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');
@@ -259,18 +260,33 @@ final class PresetBinding
      */
     private ?float $rootPx = null;
 
+    /** Whether author class rules are retired for the document being bound. */
+    private bool $engineOwnedStyles = false;
+
+    /** Bodies of unconditional-state rules that style core button links. @var list<string> */
+    private array $buttonLinkBodies = array();
+
+    /** Button-link properties some rule sets to a value other than the element's. @var array<string,true>|null */
+    private ?array $buttonLinkCompetitors = null;
+
     /**
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
+     * @param list<string> $engineOwnedSources Documents whose author stylesheets retire to engine carriers.
      */
-    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array())
+    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array(), private readonly array $engineOwnedSources = array())
     {
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
-                $this->indexRule($prelude, $body);
+            $printOnly = $conditional && !MediaCondition::targetsScreen((string) $asset['media']);
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $printOnly, $asset): void {
+                // A rule that never renders on screen (print or speech
+                // media) cannot override a screen preset, so it does not
+                // block binding.
+                if (!$printOnly && !self::offScreen($ancestors)) $this->indexRule($prelude, $body);
+                if (!$printOnly && !self::offScreen($ancestors) && str_contains($prelude, '.wp-block-button__link') && !preg_match('/:(?:hover|focus|active|disabled)/i', $prelude)) $this->buttonLinkBodies[] = $body;
                 $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -410,17 +426,20 @@ final class PresetBinding
     {
         if (!str_contains($markup, '<!-- wp:')) return $markup;
         $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
+        $this->engineOwnedStyles = in_array($source, $this->engineOwnedSources, true);
         try {
             return $this->bindMarkup($markup);
         } finally {
             $this->rootPx = $this->siteRootPx;
+            $this->engineOwnedStyles = false;
         }
     }
 
     private function bindMarkup(string $markup): string
     {
         $markup = $this->bindNavigations($markup);
-        $pattern = '/<!-- wp:(' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS))) . ') (\{.*?\}) (\/)?-->/s';
+        $markup = $this->bindSiteTitles($markup);
+        $pattern = '/<!-- wp:([\w-]+) (\{.*?\}) (\/)?-->/s';
         $result = '';
         $offset = 0;
         while (1 === preg_match($pattern, $markup, $match, PREG_OFFSET_CAPTURE, $offset)) {
@@ -479,6 +498,49 @@ final class PresetBinding
             $attributes->textColor = $slug;
             ++$this->bound;
             return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
+        }, $markup);
+    }
+
+    /**
+     * Core renders a site title from its attributes alone (the block is
+     * self-closing), so a palette colour carried as a literal binds there:
+     * as `textColor`/`backgroundColor` where the `!important` preset class
+     * would not change the cascade (safe()), otherwise as the preset
+     * reference, which core renders as the same inline declaration now
+     * following the token (so state rules cascade over it as over the literal). Only exact palette values bind. Shell extraction
+     * promotes shared wordmarks after page binding, so header parts call this
+     * directly.
+     */
+    public function bindSiteTitles(string $markup): string
+    {
+        if (!str_contains($markup, '<!-- wp:site-title ')) return $markup;
+        return (string) preg_replace_callback('/<!-- wp:site-title (\{(?:(?!-->).)*\}) \/-->/s', function (array $match): string {
+            $attributes = json_decode($match[1], false);
+            $color = $attributes instanceof \stdClass ? ($attributes->style->color ?? null) : null;
+            if (!$color instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1]) return $match[0];
+            $classes = 'wp-block-site-title ' . (is_string($attributes->className ?? null) ? $attributes->className : '');
+            $changed = false;
+            $reason = null;
+            foreach (array('text' => array('textColor', 'color', 'has-text-color', 'has-%s-color'), 'background' => array('backgroundColor', 'background-color', 'has-background', 'has-%s-background-color')) as $key => [$preset, $property, $marker, $class]) {
+                $literal = $color->$key ?? null;
+                if (isset($attributes->$preset) || !is_string($literal) || str_starts_with($literal, 'var')) continue;
+                $slug = $this->slug('color', $literal);
+                if (null === $slug) continue;
+                $tokens = $this->tagTokens('<p>', $classes);
+                if ($this->safe($property, $tokens, array($marker, sprintf($class, $slug)))) {
+                    unset($color->$key);
+                    $attributes->$preset = $slug;
+                } elseif ($this->safe($property, $tokens, array(), true, false, $reason, true)) {
+                    $color->$key = 'var:preset|color|' . $slug;
+                } else {
+                    continue;
+                }
+                ++$this->bound;
+                $changed = true;
+            }
+            if (!$changed) return $match[0];
+            self::prune($attributes);
+            return '<!-- wp:site-title ' . BlockAttributes::encode($attributes) . ' /-->';
         }, $markup);
     }
 
@@ -776,15 +838,15 @@ final class PresetBinding
     }
 
     /**
-     * Literal colours on blocks binding does not handle: a block type
-     * without colour support for them, or a self-closing block.
+     * Literal colours on blocks binding cannot inspect: a namespaced
+     * custom block, or a self-closing block without a serialized style tag.
      */
     private function refuseUnsupportedBlocks(string $markup): void
     {
         if (!preg_match_all('/<!-- wp:([a-z0-9\/-]+) (\{(?:(?!-->).)*\}) (\/)?-->/s', $markup, $blocks, PREG_SET_ORDER)) return;
         foreach ($blocks as $block) {
             $name = (string) preg_replace('/^core\//', '', $block[1]);
-            if ('/' !== ($block[3] ?? '') && in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) continue;
+            if ('/' !== ($block[3] ?? '') && 1 === preg_match('/^[\w-]+$/', $name)) continue;
             $attributes = json_decode($block[2], true);
             foreach (array('text', 'background') as $key) {
                 $literal = is_array($attributes) ? ($attributes['style']['color'][$key] ?? null) : null;
@@ -895,9 +957,11 @@ final class PresetBinding
         $d = new PresetBlockDraft($name, $html, $classes, $attributes, $style, $declarations, $tokens, $observed, $supports, $isLink, $deviceOverridden, $buttonLook);
         $this->bindButtonLook($d, $variation);
         $this->bindColorPresets($d);
-        $this->bindBorderColors($d);
-        $this->bindTypography($d);
-        $this->bindSpacing($d);
+        if (in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
+            $this->bindBorderColors($d);
+            $this->bindTypography($d);
+            $this->bindSpacing($d);
+        }
         if (0 === $d->bound) return null;
         return $this->boundBlock($d, $authoredKeys, $tagStart, $tagEnd);
     }
@@ -983,6 +1047,17 @@ final class PresetBinding
             $literal = $style->color->{$key} ?? null;
             if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
+            if (!in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
+                // Observed paint can reach any block after authored-style
+                // projection. Bind only a proven inline literal here: unlike
+                // adding a preset class, this preserves its cascade slot and
+                // does not assume anything about the block's class supports.
+                if (!is_string($literal)) continue;
+                $slug = $this->system->blockColorSlug($this->resolve($literal)) ?? $this->presetSlug('color', $literal, null, $reason);
+                if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'unsupported_block');
+                continue;
+            }
             $blockSlug = is_string($literal) ? $this->system->blockColorSlug($this->resolve($literal)) : null;
             if (null !== $blockSlug) {
                 // A block-only token names this literal where it stands: the
@@ -1052,6 +1127,19 @@ final class PresetBinding
                 // from changes.
                 ++$d->bound;
                 continue;
+            }
+            if (!$safe && 'important' === $reason && $d->isLink && isset($tokens['class:blocks-engine-role-control']) && null !== $slug && is_string($literal)) {
+                // Projected native controls can carry competing base and variant
+                // paints. Neither class alone proves the rendered colour, and a
+                // preset class would change which projected rules yield. Bind the
+                // inline value in place instead: important and interaction rules
+                // still outrank it, in precisely the same cascade slot. Style-text
+                // observers must still be checked before changing the value.
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
+                    ++$d->bound;
+                    continue;
+                }
+                $reason ??= 'inconsistent_source';
             }
             if (!$safe) {
                 $this->refuse($reason);
@@ -1355,7 +1443,9 @@ final class PresetBinding
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
                 $tag = strtolower($selector);
-                if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
+                // Captured-body box materialization uses :root body. It is
+                // still the document body, not a component font override.
+                if (1 === preg_match('/^(?::root\s+)?body(?:\.editor-styles-wrapper)?$/', $tag)) $tag = 'body';
                 $kept = $body;
                 // A matching body paint belongs to Global Styles just like its
                 // font. Preset binding alone would keep the author declaration
@@ -1443,6 +1533,21 @@ final class PresetBinding
      *
      * @return array{list<string>, list<string>}
      */
+    private function competesWithButtonElement(string $property): bool
+    {
+        if (null === $this->buttonLinkCompetitors) {
+            $this->buttonLinkCompetitors = array();
+            foreach ($this->buttonLinkBodies as $body) {
+                foreach (self::declarations($body) as [$name, $value]) {
+                    if (str_starts_with($name, '--') || $this->matchesButtonElement($name, $value)) continue;
+                    $this->buttonLinkCompetitors[$name] = true;
+                    if ('font' === $name) $this->buttonLinkCompetitors['font-size'] = $this->buttonLinkCompetitors['font-weight'] = $this->buttonLinkCompetitors['font-family'] = true;
+                }
+            }
+        }
+        return isset($this->buttonLinkCompetitors[$property]);
+    }
+
     private function partitionButtonDeclarations(string $body): array
     {
         $declarations = CssValueSplitter::splitTopLevel($body, array(';'));
@@ -1457,7 +1562,9 @@ final class PresetBinding
                 default => $family,
             };
             $families[$index] = $family;
-            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1]));
+            // Another button-link rule that sets this property differently
+            // outranks the element style, so yielding would hand it the paint.
+            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1])) && !$this->competesWithButtonElement($property);
             if (!$matches[$index]) $retained[$family] = true;
         }
         $shared = $kept = array();
@@ -2214,6 +2321,9 @@ final class PresetBinding
      */
     private function rendersThroughClass(string $name, string $property, string $literal, array $tokens, string $classes = ''): bool
     {
+        // Source classes remain analysis evidence, but their ordinary rules
+        // are not delivered on captured routes. They cannot replace inline paint.
+        if ($this->engineOwnedStyles) return false;
         $button = 'button' === $name;
         if (!$button && (!in_array($name, self::CLASS_RENDERED_BLOCKS, true) || !in_array($property, array('color', 'border-color'), true))) return false;
         $color = CssColor::parse($this->resolve($literal));
@@ -2278,6 +2388,15 @@ final class PresetBinding
                 else $this->rootVariables[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
             } else $this->scopedVariables[$name][$value] = true;
         }
+    }
+
+    /** Whether a rule's at-rule ancestors include a media list no screen matches. */
+    private static function offScreen(array $ancestors): bool
+    {
+        foreach ($ancestors as $ancestor) {
+            if (1 === preg_match('/^@media\s+(.+)$/is', $ancestor, $match) && !MediaCondition::targetsScreen($match[1])) return true;
+        }
+        return false;
     }
 
     private function indexRule(string $prelude, string $body): void

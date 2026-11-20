@@ -31,6 +31,28 @@ $css = static function (array $result): string {
     return implode("\n", $parts);
 };
 
+// Static predicates must survive both canonical blocks and lowered containers.
+foreach (array(array('h3', 'hide'), array('p', 'hide'), array('div', 'hide'), array('h3', 'data-hide')) as [$tag, $attribute]) {
+    $source = '<style>.title[' . $attribute . '=true]{display:none}</style><main>';
+    foreach (array('true', 'false', null) as $value) {
+        $source .= '<' . $tag . ' class="title"' . (null === $value ? '' : ' ' . $attribute . '="' . $value . '"') . '>Title ' . ($value ?? 'absent') . '</' . $tag . '>';
+    }
+    $result = $transform($source . '<p>Shown</p></main>');
+    $candidate = \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner::candidateHtmlFromSerializedBlocks((string) $result['serialized_blocks']);
+    $dom = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="utf-8" ?>' . $candidate);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    $cascade = new \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade($dom, $css($result));
+    $subjects = (new DOMXPath($dom))->query('//*[contains(concat(" ", normalize-space(@class), " "), " title ")]');
+    $assert(3 === $subjects->length, $tag . '[' . $attribute . '] retains all three source subjects');
+    foreach ($subjects as $index => $subject) {
+        $display = $cascade->resolve($subject, array('display'), array());
+        $assert((0 === $index) === ('none' === ($display['display'] ?? '')), $tag . '[' . $attribute . '] hides exactly the source match, subject ' . $index);
+    }
+}
+
 $nestedMargins = $transform('<style>@layer components{.shell{max-width:1280px;margin-inline:auto;padding-inline:24px;@media (width >=768px){padding-inline:48px;margin-inline:32px;@supports (display:grid){margin-inline:40px}}margin-inline:12px}.row{display:flex;justify-content:center;gap:24px}.label{padding-inline:16px}}</style><div class="shell"><div class="row"><p class="label">One</p><p class="label">Two</p></div></div>');
 $nestedMarginRules = array();
 (new CssStylesheetTransformer())->visitStyleRules($css($nestedMargins), static function (string $selector, string $body, array $conditions) use (&$nestedMarginRules): void {
@@ -85,7 +107,7 @@ $assert(str_contains($behaviorSelectorMarkup, 'js:escaped') && str_contains($beh
 $assert(! str_contains($behaviorSelectorMarkup, 'js-short') && ! str_contains($behaviorSelectorMarkup, 'js-attribute-value'), 'class prefixes and attribute values do not count as authored class selectors');
 
 $candidateDom = new DOMDocument();
-$candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span></body>');
+$candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span><span id="dual"></span><span class="dual-mobile"></span></body>');
 $candidateBody = $candidateDom->getElementsByTagName('body')->item(0);
 if (! $candidateBody instanceof DOMElement) {
     throw new RuntimeException('Attribute candidate fixture did not produce a body element.');
@@ -111,6 +133,15 @@ $assert(
         && array_reduce($attributeCandidates, static fn (bool $matched, DOMElement $element): bool => $matched && $element->hasAttribute('data-color'), true),
     'rightmost attributes lazily narrow selector candidates instead of scanning the full source document'
 );
+$candidateCount = static fn (string $selector): int => count($candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse($selector)));
+$sourceElementCount = $candidateCount('*');
+foreach ( array(
+    ':is(#dual,.dual-mobile)' => 2,
+    'div :where(#dual,span)' => 3,
+    ':is(#dual,*)' => $sourceElementCount,
+) as $selector => $expected ) {
+    $assert($expected === $candidateCount($selector), "an :is()/:where() subject narrows candidates to its alternatives' keys, once each: {$selector}");
+}
 
 $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose text</span><p>Paragraph</p>');
 $paragraphClass = (string) ($paragraph['blocks'][1]['attrs']['className'] ?? '');
