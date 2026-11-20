@@ -663,6 +663,13 @@ final class SourceDom
      */
     public static function documentVariantRoot(DOMElement $element): ?DOMElement
     {
+        $index = DocumentReferenceIndex::forDocument($element->ownerDocument);
+        if (null !== $index && $element->isConnected) return $index->documentVariantRoot($element);
+        return self::uncachedDocumentVariantRoot($element);
+    }
+
+    public static function uncachedDocumentVariantRoot(DOMElement $element): ?DOMElement
+    {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
             if ( self::isDocumentVariantRoot($node) ) {
                 return $node;

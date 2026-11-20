@@ -30,6 +30,8 @@ use DOMElement;
  */
 final class ColumnsPattern implements PatternRecognizerInterface
 {
+    public const FLOAT_WIDTHS_CLASS = 'blocks-engine-float-column-widths';
+
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock
     ) {
@@ -136,6 +138,17 @@ final class ColumnsPattern implements PatternRecognizerInterface
             }
         }
 
+        // Float panes size from width, not flex-basis. Keep that sizing model
+        // when every pane has an authored width, including responsive widths.
+        $floatWidths = false;
+        $allWidths = true;
+        foreach ( $elementChildren as $child ) {
+            $floatWidths = $floatWidths || $this->floats($referenceFloat($child));
+            $sourceWidth = CssValueInspector::declared(SourceDeclarations::parse($referenceViewportStyle($child)), 'width');
+            $allWidths = $allWidths && '' !== $sourceWidth && 'auto' !== $sourceWidth;
+        }
+        $floatWidths = $floatWidths && $allWidths;
+
         $columns = array();
         $columnFallbacks = array();
         foreach ( $elementChildren as $child ) {
@@ -165,6 +178,9 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // core/columns stacks below its breakpoint by default; a source row
         // that never stacks keeps its columns side by side.
         $attrs = $presentationAttributes($element);
+        if ( $floatWidths ) {
+            $attrs['className'] = trim(($attrs['className'] ?? '') . ' ' . self::FLOAT_WIDTHS_CLASS);
+        }
         if ( null !== $isSingleRowAtMobile && $isSingleRowAtMobile($element) ) {
             $attrs['isStackedOnMobile'] = false;
         }

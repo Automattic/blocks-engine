@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
@@ -824,7 +825,7 @@ final class StyleResolver implements ElementPresentationResolver
             $parents = $this->session->boxTreeParentEvidence($source, $parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
-            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid, $target->tagName);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
     }
@@ -881,7 +882,8 @@ final class StyleResolver implements ElementPresentationResolver
             $parents,
             strtolower($source->tagName),
             $intent->lift($source, $this, $observations, $viewports, $parents),
-            $pseudoFluid
+            $pseudoFluid,
+            $this->session->boxTreeCurrentPaint($source)
         );
     }
 
@@ -1173,7 +1175,7 @@ final class StyleResolver implements ElementPresentationResolver
             // A print or speech rule (Bootstrap's `@media print{.navbar{display:none}}`)
             // never draws a screen box, so it is not a viewport variant.
             foreach ( $conditions as $condition ) {
-                if ( preg_match('/^@media\s*(.*)$/is', $condition, $media ) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+                if ( preg_match('/^@media\s*(.*)$/is', $condition, $media ) && ! MediaCondition::targetsScreen($media[1]) ) {
                     continue 2;
                 }
             }
@@ -1262,6 +1264,14 @@ final class StyleResolver implements ElementPresentationResolver
     public function responsiveTypographyClassName(DOMElement $element): string
     {
         if (isset(SourceDeclarations::inline($element)['font-size'])) {
+            return '';
+        }
+        // With box-tree evidence the author stylesheet is not shipped (ADR
+        // 0005) and the box-tree carrier owns font-size, lifting the author's
+        // breakpoint variants itself. This rescue restates author rules after
+        // that carrier: it would outrank it, and read author custom properties
+        // the route never defines.
+        if (array() !== $this->session->boxTreeViewports()) {
             return '';
         }
 
@@ -2257,7 +2267,7 @@ final class StyleResolver implements ElementPresentationResolver
             // A print or speech rule (`@media print{img{max-width:100%}}`)
             // never draws a screen box, so it is not a viewport variant.
             foreach ($rule['conditions'] ?? array() as $condition) {
-                if (preg_match('/^@media\s*(.*)$/is', trim($condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1])) {
+                if (preg_match('/^@media\s*(.*)$/is', trim($condition), $media) && ! MediaCondition::targetsScreen($media[1])) {
                     continue 2;
                 }
             }
@@ -5456,6 +5466,46 @@ final class StyleResolver implements ElementPresentationResolver
         return $widths;
     }
 
+    /** Carry media-owned image positions onto Core's image, not the emptied background wrapper. */
+    public function responsiveCoverPositionClassName(DOMElement $element): string
+    {
+        $resolver = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver();
+        $style = $this->coverPresentationStyle($element);
+        $base = $resolver->focalPointFromStyle($style);
+        $sequence = $this->declarationSequence($element, 'background-position');
+        $inlinePosition = SourceDeclarations::inline($element)['background-position'] ?? null;
+        $fact = self::stylesheetCascadeFact(...);
+        $baseEntry = null;
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] && (null === $baseEntry || CssCascade::wins($fact($entry), $fact($baseEntry)))) {
+                $baseEntry = $entry;
+            }
+        }
+        $conditional = array();
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] || (null !== $baseEntry && !CssCascade::wins($fact($entry), $fact($baseEntry)))) continue;
+            if (null !== $inlinePosition && (CssValueInspector::isImportant($inlinePosition) || !$entry['important'])) continue;
+            $key = serialize($entry['queries']);
+            if (!isset($conditional[$key]) || CssCascade::wins($fact($entry), $fact($conditional[$key]))) $conditional[$key] = $entry;
+        }
+        usort($conditional, static fn (array $a, array $b): int => CssCascade::wins($fact($a), $fact($b)) ? (CssCascade::wins($fact($b), $fact($a)) ? 0 : 1) : -1);
+        $rules = array();
+        foreach ($conditional as $entry) {
+            $position = $resolver->focalPointFromStyle($style . ';background-position:' . $entry['value']);
+            if (null === $position || $position === $base) continue;
+            // Core saves the base object-position inline, so the scoped override
+            // must be important even when the source declaration is not.
+            $rule = '.%s>.wp-block-cover__image-background{object-position:'
+                . (int) round($position['x'] * 100) . '% ' . (int) round($position['y'] * 100) . '%!important}';
+            foreach (array_reverse($entry['queries']) as $query) $rule = $query . '{' . $rule . '}';
+            $rules[] = $rule;
+        }
+        if (array() === $rules) return '';
+        $className = 'blocks-engine-cover-position-' . substr(hash('sha256', serialize($rules)), 0, 12);
+        $this->session->layoutGeometryState()->registerRule($className, str_replace('.%s>', '.' . $className . '>', implode("\n", $rules)));
+        return $className;
+    }
+
     /**
      * Promote only a viewport-invariant photo/overlay to editable cover media.
      * Other conditional presentation remains stylesheet-owned.
@@ -5712,7 +5762,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $conditions = $rule['conditions'] ?? array();
                 if (array() === $conditions) continue;
                 foreach ($conditions as $condition) {
-                    if (!preg_match('/^@media\s+(.+)$/is', $condition, $match) || !CssCascade::mediaConditionTargetsScreen($match[1])) continue 2;
+                    if (!preg_match('/^@media\s+(.+)$/is', $condition, $match) || !MediaCondition::targetsScreen($match[1])) continue 2;
                 }
                 $stacks[serialize($conditions)] = $conditions;
             }
@@ -5737,7 +5787,7 @@ final class StyleResolver implements ElementPresentationResolver
             if (in_array('font', $declared, true)) array_push($declared, ...self::FONT_SHORTHAND_LONGHANDS);
             if (array() === $conditions || array() === array_intersect($properties, $declared)) continue;
             foreach ($conditions as $condition) {
-                if (!preg_match('/^@media\s*(.+)$/is', $condition, $match) || !CssCascade::mediaConditionTargetsScreen($match[1])) continue 2;
+                if (!preg_match('/^@media\s*(.+)$/is', $condition, $match) || !MediaCondition::targetsScreen($match[1])) continue 2;
             }
             $stacks[serialize($conditions)] = $conditions;
         }
@@ -5754,6 +5804,21 @@ final class StyleResolver implements ElementPresentationResolver
      * @return array<string, string>
      */
     private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array(), bool $skipForeignConditions = false): array
+    {
+        return $this->session->sourceStyleResolutionState()->authoredInheritedDeclarations(
+            $element,
+            $navigationEditor,
+            $conditions,
+            $skipForeignConditions,
+            fn (DOMElement $element): array => $this->computeAuthoredInheritedDeclarations($element, $navigationEditor, $conditions, $skipForeignConditions)
+        );
+    }
+
+    /**
+     * @param list<string> $conditions
+     * @return array<string, string>
+     */
+    private function computeAuthoredInheritedDeclarations(DOMElement $element, bool $navigationEditor, array $conditions, bool $skipForeignConditions): array
     {
         $cascade = array();
         $sequence = 0;
@@ -6058,6 +6123,7 @@ final class StyleResolver implements ElementPresentationResolver
                     'grid-template-columns',
                     'gap',
                     'column-gap',
+                    'justify-content',
                     'min-width',
                     'max-width',
                     'perspective',

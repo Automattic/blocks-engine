@@ -57,6 +57,22 @@ are no shorthand aliases. A desktop document served separately from
 `html-mobile/…` needs only its desktop observation. Every declared viewport
 still requires an observation on every node. Producers must update in lockstep.
 
+## v3 compact encoding
+
+`blocks-engine/box-tree/v3` is a lossless encoding of v2 for long pages, which
+repeat a few distinct `used_styles` objects across thousands of observations.
+It is identical to v2 except that it declares that schema, adds a top-level
+`styles` list whose entries each have the v2 `used_styles` shape, and makes
+every node observation's and every pseudo observation's `used_styles` an
+integer index into `styles`. `Contract\BoxTree::expandCompact()` resolves the
+indexes and restores the v2 schema before validation, so validation and every
+consumer see v2. A `styles` value that is not a list, an entry that is not an
+object, or an index that is not an integer within the list rejects the sidecar
+with `box_tree_styles_invalid`; style content is then validated as in v2.
+Readers that predate v3 reject it with `box_tree_schema_invalid` and convert
+without evidence. Producers should keep writing v2 unless a sidecar would
+exceed an importer's per-file limit.
+
 ## v2 rendered styles and pseudo-elements
 
 The required vocabulary also covers typography, text color/decorations, placement
@@ -126,6 +142,14 @@ and the deciding `criterion`. Criteria are `paints`, `clips`, `multi-child-layou
 `own-sizing`; neutral nodes have `equal-child-geometry`. Precedence follows that
 order. Neutrality requires one element child, no direct non-whitespace text, and
 matching x/y/width/height at **every** viewport (0.01 CSS pixel tolerance).
+Equal geometry is not neutral when reparenting the child would size it from
+content in the nearest non-collapsed flex ancestor. A block-level in-flow
+wrapper is kept as `own-sizing` (and cannot fold) if, at any capture, it is a
+row flex container's sole in-flow item, fills the content width including its
+margins (0.5 CSS pixel tolerance), and has zero flex-grow; or if it is a column
+flex item with a resolved non-stretch alignment such as `center` or `flex-end`.
+Siblings or a row item short of the line prove nothing. Column alignment uses
+known non-stretch values only: unknown values do not prove shrinkage.
 Containing-block ownership is resolved separately at each viewport, including
 transformed ancestors of fixed descendants. These are reports, not collapse
 instructions; converted blocks and author styles are unchanged.

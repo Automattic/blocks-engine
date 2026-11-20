@@ -20,8 +20,9 @@ final class BoxTreeReport
         foreach ($files as $file) {
             if (!BoxTree::isSidecarPath($file['path'])) continue;
             $content = $file['content'] ?? '';
-            $tree = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
-            $code = self::validate($tree, $sources);
+            $decoded = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
+            $tree = BoxTree::expandCompact($decoded);
+            $code = null === $tree && null !== $decoded ? 'box_tree_styles_invalid' : self::validate($tree, $sources);
             if (null === $code) {
                 $path = $tree['source_path'];
                 if (isset($seen[$path])) {
@@ -31,7 +32,7 @@ final class BoxTreeReport
                 $seen[$path] = true;
             }
             if (null !== $code) {
-                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($tree) && is_string($tree['source_path'] ?? null) ? $tree['source_path'] : null)));
+                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($decoded) && is_string($decoded['source_path'] ?? null) ? $decoded['source_path'] : null)));
                 continue;
             }
             $trees[$tree['source_path']] = $tree;
@@ -131,7 +132,7 @@ final class BoxTreeReport
                         foreach ($trees[$path]['nodes'][$id]['viewports'] ?? array() as $name => $observation) {
                             $comparison = $observation;
                             // Current-link paint is route state, not a geometry
-                            // disagreement. Keep each route's observed paint.
+                            // disagreement. Normalize its paint after grouping.
                             if (isset($currentIndexes[$index])) {
                                 foreach (array_keys($comparison['used_styles']) as $property) if (str_starts_with($property, 'background-')) unset($comparison['used_styles'][$property]);
                             }
@@ -145,6 +146,31 @@ final class BoxTreeReport
                 $observations = $candidateObservations;
                 $comparisons = $candidateComparisons;
                 $compatible[$path] = $landmarks;
+            }
+            $currentPaint = array();
+            // A route's current link paints its current state, which the
+            // shared chrome cannot pin on one item: the node keeps a peer's
+            // resting paint, and its current paint is kept as route state.
+            foreach ($compatible as $path => $landmarks) foreach ($landmarks as $ids) foreach ($ids as $index => $id) {
+                if (!isset($current[$path][$id])) continue;
+                $resting = null;
+                foreach ($compatible as $peer => $peerLandmarks) foreach ($peerLandmarks as $peerIds) {
+                    $peerId = $peerIds[$index] ?? null;
+                    if (null === $resting && $peer !== $path && null !== $peerId && !isset($current[$peer][$peerId])) $resting = $trees[$peer]['nodes'][$peerId]['viewports'] ?? null;
+                }
+                if (null === $resting) continue;
+                foreach ($trees[$path]['nodes'][$id]['viewports'] ?? array() as $name => $observation) {
+                    if (!isset($resting[$name]['used_styles'])) continue;
+                    foreach ($observation['used_styles'] as $property => $value) {
+                        if (!str_starts_with($property, 'background-') || !array_key_exists($property, $resting[$name]['used_styles']) || $resting[$name]['used_styles'][$property] === $value) continue;
+                        $currentPaint[$index][$name][$property] = $value;
+                        $trees[$path]['nodes'][$id]['viewports'][$name]['used_styles'][$property] = $resting[$name]['used_styles'][$property];
+                    }
+                }
+            }
+            // Every route's chrome serves each link as current on its own route.
+            foreach ($compatible as $path => $landmarks) foreach ($landmarks as $ids) foreach ($ids as $index => $id) {
+                if (isset($currentPaint[$index])) $trees[$path]['current_paint'][$id] = $currentPaint[$index];
             }
             $parentObservations = array();
             foreach ($compatible as $path => $landmarks) foreach ($landmarks as $ids) {
@@ -250,11 +276,11 @@ final class BoxTreeReport
             if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || abs($value) > 100000000 || (in_array($axis, array('width', 'height'), true) && $value < 0)) return 'box_tree_geometry_invalid';
         }
         $styles = $observation['used_styles'] ?? null;
-        if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES))) return 'box_tree_styles_invalid';
+        if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES, BoxTree::PAINT_PROPERTIES))) return 'box_tree_styles_invalid';
         foreach (BoxTree::PROPERTIES as $property) {
             if (!is_string($styles[$property] ?? null) || '' === $styles[$property] || strlen($styles[$property]) > 4096) return 'box_tree_styles_invalid';
         }
-        foreach (BoxTree::MOTION_PROPERTIES as $property) {
+        foreach (array_merge(BoxTree::MOTION_PROPERTIES, BoxTree::PAINT_PROPERTIES) as $property) {
             if (array_key_exists($property, $styles) && (!is_string($styles[$property]) || '' === $styles[$property] || strlen($styles[$property]) > 4096)) return 'box_tree_styles_invalid';
         }
         return null;

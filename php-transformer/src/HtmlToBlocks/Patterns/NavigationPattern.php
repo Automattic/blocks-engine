@@ -313,6 +313,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function recognizeNavigation(DOMElement $element, PatternContext $context, NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
+        // No destination or list means neither a menu nor a breadcrumb can
+        // be produced. Avoid cascade and toggle ownership reads for plain boxes.
+        if (0 === $element->getElementsByTagName('a')->length
+            && 0 === $element->getElementsByTagName('ul')->length
+            && 0 === $element->getElementsByTagName('ol')->length
+            && !in_array(strtolower($element->tagName), array('nav', 'ul', 'ol'), true)
+            && !$this->hasNavigationSignal($element)) {
+            return null;
+        }
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $this->createBlock->createBlock(...);
@@ -482,7 +491,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
+        }
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -1022,7 +1033,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
+        }
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
@@ -1743,7 +1756,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * Carry a source list that stacks block items onto core's flow layout.
+     * Carry a source list that stacks block items onto core's stacked layout.
      *
      * An in-flow list navigation renders its generated list as
      * `display:contents`, so the items lay out in the navigation host. With no
@@ -1755,7 +1768,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * `.item{display:flex}`, as it does in the browser). Floated
      * block items still need flow: a flex row ignores the float that the
      * projected item rule carries. UA-only floated items keep the existing
-     * horizontal output rather than being mistaken for a stack.
+     * horizontal output rather than being mistaken for a stack. An explicitly
+     * block-displayed list uses a vertical, non-wrapping flex layout because its
+     * list-box projection maps the authored display onto the native flex root.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -1770,10 +1785,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $items = 0;
+        $floated = false;
         foreach ( $list->childNodes as $child ) {
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
+            $floated = $floated || $navigationContext->isFloated($child);
             $itemDisplay = $navigationContext->cascadeDisplay($child);
             if ( '' === $itemDisplay && $navigationContext->isFloated($child) ) {
                 return $attrs;
@@ -1785,7 +1802,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( 0 < $items ) {
-            $attrs['layout'] = array( 'type' => 'default' );
+            // The list-box projector maps authored block display to flex.
+            // Keep that box vertical; floated items still require flow.
+            $attrs['layout'] = ! $floated && in_array($navigationContext->cascadeDisplay($list), array( 'block', 'flow-root' ), true)
+                ? array( 'type' => 'flex', 'orientation' => 'vertical', 'flexWrap' => 'nowrap' )
+                : array( 'type' => 'default' );
         }
 
         return $attrs;
@@ -3619,6 +3640,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // stays on the plain linked-submenu path.
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
+            $navigationContext->observeItemBoxOn($anchor, $item);
             $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');

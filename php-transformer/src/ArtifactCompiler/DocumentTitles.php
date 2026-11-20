@@ -392,7 +392,11 @@ final class DocumentTitles
         $entryBody = 'contains(concat(" ", normalize-space(@class), " "), " entry-content ") or contains(concat(" ", normalize-space(@class), " "), " wp-block-post-content ")';
         $chrome = 'self::aside or @id="comments" or contains(@class, "comments") or @role="complementary" or @role="contentinfo" or self::form'
             . ' or (self::footer and not(ancestor::main or ancestor::article or ancestor::section))';
-        $headings = $xpath->query('//*[self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6][ancestor-or-self::*[' . $chrome . '] or preceding::*[' . $entryBody . ']]');
+        // Most pages have no entry-body marker. Testing the preceding axis
+        // for every heading otherwise walks the same document prefix hundreds
+        // of times even though no preceding element can satisfy it.
+        $hasEntryBody = 0 < $xpath->query('//*[' . $entryBody . ']')->length;
+        $headings = $xpath->query('//*[self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6][ancestor-or-self::*[' . $chrome . ']' . ($hasEntryBody ? ' or preceding::*[' . $entryBody . ']' : '') . ']');
         $nodes = array();
         foreach ($headings ?: array() as $node) $nodes[] = $node;
         if (array() === $nodes) return $html;

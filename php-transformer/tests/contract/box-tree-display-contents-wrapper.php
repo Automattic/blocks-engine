@@ -26,6 +26,27 @@ $result = $compile($html, $tree);
 if (str_contains($result['serialized_blocks'], '"className":"preset') || !str_contains($result['serialized_blocks'], '<!-- wp:paragraph ')) {
     throw new RuntimeException('A boxless wrapper must not introduce an editor Group around its editable child.');
 }
+// Preset wrappers often disable hit testing while their sole child restores
+// it. The contents wrapper has no hit-test box and adds no runtime boundary.
+$pointerHtml = str_replace('.preset{display:contents}.text{margin-left:20px}', '.preset{display:contents;pointer-events:none}.text{margin-left:20px;pointer-events:auto}', $html);
+$pointerTree = $tree;
+$pointerTree['source_hash'] = hash('sha256', $pointerHtml);
+foreach ($pointerTree['nodes']['n6']['viewports'] as &$observation) {
+    $observation['used_styles']['pointer-events'] = 'none';
+}
+unset($observation);
+foreach ($pointerTree['nodes']['n7']['viewports'] as &$observation) {
+    $observation['used_styles']['pointer-events'] = 'auto';
+}
+unset($observation);
+$pointerResult = $compile($pointerHtml, $pointerTree);
+$pointerNode = $pointerResult['source_reports']['box_tree']['index.html']['classification']['nodes']['n6'];
+if ('neutral' !== $pointerNode['disposition'] || str_contains($pointerResult['serialized_blocks'], '<!-- wp:group {"className":"preset')) {
+    throw new RuntimeException('A boxless disabled pointer ancestor must not add a Group around its hit-testable child.');
+}
+if (!str_contains($pointerResult['serialized_blocks'], 'Editable text') || !str_contains($pointerResult['serialized_blocks'], '<!-- wp:paragraph ')) {
+    throw new RuntimeException('Pointer restoration must remain on editable native text.');
+}
 // Removing the editor Group must not rebase the child's style projection
 // onto the outer flex container. Compare its public serialized block with the same
 // contents boundary retained for interaction.
