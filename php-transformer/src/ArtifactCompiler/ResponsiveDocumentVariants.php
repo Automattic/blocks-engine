@@ -221,7 +221,7 @@ final class ResponsiveDocumentVariants
     {
         $css = CssUrlRewriter::rewrite($css, $rebase);
         return (string) preg_replace_callback(
-            '~(@import\s+)(["\'])([^"\']+)\2~i',
+            '~(' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . ')(["\'])([^"\']+)\2~i',
             static fn(array $match): string => $match[1] . $match[2] . $rebase($match[3]) . $match[2],
             $css
         );

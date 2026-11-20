@@ -83,9 +83,9 @@ final class EmptyStylesheets
         $offset = 0;
         // Imports precede every rule but @charset and @layer statements. A
         // statement's only braces are the plan's reference tokens.
-        while (preg_match('/\G(?:\s+|\/\*.*?\*\/|@(?:charset|layer|import)\s(?:[^;{]|\{\{[^{}]*\}\})*;)/As', $css, $match, 0, $offset)) {
+        while (preg_match('/\G(?:\s+|\/\*.*?\*\/|(?:@(?:charset|layer)\s|' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . ')(?:[^;{]|\{\{[^{}]*\}\})*;)/As', $css, $match, 0, $offset)) {
             $offset += strlen($match[0]);
-            $import = preg_match('/^@import\s+(?:url\(\s*)?(["\']?)' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '([^}]+)\}\}\1\s*\)?([^;]*);$/is', $match[0], $parts);
+            $import = preg_match('/^' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . '(?:url\(\s*)?(["\']?)' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '([^}]+)\}\}\1\s*\)?([^;]*);$/is', $match[0], $parts);
             if (1 === $import && isset($tokens[$parts[2]]) && !preg_match('/\blayer\b/i', $parts[3])) continue;
             $output .= $match[0];
         }
