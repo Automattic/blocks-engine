@@ -610,11 +610,13 @@ final class ImageLowering
                 $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
                 if ( $figure instanceof DOMElement && SourceDom::elementContains($link, $figure) ) {
                     // The source link wrapped the container; core/image moves it
-                    // inside. It must not insert a new containing block between
-                    // that container and an absolutely positioned image.
+                    // inside. It must not insert a new containing block or line
+                    // box between that container and an absolutely positioned
+                    // image. A static block keeps the link focusable, which
+                    // `display:contents` does not in Chromium.
                     $geometry = $this->session->layoutGeometryState();
                     $carrier = $geometry->allocateCarrier('image-link-container-swap');
-                    $geometry->registerRule($carrier, ':root figure.' . $carrier . '>a{display:contents!important;position:static!important;width:auto!important;height:auto!important}');
+                    $geometry->registerRule($carrier, ':root figure.' . $carrier . '>a{display:block!important;position:static!important;width:auto!important;height:auto!important}');
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
                 }
             }

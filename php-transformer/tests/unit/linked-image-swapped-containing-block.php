@@ -31,7 +31,7 @@ $matcher = new CssSelectorMatcher();
 $transparent = false;
 preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css, $rules, PREG_SET_ORDER);
 foreach ( $rules as $rule ) {
-    if ( str_contains($rule[2], 'display:contents!important')
+    if ( str_contains($rule[2], 'display:block!important')
         && str_contains($rule[2], 'position:static!important')
         && str_contains($rule[2], 'height:auto!important')
         && str_contains($rule[2], 'width:auto!important')
