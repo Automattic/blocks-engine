@@ -29,7 +29,11 @@ foreach (array('native', 'navigation') as $subject) {
         }
         $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'page-0.html', 'files' => $files))->toArray();
         $plan = $result['source_reports']['wordpress_site_plan'];
-        $styles = array_filter($plan['assets'], static fn(array $a): bool => str_contains($a['content'] ?? '', '--sample-'));
+        // A route's delivery copy is a subset of its shared sheet, written in
+        // its stead: the shared sheet carries the scaling contract.
+        $copies = array();
+        foreach ($plan['assets'] as $a) foreach ($a['stylesheet_deliveries'] ?? array() as $target) $copies[$target] = true;
+        $styles = array_filter($plan['assets'], static fn(array $a): bool => str_contains($a['content'] ?? '', '--sample-') && !isset($copies[$a['target_path']]));
         $compiled = implode('', array_column($styles, 'content'));
         $bytes = strlen($compiled);
         $assert($bytes <= 5 * strlen($css), "$subject/$count: bounded source-to-output ratio ($bytes bytes)");

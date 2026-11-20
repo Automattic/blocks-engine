@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 
 /**
@@ -43,6 +44,24 @@ final class AuthorStylesheetMaterialization
         private readonly bool $nativeDocumentContext,
         private readonly string $sourcePath
     ) {
+    }
+
+    /**
+     * Whether the source form boxes handed to the form provider author their
+     * margin only in cascade layers: at least one does, and none sets it in
+     * an unlayered rule (including state rules), which `revert-layer` would
+     * otherwise roll back.
+     */
+    private function providerFormBoxMarginIsLayered(): bool
+    {
+        $layered = false;
+        foreach ( $this->session->authorStyleAnalysis()->sourceBody()->getElementsByTagName('form') as $form ) {
+            if ( array() === FormDispatcher::hostRenderedClasses($form) ) continue;
+            $margin = $this->styleResolver->authorPropertyFamilyLayering($form, array( 'margin' => '/^margin(?:-.*)?$/' ), true)['margin'] ?? null;
+            if ( false === $margin ) return false;
+            if ( true === $margin ) $layered = true;
+        }
+        return $layered;
     }
 
     public function contentBoxCss(): string
@@ -94,7 +113,6 @@ final class AuthorStylesheetMaterialization
         return $this->projections = $projections;
     }
 
-
     /**
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @param list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> $authorStylesheetProjections
@@ -134,10 +152,6 @@ final class AuthorStylesheetMaterialization
         }
         $afterAuthorCss->add(CascadeLayer::SOURCE_BOX_MODEL_RESTATEMENT, $contentBoxSupportCss);
         $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
-        $bodyCss = $this->boxTreeBodyCss($html);
-        if ( '' !== $bodyCss ) {
-            $beforeAuthorCssParts[] = $bodyCss;
-        }
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
             // precedence over normal selectors while authored !important rules
@@ -160,7 +174,7 @@ final class AuthorStylesheetMaterialization
         // CascadeLayer (see CascadeLayer), not by the order these calls
         // appear in. $afterAuthorCss orders the collected stylesheet by that
         // declared layer once every contribution below has been collected.
-        $afterAuthorCss->absorb($engineSupportCss->generatedMarkupRepairCss($serializedBlocks));
+        $afterAuthorCss->absorb($engineSupportCss->generatedMarkupRepairCss($serializedBlocks, $this->providerFormBoxMarginIsLayered()));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkBoxRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationAnchorLineHeightRules($serializedBlocks));
@@ -239,9 +253,10 @@ final class AuthorStylesheetMaterialization
             }
             foreach ( $coreDefaultResetParts as $offset => $part ) {
                 // Beat Core's unlayered default, but roll back to the author
-                // layers when they declare this margin. The engine layer is
-                // the fallback only when no author layer owns the property.
-                $bridge = preg_replace('/(?<=[{:;])0(?=[;}])/', 'revert-layer', $part);
+                // layers when they declare this margin (or position). The
+                // engine layer is the fallback only when no author layer owns
+                // the property.
+                $bridge = preg_replace('/(?<=[{:;])(?:0|static)(?=[;}])/', 'revert-layer', $part);
                 $beforeAuthorCssParts[$coreDefaultResetStart + $offset] = '@layer ' . self::ENGINE_RESET_LAYER . '{' . $part . '}' . $bridge;
             }
             $authorLayerOrder = '@layer ' . self::ENGINE_RESET_LAYER . ',' . substr($authorLayerOrder, strlen('@layer '));
@@ -259,7 +274,6 @@ final class AuthorStylesheetMaterialization
         );
     }
 
-
     private function namesAuthorOwnedLayer(string $layerOrderStatement): bool
     {
         $names = explode(',', rtrim(substr($layerOrderStatement, strlen('@layer ')), ';'));
@@ -272,7 +286,6 @@ final class AuthorStylesheetMaterialization
         return false;
     }
 
-
     /**
      * Properties of the source body that its own box owns, rather than
      * passing to its content by inheritance, with their initial values.
@@ -282,9 +295,6 @@ final class AuthorStylesheetMaterialization
         'margin-top' => '0px', 'margin-right' => '0px', 'margin-bottom' => '0px', 'margin-left' => '0px',
         'padding-top' => '0px', 'padding-right' => '0px', 'padding-bottom' => '0px', 'padding-left' => '0px',
         'text-align' => 'start',
-        // The canvas paint and the text colour every block inherits: box-tree
-        // carriers prune a value equal to their parent's, so no block below
-        // restates them.
         'background-color' => 'rgba(0, 0, 0, 0)', 'color' => 'rgb(0, 0, 0)',
         // The rest of the typography every block inherits, for the same
         // reason: a paragraph whose leading or family equals the body's
@@ -295,41 +305,6 @@ final class AuthorStylesheetMaterialization
         'letter-spacing' => 'normal', 'word-spacing' => '0px', 'text-transform' => 'none', 'text-indent' => '0px',
         'text-shadow' => 'none',
     );
-
-    /**
-     * On a box-tree route the author stylesheet is not shipped (ADR 0005) and
-     * the source body becomes no block, so nothing else restates the column,
-     * centring, padding, background and text colour the author gave it.
-     * WordPress renders the content in its own body: restate the source
-     * body's box there, from its evidence and the author intent lifted from
-     * it. The source `html` paints the canvas behind the body when it has its
-     * own background, so its observed colour is restated on the root.
-     */
-    private function boxTreeBodyCss(string $html): string
-    {
-        $viewports = $this->session->boxTreeViewports();
-        if ( array() === $viewports || ! preg_match('/<body\b/i', $html) ) {
-            return '';
-        }
-        $source = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::parseDocument($html)->getElementsByTagName('body')->item(0);
-        $observations = $source instanceof \DOMElement ? $this->session->boxTreeEvidence($source) : array();
-        $root = $source?->parentNode;
-        if ( array() === $observations || ! $root instanceof \DOMElement ) {
-            return '';
-        }
-        $body = $this->session->authorStyleAnalysis()->sourceBody();
-        $rootObservations = $this->session->boxTreeEvidence($root);
-        $fluid = ( new BoxTreeFluidIntent() )->lift($body, $this->styleResolver, $observations, $viewports, $rootObservations);
-        $projector = new BoxTreeStyleProjector();
-        // The root font size sizes every rem, and the body's is the size its
-        // content inherits: carriers prune a size equal to their parent's, and
-        // keep relative sizes relative, so both are restated where they differ
-        // from what the destination root and body would otherwise compute.
-        $rootSizes = array_unique(array_map(static fn(array $observation): string => (string) ($observation['used_styles']['font-size'] ?? ''), $rootObservations));
-        $inheritedSize = 1 === count($rootSizes) ? (string) reset($rootSizes) : '';
-        return $projector->boxRule(':root', array( 'background-color' => 'rgba(0, 0, 0, 0)', 'font-size' => '16px' ), $rootObservations)
-            . $projector->boxRule(':root body', self::BODY_BOX_PROPERTIES + array( 'font-size' => $inheritedSize ), $observations, $fluid);
-    }
 
     /** Whether the source paints its canvas on `html` and never on `body`, under any condition. */
     private function htmlOwnsCanvas(\DOMElement $body): bool
@@ -366,7 +341,6 @@ final class AuthorStylesheetMaterialization
         // styles in its own <head>, ahead of this before-author asset.
         return 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}';
     }
-
 
     /**
      * `$media` is the stylesheet's link/style media attribute. Source analysis

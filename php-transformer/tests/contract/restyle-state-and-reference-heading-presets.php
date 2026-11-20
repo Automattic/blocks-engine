@@ -12,8 +12,9 @@ $assert = static function (bool $condition, string $message): void {
 // A page builder pattern: a phone hero visible at rest, a desktop hero shown
 // only by a media rule, and a call-to-action whose inline colour and font
 // equal design-system tokens while a hover rule restyles its background. Its
-// resting class paints the same background; the second link has no resting
-// rule for its background.
+// resting class paints the same background; the second link has its own
+// hover rule but no resting rule for its background. (A hover rule must reach
+// the link itself: another control's hover rule does not guard it, #7227.)
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="site.css"><style>#tagline-phone{font-size:40px !important}#tagline-desktop{font-size:56px !important}</style></head><body><div class="x"><main>'
         . '<section class="c-phone"><h1 id="tagline-phone" class="c-tagline">Phone tagline</h1></section>'
@@ -25,7 +26,7 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
         . '</main></div></body></html>',
     'site.css' => 'body{font-family:Inter, sans-serif;color:#222;background:#fff}.x .c-copy{font-size:16px}.x .c-tagline{font-size:32px;font-family:Georgia, serif}@media (min-width:1024px){.x .c-tagline{font-size:48px}}'
         . '.x .c-desktop{display:none}@media (min-width:1024px){.x .c-phone{display:none}.x .c-desktop{display:block}}'
-        . '.x .c-cta{display:inline-block;padding:8px 32px}.x .c-primary{background-color:rgb(120, 97, 97)}.x .c-primary-hover:hover{background-color:rgb(149, 121, 121)}'
+        . '.x .c-cta{display:inline-block;padding:8px 32px}.x .c-primary{background-color:rgb(120, 97, 97)}.x .c-primary-hover:hover{background-color:rgb(149, 121, 121)}.x .c-cta:hover{background-color:rgb(149, 121, 121)}'
         . '.x .c-note{background:#786161;color:#fff;padding:8px}',
 )))->toArray()['source_reports']['wordpress_site_plan'];
 

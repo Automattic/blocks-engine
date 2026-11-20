@@ -178,7 +178,7 @@ $beforeFamilies = array(
     'synthetic-paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
     'synthetic-anchor-undecorated' => 'blocks-engine-synthetic-anchor-undecorated',
     'synthetic-image-figure' => '.blocks-engine-synthetic-image-figure{margin:0}',
-    'inline-layout-carrier' => ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}',
+    'inline-layout-carrier' => ":where(p.blocks-engine-inline-layout-carrier){display:contents}\n:where(p.blocks-engine-inline-layout-carrier:not([style*=margin])){margin:0!important}\n:where(p.blocks-engine-inline-layout-carrier:not([style*=padding])){padding:0!important}",
     'css-owned editor wrappers' => ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks,:root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}',
     'css-owned-flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p:not(.blocks-engine-synthetic-paragraph,.blocks-engine-synthetic-embed-figure,.blocks-engine-synthetic-image-figure,.blocks-engine-synthetic-video-figure-fill,.blocks-engine-lowered-paragraph)){margin-top:revert;margin-bottom:revert}',
     'css-owned-flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow>*:not(.blocks-engine-synthetic-paragraph,.blocks-engine-synthetic-embed-figure,.blocks-engine-synthetic-image-figure,.blocks-engine-synthetic-video-figure-fill,.blocks-engine-lowered-paragraph)){margin-block-start:revert;margin-block-end:revert}',

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -170,11 +171,12 @@ final class LayoutParticipation
      * would add a second padding box as a flex/grid item. Flatten both
      * synthesized wrappers so the link is the item. Anchors already project
      * onto the link, so the outer wrapper can remain the participating box
-     * (with the direct-flex repair).
+     * (with the direct-flex repair). The decision ({@see WrapperDecision::innerSaveWrapper()},
+     * `css-owned`) is owned by WrapperDecision (#7471).
      */
     public function flattensInnerSaveWrapper(): bool
     {
-        return $this->isLayoutItem() && $this->sourceIsNativeControl;
+        return WrapperDecision::innerSaveWrapper($this)->isCssOwned();
     }
 
     /**
@@ -182,21 +184,23 @@ final class LayoutParticipation
      * the source element's participation (inline / flattened flex item) or
      * steal a positioned child's containing block. An inline control that
      * fills an aligned line alone keeps the wrapper's flex box: it is the
-     * only box left to hold the restated justifyContent.
+     * only box left to hold the restated justifyContent. Decided by
+     * {@see WrapperDecision::buttonsSaveWrapper()} (#7471).
      */
     public function neutralizeButtonsWrapper(): bool
     {
-        return $this->positioned || ( $this->isInline() && ! $this->ownsAlignedLine ) || $this->flattensInnerSaveWrapper();
+        return WrapperDecision::buttonsSaveWrapper($this)->isCssOwned();
     }
 
     /**
      * The inner .wp-block-button save wrapper is extra relative to the source
      * control. Flatten it unless it is the positioning box for an out-of-flow
-     * control — that box has to keep generating a containing-block child.
+     * control — that box has to keep generating a containing-block child. Decided by
+     * {@see WrapperDecision::buttonSaveWrapper()} (#7471).
      */
     public function neutralizeButtonWrapper(): bool
     {
-        return ! $this->positioned && ( $this->isInline() || $this->flattensInnerSaveWrapper() );
+        return WrapperDecision::buttonSaveWrapper($this)->isCssOwned();
     }
 
     /**

@@ -32,6 +32,23 @@ final class StructuredInlineItemLowering
      */
     public function structuredInlineItemBlocks(DOMElement $element): ?array
     {
+        // Paragraph elements introduce innerText paragraph separators even when
+        // CSS paints them inline. Keep a genuinely inline source run in one
+        // RichText carrier instead of manufacturing boundaries between items.
+        // An unspecified display is not proof of inline layout: retain the
+        // established per-item carriers for unstyled fragments.
+        $hasIndependentBox = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && ! in_array($this->styleResolver->resolvedDeclaration($child, 'display'), array( 'inline', 'none' ), true) ) {
+                $hasIndependentBox = true;
+                break;
+            }
+        }
+        if ( ! $hasIndependentBox ) {
+            return null;
+        }
+
         $blocks = array();
 
         foreach ( $element->childNodes as $child ) {

@@ -235,8 +235,8 @@ $manyMarkup = (string) ($manyResult['serialized_blocks'] ?? '');
 $manyCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($manyResult['assets'] ?? null) ? $manyResult['assets'] : array()));
 preg_match_all('/be-inline-geometry-[a-z0-9-]+/', $manyMarkup, $manyClasses);
 preg_match_all('/\.be-inline-geometry-[a-z0-9-]+\{/', $manyCss, $manyRules);
-$assert(200 === count(array_unique($manyClasses[0] ?? array())), '41: duplicate classes and IDs still receive one stable carrier class per element', (string) count(array_unique($manyClasses[0] ?? array())));
-$assert(200 === count($manyRules[0] ?? array()), '42: final serialized carrier classes retain exactly one emitted rule each', (string) count($manyRules[0] ?? array()));
+$assert(1 === count(array_unique($manyClasses[0] ?? array())) && 200 === preg_match_all('/<div [^>]*class="[^"]*be-inline-geometry-/', $manyMarkup), '41: identical elements with duplicate classes and IDs all carry one shared carrier class', (string) count(array_unique($manyClasses[0] ?? array())));
+$assert(1 === count($manyRules[0] ?? array()), '42: the shared carrier class is emitted as exactly one rule', (string) count($manyRules[0] ?? array()));
 
 $importantGeometryHtml = '<p style="width:30rem!important;min-height:12rem!important">Important geometry</p>';
 $importantGeometryResult = ( new HtmlTransformer() )->transform($importantGeometryHtml, array())->toArray();

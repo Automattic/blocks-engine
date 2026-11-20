@@ -22,6 +22,9 @@ final class AbsentRouteSelectors
 {
     private const ROUTE_CLASS = '/^be-rs?-[0-9a-f]+$/D';
 
+    /** A route class used as a class selector, captured. */
+    private const ROUTE_CLASS_SELECTOR = '/(?<!\\\\)\.(be-rs?-[0-9a-f]+)(?![\w\\\\-])/';
+
     /**
      * @param list<array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $documentsBySource Every canonical document by source path.
@@ -47,13 +50,16 @@ final class AbsentRouteSelectors
             $live = self::deliveredRootClasses($asset, $rootClasses);
             if (null === $live || self::imported($asset, $stylesheets, $index)) continue;
             $absent = array();
-            if (preg_match_all('/(?<!\\\\)\.(be-rs?-[0-9a-f]+)(?![\w\\\\-])/', $asset['content'], $matches)) {
+            if (preg_match_all(self::ROUTE_CLASS_SELECTOR, $asset['content'], $matches)) {
                 foreach (array_unique($matches[1]) as $class) {
-                    if (isset($routeClasses[$class]) && !isset($live[$class])) $absent[] = preg_quote($class, '/');
+                    if (isset($routeClasses[$class]) && !isset($live[$class])) $absent[$class] = true;
                 }
             }
             if (array() === $absent) continue;
-            $content = AbsentCarrierSelectors::withoutArmsRequiring($asset['content'], '/(?<!\\\\)\.(?:' . implode('|', $absent) . ')(?![\w\\\\-])/');
+            // One fixed pattern and a set lookup: an alternation of every
+            // absent route class outgrows PCRE's pattern size on large sites.
+            $requires = static fn(string $text): bool => preg_match_all(self::ROUTE_CLASS_SELECTOR, $text, $found) > 0 && array() !== array_intersect_key(array_flip($found[1]), $absent);
+            $content = AbsentCarrierSelectors::withoutArmsRequiring($asset['content'], $requires);
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }

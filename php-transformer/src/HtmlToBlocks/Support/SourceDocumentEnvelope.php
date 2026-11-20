@@ -57,12 +57,9 @@ final class SourceDocumentEnvelope
             return $html;
         }
 
-        if ($preserveEvidence) {
-            $markup = '';
-            foreach ($body->childNodes as $child) $markup .= $document->saveHTML($child);
-            return $markup;
-        }
-        return $this->styleResolver->innerHtml($body);
+        // Box-tree evidence binds to capture node identity, so a route read
+        // against it keeps the identity attributes; output never carries them.
+        return $this->styleResolver->innerHtml($body, $preserveEvidence);
     }
 
     public function documentRootTheme(string $html): string

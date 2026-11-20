@@ -20,7 +20,7 @@ foreach (array(false, true) as $nested) {
     $stylesheets = array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null));
     $css = implode("\n", array_column($stylesheets, 'content'));
     if (!str_contains($css, '*:not(:where(.blocks-engine-role-richtext)):not(.be-c-0)')
-        || !str_contains($css, ':where(.blocks-engine-role-richtext.blocks-engine-subject):not(.be-c-0){margin:0}')) {
+        || !str_contains($css, '.blocks-engine-subject:where(.blocks-engine-role-richtext){margin:0}')) {
         throw new RuntimeException('Landmark subsets with site-common ancestors retain the reset role exclusion and subject arm.');
     }
 }

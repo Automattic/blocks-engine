@@ -6,11 +6,17 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $source = require dirname(__DIR__) . '/fixtures/navigation-opener-presentation.php';
-$compile = static fn(string $html): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toWordPressSitePlanView()['wordpress_site_plan'];
+// The header of a page captured as desktop and phone documents may render
+// from its entry template part, so the emitted markup is the page plus parts.
+$compile = static function (string $html): array {
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toWordPressSitePlanView()['wordpress_site_plan'];
+    foreach ($plan['template_parts'] ?? array() as $part) $plan['pages'][] = array('canonical_block_markup' => $part['canonical_block_markup'] ?? '');
+    return $plan;
+};
 $assert = static function(bool $value, string $message): void { if (!$value) throw new RuntimeException($message); };
 $plan = $compile($source);
-$page = $plan['pages'][0]['canonical_block_markup'] ?? '';
-if ('' === $page) foreach ($plan['pages'] as $document) $page .= $document['canonical_block_markup'] ?? '';
+$page = '';
+foreach ($plan['pages'] as $document) $page .= $document['canonical_block_markup'] ?? '';
 $assert(str_contains($page, 'blocksEngineNavigationOpener'), 'source-only single passive SVG reaches native navigation metadata');
 $assert(str_contains($page, 'M2 3h16v2H2zM2 9h16v2H2zM2 15h16v2H2z'), 'original source artwork is retained rather than a generic menu variant');
 $wrappedSource = str_replace($icon, '<div class="icon-wrapper"><div>' . $icon . '</div></div>', $source);

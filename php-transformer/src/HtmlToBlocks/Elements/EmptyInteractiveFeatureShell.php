@@ -32,33 +32,64 @@ final class EmptyInteractiveFeatureShell
      */
     public function isEmptyInteractiveFeatureShell(DOMElement $element): bool
     {
-        $identity = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'role')));
-        if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
-            || '' !== SourceDom::renderedTextContent($element)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->wrapperCoalescer->isDirectChildOfStructuralLayout($element)
-            || $this->hasAuthorInlineAlignment($element)
-            || $this->emptyElementFootprint->reservesLayoutSlot($element)
-        ) {
-            return false;
-        }
-
-        foreach ( array( 'a', 'audio', 'button', 'canvas', 'iframe', 'img', 'input', 'object', 'picture', 'select', 'svg', 'textarea', 'video' ) as $tagName ) {
-            if ( 0 < $element->getElementsByTagName($tagName)->length ) {
-                return false;
-            }
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($descendant) ) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->disposition($element)->isDrop();
     }
 
-    private function hasAuthorInlineAlignment(DOMElement $element): bool
+    /**
+     * Whether, and why, the shell is dropped: {@see WrapperDecision::emptyInteractiveFeatureShell()}
+     * owns the guard order (#7471).
+     */
+    public function disposition(DOMElement $element): WrapperDisposition
+    {
+        return WrapperDecision::emptyInteractiveFeatureShell($this, $element);
+    }
+
+    /** The class, id or role names a search or cart feature. */
+    public function namesSearchOrCartFeature(DOMElement $element): bool
+    {
+        $identity = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'role')));
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    public function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        return $this->runtimeIslands->isRuntimeDomTarget($element);
+    }
+
+    public function isDirectChildOfStructuralLayout(DOMElement $element): bool
+    {
+        return $this->wrapperCoalescer->isDirectChildOfStructuralLayout($element);
+    }
+
+    public function reservesLayoutSlot(DOMElement $element): bool
+    {
+        return $this->emptyElementFootprint->reservesLayoutSlot($element);
+    }
+
+    /** Content, controls, media and links keep their own conversion path. */
+    public function hasContentOrControlDescendant(DOMElement $element): bool
+    {
+        foreach ( array( 'a', 'audio', 'button', 'canvas', 'iframe', 'img', 'input', 'object', 'picture', 'select', 'svg', 'textarea', 'video' ) as $tagName ) {
+            if ( 0 < $element->getElementsByTagName($tagName)->length ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function hasRuntimeTargetDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function hasAuthorInlineAlignment(DOMElement $element): bool
     {
         $declarations = $this->wrapperCoalescer->matchingAuthorDeclarations($element);
         $display = CssValueInspector::declared($declarations, 'display');

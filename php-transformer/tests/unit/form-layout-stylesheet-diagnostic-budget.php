@@ -21,8 +21,9 @@ $strip = static function (array $value) use (&$strip): array {
 };
 $hash = hash('sha256', json_encode($strip($result), JSON_THROW_ON_ERROR));
 // Includes native Groups, single-page selector compaction and the generated
-// layout-shell editor script (its anchors cancel canvas navigation) in the artifact report.
-if ('dbf4ca0d8abea9c104a3b945ca54803fd1420723b773a1d7b855b8bf492d1fb9' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
+// layout-shell editor script (its anchors cancel canvas navigation, its
+// inner-blocks carrier is marked) and carrier rule in the artifact report.
+if ('3b2d61f23bf6622877cb71436691e4588aa1af294097418b4462eb072601d2d4' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
 $invalid = $graph;
 $invalid['diagnostics'][] = 'unsupported_selector::host(.extra)';
 try {

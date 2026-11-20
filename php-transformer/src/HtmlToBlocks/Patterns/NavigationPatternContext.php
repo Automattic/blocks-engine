@@ -88,7 +88,6 @@ final class NavigationPatternContext
         // particular inset and its logical forms) survive that filtering.
         $geometry = $this->styleResolver->inlineGeometryClassName($element);
         if ('' !== $geometry) $markers[] = $geometry;
-        $markers[] = $this->styleResolver->boxTreeElementCarrier($element);
         return $markers;
     }
 
@@ -913,6 +912,7 @@ final class NavigationPatternContext
                 continue;
             }
             $current = $this->withoutCurrentItemPresentation($block);
+            $liftedLabels = $this->liftUniformLabelWrapper($block, $source);
             $targets = $levelCounts = array();
             $collect($block['innerBlocks'] ?? array(), '');
             foreach ($targets as $marker => $pathSet) {
@@ -938,6 +938,7 @@ final class NavigationPatternContext
             }
             if (array() === $targets && array() === $current) {
                 $this->publishInheritedNavigationPresentation($block, $source, '');
+                $this->installLiftedLabelSubjects($liftedLabels, CssIdent::compoundClassSelector(SourceDom::tokens($block['attrs']['className'] ?? '')));
                 continue;
             }
             // The instance names the resting menu: per-item link colours follow
@@ -965,6 +966,7 @@ final class NavigationPatternContext
             $hasSubmenus = str_contains($markup, '"core\/navigation-submenu"');
             $root = $source->getNodePath() ?? '';
             $this->publishInheritedNavigationPresentation($block, $source, $scope);
+            $this->installLiftedLabelSubjects($liftedLabels, '.' . $scope);
             foreach ($this->pendingNavigationSubjects as $path => $subject) {
                 if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
                 $marker = $subject['marker'];
@@ -980,6 +982,16 @@ final class NavigationPatternContext
                         : $itemTarget;
                 }
                 $this->session->authorSelectorProjectionState()->installNavigationSubject($path, $target);
+                // A retained text wrapper is inside Core's label, not another
+                // captured semantic subject. Keep its authored class address.
+                $anchor = $this->session->authorStyleAnalysis()->sourceElementAtPath($path);
+                if ($anchor instanceof DOMElement && 'a' === strtolower($anchor->tagName)) {
+                    foreach ($anchor->getElementsByTagName('*') as $label) {
+                        if (0 !== $label->childElementCount) continue;
+                        $classes = array_values(array_filter(SourceDom::tokens($label->getAttribute('class')), static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-')));
+                        if (array() !== $classes) $this->session->authorSelectorProjectionState()->installNavigationSubject($label->getNodePath() ?? '', $target . ' .wp-block-navigation-item__label ' . CssIdent::compoundClassSelector($classes));
+                    }
+                }
                 if (isset($subject['source'])) {
                     // Restore the source anchor's initial stacking below authored
                     // paint, but only when Core really supplies its replacement.
@@ -988,6 +1000,81 @@ final class NavigationPatternContext
             }
         }
         unset($block);
+    }
+
+    /**
+     * A menu whose every label is one classed span around plain text (a
+     * builder's `<a><span class="item-label">Services</span></a>`) states a
+     * menu-wide label style, not per-item rich text. Unwrap the labels and
+     * return the source spans, whose author rules then bind to Core's item
+     * label: siblings look the same and a later item matches them. Labels
+     * that differ, partial wraps, semantic tags and spans carrying identity,
+     * language, accessibility or inline style keep their markup.
+     *
+     * @param array<string, mixed> $block
+     * @return list<string> Source paths of the unwrapped spans.
+     */
+    private function liftUniformLabelWrapper(array &$block, DOMElement $source): array
+    {
+        $wrappers = array();
+        $collect = static function (array $items) use (&$collect, &$wrappers): bool {
+            foreach ($items as $item) {
+                if (!in_array($item['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
+                $label = (string) ($item['attrs']['label'] ?? '');
+                if (1 !== preg_match('/^<span\b([^<>]*)>([^<]*)<\/span>$/', $label, $match) || '' === trim($match[2])) return false;
+                preg_match_all('/\s([^\s=]+)(?:="([^"]*)")?/', $match[1], $attributes, PREG_SET_ORDER);
+                $classes = '';
+                foreach ($attributes as $attribute) {
+                    $name = strtolower($attribute[1]);
+                    if ('class' === $name) $classes = $attribute[2] ?? '';
+                    elseif (!str_starts_with($name, 'data-')) return false;
+                }
+                $wrappers[] = implode(' ', array_filter(SourceDom::tokens($classes), static fn(string $class): bool => !str_starts_with($class, 'blocks-engine-')));
+                if (!$collect($item['innerBlocks'] ?? array())) return false;
+            }
+            return true;
+        };
+        if (!$collect($block['innerBlocks'] ?? array()) || count($wrappers) < 2 || 1 !== count(array_unique($wrappers))) return array();
+        // Attribute-selector projections can also decorate the source span.
+        // Compare authored classes only on both sides; subject binding below
+        // carries those projected rules to Core's label without data attributes.
+        $isAuthored = static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-');
+        $authored = array_values(array_filter(SourceDom::tokens($wrappers[0]), $isAuthored));
+        if (array() === $authored) return array();
+        sort($authored);
+        $paths = array();
+        foreach ($source->getElementsByTagName('a') as $anchor) {
+            $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement || '' !== trim($node->textContent ?? '')));
+            $span = $children[0] ?? null;
+            if (1 !== count($children) || !$span instanceof DOMElement || 'span' !== strtolower($span->tagName) || 0 !== $span->childElementCount || $span->hasAttribute('style')) continue;
+            $classes = array_values(array_unique(array_filter(SourceDom::tokens($span->getAttribute('class')), $isAuthored)));
+            sort($classes);
+            if ($classes === $authored) $paths[] = $span->getNodePath() ?? '';
+        }
+        if (count($paths) < count($wrappers)) return array();
+        $unwrap = static function (array &$items) use (&$unwrap): void {
+            foreach ($items as &$item) {
+                if (!in_array($item['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
+                $item['attrs']['label'] = preg_replace('/^<span\b[^<>]*>([^<]*)<\/span>$/', '$1', (string) $item['attrs']['label']);
+                if (!empty($item['innerBlocks'])) $unwrap($item['innerBlocks']);
+            }
+            unset($item);
+        };
+        $unwrap($block['innerBlocks']);
+        return $paths;
+    }
+
+    /**
+     * Every item label of this menu, including one the owner adds later, is
+     * the native counterpart of an unwrapped source label span.
+     *
+     * @param list<string> $paths
+     */
+    private function installLiftedLabelSubjects(array $paths, string $menu): void
+    {
+        foreach ($paths as $path) {
+            $this->session->authorSelectorProjectionState()->installNavigationSubject($path, '.wp-block-navigation' . $menu . ' .wp-block-navigation-item__label');
+        }
     }
 
     /**
@@ -1137,7 +1224,13 @@ final class NavigationPatternContext
         for ($node = $anchor->parentNode; !$presented && $node instanceof DOMElement && $item instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
             $presented = $this->hasNavigationSubjectPresentation($node);
         }
-        if (!$presented) return '';
+        // Retained label wrappers also need a native subject for conditional
+        // paint, even when the anchor itself has no authored presentation.
+        $labelSubjects = array();
+        foreach ($anchor->getElementsByTagName('*') as $label) {
+            if ('div' === strtolower($label->tagName) && 0 === $label->childElementCount && '' !== trim($label->getAttribute('class'))) $labelSubjects[] = $label;
+        }
+        if (!$presented && array() === $labelSubjects) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'anchor');
         $target = self::itemContentTarget('.wp-block-navigation .wp-block-navigation-item.' . $marker);
         $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => $target, 'source' => SourceDom::elementSelector($anchor));
@@ -1393,8 +1486,9 @@ final class NavigationPatternContext
      */
     public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item, bool $submenuParent = false): array
     {
-        $boxes = array();
-        for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
+        $boxes = $rendered = array();
+        $below = $anchor;
+        for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $below = $node, $node = $node->parentNode) {
             $tag = strtolower($node->tagName);
             // A `<label>` holding the link is an inline box like a span; Core's
             // anchor cannot sit inside a label, so it keeps its paint as one.
@@ -1411,8 +1505,10 @@ final class NavigationPatternContext
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
-            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node)), $this->styleResolver->boxTreeElementCarrier($node)));
+            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
+            $rendered[] = array($below, $node);
         }
+        // Each box renders again, so the node below it keeps its own box.
         if (array() !== $boxes) {
             // These carriers exist only at frontend render time. Resolve the
             // link's own cascade too, so a link override beats box inheritance.
@@ -1451,7 +1547,7 @@ final class NavigationPatternContext
             if (!$child instanceof DOMElement) continue;
             if ($child->isSameNode($branch)) { $after = true; continue; }
             if (!in_array(strtolower($child->tagName), array('span', 'div'), true) || $child->childElementCount || '' !== trim($child->textContent ?? '') || $child->hasAttribute('role') || $child->hasAttribute('tabindex')) continue;
-            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child)), $this->styleResolver->boxTreeElementCarrier($child)), 'style' => $child->getAttribute('style'));
+            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child))), 'style' => $child->getAttribute('style'));
         }
         return $result;
     }
@@ -1463,13 +1559,6 @@ final class NavigationPatternContext
      */
     public function observeItemBoxOn(DOMElement $anchor, DOMElement $item): void
     {
-        $this->session->substituteBoxTreeBlockBox($anchor, $item);
-    }
-
-    /** An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}). */
-    public function boxTreeElementCarrier(DOMElement $element): string
-    {
-        return $this->styleResolver->boxTreeElementCarrier($element);
     }
 
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */

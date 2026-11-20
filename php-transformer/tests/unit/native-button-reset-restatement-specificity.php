@@ -36,7 +36,11 @@ if (array() === $padding) {
     throw new RuntimeException('The reset must still be restated for buttons it wins on');
 }
 foreach ($padding as $rule) {
-    if (str_contains($rule['selector'], $skipMarker) || str_contains($rule['selector'], 'blocks-engine-role-control.blocks-engine-role-control')) {
+    // The role class only carries the two class weights; an arm restricted to
+    // other carriers' markers (`:where(.marker).role.role`) leaves the skip
+    // link alone. An arm without such a restriction reaches every carrier.
+    $restricted = 1 === preg_match('/:where\(\.blocks-engine-control-[0-9a-f]+-\d+(?:,\.blocks-engine-control-[0-9a-f]+-\d+)*\)/', $rule['selector']);
+    if (str_contains($rule['selector'], $skipMarker) || (str_contains($rule['selector'], 'blocks-engine-role-control.blocks-engine-role-control') && ! $restricted)) {
         throw new RuntimeException('The boosted reset must not override the skip link class padding: ' . $rule['selector']);
     }
 }

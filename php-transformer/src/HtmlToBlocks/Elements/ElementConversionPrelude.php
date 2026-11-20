@@ -181,17 +181,22 @@ final class ElementConversionPrelude implements ElementConverter
             return $nativeForm;
         }
 
-        $inert = $this->inertScaffolding->convert($element, $tagName, $fallbacks);
-        if ( $inert->handled ) {
-            return $inert;
+        // Which wrapper is dropped, kept or folded here is WrapperDecision's (#7471).
+        $wrapper = WrapperDecision::preludeWrapper(
+            fn (): ?WrapperDisposition => WrapperDecision::inertScaffolding($this->inertScaffolding, $element, $tagName),
+            fn (): bool => 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length,
+            fn (): bool => $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element)
+        );
+        if ( null !== $wrapper && $wrapper->isDrop() ) {
+            return ConversionOutcome::handled(null);
         }
 
-        if ( 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length ) {
+        if ( null !== $wrapper && $wrapper->isPreserve() ) {
             $children = $this->tree->children($element, $fallbacks, $captureUnsupported);
             return ConversionOutcome::handled(array() === $children ? null : $this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element));
         }
 
-        if ( $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element) ) {
+        if ( null !== $wrapper && $wrapper->isFold() ) {
             $leaf = $this->inlineLayoutCarrierBlock($element);
             if ( null !== $leaf ) {
                 return ConversionOutcome::handled($leaf);
@@ -414,11 +419,10 @@ final class ElementConversionPrelude implements ElementConverter
             return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
         }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
-        // On a box-tree route the author sheet is retired and the carrier
-        // paragraph generates no box, so the element keeps its own captured
-        // box (display, margins, typography) through a carrier on itself.
-        $boxless = null === $identity ? $this->styleResolver->boxTreeBoxlessContent($element) : null;
-        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($boxless ?? $element);
+        // The carrier keeps the source inline and its classes for layout; the
+        // text it holds owns its colour inline, so a class rule on the kept
+        // inline does not override the colour control of an enclosing block.
+        $content = $this->richTextMaterializer->markupWithOwnedTextColors($element, null === $identity);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;

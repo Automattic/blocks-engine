@@ -107,6 +107,12 @@ final class PresetBinding
      */
     private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
 
+    /** Elements whose user-agent style sets their own font-family instead of inheriting it. */
+    private const FONT_RESET_TAGS = array('button', 'input', 'select', 'textarea', 'code', 'kbd', 'samp', 'pre');
+
+    /** FONT_RESET_TAGS that block markup always serializes (form controls render server-side). */
+    private const OWN_FONT_PHRASING_TAGS = array('code', 'kbd', 'samp', 'pre');
+
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
     private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'cover', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
@@ -239,8 +245,26 @@ final class PresetBinding
     private bool $themeDefaultsReady = false;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
-    /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string}> */
+    /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string,inherits:bool,unconditional:bool}> */
     private array $fontRules = array();
+    /** @var array<string,true>|null OWN_FONT_PHRASING_TAGS the documents render; null when unknown. */
+    private ?array $renderedOwnFontTags = null;
+    /**
+     * Classes the documents render, on any element and on headings, and
+     * each heading's class list; null when the markup is unknown. A font
+     * rule requiring a class the site renders but never on a heading cannot
+     * reach a heading, and one requiring a class never on a heading beside
+     * another class cannot reach a heading carrying that other class.
+     *
+     * @var array{all:array<string,true>,headings:array<string,true>,heading_lists:list<array<string,true>>}|null
+     */
+    private ?array $renderedClasses = null;
+    /** Rendered classes keyed by their subject class. @var array<string,string>|null */
+    private ?array $renderedSubjectClasses = null;
+    /** The theme's button element font family, resolved from its preset. */
+    private ?string $buttonFontDefault = null;
+    /** Memo of hasInheritedFontCompetitor() for the current theme defaults. */
+    private ?bool $inheritedFontCompetitor = null;
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
     /** @var array<string,array<string,string>> Unconditional root values by selector and stylesheet scope. */
@@ -259,9 +283,14 @@ final class PresetBinding
      * or unknown roots, so a rem value names no token.
      */
     private ?float $rootPx = null;
+    /**
+     * While binding a provider's readable tree, only text and background
+     * colours bind: the provider keeps that tree's typography, spacing and
+     * borders as the source states them (its form presentation contract).
+     */
+    private bool $colorsOnly = false;
 
     /** Whether author class rules are retired for the document being bound. */
-    private bool $engineOwnedStyles = false;
 
     /** Bodies of unconditional-state rules that style core button links. @var list<string> */
     private array $buttonLinkBodies = array();
@@ -272,10 +301,37 @@ final class PresetBinding
     /**
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
-     * @param list<string> $engineOwnedSources Documents whose author stylesheets retire to engine carriers.
      */
-    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array(), private readonly array $engineOwnedSources = array())
+    /**
+     * @param list<string>|null $markups Block markup of every document, when
+     *                                   known: tells which phrasing elements with their own font
+     *                                   (`code`, `kbd`, ...) the site renders.
+     */
+    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array(), ?array $markups = null)
     {
+        if (null !== $markups) {
+            $this->renderedOwnFontTags = array();
+            foreach ($markups as $markup) {
+                if (preg_match_all('/<(' . implode('|', self::OWN_FONT_PHRASING_TAGS) . ')\b/i', $markup, $tags)) {
+                    foreach ($tags[1] as $tag) $this->renderedOwnFontTags[strtolower($tag)] = true;
+                }
+            }
+            $this->renderedClasses = array('all' => array(), 'headings' => array(), 'heading_lists' => array());
+            foreach ($markups as $markup) {
+                if (!preg_match_all('/<([a-z][a-z0-9-]*)\b[^>]*?\sclass\s*=\s*("[^"]*"|\'[^\']*\')/i', $markup, $elements, PREG_SET_ORDER)) continue;
+                foreach ($elements as [, $tag, $classes]) {
+                    $tag = strtolower($tag);
+                    $heading = 1 === preg_match('/^h[1-6]$/', $tag);
+                    $list = array();
+                    foreach (preg_split('/\s+/', trim(html_entity_decode(substr($classes, 1, -1), ENT_QUOTES))) ?: array() as $class) {
+                        if ('' === $class) continue;
+                        $this->renderedClasses['all'][$class] = true;
+                        if ($heading) $this->renderedClasses['headings'][$class] = $list[$class] = true;
+                    }
+                    if ($heading && array() !== $list) $this->renderedClasses['heading_lists'][] = $list;
+                }
+            }
+        }
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
@@ -291,10 +347,15 @@ final class PresetBinding
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
                 if (null !== $font || null !== $shorthand || str_contains($body, '{')) {
+                    // `font: inherit` (a reset's form controls) passes the
+                    // parent's font on rather than introducing one.
+                    $inheritsKeyword = static fn(?string $value): bool => null === $value || in_array(strtolower(trim($value)), array('inherit', 'unset'), true);
+                    $inherits = !str_contains($body, '{') && $inheritsKeyword($font) && $inheritsKeyword($shorthand);
+                    $unconditional = array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                         // Unconditional element defaults yield in bindStylesheet().
                         if (array() === $ancestors && preg_match('/^(?:body|h[1-6])$/i', trim($selector))) continue;
-                        $this->fontRules[] = array('selector' => $selector, 'value' => null !== $shorthand || str_contains($body, '{') ? null : $font);
+                        $this->fontRules[] = array('selector' => $selector, 'value' => null !== $shorthand || str_contains($body, '{') ? null : $font, 'inherits' => $inherits, 'unconditional' => $unconditional);
                     }
                 }
                 if (array() === $ancestors) {
@@ -362,8 +423,11 @@ final class PresetBinding
     public function useThemeDefaults(array $theme): void
     {
         $this->themeDefaultsReady = true;
-        $this->fontDefaults = $this->fontDefaultSlugs = array();
+        $this->inheritedFontCompetitor = null;
+        $button = $theme['styles']['elements']['button']['typography']['fontFamily'] ?? null;
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+        $this->buttonFontDefault = is_string($button) ? ($families[str_replace('var:preset|font-family|', '', $button)] ?? $button) : null;
+        $this->fontDefaults = $this->fontDefaultSlugs = array();
         $styles = $theme['styles'] ?? array();
         $this->bodyColorDefaults = array();
         $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
@@ -426,13 +490,88 @@ final class PresetBinding
     {
         if (!str_contains($markup, '<!-- wp:')) return $markup;
         $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
-        $this->engineOwnedStyles = in_array($source, $this->engineOwnedSources, true);
         try {
             return $this->bindMarkup($markup);
         } finally {
             $this->rootPx = $this->siteRootPx;
-            $this->engineOwnedStyles = false;
         }
+    }
+
+    /**
+     * Bind a parsed block tree a provider renders in place of page content
+     * (a form fallback's `readable_blocks`). The provider serializes these
+     * blocks itself, so they never pass through the page markup binding: a
+     * colour, font size or spacing an author class gives a readable block
+     * would otherwise stay owned by that class, overriding the block's own
+     * colour controls and any colour a parent block sets. Each block's text
+     * and background colours bind exactly as its serialized form does in a
+     * page: its attributes and its own opening element change, its content
+     * does not. Typography, spacing and borders stay as compiled: the form
+     * provider owns that presentation and reproduces the source's own values.
+     * Link blocks and a form control's subtree stay as compiled: the provider
+     * rebuilds the control from its own facts.
+     *
+     * @param array<int|string,mixed> $blocks
+     * @return array<int|string,mixed>
+     */
+    public function bindBlockTree(array $blocks, ?string $source = null): array
+    {
+        $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
+        $this->colorsOnly = true;
+        try {
+            return $this->bindTree($blocks);
+        } finally {
+            $this->colorsOnly = false;
+            $this->rootPx = $this->siteRootPx;
+        }
+    }
+
+    /**
+     * @param array<int|string,mixed> $blocks
+     * @return array<int|string,mixed>
+     */
+    private function bindTree(array $blocks): array
+    {
+        foreach ($blocks as $index => $block) {
+            if (!is_array($block) || !is_string($block['blockName'] ?? null) || isset($block['form_control_index'])) continue;
+            if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->bindTree($block['innerBlocks']);
+            $blocks[$index] = $this->boundTreeBlock($block);
+        }
+        return $blocks;
+    }
+
+    /**
+     * @param array<string,mixed> $block
+     * @return array<string,mixed>
+     */
+    private function boundTreeBlock(array $block): array
+    {
+        // Page binding reads core blocks only: their delimiters carry no namespace.
+        if (1 !== preg_match('~^core/([\w-]+)$~', (string) $block['blockName'], $match)) return $block;
+        $name = $match[1];
+        // A link block's look is the theme button's: binding its colours
+        // alone would split the look the page binding keeps whole.
+        if (in_array($name, self::LINK_BLOCKS, true)) return $block;
+        $head = $block['innerContent'][0] ?? null;
+        if (!is_string($head) || !is_array($block['attrs'] ?? null) || array() === $block['attrs']) return $block;
+        $json = BlockAttributes::encode($block['attrs']);
+        $opening = '<!-- wp:' . $name . ' ' . $json . ' -->';
+        $bound = $this->bindBlock($name, $json, $opening . $head, strlen($opening));
+        if (null === $bound) return $block;
+        [$delimiter, $tagStart, $tagEnd, $tag] = $bound;
+        $attrs = array();
+        if (1 === preg_match('~^<!-- wp:\S+ (\{.*\}) -->$~s', $delimiter, $encoded)) {
+            $attrs = json_decode($encoded[1], true);
+            if (!is_array($attrs)) return $block;
+        }
+        $between = substr($head, 0, $tagStart - strlen($opening));
+        $newHead = $between . $tag . substr($head, $tagEnd - strlen($opening));
+        $block['attrs'] = $attrs;
+        $block['innerContent'][0] = $newHead;
+        if (is_string($block['innerHTML'] ?? null) && str_starts_with($block['innerHTML'], $head)) {
+            $block['innerHTML'] = $newHead . substr($block['innerHTML'], strlen($head));
+        }
+        return $block;
     }
 
     private function bindMarkup(string $markup): string
@@ -955,9 +1094,9 @@ final class PresetBinding
         $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
         $buttonLook = $isLink && (isset($this->system->elements['button']) || $variation);
         $d = new PresetBlockDraft($name, $html, $classes, $attributes, $style, $declarations, $tokens, $observed, $supports, $isLink, $deviceOverridden, $buttonLook);
-        $this->bindButtonLook($d, $variation);
+        if (!$this->colorsOnly) $this->bindButtonLook($d, $variation);
         $this->bindColorPresets($d);
-        if (in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
+        if (!$this->colorsOnly && in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
             $this->bindBorderColors($d);
             $this->bindTypography($d);
             $this->bindSpacing($d);
@@ -1041,6 +1180,7 @@ final class PresetBinding
         );
         foreach ($presets as $key => [$attribute, $property, $observedProperty, $flagClass, $presetClass]) {
             if (isset($attributes->{$attribute})) continue;
+            $kind = 'text' === $key ? 'text-color' : 'color';
             // A core preset class is !important and would mask the value the
             // device-inline runtime writes for another device.
             if (isset($deviceOverridden[$property]) || ('background' === $key && isset($deviceOverridden['background']))) continue;
@@ -1053,7 +1193,7 @@ final class PresetBinding
                 // adding a preset class, this preserves its cascade slot and
                 // does not assume anything about the block's class supports.
                 if (!is_string($literal)) continue;
-                $slug = $this->system->blockColorSlug($this->resolve($literal)) ?? $this->presetSlug('color', $literal, null, $reason);
+                $slug = $this->system->blockColorSlug($this->resolve($literal)) ?? $this->presetSlug($kind, $literal, null, $reason);
                 if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
                 else $this->refuse($reason ?? 'unsupported_block');
                 continue;
@@ -1074,7 +1214,7 @@ final class PresetBinding
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
             $resolvedInline = 'text' === $key && is_string($literal) && str_contains($literal, 'var(') && null !== CssColor::parse($this->resolve($literal));
-            $inlineOnly = $resolvedInline && null === $this->presetSlug('color', $literal, $observation);
+            $inlineOnly = $resolvedInline && null === $this->presetSlug($kind, $literal, $observation);
             if (is_string($literal) && (null !== CssColor::parse($literal) || $inlineOnly)) {
                 // A proven inline colour belongs to this block, not every
                 // element sharing its author classes. Ordinary breakpoint
@@ -1083,7 +1223,7 @@ final class PresetBinding
                 // below proves that the literal really is serialized inline.
                 $observation = null;
             }
-            $slug = $this->presetSlug('color', $literal, $observation, $reason);
+            $slug = $this->presetSlug($kind, $literal, $observation, $reason);
             if (null === $slug && is_string($literal) && self::paintsNothing($literal)) {
                 // A zero-alpha colour (a computed `rgba(255, 255, 255, 0)`)
                 // is no design value: it is the `transparent` keyword in
@@ -1236,9 +1376,6 @@ final class PresetBinding
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
             if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
             $literal = $style->typography->{$key} ?? null;
-            // Supplemental block tokens were not part of static-cascade usage.
-            // Keep the captured declaration's priority: a size preset class is
-            // !important and would mask the box-tree's mobile delta rules.
             $supplemental = 'fontSize' === $key ? $this->system->fontSizes : $this->system->fontFamilies;
             foreach ($supplemental as $preset) {
                 if (0 !== $preset['weight'] || !is_string($literal) || isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
@@ -1254,6 +1391,22 @@ final class PresetBinding
                 // not need a matching class rule to prove its resting value.
                 if (isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
                 $literal = $style->typography->{$key} ?? null;
+                // A class-owned button family has no inline declaration to
+                // rewrite. Hand the exact, invariant stack to the block, but
+                // only when a preset class cannot mask state/important rules.
+                // Sizes stay inline: their relative units and reset semantics
+                // are not interchangeable with an important preset class.
+                if ('fontFamily' === $key && null === $literal) {
+                    $family = $observed[$property] ?? null;
+                    $slug = $this->presetSlug($property, null, $family);
+                    if (null !== $slug && is_string($family) && $this->presetHoldsFamily($slug, $family)
+                        && $this->safe($property, $tokens, array(sprintf($presetClass, $slug)), false, false, $familyReason, false, true)) {
+                        $attributes->{$attribute} = $slug;
+                        $d->addClasses[] = sprintf($presetClass, $slug);
+                        ++$d->bound;
+                    }
+                    continue;
+                }
                 $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? ('fontSize' === $key ? $this->exactFontSizeSlug($this->resolve($literal)) : $this->presetSlug($property, $literal, null)) : null;
                 if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $d->declarations, $property, $literal)) ++$d->bound;
                 continue;
@@ -1402,10 +1555,10 @@ final class PresetBinding
      *   {.band{background:rgb(from var(--wp--preset--color--base) calc(r - 8)
      *   calc(g - 8) calc(b - 11))}}`. Both paint the source shade until the
      *   representative is edited; the derived value then follows it.
-     * - A font size binds only when it is the preset's own length, and a
-     *   font family only when it is the preset's own stack, so no fallback
-     *   or rounding changes what renders. Font-shorthand custom properties
-     *   bind only an exactly matching complete stack, in place, leaving the
+     * - A font size binds only when it is the preset's own length.
+     *   Font-family longhands bind by primary family, retaining a differing
+     *   source stack as the fallback. Shorthands and font-shorthand custom
+     *   properties require an exactly matching complete stack, leaving the
      *   rest of the shorthand literal.
      * - A rem length is measured at the root of the documents that load the
      *   sheet (`$sources`), and names no token when they render different
@@ -1469,10 +1622,30 @@ final class PresetBinding
                     // heading element font yields it to Global Styles, as
                     // the plain `h1` rule does above.
                     $kept = self::declarationText(array_values(array_filter(self::declarations($kept), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                } elseif (!str_contains($subject = self::subjectCompound($selector), '::') && 1 !== preg_match('/^(?:html|:root|:host)(?![\w-])|\.editor-styles-wrapper(?![\w-])/i', $subject) && !(preg_match(self::TYPE_SELECTOR, $subject, $subjectType) && in_array(strtolower($subjectType[1]), self::FONT_RESET_TAGS, true))
+                    && $this->rendersDefaultFont('body', $rawValue) && !$this->hasInheritedFontCompetitor()) {
+                    // The rule restates the root Global Styles font, and no
+                    // other author font can sit between its elements and
+                    // body: they inherit that font, so the rule yields it
+                    // to Global Styles. Targets that would render another
+                    // font without it keep it (rootFontKeepers()); a rule
+                    // on elements with their own font (`code`, `button`)
+                    // is what gives them the root font, so it stays. The
+                    // root element's own font stays too: it is what body
+                    // inherits where editor-only defaults out-weigh Global
+                    // Styles on the canvas body.
+                    $keepers = $this->rootFontKeepers($rawValue);
+                    $kept = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                    if (array() !== $keepers) {
+                        if ('' !== $kept) $rules[] = array('prelude' => $selector, 'body' => $kept);
+                        $kept = 'font-family:' . $rawValue;
+                        $selector .= ':where(' . implode(',', $keepers) . ')';
+                    }
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
+                    $ownClass = substr((string) strtok(trim($selector), ':'), 1);
                     foreach ($this->fontDefaults as $target => $font) {
-                        if ('body' !== $target && $this->rendersDefaultFont($target, $rawValue) && !$this->hasCompetingFont($target)) $excluded[] = $target;
+                        if ('body' !== $target && $this->rendersDefaultFont($target, $rawValue) && !$this->hasCompetingFont($target, $ownClass)) $excluded[] = $target;
                     }
                     if (array() !== $excluded) {
                         $other = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
@@ -1609,22 +1782,123 @@ final class PresetBinding
      * conditional and shorthand rules conservatively retain the class rule,
      * unless class-list rendering evidence shows the other font always won.
      */
-    private function hasCompetingFont(string $tag): bool
+    private function hasCompetingFont(string $tag, ?string $withClass = null): bool
     {
         foreach ($this->fontRules as $rule) {
             $subject = self::subjectCompound($rule['selector']);
             if (preg_match(self::TYPE_SELECTOR, $subject, $match) && strtolower($match[1]) !== $tag) continue;
+            if (self::selectsDocumentRoot($subject)) continue;
             $tokens = self::subjectTokens($rule['selector']);
             if (null === $tokens) continue;
             // Another block's class (`wp-block-navigation-link`,
             // `wp-block-navigation__responsive-container-open`) never selects
             // a core/heading, whose only block class is `wp-block-heading`.
             if (array() !== preg_grep('/^class:wp-block-(?!heading$)[a-z0-9_-]+$/', $tokens['tokens'])) continue;
+            if ($this->classNeverOnHeading($subject)) continue;
+            // Yielding `$withClass` on headings only changes headings that
+            // carry it: a rule needing a class never rendered on such a
+            // heading (`.font-serif` on other headings than `.font-heading`'s)
+            // renders the same font with or without the yield.
+            if (null !== $withClass && $this->classNeverOnHeadingWith($subject, $withClass)) continue;
             if (null !== $rule['value'] && $this->rendersDefaultFont($tag, $rule['value'])) continue;
             if (null !== $rule['value'] && $this->classRendersOwnFont($rule['selector'], $rule['value'])) continue;
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether a subject compound requires a class the documents render on
+     * some element but never on a heading (`.font-logo` on a brand span). Classes inside functional pseudo-classes (`:not()`, `:is()`)
+     * and attribute selectors are not required. A class the markup never shows may still be
+     * published later, so it proves nothing.
+     */
+    private function classNeverOnHeading(string $subject): bool
+    {
+        if (null === $this->renderedClasses) return false;
+        foreach (self::requiredSubjectClasses($subject) as $class) {
+            if (isset($this->renderedClasses['all'][$class]) && !isset($this->renderedClasses['headings'][$class])) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether a subject compound requires a class the documents render, but
+     * never on a heading that also carries `$withClass` (itself rendered).
+     * A subject that is a list (`:is(.a, :where(.b))`) must fail on every
+     * arm. A subject class (`blocks-engine-subject-class-<hash>`) stands for
+     * the source class token it hashes. A class the markup never shows
+     * proves nothing, as above.
+     */
+    private function classNeverOnHeadingWith(string $subject, string $withClass): bool
+    {
+        if (null === $this->renderedClasses || '' === $withClass || !isset($this->renderedClasses['all'][$withClass])) return false;
+        if (null === $this->renderedSubjectClasses) {
+            $this->renderedSubjectClasses = array();
+            foreach ($this->renderedClasses['all'] as $class => $_) $this->renderedSubjectClasses[EngineMarker::subjectClassClass((string) $class)] = (string) $class;
+        }
+        foreach (self::subjectArms($subject) as $arm) {
+            $excluded = false;
+            foreach (self::requiredSubjectClasses($arm) as $class) {
+                $class = $this->renderedSubjectClasses[$class] ?? $class;
+                if ($class === $withClass || !isset($this->renderedClasses['all'][$class])) continue;
+                $excluded = true;
+                foreach ($this->renderedClasses['heading_lists'] as $list) {
+                    if (isset($list[$class], $list[$withClass])) { $excluded = false; break; }
+                }
+                if ($excluded) break;
+            }
+            if (!$excluded) return false;
+        }
+        return true;
+    }
+
+    /**
+     * A subject compound's alternatives: the arms of a leading `:is()` or
+     * `:where()` list, each with the compound's remaining conditions, or
+     * the compound itself.
+     *
+     * @return list<string>
+     */
+    private static function subjectArms(string $subject): array
+    {
+        $subject = trim($subject);
+        if (1 !== preg_match('/^:(?:is|where)\(/', $subject, $open)) return array($subject);
+        $start = strlen($open[0]);
+        for ($i = $start, $depth = 1, $length = strlen($subject); $i < $length; $i++) {
+            if ('\\' === $subject[$i]) { $i++; continue; }
+            if ('(' === $subject[$i]) $depth++;
+            elseif (')' === $subject[$i] && 0 === --$depth) break;
+        }
+        if (0 !== $depth) return array($subject);
+        $rest = substr($subject, $i + 1);
+        $arms = array();
+        foreach (CssValueSplitter::splitTopLevel(substr($subject, $start, $i - $start), array(',')) as $arm) {
+            $arms[] = self::subjectCompound(trim($arm)) . $rest;
+        }
+        return $arms;
+    }
+
+    /**
+     * The classes a subject compound requires. Classes inside functional
+     * pseudo-classes (`:not()`, `:is()`) and attribute selectors are not
+     * required; a single-compound `:where()`/`:is()` still requires its own.
+     *
+     * @return list<string>
+     */
+    private static function requiredSubjectClasses(string $subject): array
+    {
+        // A single-compound `:where()`/`:is()` still requires its classes.
+        $subject = (string) preg_replace('/:(?:where|is)\(\s*((?:[^\s(),\\\\]|\\\\.)+)\s*\)/', '$1', $subject);
+        $required = '';
+        for ($i = 0, $depth = 0, $length = strlen($subject); $i < $length; $i++) {
+            if ('\\' === $subject[$i]) { if (0 === $depth) $required .= substr($subject, $i, 2); $i++; continue; }
+            if ('(' === $subject[$i] || '[' === $subject[$i]) $depth++;
+            elseif (')' === $subject[$i] || ']' === $subject[$i]) $depth = max(0, $depth - 1);
+            elseif (0 === $depth) $required .= $subject[$i];
+        }
+        if (!preg_match_all('/\.((?:\\\\.|[\w-])+)/', $required, $classes)) return array();
+        return array_map('stripslashes', $classes[1]);
     }
 
     /**
@@ -1665,11 +1939,86 @@ final class PresetBinding
         return $matched;
     }
 
+    /**
+     * Whether some author font other than the root Global Styles font can
+     * reach an element by inheritance. Rules whose subject never holds block
+     * text (headings, code, form controls, button links, pseudo-elements),
+     * rules restating the root font and `font: inherit` resets cannot; any
+     * other font rule, including shorthand, conditional or nested ones,
+     * conservatively can.
+     */
+    private function hasInheritedFontCompetitor(): bool
+    {
+        return $this->inheritedFontCompetitor ??= $this->findInheritedFontCompetitor();
+    }
+
+    private function findInheritedFontCompetitor(): bool
+    {
+        foreach ($this->fontRules as $rule) {
+            if ($rule['inherits'] || (null !== $rule['value'] && $this->rendersDefaultFont('body', $rule['value']))) continue;
+            $subject = self::subjectCompound($rule['selector']);
+            // A button's link holds its label's inline text, never blocks.
+            if (str_contains($subject, '::') || 1 === preg_match('/\.wp-block-button__link(?![\w-])/', $subject) || self::selectsDocumentRoot($subject)) continue;
+            if (preg_match(self::TYPE_SELECTOR, $subject, $match) && in_array(strtolower($match[1]), array_merge(array('html', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), self::FONT_RESET_TAGS), true)) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Targets of a rule restating the root font that would not render it
+     * once the rule yields: headings whose element default differs, and
+     * elements with their own font (form controls, code, button links)
+     * that the site renders, unless the author or theme already gives them
+     * the root font.
+     *
+     * @return list<string> Type and class selectors to keep the font on.
+     */
+    private function rootFontKeepers(string $value): array
+    {
+        $keepers = array();
+        foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
+            if (!$this->rendersDefaultFont($tag, $value) || $this->hasCompetingFont($tag)) $keepers[] = $tag;
+        }
+        foreach (self::FONT_RESET_TAGS as $tag) {
+            // A phrasing element no document renders cannot carry the rule's classes.
+            if (null !== $this->renderedOwnFontTags && in_array($tag, self::OWN_FONT_PHRASING_TAGS, true) && !isset($this->renderedOwnFontTags[$tag])) continue;
+            if (!$this->tagRendersRootFont($tag)) $keepers[] = $tag;
+        }
+        $button = $this->buttonFontDefault;
+        if (null !== $button && !in_array(strtolower(trim($button)), array('inherit', 'unset'), true) && !$this->sameFont($button, $this->fontDefaults['body'] ?? '')) $keepers[] = '.wp-block-button__link';
+        return $keepers;
+    }
+
+    /**
+     * Whether an unconditional author rule gives every `$tag` element the
+     * root font (`button{font:inherit}`, or a stack restating it), and no
+     * other rule on that type gives it another font.
+     */
+    private function tagRendersRootFont(string $tag): bool
+    {
+        $covered = false;
+        foreach ($this->fontRules as $rule) {
+            if (!preg_match(self::TYPE_SELECTOR, self::subjectCompound($rule['selector']), $match) || strtolower($match[1]) !== $tag) continue;
+            $root = $rule['inherits'] || (null !== $rule['value'] && $this->rendersDefaultFont('body', $rule['value']));
+            if (!$root) return false;
+            // `code:not(.weight)`: engine specificity guards still select every element.
+            if ($rule['unconditional'] && strtolower(trim((string) preg_replace('/:not\([^()]*\)/', '', $rule['selector']))) === $tag) $covered = true;
+        }
+        return $covered;
+    }
+
     private function inheritsFont(string $html, string $value): bool
     {
         if (!preg_match('/^<(h[1-6]|p|div|ul|ol|li|blockquote)\b/i', $html, $match)) return false;
         $tag = strtolower($match[1]);
         $default = $this->fontDefaults[$tag] ?? (str_starts_with($tag, 'h') ? null : ($this->fontDefaults['body'] ?? null));
+        // Paragraph utilities keep their declarations in bindStylesheet(),
+        // so equality with the root font does not prove inheritance. Retain
+        // their block preset, but do not pin containers (groups, lists and
+        // quotes): their font participates in the cascade of descendant blocks,
+        // not just this text. Heading defaults have their own projection.
+        if ('p' === $tag && array() !== $this->fontRules) return false;
         return null !== $default && $this->sameFont($value, $default);
     }
 
@@ -1795,6 +2144,27 @@ final class PresetBinding
             $value = trim(substr($value, 0, -strlen($match[0])));
         }
         if ('' === $value) return $declaration;
+        if ('font' === $property) {
+            // Bind only the family tail: expanding the shorthand into longhands
+            // would lose its resets and could change the source cascade.
+            CssFontShorthand::expand($value, true, $familyOffset);
+            if (null !== $familyOffset) {
+                $family = substr($value, $familyOffset);
+                $slug = $this->exactFontFamilySlug($family);
+                // A primary-family match is insufficient: when that face is
+                // unavailable, the preset's fallback stack determines paint.
+                // The var() fallback only protects against a missing preset,
+                // not a defined preset with a different stack.
+                if (null !== $slug && $this->presetHoldsFamily($slug, $this->resolve($family))) {
+                    ++$this->bound;
+                    // Retained CSS can also render without theme.json (previews
+                    // and standalone consumers); keep the source family then.
+                    $fallback = ',' . self::sourcePresets($family);
+                    return $parts[0] . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
+                        . 'var(--wp--preset--font-family--' . $slug . $fallback . ')' . $important;
+                }
+            }
+        }
         if (str_starts_with($property, '--')) {
             CssFontShorthand::expand($value, false, $familyOffset);
             // Without a shorthand prefix, the whole value may be a family stack.
@@ -2056,7 +2426,7 @@ final class PresetBinding
     /** Why a value that names no token is not bound; null when it paints nothing of its own. */
     private static function unboundReason(string $kind, string $value): ?string
     {
-        if ('color' !== $kind) return 'no_matching_token';
+        if ('color' !== $kind && 'text-color' !== $kind) return 'no_matching_token';
         if (1 === preg_match('/^(?:currentcolor|inherit|initial|unset|revert|revert-layer)$/i', trim($value))) return null;
         $color = CssColor::parse($value);
         if (null === $color) return 'unresolved_value';
@@ -2075,7 +2445,7 @@ final class PresetBinding
     private function comparable(string $kind, string $value): bool
     {
         return match ($kind) {
-            'color' => null !== CssColor::parse($value),
+            'color', 'text-color' => null !== CssColor::parse($value),
             'font-family' => '' !== trim($value) && !str_contains($value, 'var(') && !in_array(strtolower(trim($value)), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true),
             default => null !== CssLength::toPx($value),
         };
@@ -2086,6 +2456,9 @@ final class PresetBinding
         if (!$this->comparable($kind, $value)) return null;
         return match ($kind) {
             'color' => $this->system->colorSlug($value),
+            // A block's text colour may also name a near shade's derived
+            // token (DesignSystem::withBlockNearShades()).
+            'text-color' => $this->system->colorSlug($value) ?? $this->system->blockNearShadeSlug($value),
             'font-size' => $this->fontSizeSlug($value),
             'font-family' => $this->system->fontFamilySlug($value),
             default => $this->spacingSlug($value),
@@ -2127,7 +2500,7 @@ final class PresetBinding
         return true;
     }
 
-    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false): bool
+    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false, bool $preservesStyleText = false): bool
     {
         $finalClasses = $tokens;
         foreach ($addedClasses as $class) $finalClasses['class:' . $class] = true;
@@ -2135,7 +2508,9 @@ final class PresetBinding
             $reason = 'state_variant';
             if (!$statesRendered && $this->stateMatches($family, $tokens)) return false;
             $reason = 'style_selector';
-            foreach ($this->styleTextRules[$family] ?? array() as $rule) {
+            // A class-only handoff leaves style="..." byte-for-byte intact,
+            // including the presence/absence tested by reset selectors.
+            foreach ($preservesStyleText ? array() : ($this->styleTextRules[$family] ?? array()) as $rule) {
                 // A shared engine class is not enough to make a selector for
                 // another element type read this element's style attribute.
                 $tags = array_values(array_filter($rule['tokens'] ?? array(), static fn(string $token): bool => str_starts_with($token, 'tag:')));
@@ -2323,7 +2698,6 @@ final class PresetBinding
     {
         // Source classes remain analysis evidence, but their ordinary rules
         // are not delivered on captured routes. They cannot replace inline paint.
-        if ($this->engineOwnedStyles) return false;
         $button = 'button' === $name;
         if (!$button && (!in_array($name, self::CLASS_RENDERED_BLOCKS, true) || !in_array($property, array('color', 'border-color'), true))) return false;
         $color = CssColor::parse($this->resolve($literal));
@@ -2486,6 +2860,10 @@ final class PresetBinding
     private static function stateSubjectApplies(array $subject, array $tokens): bool
     {
         if (isset($subject['compound']) && !self::stateSubjectMatches($subject['compound'], $tokens)) return false;
+        // The tokens of a link block hold its wrapper's className as well as
+        // the link's own classes: a wrapper class the rule's parent requires
+        // and the block lacks means the rule styles another control's link.
+        foreach ($subject['link_parent_classes'] ?? array() as $class) if (!isset($tokens['class:' . $class])) return false;
         if (array() !== array_intersect_key(array_flip($subject['negated']), $tokens)) return false;
         if (array() !== $subject['tokens'] && array() === array_intersect_key(array_flip($subject['tokens']), $tokens)) return false;
         if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
@@ -2562,6 +2940,18 @@ final class PresetBinding
             $parsed = CssSelectorMatcher::parse($resting);
             if ($parsed['supported'] && array() !== $parsed['compounds']) {
                 $subject['compound'] = $parsed['compounds'][array_key_last($parsed['compounds'])];
+                // A core button link's parent is its block wrapper, which
+                // carries the block's className. A rule for one control's
+                // link (`.subject-x > .wp-block-button__link:hover`) names
+                // that parent; keep its classes so it does not count as a
+                // state rule for every other button link.
+                $count = count($parsed['compounds']);
+                if ($count > 1 && '>' === ($parsed['combinators'][$count - 2] ?? null) && in_array('wp-block-button__link', $subject['compound']['classes'] ?? array(), true)) {
+                    $subject['link_parent_classes'] = array_values(array_filter(
+                        $parsed['compounds'][$count - 2]['classes'] ?? array(),
+                        static fn(string $class): bool => 1 !== preg_match('/^(?:wp-|has-|is-)/', $class)
+                    ));
+                }
             }
             $this->stateTokens[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
         }
@@ -2620,6 +3010,18 @@ final class PresetBinding
         if (!$parsed['supported']) return false;
         $weight = CssSelectorMatcher::specificityCounts($parsed);
         return array($weight['ids'], $weight['classes'], $weight['types']) > array(0, 1, 0);
+    }
+
+    /**
+     * Whether a subject compound only ever selects the document root
+     * (`html`, `:root`, `:host`, which no light-DOM element matches) or its
+     * editor canvas mirror (`.editor-styles-wrapper`). Such a rule reaches
+     * block text only by inheritance through body, never past an element
+     * or body font Global Styles states.
+     */
+    private static function selectsDocumentRoot(string $subject): bool
+    {
+        return 1 === preg_match('/^(?:html|:root|:host)(?![\w-])|\.editor-styles-wrapper(?![\w-])/i', trim($subject));
     }
 
     /** The selector's last compound, after its final combinator. */

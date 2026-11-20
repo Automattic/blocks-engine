@@ -174,6 +174,27 @@ $loss = array_values(array_filter(
 ));
 $assert(array() !== $loss && 'interactive_behavior_loss' === ($loss[0]['loss_class'] ?? null), 'an unresolved copy target records the canonical interactive_behavior_loss class');
 
+// `data-copy` also names duplicate and clone commands. A quantity stepper
+// whose script duplicates the item it names is an ordinary button, even when
+// the same script writes something else to the clipboard elsewhere.
+$stepperHtml = '<main><ul><li><span>Cutlery bay</span><div class="qty"><button type="button" data-remove="item-0" aria-label="Remove one Cutlery bay">−</button><b>1</b><button type="button" data-copy="item-0" aria-label="Add one Cutlery bay">+</button></div></li></ul></main>';
+$stepperRuntime = 'document.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.copy){duplicate(state.items.find(i=>i.id===b.dataset.copy));return;}if(b.dataset.remove){remove(b.dataset.remove);return;}});'
+    . str_repeat('/* configurator state, rendering and pricing */', 12)
+    . 'function share(){navigator.clipboard?.writeText(location.href).then(()=>status("Layout link copied."));}';
+foreach ( array( 'without source script' => array(), 'with a script that duplicates on data-copy' => array( 'runtime_projection_script_assets' => array( array( 'path' => 'configurator.js', 'content' => $stepperRuntime ) ) ) ) as $case => $options ) {
+    $stepper = ( new HtmlTransformer() )->transform($stepperHtml, $options)->toArray();
+    $assert(null === $findCopy($stepper['blocks'] ?? array()), "$case: a data-copy quantity stepper is not a copy-to-clipboard control");
+    $stepperMarkup = (string) ($stepper['serialized_blocks'] ?? '');
+    $assert(! str_contains($stepperMarkup, 'data-blocks-engine-copy') && str_contains($stepperMarkup, '>+</button>') && str_contains($stepperMarkup, 'Add one Cutlery bay'), "$case: the stepper keeps native button lowering and its accessible name");
+}
+$boundRuntime = 'document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",()=>navigator.clipboard.writeText(b.dataset.copy)));';
+$bound = ( new HtmlTransformer() )->transform(
+    '<main><button type="button" data-copy="npm install blocks">Install</button></main>',
+    array( 'runtime_projection_script_assets' => array( array( 'path' => 'copy.js', 'content' => $boundRuntime ) ) )
+)->toArray();
+$boundBlock = $findCopy($bound['blocks'] ?? array());
+$assert(null !== $boundBlock && 'npm install blocks' === ($boundBlock['attrs']['copyText'] ?? null), 'a data-copy attribute a source script writes to the clipboard is copy evidence and supplies the payload');
+
 $generator = new CopyToClipboardBlockGenerator();
 $attrs = array(
     'label' => 'Copy',

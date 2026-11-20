@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use DOMDocument;
 use DOMElement;
@@ -356,15 +357,25 @@ final class CapturedMenuDialogFold
         while ( $group->parentNode instanceof DOMElement && ! SourceDom::elementContains($group->parentNode, $row) ) {
             $group = $group->parentNode;
         }
-        if ( $group->isSameNode($trigger) || SourceDom::elementContains($group, $dialog) || SourceDom::elementContains($group, $row) ) {
-            return null;
-        }
-        foreach ( $triggers as $other ) {
-            if ( ! SourceDom::elementContains($group, $other) ) {
-                return null;
-            }
-        }
+        // Whether the hamburger's wrapper is dropped with it is WrapperDecision's (#7471).
+        return WrapperDecision::capturedMenuTriggerGroup(
+            $group,
+            $triggers,
+            $dialog,
+            $row,
+            static fn (): bool => self::holdsUnrepeatedControl($row, $triggers, $group),
+            static fn (): bool => self::onlyPunctuationOutsideControls($group, $triggers)
+        )->isDrop() ? $group : null;
+    }
 
+    /**
+     * Whether the hamburger's wrapper holds a link, button or media the row
+     * does not already show.
+     *
+     * @param list<DOMElement> $triggers
+     */
+    private static function holdsUnrepeatedControl(DOMElement $row, array $triggers, DOMElement $group): bool
+    {
         $rowLinks = array();
         foreach ( $row->getElementsByTagName('a') as $anchor ) {
             if ( $anchor instanceof DOMElement ) {
@@ -390,22 +401,23 @@ final class CapturedMenuDialogFold
             $tag = strtolower($descendant->tagName);
             if ( 'a' === $tag ) {
                 if ( ! isset($rowLinks[self::signature('link', self::label($descendant), trim($descendant->getAttribute('href')))]) ) {
-                    return null;
+                    return true;
                 }
             } elseif ( 'button' === $tag ) {
                 if ( ! isset($rowButtons[self::label($descendant)]) ) {
-                    return null;
+                    return true;
                 }
             } elseif ( in_array($tag, array( 'img', 'svg', 'picture', 'video', 'input', 'select', 'textarea', 'form', 'iframe', 'canvas' ), true) ) {
                 if ( ! self::insideMatchedControl($descendant, $group) ) {
-                    return null;
+                    return true;
                 }
             }
         }
 
-        // Text outside every link and button must be bare punctuation, such as
-        // the divider between two switcher buttons.
-        return self::onlyPunctuationOutsideControls($group, $triggers) ? $group : null;
+        // Text outside every link and button must then be bare punctuation,
+        // such as the divider between two switcher buttons (checked by
+        // WrapperDecision's `non_punctuation_text` guard).
+        return false;
     }
 
     /** Whether a link or button of the wrapper comes before the hamburger in document order. */

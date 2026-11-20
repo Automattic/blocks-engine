@@ -116,6 +116,9 @@ final class AuthorSelectorProjector
      * That holds only for a selector naming positioned images alone: its
      * figure arm reaches every figure the type matches, so a global `img`
      * rule would also restyle the figures of static images.
+     * A positioned `svg` materialized as a standalone core/image is the same
+     * case: left static, its figure falls into flow and the image renders at
+     * the viewBox's intrinsic ratio instead of the author's stretched box.
      * Attributes stay on the <img>. Classes and id must be on the figure, so a
      * class the figure did not keep leaves the authored selector alone.
      *
@@ -123,7 +126,7 @@ final class AuthorSelectorProjector
      */
     private function isPositionedImage(DOMElement $element): bool
     {
-        return 'img' === strtolower($element->tagName)
+        return in_array(strtolower($element->tagName), array( 'img', 'svg' ), true)
             && in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array( 'absolute', 'fixed' ), true);
     }
 
@@ -145,7 +148,7 @@ final class AuthorSelectorProjector
         // Only an explicit type subject can use the existing type-span rewrite;
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
-            && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
+            && 1 === preg_match('/^' . preg_quote($tagName, '/') . '\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
         if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
@@ -287,6 +290,12 @@ final class AuthorSelectorProjector
         $rewritten = array();
         foreach ( $selectors as $selector ) {
             array_push($rewritten, ...$this->rememberedSelectorArms($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+            // A restated wrapper fold moved the wrapper's classes and id onto
+            // its child; the compound arm keeps the selector's matches. It
+            // projects like any authored selector, in the same rule.
+            foreach ( $context->selectorProjections->restatedSelectorArms($selector) as $arm ) {
+                array_push($rewritten, ...$this->rememberedSelectorArms($arm, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+            }
         }
         $projected = implode(',', array_values(array_unique($rewritten)));
         if ( $projected !== $prelude && EngineMarker::matchesAny($projected) ) {
@@ -331,6 +340,8 @@ final class AuthorSelectorProjector
      */
     private function projectSelectorArms(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): array
     {
+        $labelState = $this->projectNavigationLabelAncestorState($selector, $context);
+        if (null !== $labelState) return $labelState;
         if ( $context->selectorProjections->retainsRuntimeOwnedSelector($selector)
             || $this->isNativeCoreNavigationSelector($selector, $context) ) {
             return array(trim($selector));
@@ -387,6 +398,16 @@ final class AuthorSelectorProjector
             return $arms;
         }
         $matches = $this->matchingSourceElements($selector, $parsed, $context);
+        $restingSelector = trim($context->selectorProjections->withoutCurrentNavigationAttributes($selector));
+        if ($restingSelector !== trim($selector)) {
+            // An attribute-only ancestor still owns an element at rest.
+            $restingSelector = preg_replace('/^\s+/', '* ', $context->selectorProjections->withoutCurrentNavigationAttributes($selector)) ?? $restingSelector;
+            if ('' === trim($restingSelector)) $restingSelector = '*';
+            $restingParsed = $context->sourceStyles->parsedSelector($restingSelector);
+            if ($restingParsed['supported']) foreach ($this->matchingSourceElements($restingSelector, $restingParsed, $context) as $candidate) {
+                if ('' !== $context->selectorProjections->navigationSubject($context->authorStyles->sourcePath($candidate)) && !in_array($candidate, $matches, true)) $matches[] = $candidate;
+            }
+        }
         foreach ($matches as $element) {
             if ($context->selectorProjections->isRetainedAuthoredControl($element->getNodePath() ?? '')
                 && !($parsed['compounds'][count($parsed['compounds']) - 1]['universal'] ?? false)) {
@@ -403,6 +424,8 @@ final class AuthorSelectorProjector
             $arms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, self::sourceResolvedSiblingExclusion($parsed));
             return $arms;
         }
+
+        array_push($arms, ...$this->projectRichTextCarrierDescendantSelector($selector, $parsed, $context, $controlWrapper, $subjectArms, $semanticSubjectArms, $matches));
 
         // Some lowering paths retain the source leaf inside a paragraph
         // without marking it as a potential standalone inline carrier.
@@ -421,6 +444,16 @@ final class AuthorSelectorProjector
                 . substr($selector, $start);
             if ( $this->matchesEmittedMarkup($coverChild, $context->emittedMarkup) ) {
                 $arms[] = $coverChild;
+            }
+            // A card link pushed down into a block wraps all of that block's
+            // source children in one layout-transparent `<a>`, so the child
+            // edge now passes through it. Follow that one anchor only.
+            $host = rtrim(substr($selector, 0, $start));
+            if ( str_ends_with($host, '>') ) {
+                $linkChild = rtrim(substr($host, 0, -1)) . ':where(.' . SourceBlockAttributeProjector::PROPAGATED_LINK_CLASS . ')>:where(a)>' . substr($selector, $start);
+                if ( $this->matchesEmittedMarkup($linkChild, $context->emittedMarkup) ) {
+                    $arms[] = $linkChild;
+                }
             }
         }
         $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
@@ -477,6 +510,67 @@ final class AuthorSelectorProjector
         }
 
         array_push($arms, ...$this->projectMarkerCarriers($selector, $parsed, $matches, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+        return $arms;
+    }
+
+    /**
+     * Arms for a child or descendant rule whose ancestor is a RichText
+     * carrier addressed by class or id (`.fx > *`, `.fx .label`).
+     *
+     * A RichText carrier replaces its source element with a `<mark>` that
+     * no longer has the source classes or id, so the authored ancestor
+     * compound stops matching while the carrier's inline descendants stay
+     * inside it. The ancestor is projected like a pseudo-element host:
+     * through the same pipeline as a rule on its own, keeping only its
+     * RichText arms, which carry its specificity. The combinator and subject
+     * follow unchanged, with source tags rewritten as on any other arm. A
+     * type-only ancestor needs nothing here: the lowered span bridge already
+     * reaches the carrier.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return list<string>
+     */
+    private function projectRichTextCarrierDescendantSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms, array $matches): array
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        $combinator = end($combinators);
+        $compounds = $parsed['compounds'] ?? array();
+        $hostCompound = $compounds[count($compounds) - 2] ?? null;
+        if ( ! is_array($rightmost) || ! in_array($combinator, array( '>', ' ' ), true) || ! is_array($hostCompound)
+            || ( array() === ($hostCompound['classes'] ?? array()) && array() === ($hostCompound['ids'] ?? array()) ) ) {
+            return array();
+        }
+        // Only a match held by a RichText carrier needs an arm; find one
+        // before matching the ancestor selector itself.
+        $holdsCarrierDescendant = false;
+        foreach ( $matches as $match ) {
+            for ( $ancestor = $match->parentNode; $ancestor instanceof DOMElement && ! $holdsCarrierDescendant; $ancestor = '>' === $combinator ? null : $ancestor->parentNode ) {
+                $holdsCarrierDescendant = '' !== $context->selectorProjections->richTextMarker($context->authorStyles->sourcePath($ancestor));
+            }
+            if ( $holdsCarrierDescendant ) {
+                break;
+            }
+        }
+        if ( ! $holdsCarrierDescendant ) {
+            return array();
+        }
+        $start = (int) $rightmost['start'];
+        $host = rtrim(substr($selector, 0, $start));
+        $host = '>' === $combinator ? rtrim(substr($host, 0, -1)) : $host;
+        $subject = substr($selector, $start);
+        $subjectParsed = $context->sourceStyles->parsedSelector($subject);
+        if ( '' === $host || ! $context->sourceStyles->parsedSelector($host)['supported'] || ! $subjectParsed['supported'] ) {
+            return array();
+        }
+        $projectedSubject = $this->rewriteSourceTagTypes($subject, $subjectParsed, $context);
+        $arms = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPreludeOnce($host, $context, $controlWrapper, $subjectArms, $semanticSubjectArms)) ?? array() as $target ) {
+            if ( str_contains($target, 'blocks-engine-role-richtext') || str_contains($target, 'blocks-engine-richtext-marker') ) {
+                $arms[] = $target . ('>' === $combinator ? '>' : ' ') . $projectedSubject;
+            }
+        }
         return $arms;
     }
 
@@ -640,6 +734,37 @@ final class AuthorSelectorProjector
             }
         }
         return null;
+    }
+
+    /** @return list<string>|null */
+    private function projectNavigationLabelAncestorState(string $selector, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $selector = trim($selector);
+        // An interaction on the source item is outside the static matcher's
+        // subset. Resolve its resting subjects, but keep the state live on
+        // Core's item rather than freezing it into the lifted label's paint.
+        if (1 !== preg_match('/^(.*):(hover|focus-within|active)\s+([^>+~]+)$/', $selector, $state)) return null;
+        $resting = $state[1] . ' ' . $state[3];
+        preg_match('/(::?(?:after|before))$/i', $resting, $pseudo);
+        $suffix = $pseudo[1] ?? '';
+        if ('' !== $suffix) $resting = substr($resting, 0, -strlen($suffix));
+        $parsed = $context->sourceStyles->parsedSelector($resting);
+        $ancestorParsed = $context->sourceStyles->parsedSelector($state[1]);
+        if (!$parsed['supported'] || !$ancestorParsed['supported']) return null;
+        $ancestors = $this->matchingSourceElements($state[1], $ancestorParsed, $context);
+        $matches = $this->matchingSourceElements($resting, $parsed, $context);
+        $arms = array();
+        foreach ($matches as $element) {
+            $target = $context->selectorProjections->navigationSubject($context->authorStyles->sourcePath($element));
+            if (!str_ends_with($target, ' .wp-block-navigation-item__label')) return null;
+            $item = $element->parentNode;
+            while ($item instanceof DOMElement && 'li' !== strtolower($item->tagName)) $item = $item->parentNode;
+            if (!$item instanceof DOMElement || !in_array($item, $ancestors, true)) return null;
+            $arms[] = ':root ' . substr($target, 0, -strlen(' .wp-block-navigation-item__label'))
+                . ' .wp-block-navigation-item:' . $state[2] . '>.wp-block-navigation-item__content>.wp-block-navigation-item__label'
+                . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+        }
+        return array() === $arms ? null : array_values(array_unique($arms));
     }
 
     /**
@@ -987,6 +1112,14 @@ final class AuthorSelectorProjector
                     continue;
                 }
                 $inlineLayoutCarriers = true;
+                // The carrier is only a candidate: paragraph lowering can keep
+                // the leaf as a RichText run instead (a flex `<p>` whose card
+                // link was pushed down around its children). That run answers
+                // to its marker, not to the carrier's topology or source tag.
+                $marker = $context->selectorProjections->richTextMarker($path);
+                if ( '' !== $marker && 1 === preg_match('/' . preg_quote($marker, '/') . '(?!\d)/', $context->emittedMarkup) ) {
+                    $richTextLeaves[] = $marker;
+                }
                 // Source analysis may add its own markers before stylesheet
                 // projection. Only the emitted paragraph can own this ID;
                 // unpromoted leaves make the additional selector inert.
@@ -1233,8 +1366,18 @@ final class AuthorSelectorProjector
      * A selector no source element matches as a whole, whose rightmost
      * compound matches controls: keep the authored ancestry and project the
      * subject onto every control carrier it matches. Every such carrier gets
-     * the same arm shape, so with `$subjectArms` and a context-free subject the
-     * carriers are addressed through their subject classes in one arm.
+     * the same arm shape, so with a context-free subject the carriers are
+     * addressed through their subject classes in one arm.
+     *
+     * That holds even when `$subjectArms` is off. Per-control declaration
+     * routing (wrapper geometry, placement, collapsed widths) follows the
+     * elements the whole selector matches, and a dormant selector matches
+     * none here, so every carrier receives the same declarations. Naming each
+     * carrier's marker instead would grow the arm with every page that loads
+     * the stylesheet. The shared arm is identical on every such page, and the
+     * route-variant scoping fences it off routes where it could match. A
+     * carrier whose entrance replays a subject class keeps its marker arm, so
+     * that class stays a live predicate.
      *
      * @param array<string, mixed> $parsed
      * @return list<string>
@@ -1269,7 +1412,9 @@ final class AuthorSelectorProjector
         }
         $markers = array_values(array_unique($markers));
         $prefix = substr($selector, 0, (int) $rightmost['start']);
-        $subject = $subjectArms && array() !== $markers ? $this->contextFreeSubject('control', $leafParsed, $markers, $context) : null;
+        $subject = array() !== $markers && ($subjectArms || !$this->replaysEntranceClass($leafParsed, $markers, $context))
+            ? $this->contextFreeSubject('control', $leafParsed, $markers, $context)
+            : null;
         $projected = array();
         // A dormant ancestor (including a route-owned body id) does not make
         // the leaf control-only. Keep its other subjects addressable too.
@@ -1284,6 +1429,28 @@ final class AuthorSelectorProjector
             $projected[] = $prefix . $this->projectControlSelector($leafSelector, $leafParsed, $marker, $context, $wrapper);
         }
         return array_values(array_unique($projected));
+    }
+
+    /**
+     * Whether a control's entrance replays a class the leaf compound names.
+     * Its marker arm keeps that token live (see projectControlSelector()).
+     *
+     * @param array<string, mixed> $leafParsed
+     * @param list<string> $markers
+     */
+    private function replaysEntranceClass(array $leafParsed, array $markers, AuthorStylesheetProjectionContext $context): bool
+    {
+        $rightmost = CssSelectorCompoundInspector::rightmost($leafParsed['compounds'] ?? array());
+        $classes = array_map('strval', $rightmost['classes'] ?? array());
+        if ( array() === $classes ) {
+            return false;
+        }
+        foreach ( $markers as $marker ) {
+            if ( array() !== array_intersect($classes, $context->selectorProjections->controlEntranceClasses($marker)) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1698,7 +1865,8 @@ final class AuthorSelectorProjector
     {
         $typeSpans = $parsed['type_spans'];
         $bridgeAnchors = $this->hasLoweredAnchorCarrier($context->emittedMarkup);
-        if ($bridgeAnchors && ! $parsed['supported']) {
+        $bridgeSpans = str_contains($context->emittedMarkup, EngineMarker::subjectTagClass('span'));
+        if (($bridgeAnchors || $bridgeSpans) && ! $parsed['supported']) {
             // Ancestor states are outside the matcher's static subset, but
             // tokenization still identifies each compound's leading type.
             $tokens = CssSelectorTokenizer::tokenize($selector);
@@ -1706,7 +1874,7 @@ final class AuthorSelectorProjector
                 $resting = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound) ?? $compound;
                 $compoundParsed = CssSelectorMatcher::parse($resting);
                 foreach ($compoundParsed['type_spans'] as $span) {
-                    if (0 !== $span['start'] || 'a' !== strtolower($span['name'])) continue;
+                    if (0 !== $span['start'] || ! in_array(strtolower($span['name']), array('a', 'span'), true)) continue;
                     $start = $tokens['compound_spans'][$index]['start'];
                     $typeSpans[] = array('start' => $start, 'end' => $start + $span['end'], 'name' => $span['name']);
                 }
@@ -1750,7 +1918,7 @@ final class AuthorSelectorProjector
                 // must still reach their intended materialized image leaf.
                 $replacements[$typeSpan['start']] = array(
                     'end' => $typeSpan['end'],
-                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
+                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . $this->sourceImageTypeGuard($context),
                 );
             } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
                 // Core's label span has no source identity. Even a dormant
@@ -1759,7 +1927,14 @@ final class AuthorSelectorProjector
                 // Keep real source spans addressable, without adding weight.
                 // A span carrier for another source tag (a lowered `<p>`)
                 // matches only that tag's rules, never those for real spans.
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))' );
+                $span = 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))';
+                // RichText can replace source spans with marks. The native
+                // arm keeps its chrome/foreign-carrier guards; the marker arm
+                // reaches only source spans and adds no class specificity.
+                if ($bridgeSpans) {
+                    $span = ':is(' . $span . ',:where(.' . EngineMarker::subjectTagClass('span') . '))';
+                }
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $span );
             } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }
@@ -2006,17 +2181,19 @@ final class AuthorSelectorProjector
             return null;
         }
         $start = (int) $rightmost['start'];
-        // The carrier re-parents the subject, so sibling-indexed pseudo-classes
-        // would be evaluated against different siblings than in the source.
-        if ( 1 === preg_match('/:(?:first|last|only|nth)-|:nth-/i', substr($selector, $start)) ) {
+        // The carrier re-parents the subject: inside it the subject is an only
+        // child, while the carrier takes the subject's place among the source
+        // siblings. Child-indexed pseudo-classes therefore move to the carrier.
+        $sibling = self::splitChildIndexedPseudoClasses(substr($selector, $start));
+        if ( null === $sibling ) {
             return null;
         }
+        [ $subject, $position ] = $sibling;
         $arms = array();
         $classes = $itemSlot ? array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) : array(AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS);
         foreach ( $classes as $class ) {
-            $carrier = ':where(.' . $class . ')';
+            $carrier = ':where(.' . $class . ')' . $position;
             $prefix = substr($selector, 0, $start);
-            $subject = substr($selector, $start);
             $projected = $prefix . $carrier . '>' . $subject;
             if ( ! $this->matchesEmittedMarkup($projected, $context->emittedMarkup) ) continue;
             // The same subject predicate guards the item slot: unrelated
@@ -2024,6 +2201,51 @@ final class AuthorSelectorProjector
             $arms[] = $itemSlot ? $prefix . $carrier . ':has(>' . $subject . ')' : $projected;
         }
         return array() === $arms ? null : implode(',', $arms);
+    }
+
+    /**
+     * Split a compound into its remainder and its top-level child-indexed
+     * pseudo-classes (`:first-child`, `:last-child`, `:only-child`,
+     * `:nth-child()`, `:nth-last-child()`). Null when the compound depends on
+     * its own type or on a sibling filter (`*-of-type`, `:nth-child(… of S)`),
+     * which a carrier of another tag and class cannot stand in for.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    private static function splitChildIndexedPseudoClasses(string $compound): ?array
+    {
+        $rest = '';
+        $position = '';
+        $state = CssSyntaxScanner::state();
+        for ( $offset = 0, $length = strlen($compound); $offset < $length; ) {
+            if ( ':' === $compound[$offset] && 0 === $state['parens'] && 0 === $state['brackets'] && '' === $state['quote']
+                && 1 === preg_match('/\G:(?!:)([a-z-]+)(\()?/i', $compound, $match, 0, $offset) ) {
+                $name = strtolower($match[1]);
+                if ( str_ends_with($name, '-of-type') ) {
+                    return null;
+                }
+                if ( in_array($name, array( 'first-child', 'last-child', 'only-child', 'nth-child', 'nth-last-child' ), true) ) {
+                    $end = $offset + strlen($match[0]);
+                    if ( isset($match[2]) ) {
+                        $close = CssSyntaxScanner::matchingClose($compound, $end - 1);
+                        if ( null === $close || 1 === preg_match('/\sof\s/i', substr($compound, $end, $close - $end)) ) {
+                            return null;
+                        }
+                        $end = $close + 1;
+                    }
+                    $position .= substr($compound, $offset, $end - $offset);
+                    $offset = $end;
+                    continue;
+                }
+            }
+            $next = CssSyntaxScanner::consume($compound, $offset, $state);
+            if ( null === $next ) {
+                return null;
+            }
+            $rest .= substr($compound, $offset, $next - $offset);
+            $offset = $next;
+        }
+        return array( '' === $rest ? '*' : $rest, $position );
     }
 
     /** Project child edges to retained anchors even when the rule addresses a descendant. */
@@ -2283,6 +2505,10 @@ final class AuthorSelectorProjector
             );
         }
         $projected = array();
+        $rightmostType = strtolower((string) ($parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? ''));
+        // Replacing the source type with a figure must not discard its source
+        // provenance guard. A generated SVG image is not a source img subject.
+        $imageGuard = 'img' === $rightmostType ? $this->sourceImageTypeGuard($context, $wrapperOnly) : '';
         $tokens = CssSelectorTokenizer::tokenize($selector);
         $parentIndex = count($parsed['compounds']) - 2;
         $linkSpan = null;
@@ -2300,7 +2526,7 @@ final class AuthorSelectorProjector
             $replacements = array(
                 (int) $parsed['rightmost_rewrite_end'] => array(
                     'end' => (int) $parsed['rightmost_rewrite_end'],
-                    'value' => '.wp-block-image' . $leafPath,
+                    'value' => '.wp-block-image' . $leafPath . $imageGuard,
                 ),
             );
             $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
@@ -2322,7 +2548,7 @@ final class AuthorSelectorProjector
                     'end' => (int) $parsed['rightmost_compound_span']['start'],
                     'value' => '',
                 );
-                $replacements[(int) $parsed['rightmost_rewrite_end']]['value'] = '.wp-block-image > ' . $link . $this->typeSpecificityShim($context) . ' > img';
+                $replacements[(int) $parsed['rightmost_rewrite_end']]['value'] = '.wp-block-image > ' . $link . $this->typeSpecificityShim($context) . ' > img' . $imageGuard;
             }
             $arm = $this->replaceSelectorSpans($selector, $replacements);
             if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
@@ -2337,6 +2563,20 @@ final class AuthorSelectorProjector
             $projected[] = $arm;
         }
         return implode(',', $projected);
+    }
+
+    /** Exclude materialized SVGs from source img subjects without adding specificity. */
+    private function sourceImageTypeGuard(AuthorStylesheetProjectionContext $context, bool $figure = false): string
+    {
+        if ( ! str_contains($context->emittedMarkup, 'assets/materialized-svg/inline-svg-') ) {
+            return '';
+        }
+        $asset = '[src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]';
+        if ( ! $figure ) {
+            return ':not(:where(' . $asset . '))';
+        }
+        $leaves = array_map(static fn (string $path): string => ':has(' . $path . $asset . ')', NativeImageLeafPresentation::LEAF_PATHS);
+        return ':not(:where(' . implode(',', $leaves) . '))';
     }
 
     private function typeSpecificityShim(AuthorStylesheetProjectionContext $context): string

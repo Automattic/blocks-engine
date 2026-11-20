@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
@@ -321,6 +322,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             && !in_array(strtolower($element->tagName), array('nav', 'ul', 'ol'), true)
             && !$this->hasNavigationSignal($element)) {
             return null;
+        }
+        // Directional article pagination is not a menu. Its surrounding
+        // captions (outside the anchors) are visible content, which reducing
+        // the landmark to navigation-link labels would silently discard.
+        foreach ( $element->getElementsByTagName('a') as $link ) {
+            $relations = SourceDom::tokens(strtolower(SourceDom::attr($link, 'rel')));
+            if ( array() !== array_intersect(array( 'prev', 'next' ), $relations) ) {
+                return null;
+            }
         }
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
@@ -1163,29 +1173,8 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function carrierLayoutWrapper(DOMElement $nav): ?DOMElement
     {
-        $wrapper = null;
-        foreach ( $nav->childNodes as $child ) {
-            if ( XML_COMMENT_NODE === $child->nodeType
-                || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || $wrapper instanceof DOMElement ) {
-                return null;
-            }
-            $wrapper = $child;
-        }
-        if ( ! $wrapper instanceof DOMElement || 'div' !== strtolower($wrapper->tagName)
-            || $this->isNavigationChromeElement($wrapper) ) {
-            return null;
-        }
-        $elements = 0;
-        foreach ( $wrapper->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$elements;
-            }
-        }
-
-        return 2 <= $elements ? $wrapper : null;
+        // Whether the row box is kept as the carrier's group is WrapperDecision's (#7471).
+        return WrapperDecision::navigationCarrierLayoutWrapper($nav, fn (DOMElement $wrapper): bool => $this->isNavigationChromeElement($wrapper))['wrapper'];
     }
 
     /**
@@ -2671,20 +2660,14 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function withFlattenedWrapperVisibility(array $blocks, DOMElement $wrapper, ?NavigationPatternContext $navigationContext): array
     {
-        if ( null === $navigationContext || $navigationContext->isDisplayNoneAtEveryViewport($wrapper) ) {
-            return $blocks;
-        }
-        $declared = $navigationContext->declaredValuesAtAnyViewport($wrapper, null);
-        $hides = in_array('none', array_map(static fn (string $value): string => strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value)), $declared['display'] ?? array()), true);
-        if ( ! $hides ) {
-            return $blocks;
-        }
-        foreach ( $declared as $property => $values ) {
-            if ( ! self::isDistributableWrapperDeclaration((string) $property, $values) ) {
-                return $blocks;
-            }
-        }
-        $className = $navigationContext->recordFlattenedWrapperSubject($wrapper);
+        // Whether the flattened wrapper's visibility is restated per item is WrapperDecision's (#7471).
+        $className = WrapperDecision::flattenedNavigationWrapper(
+            null !== $navigationContext,
+            fn (): bool => $navigationContext->isDisplayNoneAtEveryViewport($wrapper),
+            fn (): array => $navigationContext->declaredValuesAtAnyViewport($wrapper, null),
+            static fn (string $property, array $values): bool => self::isDistributableWrapperDeclaration($property, $values),
+            fn (): string => $navigationContext->recordFlattenedWrapperSubject($wrapper)
+        )['className'];
         if ( '' === $className ) {
             return $blocks;
         }
@@ -2780,13 +2763,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function isInertNavigationSupportWrapper(DOMElement $element): bool
     {
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || '' !== trim($element->textContent ?? '') && 0 === $element->childElementCount
-        ) {
-            return false;
-        }
-
-        return $this->inertNavigationSupportDescendants($element, false);
+        // Whether the support wrapper is dropped is WrapperDecision's (#7471).
+        return WrapperDecision::inertNavigationSupportWrapper($element, fn (): bool => $this->inertNavigationSupportDescendants($element, false))->isDrop();
     }
 
     private function inertNavigationSupportDescendants(DOMElement $element, bool $hidden): bool
@@ -3641,7 +3619,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $navigationContext->observeItemBoxOn($anchor, $item);
-            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
+            // Boxes that render again undo their folds before the anchor reads its box.
+            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
+            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit
@@ -3657,7 +3637,6 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
-            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
             // A wrapper box renders on every route too, so it drops route state like the anchor.
             if ($isCurrentNavigationItem) foreach ($boxes as $index => $box) $boxes[$index]['className'] = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $box['className']))['className'] ?? '');
             if (array() !== $boxes) {
@@ -4102,7 +4081,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         return (string) array_key_first($colors);
     }
 
-
     /**
      * Carry inheritable anchor paint and typography through core's dynamic link.
      * The anchor's own box travels separately, as a marker class the projector
@@ -4541,7 +4519,6 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         return MenuVocabulary::containsCurrentStateToken(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
     }
-
 
     /**
      * A signalled submenu can be paired with a text label or a link carrier.

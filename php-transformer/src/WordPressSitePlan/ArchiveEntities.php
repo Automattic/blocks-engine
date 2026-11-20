@@ -24,17 +24,19 @@ final class ArchiveEntities
             if (!is_array($entity) || 'author' !== ($entity['kind'] ?? null) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,49}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan author entity is structurally invalid.');
             WordPressSitePlan::unique($slugs, $entity['slug'], 'author nicename');
             $archive = $entity['archive'] ?? null;
-            if (!is_array($archive) || !WordPressSitePlan::safePath($archive['source_path'] ?? null) || ($archive['source_route'] ?? null) !== '/author/' . $entity['slug'] || ($archive['query'] ?? null) !== array('post_type' => 'post', 'author' => $entity['slug']) || !self::validPresentation($archive)) throw new InvalidArgumentException('WordPress site plan author archive is structurally invalid.');
+            // A byline-proven author has no captured archive to describe.
+            if (array_key_exists('archive', $entity) && (!is_array($archive) || !WordPressSitePlan::safePath($archive['source_path'] ?? null) || ($archive['source_route'] ?? null) !== '/author/' . $entity['slug'] || ($archive['query'] ?? null) !== array('post_type' => 'post', 'author' => $entity['slug']) || !self::validPresentation($archive))) throw new InvalidArgumentException('WordPress site plan author archive is structurally invalid.');
             $members = $entity['membership_source_paths'] ?? null;
             if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan author membership list is invalid.');
             $sorted = $members;
             sort($sorted, SORT_STRING);
             if ($members !== $sorted) throw new InvalidArgumentException('WordPress site plan author membership must be sorted.');
             foreach ($members as $source) {
-                if (!is_string($source) || 'post' !== ($pagesBySource[$source]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan author membership must name a canonical post.');
+                // WordPress records an author on posts and pages alike.
+                if (!is_string($source) || !in_array($pagesBySource[$source]['post_type'] ?? null, array('post', 'page'), true)) throw new InvalidArgumentException('WordPress site plan author membership must name a canonical post or page.');
                 WordPressSitePlan::unique($claimed, $source, 'post author membership');
             }
-            if (($entity['evidence'] ?? null) !== array('membership' => true, 'name' => true, 'archive' => true)) throw new InvalidArgumentException('WordPress site plan author evidence is invalid.');
+            if (($entity['evidence'] ?? null) !== (array_key_exists('archive', $entity) ? array('membership' => true, 'name' => true, 'archive' => true) : array('membership' => true, 'name' => true))) throw new InvalidArgumentException('WordPress site plan author evidence is invalid.');
         }
     }
 

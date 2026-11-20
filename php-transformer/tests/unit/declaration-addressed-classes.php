@@ -69,6 +69,29 @@ $assert($address($a, $base) !== $address($b, $base, array('stylesheet_target' =>
 $ab = '.CONTROL{color:red}.CONTROL{color:blue}';
 $assert($address($a, $ab) !== $address($b, $ab . '.CONTROL{color:red}'), 'A/B/A cascade order is not deduplicated into A/B.');
 $assert($address($a, '.CONTROL{--Case:"A;B";color:var(--Case)}') !== $address($b, '.CONTROL{--case:"A;B";color:var(--case)}'), 'Strings and case-sensitive custom properties survive normalization.');
+// A carrier in a nested alternative list the compactor cannot expand (the
+// outer list mixes specificities) keeps one address whatever its sibling
+// alternatives are provisionally called, how many there are and where it sits
+// among them, so identical controls on two routes publish one class instead
+// of one per route. Siblings that decide which elements match (under
+// `:not()`/`:has()`) and carriers in its own branch keep their names.
+$nested = static fn (string ...$siblings): string => '.page :is(.panel[hidden],#menu,.dm-active>:is(' . implode(',', array_map(static fn (string $sibling): string => $sibling === 'CONTROL' ? ':where(.CONTROL):not(.be-c-0)' : ':where(.' . $sibling . '):not(.be-c-0)', $siblings)) . ')){display:none}';
+$first = 'blocks-engine-control-111111111111-0';
+$second = 'blocks-engine-control-222222222222-3';
+$third = 'blocks-engine-control-333333333333-1';
+$assert($address($a, $nested($first, 'CONTROL')) === $address($a, $nested($second, 'CONTROL')), 'Sibling alternatives\' provisional names do not enter a carrier\'s address.');
+$assert($address($a, $nested($first, 'CONTROL')) === $address($a, $nested('CONTROL', $second, $third)), 'Sibling alternatives\' count and order do not enter a carrier\'s address.');
+$assert($address($a, $nested($first, 'CONTROL')) !== $address($a, $nested('blocks-engine-semantic-111111111111-0', 'CONTROL')), 'A sibling\'s carrier kind still enters the address.');
+$assert($address($a, '.page :is(.x,:is(.' . $first . ',.CONTROL)){color:red}') !== $address($a, '.page :is(#x,:is(.' . $first . ',.CONTROL)){color:red}'), 'Non-carrier siblings that weigh the list keep their text.');
+foreach (array(
+    static fn (string $peer): string => '.page :is(#menu,.' . $peer . ' .CONTROL){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.CONTROL.' . $peer . '){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.CONTROL:not(.x,.' . $peer . ')){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.x:not(:is(.CONTROL,.' . $peer . '))){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.CONTROL:has(>.x,>.' . $peer . ')){display:none}',
+) as $branch) {
+    $assert($address($a, $branch($first)) !== $address($a, $branch($second)), 'Carriers that decide which elements match keep their names in the address.');
+}
 $map = $identity->replacements(array(array('content' => '.' . $a . '{color:red}')));
 $content = '.' . $a . '{color:red}';
 $path = 'assets/css/test-' . substr(hash('sha256', $content), 0, 16) . '.css';
@@ -110,8 +133,10 @@ $result = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\Artifact
     . '"><h1>Reveal</h1></div></main></body></html>',
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert(1 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0' . preg_quote($condition, '/') . '\)/', $css)
-    && 0 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0\)[^{]*\{opacity:1/', $css), 'Attribute markers retain runtime class conditions rather than publishing an unconditional after pose.');
+// The after pose names the marker and its condition in one compound,
+// whichever of them pays the rule's weight outside `:where()`.
+$poses = preg_match_all('/(?:^|})([^{}]*)\{opacity:1/', $css, $after) ? $after[1] : array();
+$assert(array() !== $poses && array() === array_filter($poses, static fn (string $selector): bool => 1 !== preg_match('/\.blocks-engine-attribute-[a-f0-9]{12}-0(?:[^\s>+~,]*?)' . preg_quote($condition, '/') . '/', $selector)), 'Attribute markers retain runtime class conditions rather than publishing an unconditional after pose.');
 }
 $result = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' =>
     '<html><head><style>[data-fx^=fade][data-fx^=fade]{transform:translate3d(-100px,0,0)}[data-fx^=fade][data-fx^=fade].on{opacity:1;transform:none}</style></head><body><main><h1>Reveal</h1><img class="pic on" data-fx="fade-right" width="200" height="120" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="></main></body></html>',

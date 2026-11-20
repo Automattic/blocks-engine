@@ -283,8 +283,8 @@ final class CommerceFallbackReporter
     }
 
     /**
-     * A two-track layout of one product card and its text-free media, such
-     * as a cover beside a purchase panel.
+     * A two-track layout of one product card and its media, possibly with
+     * short decoration, such as a cover beside a purchase panel.
      */
     private function isSplitDetailLayout(DOMElement $element): bool
     {
@@ -294,13 +294,39 @@ final class CommerceFallbackReporter
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement
                 && null === $this->recognizer->productCardData($child)
-                && '' === SourceDom::renderedTextContent($child)
+                && $this->isDecorativeMediaTrack($child)
                 && ('img' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('img')->length)
             ) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Allow a bounded badge, not prose or an independently titled/priced card.
+     * Inspect structure and semantics rather than badge wording or CSS hooks.
+     */
+    private function isDecorativeMediaTrack(DOMElement $element): bool
+    {
+        $text = SourceDom::renderedTextContent($element);
+        if ( mb_strlen($text) > 48 || count(preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: array()) > 6
+            || $this->recognizer->looksLikePriceText($text)
+            || null !== $this->recognizer->cartControlElement($element)
+        ) {
+            return false;
+        }
+        foreach ( array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node ) {
+            if ( in_array(strtolower($node->tagName), array('select', 'input', 'textarea'), true)
+                || preg_match('/^h[1-6]$/i', $node->tagName)
+                || 'heading' === strtolower(SourceDom::attr($node, 'role'))
+                || preg_match('/(?:^|\s)(?:name|price)(?:\s|$)/i', SourceDom::attr($node, 'itemprop'))
+                || $this->recognizer->looksLikePriceText(SourceDom::renderedTextContent($node))
+            ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -1443,12 +1469,27 @@ final class CommerceFallbackReporter
         // since most grids never need it. `null` means "not computed yet";
         // `array()` means "computed and could not be resolved" (declined).
         $collectionBinding = null;
+        $cards = array();
         foreach ( $container->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
+            if ( $child instanceof DOMElement ) {
+                $cards[] = array($child, $this->recognizer->productCardData($child));
             }
-
-            $product = $this->recognizer->productCardData($child);
+        }
+        // Priced cards that qualify the grid on their own also vouch for
+        // unpriced siblings of the same card kind (see
+        // `CommerceStructureRecognizer::unpricedSiblingCardData()`). They never
+        // count toward qualifying the grid itself.
+        $priced = array_values(array_filter($cards, static fn (array $card): bool => null !== $card[1]));
+        $strong = array_filter($priced, fn (array $card): bool => $this->recognizer->isSchemaProductCard($card[0]) || null !== $this->recognizer->cartControlElement($card[0]));
+        if ( count($priced) >= 2 && ( array() !== $strong || count($priced) >= self::MIN_IMAGE_ONLY_QUALIFIED_CARDS ) ) {
+            $pricedElements = array_column($priced, 0);
+            foreach ( $cards as $index => $card ) {
+                if ( null === $card[1] ) {
+                    $cards[$index][1] = $this->recognizer->unpricedSiblingCardData($card[0], $pricedElements);
+                }
+            }
+        }
+        foreach ( $cards as [$child, $product] ) {
             if ( null !== $product ) {
                 // Internal marker consumed and stripped by the caller
                 // (`appendProductGridFallbacks()`) before this reaches a

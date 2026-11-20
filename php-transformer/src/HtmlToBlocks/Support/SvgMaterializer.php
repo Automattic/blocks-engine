@@ -242,6 +242,10 @@ final class SvgMaterializer implements SvgElementMaterializer
             return null;
         }
 
+        if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
+            $attrs = array_replace_recursive($attrs, $this->styleResolver->presentationAttributes($element));
+            if ($element->hasAttribute('id')) $attrs['anchor'] = $element->getAttribute('id');
+        }
         $block = $this->createBlock->createBlock('core/image', $attrs, array(), $element);
         // Like a lowered <img>, core/image saves the SVG's classes and id on
         // its <figure>; an author subject naming the SVG by them must find

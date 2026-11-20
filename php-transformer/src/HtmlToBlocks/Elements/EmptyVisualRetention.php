@@ -9,4 +9,7 @@ use DOMElement;
 interface EmptyVisualRetention
 {
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool;
+
+    /** Whether, and why, an element with no rendered content keeps a block. */
+    public function emptyVisualDisposition(DOMElement $element): WrapperDisposition;
 }

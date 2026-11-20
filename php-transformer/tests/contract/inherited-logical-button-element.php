@@ -28,10 +28,13 @@ $button = $theme['styles']['elements']['button'] ?? array();
 $assert('8px' === ($button['border']['radius'] ?? null), 'button element radius');
 $assert(array('7.5px', '15px', '7.5px', '15px') === $paddingValues($button, $theme), 'logical variable-backed padding');
 $assert('400' === ($button['typography']['fontWeight'] ?? null), 'button weight');
-foreach (array('fontFamily' => 'font-family', 'fontSize' => 'font-size') as $key => $preset) $assert(str_starts_with($button['typography'][$key] ?? '', 'var:preset|' . $preset . '|'), $key . ' preset');
+$assert(str_starts_with($button['typography']['fontSize'] ?? '', 'var:preset|font-size|'), 'fontSize preset');
 $families = array_column($theme['settings']['typography']['fontFamilies'], 'fontFamily', 'slug');
 $sizes = array_column($theme['settings']['typography']['fontSizes'], 'size', 'slug');
-$assert('Georgia,serif' === ($families[substr($button['typography']['fontFamily'], strlen('var:preset|font-family|'))] ?? null), 'computed inherited family');
+// The computed family is the inherited root one: the button follows the root
+// typeface rather than restating its preset.
+$assert('inherit' === ($button['typography']['fontFamily'] ?? null), 'inherited family is not restated');
+$assert('Georgia,serif' === ($families[substr((string) ($theme['styles']['typography']['fontFamily'] ?? ''), strlen('var:preset|font-family|'))] ?? null), 'computed inherited family');
 $assert('15px' === ($sizes[substr($button['typography']['fontSize'], strlen('var:preset|font-size|'))] ?? null), 'button size');
 $palette = array_column($theme['settings']['color']['palette'], 'color', 'slug');
 foreach (array('text' => '#5b5b5b', 'background' => '#cacaca') as $key => $value) $assert($value === ($palette[substr($button['color'][$key] ?? '', strlen('var:preset|color|'))] ?? null), 'rest ' . $key);

@@ -74,14 +74,16 @@ final class AuthorStylesheetProjector
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         $bridges = array();
+        $layoutSubjects = $this->implicitLayoutSubjects($context->emittedMarkup);
         $navigationHosts = array();
         $navigationRoots = $this->navigationContainerScope->navigationRootClassLists($context->emittedMarkup);
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, &$bridges, &$navigationHosts): string {
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, $layoutSubjects, &$bridges, &$navigationHosts): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
                 $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
+                $css = $this->layoutDisplayRules($css, $layoutSubjects);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
                 foreach ( $this->navigationContainerHosts($prelude, $context, $navigationRoots) as $host ) {
@@ -259,6 +261,61 @@ final class AuthorStylesheetProjector
     }
 
     /**
+     * Core adds display through body .is-layout-flex/grid at render time.
+     * Weight every authored display equally on those subjects, including
+     * conditional resets, without changing display on ordinary source boxes.
+     * Existing root-weighted projections already own their Core baseline.
+     *
+     * @param array<string, list<DOMElement>> $subjects
+     */
+    private function layoutDisplayRules(string $css, array $subjects): string
+    {
+        if ( array() === $subjects ) return $css;
+        return (new CssStylesheetTransformer())->transformStyleRules($css, static function (string $selector, string $body) use ($subjects): string {
+            $display = SourceDeclarations::verbatim($body)['display'] ?? null;
+            if ( null === $display ) return $selector . '{' . $body . '}';
+            $targets = array();
+            foreach ( CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm ) {
+                // Pseudo-elements do not own Core's layout box.
+                if ( str_contains($arm, '::') || str_contains($arm, ':root') ) continue;
+                $parsed = CssSelectorMatcher::parse($arm);
+                if ( ! $parsed['supported'] ) continue;
+                $classes = array();
+                foreach ( $subjects as $class => $elements ) {
+                    if ( array() !== CssSelectorMatcher::filterMatching($elements, $parsed, true) ) $classes[] = '.' . $class;
+                }
+                if ( array() !== $classes ) $targets[] = ':root:root ' . $arm . ':where(' . implode(',', $classes) . ')';
+            }
+            return $selector . '{' . $body . '}'
+                . (array() === $targets ? '' : implode(',', $targets) . '{display:' . $display . '}');
+        });
+    }
+
+    /**
+     * Core applies implicit layout defaults only at render time. Read those
+     * defaults from the same block metadata used by attribute normalization;
+     * ordinary CSS-owned boxes must not gain another display projection.
+     *
+     * @return array<string, list<DOMElement>>
+     */
+    private function implicitLayoutSubjects(string $markup): array
+    {
+        $runtime = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+        $subjects = array();
+        $document = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::parseFragment($markup);
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            foreach ( SourceDom::tokens($element->getAttribute('class')) as $class ) {
+                if ( ! str_starts_with($class, 'wp-block-') ) continue;
+                $metadata = $runtime->blockMetadata('core/' . substr($class, 9));
+                if ( in_array($metadata['supports']['layout']['default']['type'] ?? '', array('flex', 'grid'), true) ) {
+                    $subjects[$class][] = $element;
+                }
+            }
+        }
+        return $subjects;
+    }
+
+    /**
      * Roll Core's unlayered defaults back to the original author cascade, not
      * to a copied value. Layer order, important declarations and state/media
      * changes therefore remain owned by the source stylesheet.
@@ -283,9 +340,12 @@ final class AuthorStylesheetProjector
             // Only positive block targets own this escape. A projected arm in
             // a mixed selector list must not lend ownership to authored inline
             // subjects, nor do RichText carriers have Core block defaults.
+            // A pseudo-element is not valid inside `:is()`, so such an arm can
+            // never match there: shipping it only adds weight.
             $targets = array_filter(CssStylesheetTransformer::splitSelectorList($selector) ?? array(), static function (string $arm): bool {
+                if ( CssStylesheetTransformer::namesPseudoElement($arm) ) return false;
                 $positive = CssSelectorCompoundInspector::positiveSelector($arm);
-                return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-)/', $positive)
+                return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-|is-layout-(?:flex|grid)\\b)/', $positive)
                     && ! preg_match('/\\.blocks-engine-(?:role-richtext\\b|richtext-)/', $positive);
             });
             if ( array() === $targets ) return;
@@ -630,7 +690,18 @@ final class AuthorStylesheetProjector
                 && 'auto' === trim(str_replace('!important', '', $value)), ARRAY_FILTER_USE_BOTH);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
-        $svgLeaf = $this->svgImageLeafOwnership($prelude, $body, $declarations, $svgImagePrelude, $context);
+        // A positioned subject that moved to the synthetic figure makes that
+        // figure the out-of-flow box. It keeps the authored width and height,
+        // so percentages still resolve against the containing block, and the
+        // leaf fills it: restating them on the leaf would resolve a stretched
+        // `preserveAspectRatio="none"` height against the figure's automatic
+        // height and fall back to the viewBox ratio.
+        $svgFigureBox = '' !== $svgImagePrelude
+            && in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true)
+            && ! $this->everySubjectStaysOnImage($prelude, $context)
+            ? array_intersect_key($declarations, array( 'width' => true, 'height' => true ))
+            : array();
+        $svgLeaf = $this->svgImageLeafOwnership($prelude, $body, array_diff_key($declarations, $svgFigureBox), $svgImagePrelude, $context);
         $body = $svgLeaf['body'];
         $imageRule = '' === $imagePrelude
             ? ''
@@ -667,9 +738,10 @@ final class AuthorStylesheetProjector
         // Keep the normal bridge defaults, then the authored replaced-box
         // declarations at this rule's cascade position. Do not promote them
         // above SvgMaterializer's inline-geometry carrier or replay SVG paint.
+        $svgLeafDeclarations = $this->styleResolver->cssDeclarationString(array_diff_key($this->imageApplicableSvgDeclarations($declarations), $svgFigureBox));
         $svgImageRule = '' === $svgImagePrelude
             ? ''
-            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true, ! $this->everySubjectStaysOnImage($prelude, $context)) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}'
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true, ! $this->everySubjectStaysOnImage($prelude, $context)) . ('' === $svgLeafDeclarations ? '' : ';' . $svgLeafDeclarations) . '}'
                 . $this->lineImageFigureRule($svgImagePrelude, $declarations, $context);
         $svgImageRule .= $this->flexItemImageBoxRule(
             $prelude,
@@ -719,8 +791,25 @@ final class AuthorStylesheetProjector
             $marginGroups[$marginPrelude][$property] = $value;
         }
         $marginRules = '';
+        $marginVariables = self::referencedCustomProperties($margins, $declarations);
         foreach ( $marginGroups as $marginPrelude => $marginDeclarations ) {
-            $marginRules .= $marginPrelude . '{' . $this->styleResolver->cssDeclarationString($marginDeclarations) . '}';
+            $marginCss = $this->styleResolver->cssDeclarationString($marginDeclarations);
+            [ $carriers, $others ] = array() === $marginVariables ? array( array(), array() ) : self::partitionButtonCarrierArms($marginPrelude);
+            if ( array() === $carriers ) {
+                $marginRules .= $marginPrelude . '{' . $marginCss . '}';
+                continue;
+            }
+            // The rest of this rule (its own custom properties included)
+            // projects onto the button link, but the margin lands on the
+            // outer carrier. Restate the variables that margin reads on that
+            // carrier: an undefined variable invalidates the margin at
+            // computed-value time and collapses the source spacing. Carrier
+            // arms select only button carriers, disjoint from the other arms,
+            // so splitting the rule keeps every element's cascade.
+            if ( array() !== $others ) {
+                $marginRules .= implode(',', $others) . '{' . $marginCss . '}';
+            }
+            $marginRules .= implode(',', $carriers) . '{' . $this->styleResolver->cssDeclarationString($marginVariables) . ';' . $marginCss . '}';
         }
         $css = $rules
             . $marginRules
@@ -732,6 +821,58 @@ final class AuthorStylesheetProjector
             . $navigationItemSpaceRule;
 
         return $this->withEditorProjectionRules($css, $prelude, $body, $context);
+    }
+
+    /**
+     * Custom properties declared by the same rule that its margins read,
+     * including variables those variables read in turn.
+     *
+     * @param array<string, string> $margins
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private static function referencedCustomProperties(array $margins, array $declarations): array
+    {
+        $referenced = array();
+        $pending = array_values($margins);
+        while ( array() !== $pending ) {
+            $value = (string) array_shift($pending);
+            if ( ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+                continue;
+            }
+            foreach ( $matches[1] as $name ) {
+                if ( isset($referenced[ $name ]) || ! isset($declarations[ $name ]) ) {
+                    continue;
+                }
+                $referenced[ $name ] = $declarations[ $name ];
+                $pending[] = $declarations[ $name ];
+            }
+        }
+        return $referenced;
+    }
+
+    /**
+     * Split projected arms into those that select a lowered button's outer
+     * carrier and all others.
+     *
+     * @return array{list<string>, list<string>}
+     */
+    private static function partitionButtonCarrierArms(string $prelude): array
+    {
+        $carriers = array();
+        $others = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array( $prelude ) as $arm ) {
+            // `:not(.wp-block-buttons)` guards exclude carriers; only a
+            // positive `:where(.wp-block-buttons)` compound selects one.
+            if ( ! str_contains($arm, 'wp-block-button__link')
+                && 1 === preg_match('/:where\([^()]*\.wp-block-buttons?\)/', $arm)
+            ) {
+                $carriers[] = $arm;
+            } else {
+                $others[] = $arm;
+            }
+        }
+        return array( $carriers, $others );
     }
 
     /**
@@ -1623,9 +1764,26 @@ final class AuthorStylesheetProjector
                                 && ! ( $wrapperOwned && $this->resolvesAgainstKeptButtonWrapper($entry['value'], $carrier) )
                         ));
                         if ( array() !== $markers ) {
-                            $key = implode(' ', array_column($markers, 'marker'));
-                            $partitions[$key]['carriers'] = $markers;
-                            $partitions[$key]['declarations'][] = $entry['declaration'];
+                            // Flattened native controls receive an important display
+                            // repair from EngineSupportCss. Authored display must
+                            // outrank that repair, including conditional hiding.
+                            // Keep ordinary controls out of this importance lift.
+                            $display = array('display') === $entry['longhands'];
+                            $displayGroups = $display
+                                ? array(
+                                    array_filter($markers, static fn (array $carrier): bool => $carrier['flattened']),
+                                    array_filter($markers, static fn (array $carrier): bool => ! $carrier['flattened']),
+                                )
+                                : array($markers);
+                            foreach ( $displayGroups as $group ) {
+                                if ( array() === $group ) continue;
+                                $key = implode(' ', array_column($group, 'marker'));
+                                $partitions[$key]['carriers'] = $group;
+                                $importantDisplay = $display && reset($group)['flattened'];
+                                $partitions[$key]['declarations'][] = $importantDisplay
+                                    ? 'display:' . CssValueInspector::withoutImportant($entry['value']) . '!important'
+                                    : $entry['declaration'];
+                            }
                         }
                     }
                     foreach ( $partitions as $key => $partition ) {
@@ -1718,8 +1876,16 @@ final class AuthorStylesheetProjector
     {
         $projected = $this->selectors->projectControlSelector($selector, $parsed, $marker, $context);
         // Generated button style variations can carry later important declarations.
-        // Keep the source-owned control selector specific to its exact target.
-        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ').' . $marker . '.' . $marker, $projected);
+        // Keep the source-owned control selector specific to its exact target:
+        // two class weights on the marker's carrier. Every carrier of a control
+        // marker also carries the control role class (EngineMarker::ROLE_KINDS),
+        // so the role class repeats for that weight, as in
+        // nativeButtonControlTarget(). The arm then differs from the other
+        // carriers' arms only inside `:where()`, so the site-wide sheet folds
+        // them into one marker list instead of one arm per carrier.
+        $role = EngineMarker::roleClass($marker);
+        $weight = '' !== $role ? '.' . $role . '.' . $role : '.' . $marker . '.' . $marker;
+        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ')' . $weight, $projected);
     }
 
     /**
@@ -2871,7 +3037,30 @@ final class AuthorStylesheetProjector
         }
         $fillBody = array() === $fill ? '' : ';' . implode(';', $fill);
         if ( count($moved) === count($selectors) ) {
-            return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
+            $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
+            // The bridge restates the ratio on the replaced image, where the
+            // source declared it. Left on the auto-height figure as well, it
+            // would size that box itself and ignore a definite image height
+            // from another rule (`.grid img{height:260px}` beside `.photo
+            // {aspect-ratio:1}` squares the figure, not the image).
+            // A figure lowered from a ratio frame around an out-of-flow image
+            // is the ratio box itself: the image cannot take the ratio over.
+            // Only an arm whose subject classes a framed figure carries can
+            // reach one; every other arm keeps its plain reset.
+            if ( isset($declarations['aspect-ratio']) ) {
+                $frameFigures = $this->ratioFrameFigureClassLists($context->emittedMarkup);
+                $figurePrelude = implode(',', array_unique(array_map(
+                    function (string $arm) use ($frameFigures): string {
+                        $figure = (string) preg_replace('/\s*>\s*(?:a\s*>\s*)?img\s*$/i', '', $arm);
+                        return $this->armMayMatchRatioFrameFigure($figure, $frameFigures)
+                            ? $figure . ':where(:not(.' . SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS . '))'
+                            : $figure;
+                    },
+                    CssValueSplitter::splitTopLevel($imagePrelude, array(','))
+                )));
+                $rule .= $figurePrelude . '{aspect-ratio:auto' . (str_contains($declarations['aspect-ratio'], '!important') ? '!important' : '') . '}';
+            }
+            return $rule;
         }
         $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false, false, array() !== $moved) . '}';
         $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
@@ -2886,6 +3075,58 @@ final class AuthorStylesheetProjector
         return array() !== $selectors && array() === array_filter($selectors, fn (string $selector): bool => ! $this->subjectStaysOnImage($selector, $context));
     }
 
+    /**
+     * The class lists of figures lowered from a ratio frame, in the emitted
+     * markup.
+     *
+     * @return list<list<string>>
+     */
+    private function ratioFrameFigureClassLists(string $markup): array
+    {
+        static $cachedMarkup = null;
+        static $lists = array();
+        if ( $cachedMarkup === $markup ) {
+            return $lists;
+        }
+        $cachedMarkup = $markup;
+        $lists = array();
+        if ( ! str_contains($markup, SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS) ) {
+            return $lists;
+        }
+        preg_match_all('/\sclass="([^"]*\b' . preg_quote(SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS, '/') . '\b[^"]*)"/', $markup, $matches);
+        foreach ( array_unique($matches[1]) as $classes ) {
+            $lists[] = preg_split('/\s+/', trim(html_entity_decode($classes, ENT_QUOTES | ENT_HTML5))) ?: array();
+        }
+
+        return $lists;
+    }
+
+    /**
+     * Whether a figure arm's subject compound can match a framed figure:
+     * some framed figure carries every class the subject requires. An arm
+     * that does not parse is assumed to match.
+     *
+     * @param list<list<string>> $frameFigures
+     */
+    private function armMayMatchRatioFrameFigure(string $arm, array $frameFigures): bool
+    {
+        if ( array() === $frameFigures ) {
+            return false;
+        }
+        $parsed = CssSelectorMatcher::parse(trim($arm));
+        if ( ! is_array($parsed) || ! is_array($parsed['compounds'] ?? null) ) {
+            return true;
+        }
+        $required = CssSelectorCompoundInspector::rightmost($parsed['compounds'])['classes'] ?? array();
+        foreach ( $frameFigures as $classes ) {
+            if ( array() === array_diff($required, $classes) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function subjectStaysOnImage(string $selector, AuthorStylesheetProjectionContext $context): bool
     {
         $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -2894,12 +3135,13 @@ final class AuthorStylesheetProjector
         }
         $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
 
-        // Explicit img subjects naming only positioned images move to the
-        // figure too, so it can own their out-of-flow source box.
-        if ( 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0))) ) {
+        // Explicit img (or materialized svg) subjects naming only positioned
+        // images move to the figure too, so it can own their out-of-flow
+        // source box.
+        if ( 1 === preg_match('/^(img|svg)\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)), $type) ) {
             $matches = $this->selectors->matchingSourceElements($selector, $parsed, $context);
             if ( array() !== $matches && array() === array_filter($matches, fn (DOMElement $element): bool =>
-                'img' !== strtolower($element->tagName)
+                strtolower($type[1]) !== strtolower($element->tagName)
                 || ! in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array('absolute', 'fixed'), true)) ) {
                 return false;
             }

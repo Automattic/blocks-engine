@@ -24,7 +24,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"has-text-align-center intro blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph\">Book a consultation with <mark" },
     { "path": "serialized_blocks", "assert": "contains", "value": "</mark> today.</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"text-align:right\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"text-align:right;color:#b45309\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "fallbacks", "assert": "count", "count": 0 }

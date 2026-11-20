@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use DOMElement;
@@ -314,11 +315,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
             } catch ( \Throwable ) {
                 return null;
             }
-            foreach ( array_keys($wrapperDeclarations) as $property ) {
-                if ( in_array($property, array( 'perspective', 'transform', 'filter', 'box-shadow', 'aspect-ratio', 'overflow', 'overflow-x', 'overflow-y' ), true)
-                    || preg_match('/^(?:background|border|padding)(?:-|$)/', $property) ) {
-                    return null;
-                }
+            // Whether the media wrapper is kept is WrapperDecision's (#7471).
+            if ( WrapperDecision::mediaTextMediaWrapper($wrapperDeclarations)->isPreserve() ) {
+                return null;
             }
         }
 
@@ -571,24 +570,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
      */
     private function isHoistableTextSideGroupAttrs(array $attrs, DOMElement $textSide): bool
     {
-        if ( array() === $attrs ) {
-            return true;
-        }
-        if ( array( 'className' ) !== array_keys($attrs) || ! is_string($attrs['className']) ) {
-            return false;
-        }
-
-        $sourceClasses = SourceDom::tokens(SourceDom::attr($textSide, 'class'));
-        foreach ( SourceDom::tokens($attrs['className']) as $class ) {
-            if ( '' === $class ) {
-                continue;
-            }
-            if ( ! str_starts_with($class, 'blocks-engine-css-owned-') || in_array($class, $sourceClasses, true) ) {
-                return false;
-            }
-        }
-
-        return true;
+        // Whether the text side's group is hoisted is WrapperDecision's (#7471).
+        return WrapperDecision::mediaTextTextSideGroup($attrs, $textSide)->isFold();
     }
 
     /**

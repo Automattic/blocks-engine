@@ -331,16 +331,19 @@ final class AuthorSelectorSemanticPreparer
     private function discoverAuthorAttributePaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
     {
         foreach ( $authorSelectors as $authorSelector ) {
-            $parsed = $authorSelector['parsed'];
+            $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
+            $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
+            $parsed = $pseudoHost['parsed'] ?? $authorSelector['parsed'];
             // Current-route paint is projected onto Core's runtime item. A
             // captured attribute marker would become part of the anchor's
             // identity before navigation lowering can publish its subjects.
             if ($projections->selectsCurrentNavigationState($authorSelector['selector'])) {
-                $matches = $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed);
+                $matches = $this->matchingSourceElements($authorStyles, $selector, $parsed);
                 $navigationOnly = array() !== $matches;
                 foreach ($matches as $element) {
-                    $navigationOnly = $navigationOnly && 'a' === strtolower($element->tagName)
-                        && SourceDom::ancestorElement($element, 'li') instanceof DOMElement;
+                    $navigationOnly = $navigationOnly
+                        && SourceDom::ancestorElement($element, 'nav') instanceof DOMElement
+                        && ('a' === strtolower($element->tagName) || SourceDom::ancestorElement($element, 'li') instanceof DOMElement);
                 }
                 if ($navigationOnly) continue;
             }
@@ -353,9 +356,6 @@ final class AuthorSelectorSemanticPreparer
             }
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $this->discoverDroppedAttributeState($authorSelector['selector'], $authorStyles, $projections);
-            $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
-            $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
-            $parsed = $pseudoHost['parsed'] ?? $parsed;
             if (SourceAttributeSubjects::retainsDataPredicates($parsed, $authorStyles)) continue;
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;

@@ -7,6 +7,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 final class NavigationAnchorRuntime
 {
     /**
+     * The engine marker test this runtime emits, and its form in a bootstrap
+     * whose classes ClassPublisher published: the marker, published in the
+     * block's attributes, is tested against every internal hook mapped to it.
+     */
+    public const PUBLISHED_CLASS_MATCHERS = array(
+        "preg_match( '/^blocks-engine-navigation-box-[a-f0-9]{12}-\\d+\$/D', \$box['marker'] ?? '' )" => "__PUBLISHED___matches_engine_class( '/^blocks-engine-navigation-box-[a-f0-9]{12}-\\d+\$/D', \$box['marker'] ?? '' )",
+    );
+
+    /**
      * Retained native labels use the same served-route ownership as menu links,
      * as do the list items of a dialog's menu: each item's first link is its own.
      */

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
@@ -109,6 +110,8 @@ final class ChromeIdentity
         $markup = self::capturedPanelStructureIdentity($markup);
         $markup = self::normalizeRenderIds($markup);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
+        $markup = self::withoutCaptureNodeIds($markup);
+        $markup = self::withoutMarkerSubjectClasses($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
         // A captured dialog's generated id, and its triggers' ids, carry a per-document hash;
@@ -133,6 +136,36 @@ final class ChromeIdentity
         // between them is read as tags.
         $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece, true), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
         return ChromeStackingIdentity::normalize(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup));
+    }
+
+    /**
+     * Box-tree node ids are route-local capture observations: the same chrome
+     * captured on two routes carries different ones. They are evidence for the
+     * compiler, never authored markup, wherever they survive (rendered HTML or
+     * a block attribute that keeps source attributes).
+     */
+    private static function withoutCaptureNodeIds(string $markup): string
+    {
+        $name = preg_quote(BoxTree::NODE_ATTRIBUTE, '/');
+        $markup = preg_replace('/\s' . $name . '\s*=\s*(?:\\\\u0022|\\\\"|"|&quot;)[^"\\\\&]*(?:\\\\u0022|\\\\"|"|&quot;)/', '', $markup) ?? $markup;
+        return preg_replace('/"' . $name . '"\s*:\s*"[^"]*",|,"' . $name . '"\s*:\s*"[^"]*"|"' . $name . '"\s*:\s*"[^"]*"/', '', $markup) ?? $markup;
+    }
+
+    /**
+     * A subject class restates one class token of its carrier. When that token
+     * is itself an allocated engine marker (a state marker the page's own
+     * cascade added before projection), the restatement is as generated as the
+     * marker and leaves identity with it.
+     */
+    private static function withoutMarkerSubjectClasses(string $markup): string
+    {
+        if (!preg_match_all('/' . EngineMarker::patternBody() . '/', $markup, $markers)) return $markup;
+        // One fixed pattern for the subject-class token shape and a set lookup:
+        // an alternation of every marker's subject class outgrows PCRE's
+        // pattern size on large sites.
+        $subjects = array();
+        foreach (array_unique($markers[0]) as $marker) $subjects[EngineMarker::subjectClassClass($marker)] = true;
+        return preg_replace_callback('/\s*(' . preg_quote(EngineMarker::SUBJECT_CLASS_PREFIX, '/') . '[a-f0-9]{12})(?![\w-])/', static fn(array $match): string => isset($subjects[$match[1]]) ? '' : $match[0], $markup) ?? $markup;
     }
 
     /** Compare captured dialog HTML with the same primitive as live source chrome. */

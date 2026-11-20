@@ -28,8 +28,9 @@ foreach (array($source, str_replace('.brand{', '.brand   {', $source)) as $html)
     $assert(str_contains($plan['pages'][0]['canonical_block_markup'], 'The Power of Community'), 'Heading survives compilation');
 }
 
-// Without the competing rule, headings can safely follow Global Styles.
+// Without the competing rule, headings and body text can safely follow
+// Global Styles; only elements that do not inherit fonts keep the class font.
 $plan = $compile(str_replace('.unstyled{font-family:Georgia,serif}', '', str_replace('.brand{', '.brand   {', $source)));
 $css = implode("\n", array_column($plan['assets'], 'content'));
-$assert(str_contains($css, '.brand:not(:where(h1,h2,h3,h4,h5,h6)){font-family:'), 'Safe exclusion attaches to the trimmed class, never a descendant');
+$assert(str_contains($css, '.brand:where(button,') && !str_contains($css, '.brand:where(h') && 1 !== preg_match('/\.brand\s*\{[^}]*font-family/', $css), 'Safe exclusion attaches to the trimmed class, never a descendant: ' . $css);
 echo "Heading competing font passed\n";

@@ -56,7 +56,7 @@ final class AnchorElementConverter implements ElementConverter
         // either (a srcless `<img>`, an unstyled empty `<div>`, as an
         // unpopulated listing template leaves them) keep it that shape.
         if ( SourceDom::isEmptyNonNavigatingAnchor($element) || $this->isNonRenderingNonNavigatingAnchor($element) ) {
-            return ConversionOutcome::handled($this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element)
+            return ConversionOutcome::handled($this->emptyVisualRetention->emptyVisualDisposition($element)->isPreserve()
                 ? $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
                 : null);
         }
@@ -71,33 +71,11 @@ final class AnchorElementConverter implements ElementConverter
      */
     private function isNonRenderingNonNavigatingAnchor(DOMElement $element): bool
     {
-        if ( 0 === SourceDom::childElementCount($element) ) {
-            return false;
-        }
-        $clone = $element->cloneNode(false);
-        if ( ! $clone instanceof DOMElement || ! SourceDom::isEmptyNonNavigatingAnchor($clone) || '' !== trim($element->textContent ?? '') ) {
-            return false;
-        }
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            $tag = strtolower($descendant->tagName);
-            // A srcless `<img>` converts to nothing on its own, whatever box
-            // authored styles give it (an agent-photo circle awaiting data),
-            // so the anchor around it follows that same disposition.
-            if ( 'img' === $tag ) {
-                if ( '' !== trim(SourceDom::attr($descendant, 'src')) || '' !== trim(SourceDom::attr($descendant, 'srcset')) ) {
-                    return false;
-                }
-                continue;
-            }
-            if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($descendant) ) {
-                return false;
-            }
-            if ( ! in_array($tag, array('div', 'span'), true) ) {
-                return false;
-            }
-        }
-
-        return true;
+        return WrapperDecision::nonRenderingAnchor(
+            $element,
+            static fn (DOMElement $anchor): bool => SourceDom::isEmptyNonNavigatingAnchor($anchor),
+            fn (DOMElement $descendant): WrapperDisposition => $this->emptyVisualRetention->emptyVisualDisposition($descendant)
+        )->isDrop();
     }
 
     /**

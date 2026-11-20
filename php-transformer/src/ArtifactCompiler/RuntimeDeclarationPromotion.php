@@ -53,6 +53,13 @@ final class RuntimeDeclarationPromotion
         if ( '' === $entryPath ) return $declarations;
         foreach ( $declarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) if ( is_array($entity) && array_key_exists('superseded_scripts', $entity) ) throw new \InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.');
 
+        foreach ($declarations as &$declaration) {
+            if ('entity_collection' === ($declaration['kind'] ?? null) && 'products' === ($declaration['type'] ?? null) && 'generic/products/v1' === ($declaration['payload']['schema'] ?? null)) {
+                foreach ($declaration['payload']['entities'] as &$row) $this->normalizeProductCurrency($row, $declaration['source_path'], $diagnostics);
+                unset($row);
+            }
+        }
+        unset($declaration);
         $keys = array();
         foreach ( $declarations as $declaration ) {
             if ( ! is_array($declaration) ) continue;
@@ -64,6 +71,10 @@ final class RuntimeDeclarationPromotion
         $collections = $collector->collections($fallbacks);
         $diagnostics = $collector->diagnostics;
         foreach ( $collections as $collection ) {
+            if ('products' === $collection['type']) {
+                foreach ($collection['entities'] as &$row) $this->normalizeProductCurrency($row, $row['source_path'] ?? $entryPath, $diagnostics);
+                unset($row);
+            }
             $capability = $collection['capability'];
             $requires = $collection['requires'] ?? array();
             if ( array() !== $requires && array() === array_filter($requires, static fn (string $type): bool => isset($keys['entity_collection:' . $type])) ) continue;
@@ -101,6 +112,20 @@ final class RuntimeDeclarationPromotion
         return RuntimeDeclarations::normalizeList($declarations);
     }
 
+    /** Drop malformed optional currency without changing the rest of the row. */
+    private function normalizeProductCurrency(array &$row, string $sourcePath, array &$diagnostics): void
+    {
+        if (array_key_exists('currency', $row) && (!is_string($row['currency']) || 1 !== preg_match('/^[A-Z]{3}$/D', $row['currency']))) {
+            unset($row['currency']);
+            $diagnostics[] = array('code' => 'product_currency_invalid', 'severity' => 'warning', 'source_path' => $sourcePath, 'message' => 'Dropped invalid product currency; expected an uppercase three-letter ISO 4217 code.');
+        }
+        foreach ($row['variants'] ?? array() as $index => $variant) {
+            if (!is_array($variant)) continue;
+            $this->normalizeProductCurrency($variant, $sourcePath, $diagnostics);
+            $row['variants'][$index] = $variant;
+        }
+    }
+
     /** Catalog commerce wins; detected rows retain all compiled page evidence. */
     private function mergeCatalogProducts(array $catalog, array $detected): array
     {
@@ -110,7 +135,7 @@ final class RuntimeDeclarationPromotion
             $slug = $row['slug'];
             if (isset($products[$slug])) {
                 $product = $products[$slug];
-                foreach (array('name', 'regular_price', 'sale_price', 'description', 'sku', 'image', 'images', 'tags', 'variants', 'stock_status', 'category') as $field) {
+                foreach (array('name', 'regular_price', 'sale_price', 'currency', 'description', 'sku', 'image', 'images', 'tags', 'variants', 'stock_status', 'category') as $field) {
                     if (array_key_exists($field, $row)) $product[$field] = $row[$field];
                 }
                 $merged[] = $product;

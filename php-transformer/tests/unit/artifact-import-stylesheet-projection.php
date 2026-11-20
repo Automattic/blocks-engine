@@ -50,4 +50,28 @@ foreach (array('link', 'inline-import', 'media-import', 'linked-import') as $del
         fwrite(STDERR, "FAIL: $delivery retains import conditions\n");
     }
 }
+// A minified string import must project the captured font sheet, not retain a root URL.
+foreach (array('@import"/external/fonts.css";', "@import'/external/fonts.css';", '@import "/external/fonts.css";', '@import url("/external/fonts.css");') as $import) {
+    $result = (new ArtifactCompiler())->compile(array('files' => array(
+        array('path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="/assets/app.css"></head><body><h1 class="font-heading">Heading</h1><p>Body</p></body></html>'),
+        array('path' => 'assets/app.css', 'kind' => 'css', 'content' => $import . '.font-heading{font-family:"Fixture Sans",sans-serif}'),
+        array('path' => 'external/fonts.css', 'kind' => 'css', 'content' => '@font-face{font-family:"Fixture Sans";src:url(/media/m.woff2) format("woff2")}'),
+        array('path' => 'media/m.woff2', 'kind' => 'font', 'content' => 'fixture-font'),
+    )))->toArray();
+    $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
+    $writes = array_column($plan['writes'] ?? array(), null, 'target_path');
+    $theme = json_decode((string) ($writes['theme.json']['payload']['data'] ?? '{}'), true);
+    $families = $theme['settings']['typography']['fontFamilies'] ?? array();
+    $faces = array_merge(...array_column($families, 'fontFace'));
+    $appCss = (string) ($writes['assets/assets/app.css']['payload']['data'] ?? '');
+    if (!in_array('file:./assets/media/m.woff2', array_column($faces, 'src'), true) || str_contains($appCss, '/external/fonts.css')) {
+        ++$failures;
+        fwrite(STDERR, "FAIL: $import follows and projects the captured font sheet\n");
+    }
+}
+$candidates = (new \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer())->cssReferenceCandidates('@importurl("/external/fonts.css");', 'assets/app.css');
+if (in_array('css-import', array_column($candidates, 'context'), true)) {
+    ++$failures;
+    fwrite(STDERR, "FAIL: @importurl is not an import at-keyword\n");
+}
 exit($failures ? 1 : 0);

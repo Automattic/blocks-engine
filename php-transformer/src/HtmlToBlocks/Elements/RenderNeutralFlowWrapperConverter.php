@@ -17,7 +17,7 @@ final class RenderNeutralFlowWrapperConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        return $this->renderNeutral->isRenderNeutralCustomFlowWrapper($element)
+        return WrapperDecision::renderNeutralCustomFlowWrapper($this->renderNeutral, $element)->isFold()
             ? ConversionOutcome::handled($this->flowContainers->convertUnknownElement($element, $fallbacks)->block)
             : ConversionOutcome::unhandled();
     }

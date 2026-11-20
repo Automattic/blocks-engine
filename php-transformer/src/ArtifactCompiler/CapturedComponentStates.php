@@ -13,11 +13,32 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 /** State-owned probe evidence from the v2 component inventory. */
 final class CapturedComponentStates
 {
+    /** Count actual resolutions, not cache lookups; retains no page inputs. */
+    private static int $resolutions = 0;
+
+    /** Content identity follows the same receipt routing and last-path-wins lookup as resolution. */
+    public static function inputKey(array $report, array $files): string
+    {
+        $receipt = CaptureReceiptReport::read($files);
+        $inputs = array(hash('sha256', serialize($report)), null !== $receipt);
+        if (null !== $receipt) {
+            $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
+            $contents = array_column($files, 'content', 'path');
+            foreach ($report['pages'] as $page) {
+                $path = $routes->path((string) ($page['sourceUrl'] ?? ''));
+                $content = $contents[$path] ?? null;
+                $inputs[] = is_string($content) ? hash('sha256', $content) : null;
+            }
+        }
+        return hash('sha256', serialize($inputs));
+    }
+
     /** Reuse evidence only when the source component subtree is identical, never by selector alone.
      * Documents are inspected one at a time; the inventory retains only distinct fingerprints.
      */
     public static function shareEvidence(?array $report, array $files): ?array
     {
+        ++self::$resolutions;
         if (!CapturedInteractionReport::valid($report)) return $report;
         $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt) return $report;

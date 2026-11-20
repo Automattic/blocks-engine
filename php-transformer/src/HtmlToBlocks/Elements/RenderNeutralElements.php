@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
@@ -88,24 +87,69 @@ final class RenderNeutralElements
         // Custom-element convention removal precedes selector preparation.
         // Keep its original conservative contract; effect-based checks belong
         // to flow lowering, once the author rule index is available.
-        if (!$stylesPrepared) {
-            return null !== $element->parentNode
-                && '' === trim(SourceDom::attr($element, 'id'))
-                && '' === trim(SourceDom::attr($element, 'class'))
-                && '' === trim(SourceDom::attr($element, 'style'))
-                && '' === trim(SourceDom::attr($element, 'role'))
-                && array() === $this->sourceElementDescription->interactiveAttributes($element)
-                && !$this->runtimeIslands->isRuntimeDomTarget($element)
-                && !$this->sourceElementClassifier->hasMotionStructureToken($element);
-        }
-        if (null === $element->parentNode
-            || '' !== trim(SourceDom::attr($element, 'role'))
-            || array() !== $this->sourceElementDescription->interactiveAttributes($element)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->sourceElementClassifier->hasMotionStructureToken($element)
-        ) {
-            return false;
-        }
+        return WrapperDecision::renderNeutralWrapper(
+            $this,
+            $element,
+            $stylesPrepared,
+            fn (): bool => $this->declarationsAreRenderNeutral($element, $ignoreEmptyHostResets, $allowInertPositioning, $allowInheritedText)
+        )->isFold();
+    }
+
+    /** Signals read by {@see WrapperDecision}'s render-neutral tables. */
+    public function interactiveAttributes(DOMElement $element): array
+    {
+        return $this->sourceElementDescription->interactiveAttributes($element);
+    }
+
+    public function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        return $this->runtimeIslands->isRuntimeDomTarget($element);
+    }
+
+    public function hasMotionStructureToken(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->hasMotionStructureToken($element);
+    }
+
+    public function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false, bool $requireOrdinaryFlow = false): bool
+    {
+        return $this->runtimeIslands->isSafeTransparentCustomElement($element, $allowMotionStructure, $requireOrdinaryFlow);
+    }
+
+    public function isStructuralTransparentCustomWrapperChild(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($element);
+    }
+
+    public function isRuntimeMediaSurfaceElement(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element, false);
+    }
+
+    public function hasProvenRuntimeDependency(DOMElement $element): bool
+    {
+        return ( new CustomElementRuntimeDependency() )->hasProvenRuntimeDependency(
+            $element,
+            $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
+            $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
+        );
+    }
+
+    public function customElementRuntimeDisposition(DOMElement $element): string
+    {
+        return ( new CustomElementRuntimeDependency() )->classify(
+            $element,
+            $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
+            $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
+        )['disposition'];
+    }
+
+    /**
+     * The geometry input of {@see WrapperDecision::renderNeutralWrapper()}:
+     * every matched author and inline declaration is neutral.
+     */
+    private function declarationsAreRenderNeutral(DOMElement $element, bool $ignoreEmptyHostResets, bool $allowInertPositioning, bool $allowInheritedText): bool
+    {
         // Attribute spelling is not presentation. Check matched author rules
         // (including conditional rules) as well as the inline declarations.
         $declarations = SourceDeclarations::inline($element);
@@ -394,43 +438,14 @@ final class RenderNeutralElements
         return '' === $label ? null : array( 'tagName' => $tagName, 'ariaLabel' => $label );
     }
 
-    /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */
+    /**
+     * A neutral autonomous host whose ordinary light DOM needs no component
+     * lowering. {@see WrapperDecision::renderNeutralCustomFlowWrapper()} owns
+     * the decision (#7471).
+     */
     public function isRenderNeutralCustomFlowWrapper(DOMElement $element): bool
     {
-        if ( ! RichTextInlineTags::isUnknownHtmlElement($element)
-            || ! CustomElementRuntimeDependency::isCustomElementTag(strtolower($element->tagName))
-            || '' !== trim(SourceDom::attr($element, 'class'))
-            || '' !== trim(SourceDom::attr($element, 'id'))
-            || $element->hasAttribute('hidden')
-            || ! $this->isRenderNeutralWrapper($element)
-            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
-        ) {
-            return false;
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( 'none' === (SourceDeclarations::inline($descendant)['display'] ?? '') ) {
-                return false;
-            }
-        }
-
-        $children = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
-                continue;
-            }
-            // Native buttons (including icon-only buttons) are ordinary light
-            // DOM content too; their own converter retains control semantics.
-            if ( ! $child instanceof DOMElement || ( 'button' !== strtolower($child->tagName) && ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) ) {
-                return false;
-            }
-            $children[] = $child;
-        }
-
-        // Repeated siblings may be a cohesive component; retain that existing
-        // disposition rather than reclassifying collections as wrappers.
-        return 1 === count($children)
-            && ( '' !== trim($element->textContent ?? '') || 'button' === strtolower($children[0]->tagName) );
+        return WrapperDecision::renderNeutralCustomFlowWrapper($this, $element)->isFold();
     }
 
     /**
@@ -639,40 +654,6 @@ final class RenderNeutralElements
      */
     public function isTransparentUnknownElement(DOMElement $element): bool
     {
-        if ( ( ! RichTextInlineTags::isUnknownHtmlElement($element) && ! str_contains(strtolower($element->tagName), '-') )
-            || in_array(strtolower($element->tagName), array( 'content', 'shadow' ), true)
-            // Motion topology names alone do not make static content runtime-owned.
-            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element, false)
-            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)
-        ) {
-            return false;
-        }
-        // A landmark host only names a section; a proven runtime definition
-        // may still give it widget behaviour, so it keeps the widget path.
-        $landmark = null !== $this->namedLandmark($element)
-            && ! ( new CustomElementRuntimeDependency() )->hasProvenRuntimeDependency(
-                $element,
-                $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
-                $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
-            );
-        foreach ( array( 'role', 'aria-label', 'aria-labelledby' ) as $attribute ) {
-            if ( ! $landmark && '' !== trim(SourceDom::attr($element, $attribute)) ) {
-                return false;
-            }
-        }
-
-        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
-            return true;
-        }
-
-        $runtimeDependency = new CustomElementRuntimeDependency();
-        $paintOnly = SourceDom::backgroundPaintOnlyCustomElement($element);
-        return ( $paintOnly || SourceDom::staticGraphicOnlyCustomElement($element) || SourceDom::hasRenderableMediaContent($element) )
-            && ! $runtimeDependency->hasConfigurationAttribute($element, $paintOnly || SourceDom::hasOnlyRenderableMediaContent($element))
-            && 'preserve' !== $runtimeDependency->classify(
-                $element,
-                $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
-                $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
-            )['disposition'];
+        return WrapperDecision::transparentUnknownElement($this, $element)->isFold();
     }
 }

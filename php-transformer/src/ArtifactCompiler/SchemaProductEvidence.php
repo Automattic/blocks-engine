@@ -265,7 +265,7 @@ final class SchemaProductEvidence
                 $identity = json_encode($combination);
                 if (!$attributes || isset($combinations[$identity])) $declared = false;
                 $combinations[$identity] = true;
-                $variant = array_intersect_key($fields, array_flip(array('sku', 'regular_price', 'sale_price', 'image')));
+                $variant = array_intersect_key($fields, array_flip(array('sku', 'regular_price', 'sale_price', 'currency', 'image')));
                 $variant['stock_status'] = $fields['stock_status'] ?? 'instock';
                 $variant['attributes'] = $attributes;
                 $variants[] = $variant;
@@ -291,6 +291,7 @@ final class SchemaProductEvidence
         if ('' === $productSlug) return null;
         $fields = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice, 'source_path' => $path);
         $fields['url'] = '' !== $url ? $url : '/' . $pagePath;
+        if (array_key_exists('priceCurrency', $offers)) $fields['currency'] = $offers['priceCurrency'];
         if (is_string($product['description'] ?? null)) {
             $description = trim(strip_tags(html_entity_decode($product['description'], ENT_QUOTES | ENT_HTML5, 'UTF-8')));
             if ('' !== $description) $fields['description'] = $description;
@@ -339,7 +340,7 @@ final class SchemaProductEvidence
             $defaultTitle = empty($product['variesBy']) && 1 === count($attributes)
                 && 'title' === $attributes[0]['key'] && 'default-title' === $attributes[0]['value'];
             if (1 === count($variants) && (!$attributes || $defaultTitle)) {
-                foreach (array('sku', 'regular_price', 'sale_price', 'stock_status') as $field) {
+                foreach (array('sku', 'regular_price', 'sale_price', 'currency', 'stock_status') as $field) {
                     unset($fields[$field]);
                     if (isset($variants[0][$field])) $fields[$field] = $variants[0][$field];
                 }

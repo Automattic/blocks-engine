@@ -1095,6 +1095,7 @@ if (!function_exists('is_page')) { function is_page(): bool { global $blocksEngi
 if (!function_exists('get_queried_object_id')) { function get_queried_object_id(): int { global $blocksEngineNavQueryState; return (int) $blocksEngineNavQueryState['queried_id']; } }
 if (!function_exists('is_singular')) { function is_singular(): bool { global $blocksEngineNavQueryState; return (bool) $blocksEngineNavQueryState['page']; } }
 if (!function_exists('get_post_type')) { function get_post_type($post = 0): string|false { global $blocksEngineNavQueryState; return 0 !== (int) $post && (int) $post === (int) $blocksEngineNavQueryState['queried_id'] && $blocksEngineNavQueryState['page'] ? 'page' : false; } }
+if (!function_exists('get_permalink')) { function get_permalink($post = 0): string { return 'https://example.test/?p=' . (int) $post; } }
 if (!function_exists('apply_filters')) { function apply_filters($hook, $value) { return $value; } }
 if (!function_exists('get_page_uri')) {
     function get_page_uri($page = 0): string

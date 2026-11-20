@@ -28,6 +28,9 @@ foreach ($files as &$html) {
         . '<div class="data-blocks-engine-capture-mobile-document" data-blocks-engine-capture-document-scope="">' . str_replace('id="site-header"', 'id="site-header--data-blocks-engine-capture-mobile"', $match[1]) . '</div></body>', $html);
 }
 unset($html);
+// Identical per-device route chrome must reuse trunk's route-variant twins,
+// even though each route now promotes more than one landmark.
+$files['home-copy/index.html'] = str_replace('<h1>index.html</h1>', '<h1>Home copy</h1>', $files['index.html']);
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
 foreach ($plan['pages'] as $page) {
     if (preg_match('/<header[ >]/', $page['canonical_block_markup'])) throw new RuntimeException($page['source_path'] . ' retains a copy of the header shell in page content.');
@@ -44,4 +47,12 @@ foreach ($plan['pages'] as $page) {
         }
     }
 }
+$twins = 0;
+foreach ($headers as $header) {
+    $sources = $header['placement']['source_paths'] ?? array();
+    if (!in_array('index.html', $sources, true)) continue;
+    if (!in_array('home-copy/index.html', $sources, true)) throw new RuntimeException('Identical device route headers did not reuse a variant part.');
+    ++$twins;
+}
+if (2 !== $twins) throw new RuntimeException('Both device header variants must name their twin routes.');
 echo "device-route-header-variant: passed\n";

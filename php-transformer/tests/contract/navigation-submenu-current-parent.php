@@ -56,6 +56,7 @@ function is_singular(): bool { return true; }
 function get_queried_object_id(): int { return 42; }
 function apply_filters($hook, $value) { return $value; }
 function get_post_type($id): string { return 'page'; }
+function get_permalink($id): string { return 'https://example.test/?page_id=42'; }
 function get_page_uri($id): string { global $route; return trim($route, '/'); }
 $link = static fn(array $attrs): string => '<a class="wp-block-navigation-item__content" href="' . $attrs['url'] . '">' . $attrs['label'] . '</a>';
 $render = static fn(string $name, array $attrs, string $children = ''): string => $filters[$name]('<li class="wp-block-navigation-item">' . $link($attrs) . $children . '</li>', array('attrs' => $attrs));

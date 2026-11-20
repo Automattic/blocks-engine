@@ -51,10 +51,15 @@ final class LayoutGeometryState
         return $className;
     }
 
-    /** Whether a class is a box-tree carrier, which styles the exact element it was allocated for. */
-    public function isBoxTreeCarrier(string $className): bool
+    /**
+     * The properties a carrier's registered rule declares, at any width.
+     *
+     * @return array<string, true>
+     */
+    public function carriedProperties(string $className): array
     {
-        return str_starts_with($this->carrierSignatures[$className] ?? '', 'box-tree:');
+        preg_match_all('/[{;]\s*(-?[a-z][a-z0-9-]*)\s*:/i', $this->rules[$className] ?? '', $matches);
+        return array_fill_keys(array_map('strtolower', $matches[1]), true);
     }
 
     public function registerRule(string $className, string $rule): void
@@ -116,6 +121,36 @@ final class LayoutGeometryState
             '$1',
             $this->rules[$className]
         ) ?? $this->rules[$className];
+    }
+
+    /**
+     * Publish declaration addresses only after all element-scoped mutations.
+     * Keep rule order, conditions, pseudos and selector specificity in the
+     * signature; equal base declarations alone do not make equal carriers.
+     *
+     * @return array<string, string>
+     */
+    public function canonicalizeCarriers(): array
+    {
+        $replacements = array();
+        foreach ($this->rules as $className => $rule) {
+            if (! preg_match('/^be-inline-geometry-[a-f0-9]{16}$/', $className)) {
+                continue;
+            }
+            $normalized = str_replace($className, '__geometry__', $rule);
+            $replacements[$className] = 'be-inline-geometry-' . substr(hash('sha256', $normalized), 0, 16);
+        }
+        $rules = array();
+        foreach ($this->rules as $className => $rule) {
+            $rules[$replacements[$className] ?? $className] = strtr($rule, $replacements);
+        }
+        $this->rules = $rules;
+        $boxless = array();
+        foreach ($this->boxlessImageFigureCarriers as $className => $marked) {
+            $boxless[$replacements[$className] ?? $className] = $marked;
+        }
+        $this->boxlessImageFigureCarriers = $boxless;
+        return $replacements;
     }
 
     public function cssForSerializedBlocks(string $serializedBlocks): string

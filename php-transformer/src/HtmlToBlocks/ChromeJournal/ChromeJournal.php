@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -55,7 +54,7 @@ final class ChromeJournal
         // The source path enters a key only where the subtree resolves links
         // against it; the page HTML through the prepared subtree and its
         // context; box observations per subtree element.
-        unset($options['source'], $options['declarative_state_html'], $options['box_tree'], $options['chrome_journal']);
+        unset($options['source'], $options['declarative_state_html'], $options['chrome_journal']);
         $options = array_filter($options, static fn (mixed $option): bool => !is_object($option));
         ksort($options);
         // Inline CSS names the page as its source. Key relative URLs by
@@ -140,16 +139,18 @@ final class ChromeJournal
         $links = array();
         $relative = false;
         foreach (self::elements($element) as $node) {
+            // An inline SVG converts to an image whose asset URL is written
+            // relative to the page (SvgMaterializer), so its conversion reads
+            // the page directory just as a relative link does. Without this, a
+            // journal recorded on a page at one depth replays URLs that resolve
+            // to missing media on pages at another depth.
+            $relative = $relative || 'svg' === strtolower($node->localName ?? '');
             foreach (array('href', 'src', 'srcset', 'poster', 'action', 'data-src') as $attribute) {
                 if (!$node->hasAttribute($attribute)) continue;
                 $value = trim($node->getAttribute($attribute));
                 if ('href' === $attribute && ArtifactPath::targetsDocument($value, $sourcePath)) $links[] = $value;
                 $relative = $relative || ('' !== $value && 1 !== preg_match('~^(?:[a-z][a-z0-9+.-]*:|/|#)~i', $value));
             }
-        }
-        $boxes = array();
-        if (array() !== $this->session->boxTreeViewports()) {
-            foreach (self::elements($element) as $node) if ($node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $boxes[] = $this->session->boxTreeEvidence($node);
         }
         return hash('sha256', serialize(array(
             $this->pageDigest,
@@ -162,7 +163,6 @@ final class ChromeJournal
             str_contains($sourcePath, '/') ? strtok($sourcePath, '/') : '',
             $relative ? dirname($sourcePath) : '',
             $links,
-            $boxes,
         )));
     }
 
@@ -192,22 +192,7 @@ final class ChromeJournal
         foreach (self::elements($element) as $index => $node) $indexes[$node] = $index;
         $encoded = self::encodeElements(array('delta' => $delta, 'fallbacks' => $fallbacks, 'block' => $block), $indexes);
         if (null === $encoded) return null;
-        $nodeIds = array();
-        foreach ($attributes as $index => $original) {
-            if (!isset($original[BoxTree::NODE_ATTRIBUTE])) continue;
-            $id = $original[BoxTree::NODE_ATTRIBUTE];
-            if ('' === $id || array_key_exists($id, $nodeIds)) return null;
-            $nodeIds[$id] = $index;
-        }
-        foreach ($element->ownerDocument->getElementsByTagName('*') as $node) {
-            if (isset($indexes[$node]) || !$node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
-            $id = $node->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            if ('' === $id || array_key_exists($id, $nodeIds)) return null;
-            // References outside the recorded subtree cannot be rebased safely.
-            $nodeIds[$id] = null;
-        }
         return $encoded + array(
-            'node_ids' => $nodeIds,
             'bound_markers' => self::boundMarkers($before, $element->getNodePath(), serialize($encoded)),
             'dom' => $dom,
             'root_path' => $element->getNodePath(),
@@ -230,19 +215,8 @@ final class ChromeJournal
         $xpath = new \DOMXPath($element->ownerDocument);
         $markers = array();
         $missing = false;
-        $nodeIds = array();
-        foreach ($journal['node_ids'] ?? array() as $id => $index) {
-            $target = null !== $index ? ($elements[$index] ?? null) : null;
-            $nodeIds[$id] = $target?->getAttribute(BoxTree::NODE_ATTRIBUTE) ?: null;
-        }
-        $nodePattern = array() === $nodeIds ? null : '~(?<![a-zA-Z0-9_-])(?:' . implode('|', array_map(static fn (string $id): string => preg_quote($id, '~'), array_keys($nodeIds))) . ')(?![a-zA-Z0-9_-])~';
-        $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath, $nodeIds, $nodePattern): mixed {
+        $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath): mixed {
             if (is_string($value)) {
-                if (null !== $nodePattern) $value = preg_replace_callback($nodePattern, static function (array $match) use ($nodeIds, &$missing): string {
-                    $replacement = $nodeIds[$match[0]];
-                    if (null === $replacement) $missing = true;
-                    return $replacement ?? $match[0];
-                }, $value);
                 if ($value === $journal['source_path']) return $targetPath;
                 if (str_starts_with($value, $journal['root_path'])) $value = $rootPath . substr($value, strlen($journal['root_path']));
                 return array() === $markers ? $value : strtr($value, $markers);
@@ -288,6 +262,13 @@ final class ChromeJournal
         // Markers were allocated against this page; a reference that does not
         // resolve leaves the page to convert normally, with nothing applied.
         if ($missing) return null;
+        $provenanceState = $this->session->transformationProvenanceState();
+        // A change inside an entry the recording page already held (one more
+        // occurrence of an asset, say) completes that entry only where this
+        // page holds it too. Without it the page converts normally.
+        foreach ($delta as [$name, $property, $changes]) {
+            if (!self::fits(self::read($states[$name], $property), $changes, $states[$name] === $provenanceState ? (int) $journal['next_source_id'] : null, $offset)) return null;
+        }
 
         // Namespace declarations are not attributes DOM can set or remove.
         $current = self::attributes($element);
@@ -296,7 +277,6 @@ final class ChromeJournal
             foreach (array_diff_key($current[$index], $attributes) as $name => $_) if (!str_starts_with($name, 'xmlns')) $node->removeAttribute($name);
             foreach ($attributes as $name => $value) if (!str_starts_with($name, 'xmlns') && ($current[$index][$name] ?? null) !== $value) $node->setAttribute($name, $value);
         }
-        $provenanceState = $this->session->transformationProvenanceState();
         foreach ($delta as [$name, $property, $changes]) {
             $state = $states[$name];
             self::write($state, $property, self::apply(self::read($state, $property), $changes, $state === $provenanceState ? (int) $journal['next_source_id'] : null, $offset));
@@ -341,7 +321,7 @@ final class ChromeJournal
     {
         foreach ($changes as $change) {
             [$operation, $path] = $change;
-            if (null !== $firstSourceId && is_int($path[0] ?? null) && $path[0] >= $firstSourceId) $path[0] += $offset;
+            $path = self::rebasedPath($path, $firstSourceId, $offset);
             $last = 'unset' === $operation ? array_pop($path) : null;
             $target = &$current;
             foreach ($path as $key) {
@@ -362,6 +342,36 @@ final class ChromeJournal
             unset($target);
         }
         return $current;
+    }
+
+    /**
+     * Whether every entry the changes reach into exists in $current.
+     * {@see changes()} recurses only into entries the recording page held,
+     * so a nested change carries just the part of an entry that changed.
+     *
+     * @param list<array{0:string,1:list<int|string>,2?:mixed}> $changes
+     */
+    private static function fits(mixed $current, array $changes, ?int $firstSourceId, int $offset): bool
+    {
+        foreach ($changes as [$operation, $path]) {
+            if ('unset' === $operation) continue;
+            $target = $current;
+            foreach (array_slice(self::rebasedPath($path, $firstSourceId, $offset), 0, -1) as $key) {
+                if (!is_array($target) || !array_key_exists($key, $target)) return false;
+                $target = $target[$key];
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param list<int|string> $path
+     * @return list<int|string>
+     */
+    private static function rebasedPath(array $path, ?int $firstSourceId, int $offset): array
+    {
+        if (null !== $firstSourceId && is_int($path[0] ?? null) && $path[0] >= $firstSourceId) $path[0] += $offset;
+        return $path;
     }
 
     /**

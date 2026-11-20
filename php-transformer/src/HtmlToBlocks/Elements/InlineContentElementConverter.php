@@ -33,7 +33,8 @@ final class InlineContentElementConverter implements ElementConverter
         private readonly InlineContentElementContext $context,
         private readonly StyleResolver $styleResolver,
         private readonly Runtime $runtime,
-        private readonly SourceBlockAttributeProjector $sourceAttributes
+        private readonly SourceBlockAttributeProjector $sourceAttributes,
+        private readonly ?PositionedImageFrameLowering $imageFrames = null
     ) {
     }
 
@@ -79,6 +80,12 @@ final class InlineContentElementConverter implements ElementConverter
                 $attrs['ariaLabel'] = $label;
             }
             return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, $this->context->convertChildren($element, $fallbacks), $element));
+        }
+
+        // A ratio frame its lone image fills is that image's figure.
+        $framedImage = $this->imageFrames?->block($element);
+        if ( null !== $framedImage ) {
+            return ConversionOutcome::handled($framedImage);
         }
 
         // Captured markup can place flow content inside an inline wrapper. A
@@ -169,8 +176,14 @@ final class InlineContentElementConverter implements ElementConverter
                     $declarations['display'] = self::BLOCKIFIED_DISPLAY[$participation->sourceDisplay];
                 }
                 $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
+                // Generated content the projected pseudo rules read through
+                // attr() needs its source attribute on the carrier.
+                $generatedContentAttributes = '';
+                foreach ( $this->styleResolver->generatedContentDataAttributes($element) as $name ) {
+                    $generatedContentAttributes .= ' ' . $name . '="' . htmlspecialchars($element->getAttribute($name), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
                 $attrs = array(
-                    'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
+                    'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $generatedContentAttributes . '>' . $content . '</mark>',
                 );
                 if ( 'none' === CssValueInspector::declared($declarations, 'display') ) {
                     $attrs['className'] = SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS;

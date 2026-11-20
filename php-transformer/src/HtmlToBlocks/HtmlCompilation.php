@@ -13,9 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
-use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\BoxTreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -48,6 +46,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormControlConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PhrasingSvgConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ScrollStateConverter;
@@ -204,12 +203,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly BlockMaterializer $blockMaterializer;
 
-
     private readonly TableClassificationPolicy $tableClassificationPolicy;
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
-
-
 
     private readonly StyleResolver $styleResolver;
     private readonly SourceInterItemSpaces $sourceInterItemSpaces;
@@ -217,8 +213,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly ImageUrlResolver $imageUrls;
     private readonly ImageDimensionResolver $imageDimensions;
     private readonly Elements\ImageLowering $imageLowering;
+    private ?Elements\FillLayerImageLowering $fillLayerImages = null;
     private readonly EmptyElementFootprint $emptyElementFootprint;
-
 
     private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector;
 
@@ -261,17 +257,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly Elements\StructuralRichTextContainerLowering $structuralRichTextContainers;
     private readonly SourceProvenance $sourceProvenance;
 
-
     private readonly FormRuntimeIslandRecorder $formRuntimeIslandRecorder;
 
     private readonly InteractionFallbackReporter $interactionFallbackReporter;
 
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
-
-
-
-
-
 
     /** @var list<DOMElement> Neutral convention instances retained as author selector hooks. */
     private array $retainedCustomWrapperHooks = array();
@@ -282,58 +272,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly WrapperCoalescer $wrapperCoalescer;
 
-    /**
-     * Source node ids the box-tree classifier marked neutral, mapped to their
-     * sole observed child's node id. Empty on routes without box-tree evidence.
-     *
-     * @var array<string, string>
-     */
-    private array $neutralBoxChildren = array();
-
     /** Converts the page's repeated subtrees through the site's journals. */
     private ?ChromeJournal $chromeJournal = null;
-
-    /**
-     * Folded boxes' moves, keyed by the receiving child's node id: the box id
-     * (`from`), child property => box property (`moves`), and whether the
-     * child's border box equals the box's (`equal_box`).
-     *
-     * @var array<string, array{from: string, moves: array<string, string>, equal_box: bool}>
-     */
-    private array $foldedInto = array();
-
-    /**
-     * A folded box's receiving child's own captured observations, keyed by the
-     * child's node id: what the child is restyled with again when its box
-     * keeps its block after all.
-     *
-     * @var array<string, array<string, array<string, mixed>>>
-     */
-    private array $foldChildObservations = array();
-
-    /** @var array<string, array<string, list<array{0: float|null, 1: string}>>> Lifted author bands by node id. */
-    private array $foldFluid = array();
-
-    /** @var array<string, string> Folded box id => node id of the element whose box-tree rule took its declarations. */
-    private array $foldsCarried = array();
-
-    /** @var array<string, list<string>> Box-tree carrier classes projected for a source element, by node id. */
-    private array $boxTreeCarriers = array();
-
-    /** Node id of the element whose box-tree rule is being lifted. */
-    private string $liftingFor = '';
-
-
-
-
-
-
-
-
-
-
-
-
 
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
@@ -352,8 +292,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly Diagnostics\CompilationValidation $validation;
 
-
-
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
     private HtmlTransformerSession $session;
@@ -367,7 +305,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private const INLINE_LAYOUT_CARRIER_CLASS = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
 
-
     public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
     /**
      * Marks a core/paragraph lowered from a margin-styled text-only div. The
@@ -376,14 +313,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     public const LOWERED_PARAGRAPH_CLASS = 'blocks-engine-lowered-paragraph';
 
-
     /**
      * Marks an emptied block that exists only as a runtime target. Emitted
      * here and read back by {@see NavigationStyleProjector}, which projects the
      * editor static-state CSS that hides it.
      */
     public const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
-
 
     private const CSS_OWNED_INLINE_FLOW_CLASS = SourceBlockAttributeProjector::CSS_OWNED_INLINE_FLOW_CLASS;
 
@@ -395,7 +330,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     )
     {
         $this->sourceElementClassifier = new SourceElementClassifier();
-        $listStructure = new ListStructure($this->sourceElementClassifier, fn (DOMElement $element): array => $this->session->boxTreeEvidence($element));
+        $listStructure = new ListStructure($this->sourceElementClassifier);
         $commercePattern = $this->createCommercePattern();
         $this->sourceElementDescription = new SourceElementDescription($this->sourceElementClassifier, $commercePattern);
         $this->session = new HtmlTransformerSession($this->runtime, $this->sourceElementDescription);
@@ -417,6 +352,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->imageUrls = new ImageUrlResolver($this->session);
         $mediaLowering = new Elements\MediaLowering($this, $this->styleResolver, $this->imageUrls);
         $this->imageDimensions = new ImageDimensionResolver($this->styleResolver);
+        $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this->runtime
+        );
+        $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->imageLowering = new Elements\ImageLowering(
             $this,
             $this->blockFactory,
@@ -426,7 +366,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->imageUrls,
             $this->imageDimensions,
-            $this->sourceElementClassifier
+            $this->sourceElementClassifier,
+            $this->richTextMaterializer->markupWithOwnedTextColors(...)
         );
         $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier,
             new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session),
@@ -440,15 +381,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->createNavigationStyleProjectionContext(),
             $this->styleResolver
         );
-        $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
-            $this->styleResolver,
-            $this->runtime
-        );
         $capturedDisclosureDialogs = new Elements\CapturedDisclosureDialog($this->styleResolver);
         $this->standaloneBreaks = new Elements\StandaloneBreakLowering($this, $this->styleResolver);
         $flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->sourceVisibility = new Style\SourceElementVisibility($this->styleResolver);
-        $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->structuralRichTextContainers = new Elements\StructuralRichTextContainerLowering($this, $this, $this->richTextMaterializer, $this->styleResolver);
         $this->richTextStylingHooks = new RichTextStylingHookNormalizer($this->styleResolver, $this->richTextMaterializer, $this->session, $this->sourceElementClassifier);
         $inlineFlows = new Elements\InlineFlowLowering($this, $this, $this->styleResolver, $this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime);
@@ -650,6 +586,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session
         ));
+        $imageFrames = new Elements\PositionedImageFrameLowering($this->imageLowering, $this->session, $this->runtimeIslands, $this->sourceElementDescription, $this->styleResolver);
+        $this->fillLayerImages = new Elements\FillLayerImageLowering($this->imageLowering, $this->session, $this->runtimeIslands, $this->sourceElementDescription, $this->styleResolver);
         $inlineContentConverter = new InlineContentElementConverter($this->sourceElementClassifier, $this, $this->richTextMaterializer, new InlineContentElementContext(
             $this,
             $this->runtimeIslands,
@@ -663,7 +601,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $emptyVisualSpacers->emptyVisualSpacerBlock(...),
             $this->session->rememberNativeDisclosure(...),
             $this->runtimeIslands->retainsRuntimeTextLeafInRichText(...)
-        ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
+        ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector, $imageFrames);
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $formControlMetadataBuilder,
             $this->styleResolver->authoredPresentationDeclarations(...),
@@ -674,7 +612,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceTagProjectedClone(...),
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
             $this->richTextStylingHooks->inlineContent(...),
-            $this->wrapperCoalescer
+            $this->wrapperCoalescer,
+            $this->styleResolver->classRecipeTextColor(...)
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -878,7 +817,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             patternContext: $this->patternContext,
             visualTextWrapperBlock: $inlineTextWrappers->visualTextWrapperBlockFromElement(...),
             coalescedSingleGroupWrapper: $this->wrapperCoalescer->coalescedSingleGroupWrapper(...),
-            shouldPreserveWrapper: $this->emptyVisualRetention->shouldPreserveWrapper(...)
+            wrapperDisposition: $this->emptyVisualRetention->wrapperDisposition(...)
         ),
             $emptyFeatureShells,
             $formDispatcher,
@@ -898,7 +837,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->authoredMarqueeRecognizer,
             $authoredCarouselGenerator,
             $emptyVisualSpacers,
-            new Elements\InFlowImageFrameLowering($this->imageLowering, $this->session, $this->runtimeIslands, $this->sourceElementDescription, $this->styleResolver)
+            $imageFrames
         );
         $mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
             $this,
@@ -947,8 +886,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ScrollStateConverter(
                 $this,
                 $this->styleResolver,
-                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className),
-                fn (DOMElement $element, array $attrs, array $withheld): array => $this->projectBoxTreeCarrier('core/group', $attrs, $element, $withheld, false)
+                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
@@ -1221,8 +1159,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->session->installTransformOptions($options);
-        $this->foldedInto = $this->foldChildObservations = $this->foldFluid = $this->foldsCarried = $this->boxTreeCarriers = array();
-        $this->neutralBoxChildren = $this->neutralBoxChildren($html, $options);
         $this->documentAuthorCss = '';
         $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
         $staticCss = (string) ($options['static_css'] ?? '');
@@ -1242,9 +1178,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->session->installSourceDocument($this->documentEnvelope->documentRootTheme($html), NativeGetFormBlockBuilder::declaredDocumentHosts($html));
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), array() !== $this->session->boxTreeViewports()))
+            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), $this->session->boxTreeWrapperEvidence()->hasEvidence()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
+        // Read capture node identity into the evidence and remove the carrier
+        // before any stage reads or serializes the source document.
+        if ($this->session->boxTreeWrapperEvidence()->hasEvidence()) $this->session->boxTreeWrapperEvidence()->bindSourceDocument($document, $html);
         CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
         if ( Support\SourceDocumentEnvelope::isDocument($html) ) {
             Classification\FormControlClassifier::registerWholeDocument($document);
@@ -1270,7 +1209,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->session->installCapturedGlyphColors(CapturedGlyphColor::detach($body));
-        $this->session->reusableComponentState()->liftRestingNavigation($body);
+        $this->session->reusableComponentState()->liftRestingNavigation($body, $this->session->authorSelectorProjectionState());
         if ( QuirksModeSource::isQuirksMode($html) ) {
             QuirksModeSource::normalize(
                 $body,
@@ -1285,10 +1224,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Body-only parsing must retain the html ancestor that owns inherited
         // custom properties and participates in authored root selectors.
         \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::restoreRoot($body, $html);
-        if ( array() !== $this->session->boxTreeViewports() ) {
-            \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::restoreEvidenceIdentity($body, $html);
-        }
-
         // Document metadata (`<link>`, `<meta>`, `<base>`, `<title>`) generates no
         // rendered box and belongs in `<head>`, but browsers tolerate it anywhere
         // in `<body>` and static captures occasionally leak it into content
@@ -1313,26 +1248,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // content rather than the source's wrapping convention.
         $this->documentAuthorCss = $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
         $this->retainedCustomWrapperHooks = $this->wrapperConventions->unwrapConventionWrappers($body, $this->documentAuthorCss);
-        // Evidence-proven image frames merge into their image before any
-        // selector projection or conversion observes the frame as a box.
-        if ( array() !== $this->session->boxTreeViewports() ) {
-            ( new Elements\FilledImageFrameLowering(
-                fn (DOMElement $element): array => $this->session->boxTreeEvidence($element),
-                fn (DOMElement $element): array => array_map(
-                    static fn (array $rule): string => (string) ( $rule['selector'] ?? '' ),
-                    $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional')
-                )
-            ) )->lower($body);
-            // A layer's empty colour fill becomes the layer's own paint.
-            $this->session->overrideBoxTreeObservations(( new Elements\FilledPaintLayerLowering(
-                fn (DOMElement $element): array => $this->session->boxTreeEvidence($element),
-                fn (DOMElement $element): array => array_map(
-                    static fn (array $rule): string => (string) ( $rule['selector'] ?? '' ),
-                    $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional')
-                )
-            ) )->lower($body));
-            $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
-        }
         $timer->start('transform.author_selector_preparation');
         $this->authorSelectorSemanticPreparer->prepare($html, $staticCss, $body, $options, $this->session);
         $this->session->fallbackEmitter()->configure($this->session->transformationProvenanceState()->fallback(), $this->session->runtimeBehaviorState()->runtimeScriptMetadata(), $this->session->runtimeSelectorState(), $this->session->authorSelectorProjectionState()->tagMarkers());
@@ -1405,6 +1320,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // generated stylesheet as the page's own blocks. Serialized first:
         // serializing resets the runtime diagnostics of the page serialization.
         $timer->start('transform.serialization');
+        // Geometry remains element-addressed throughout lowering. Only now,
+        // after topology and appended-rule mutations, publish shared identities
+        // in every tree (including chrome captured before the page walk).
+        if (! $this->session->usesFallbackReductionMode()) {
+            $geometryIdentity = new Style\DeclarationAddressedClasses();
+            $geometryReplacements = $this->session->layoutGeometryState()->canonicalizeCarriers();
+            $geometryAssets = $this->session->assetMaterializationState()->checkpoint();
+            $geometryReplacements += $geometryIdentity->assetPathReplacements($geometryAssets, $geometryReplacements);
+            $blocks = $geometryIdentity->rewrite($blocks, $geometryReplacements);
+            $fallbacks = $geometryIdentity->rewrite($fallbacks, $geometryReplacements);
+            $shellArtifacts = $geometryIdentity->rewrite($shellArtifacts, $geometryReplacements);
+            $this->session->assetMaterializationState()->restore($geometryIdentity->rewrite($geometryAssets, $geometryReplacements));
+        }
         $readableMarkup = '';
         foreach ($fallbacks as $fallback) {
             if ( is_array($fallback['readable_blocks'] ?? null) && array() !== $fallback['readable_blocks'] ) {
@@ -1493,6 +1421,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $authorStylesheetProjections,
             array_values(array_filter($assets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && (array() === $authorStylesheetProjections || 'author-css' !== ($asset['source'] ?? ''))))
         ));
+        // Projection records can still refer to their original source-bound
+        // geometry names. Rebase those late-produced facts as well.
+        $classReplacements += $geometryReplacements ?? array();
         $classReplacements += $classIdentity->assetPathReplacements($assets, $classReplacements);
         $blocks = $classIdentity->rewrite($blocks, $classReplacements);
         $fallbacks = $classIdentity->rewriteBindings($fallbacks, $serializedBlocks, $classReplacements);
@@ -1538,7 +1469,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $conversionSelectorCache = clone $selectorCache;
         $timer->start('transform.validation.design_usage');
         $designUsageCollector = new DesignUsageCollector($this->styleResolver);
-        $designUsage = $designUsageCollector->collect($body, $buttonElements, $this->session->boxTreeEvidence(...), $this->session->boxTreeViewports());
+        $designUsage = $designUsageCollector->collect($body, $buttonElements);
         foreach ( $designUsageCollector->schemeColorFindings() as $finding ) {
             $diagnostics[] = ConversionFindingContract::withClassification($finding + array('source' => HtmlTransformer::class));
         }
@@ -1687,6 +1618,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 && SourceDom::hasWordPressTemplateParts($child)
             ) {
                 $blocks = array_merge($blocks, $this->convertChildren($child, $fallbacks, $captureUnsupported, $preserveLinkContainers));
+                continue;
+            }
+            // A paint-free fill layer is its image's figure and its overlays.
+            $layerBlocks = $preserveLinkContainers ? null : $this->fillLayerImages?->blocks(
+                $child,
+                function (DOMElement $overlay) use (&$fallbacks, $captureUnsupported): ?array {
+                    return $this->convertElement($overlay, $fallbacks, $captureUnsupported);
+                }
+            );
+            if ( null !== $layerBlocks ) {
+                $blocks = array_merge($blocks, $layerBlocks);
                 continue;
             }
             $fallbackOffset = count($fallbacks);
@@ -1945,285 +1887,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
-     * Neutral boxes on an evidence route, keyed by node id, each mapped to the
-     * node id of its sole observed child. The classifier is the only authority.
-     *
-     * @param array<string, mixed> $options
-     * @return array<string, string>
-     */
-    private function neutralBoxChildren(string $html, array $options): array
-    {
-        $tree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
-        if ( array() === ($tree['nodes'] ?? array()) ) {
-            return array();
-        }
-        $classification = BoxTreeClassifier::classify($html, $tree);
-        $children = array();
-        foreach ( $classification['nodes'] as $id => $node ) {
-            if ( 'neutral' === $node['disposition'] || 'folded' === $node['disposition'] ) {
-                $children[(string) $id] = (string) $tree['nodes'][$id]['children'][0];
-            }
-        }
-        // ADR 0005 slice 5: a folded box's declarations now belong to its child.
-        foreach ( $classification['folds'] as $id => $fold ) {
-            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'semantic' => $fold['semantic'] ?? false);
-            $this->foldChildObservations[(string) $fold['child']] = $tree['nodes'][$fold['child']]['viewports'] ?? array();
-        }
-        $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => !empty($node['link_carrier'])))));
-        $this->session->recordBoxTreeFolds($classification['folds']);
-        $this->session->overrideBoxTreeObservations($classification['observations']);
-        $this->session->collapseBoxTreeNodes(array_map('strval', array_keys($children)));
-        return $children;
-    }
-
-    /**
-     * Captured observations for lifting author intent, where a collapsed box
-     * reads as `display: contents`: it generates no box in the output, so it
-     * cannot be the containing block a percentage resolves against.
-     */
-    private function liftEvidence(): \Closure
-    {
-        return function (DOMElement $node): array {
-            $observations = $this->session->boxTreeEvidence($node);
-            if ( !isset($this->neutralBoxChildren[$node->getAttribute(BoxTree::NODE_ATTRIBUTE)]) ) {
-                return $observations;
-            }
-            return array_map(static fn(): array => array('used_styles' => array('display' => 'contents')), $observations);
-        };
-    }
-
-    /**
-     * Author bands lifted for a source element. A child that received a
-     * folded box's declarations takes the box's bands for them (lifted in the
-     * box's own context), never its own; sizing keeps the child's captured
-     * pixels unless the box's intent is an intrinsic keyword that holds for
-     * the child too, or the box's proven width when the child filled it: a
-     * child whose border box was the box's ({@see BoxTreeClassifier} equal
-     * box) and whose own `width:100%` is proven against it is the box's width
-     * at every width, so it takes the box's place in the box's containing
-     * block with the box's intent rather than the captured pixels.
-     *
-     * @return array<string, list<array{0: float|null, 1: string}>>
-     */
-    private function liftedBands(DOMElement $element, array $observations, array $viewports, array $parents, string $blockName): array
-    {
-        $fluid = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $observations, $viewports, $parents, $blockName, $this->liftEvidence());
-        $fold = $this->foldedInto[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)] ?? null;
-        if ( null === $fold ) {
-            return $fluid;
-        }
-        // Absolute inset-zero placement replaces the child's former alignment,
-        // rather than carrying either element's alignment bands forward.
-        if (isset($fold['moves']['position']) && !isset($fold['moves']['align-self']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
-            unset($fluid['align-self'], $fluid['justify-self']);
-        }
-        $box = $element->parentNode;
-        while ( $box instanceof DOMElement && $fold['from'] !== $box->getAttribute(BoxTree::NODE_ATTRIBUTE) ) {
-            $box = $box->parentNode;
-        }
-        if ( !$box instanceof DOMElement ) {
-            return array_diff_key($fluid, $fold['moves'], array_flip(self::FOLD_SIZING));
-        }
-        $this->foldsCarried[$fold['from']] = $this->liftingFor;
-        $boxObservations = $this->session->boxTreeEvidence($box);
-        if ( !isset($this->foldFluid[$fold['from']]) ) {
-            $boxParent = $this->blockParentElement($box);
-            $this->foldFluid[$fold['from']] = $this->liftedBands($box, $boxObservations, $viewports, null !== $boxParent ? $this->session->boxTreeEvidence($boxParent) : array(), '');
-        }
-        $boxFluid = $this->foldFluid[$fold['from']];
-        $sameFont = true;
-        foreach ( $observations as $key => $observation ) {
-            $sameFont = $sameFont && ($observation['used_styles']['font-size'] ?? null) === ($boxObservations[$key]['used_styles']['font-size'] ?? null);
-        }
-        foreach ( $fold['moves'] as $to => $from ) {
-            $bands = $boxFluid[$from] ?? null;
-            // An em length resolves against the font size of the box that declares it.
-            if ( null !== $bands && !$sameFont && preg_grep('/\d(?:\.\d+)?em\b/i', array_column($bands, 1)) ) {
-                $bands = null;
-            }
-            if ( null === $bands ) {
-                unset($fluid[$to]);
-            } else {
-                $fluid[$to] = $bands;
-            }
-        }
-        foreach ( self::FOLD_SIZING as $property ) {
-            // An absolute fill child replaces the box's sizing outright;
-            // the move above already lifted that sizing in the box's context.
-            if (isset($fold['moves'][$property])) continue;
-            $bands = $boxFluid[$property] ?? null;
-            $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
-            if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
-                $fluid[$property] = $bands;
-            } elseif ( null !== $bands && 'width' === $property && $fold['equal_box'] && $this->fillsFoldedBox($element, $box, $observations, $viewports, $boxObservations) ) {
-                $fluid[$property] = $bands;
-            } else {
-                unset($fluid[$property]);
-            }
-        }
-        return $fluid;
-    }
-
-    /**
-     * Whether a folded box's child declares that it fills the box: its own
-     * width, lifted with the box still in place as its containing block, is
-     * `100%` at every width the author's cascade reaches.
-     *
-     * @param array<string, array<string, mixed>> $observations
-     * @param array<string, array<string, mixed>> $viewports
-     * @param array<string, array<string, mixed>> $boxObservations
-     */
-    private function fillsFoldedBox(DOMElement $element, DOMElement $box, array $observations, array $viewports, array $boxObservations): bool
-    {
-        $own = array();
-        foreach ( $observations as $key => $observation ) {
-            $own[$key] = array('used_styles' => array_intersect_key($observation['used_styles'] ?? array(), array_flip(array('width', 'min-width', 'max-width', 'position', 'font-size'))));
-        }
-        $parents = $element->parentNode === $box ? $boxObservations : array();
-        $bands = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $own, $viewports, $parents, '', $this->session->boxTreeEvidence(...))['width'] ?? array();
-        // An in-flow block with an auto width fills its block container's
-        // content box just as `100%` does.
-        $fills = $this->autoWidthFills($element, $box, $observations, $boxObservations) ? array('100%', 'auto') : array('100%');
-        return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, $fills, true));
-    }
-
-    /**
-     * Whether a child's `auto` width fills its box: the child is an in-flow,
-     * unfloated block in a box that lays its children out as flow blocks.
-     * The caller holds the equal box, so no margin or padding sits between.
-     *
-     * @param array<string, array<string, mixed>> $observations
-     * @param array<string, array<string, mixed>> $boxObservations
-     */
-    private function autoWidthFills(DOMElement $element, DOMElement $box, array $observations, array $boxObservations): bool
-    {
-        if ( $element->parentNode !== $box || array() === $observations ) {
-            return false;
-        }
-        foreach ( $observations as $key => $observation ) {
-            $child = $observation['used_styles'] ?? array();
-            $parent = $boxObservations[$key]['used_styles'] ?? null;
-            if ( !is_array($parent) || 'block' !== ($child['display'] ?? null) || !in_array($parent['display'] ?? null, array('block', 'flow-root'), true)
-                || !in_array($child['position'] ?? 'static', array('static', 'relative'), true) || 'none' !== ($child['float'] ?? 'none') ) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Whether a folded box's declarations reached the block its child became.
-     *
-     * Lifting the box's bands for the child is not enough: a converter that
-     * builds its block from source attributes (a runtime authored button, for
-     * example) can project the child's box-tree rule and then emit a block
-     * without the carrier class, leaving the box's placement and size nowhere.
-     *
-     * @param array<string, mixed> $block
-     */
-    private function foldCarried(string $boxId, array $block): bool
-    {
-        // Raw markup does not render block attributes. Even if projection
-        // lifted the moves and assigned a className, core/html never puts
-        // that carrier on the SVG (or other raw element) it saves.
-        if ( 'core/html' === ($block['blockName'] ?? null) ) {
-            return false;
-        }
-        $carrierNode = $this->foldsCarried[$boxId] ?? null;
-        if ( null === $carrierNode ) {
-            return false;
-        }
-        $carriers = $this->boxTreeCarriers[$carrierNode] ?? array();
-        return array() === $carriers || array() !== array_intersect($carriers, self::blockClassTokens($block));
-    }
-
-    /**
-     * @param array<string, mixed> $block
-     * @return list<string>
-     */
-    private static function blockClassTokens(array $block): array
-    {
-        $tokens = self::classTokens(is_string($block['attrs']['className'] ?? null) ? $block['attrs']['className'] : '');
-        foreach ( is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $inner ) {
-            if ( is_array($inner) ) {
-                $tokens = array_merge($tokens, self::blockClassTokens($inner));
-            }
-        }
-        return $tokens;
-    }
-
-    /** @return list<string> */
-    private static function classTokens(string $className): array
-    {
-        return array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn(string $token): bool => '' !== $token));
-    }
-
-    /** Sizes a folded box's intent decides for its child. */
-    private const FOLD_SIZING = array('width', 'height');
-
-    private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
-
-    /**
-     * A box folded for its viewport entrance ({@see BoxTreeClassifier}) hands
-     * the entrance, its id and inline motion variables to the child that takes its place: the child's
-     * block renders both on its root, where the replayed entrance and the
-     * state rules keyed on that id find it.
-     *
-     * @return list<string> The attributes the child received.
-     */
-    private function handEntranceToFoldChild(DOMElement $box, DOMElement $child): array
-    {
-        if ( !$box->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $child->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $child->hasAttribute('id') ) {
-            return array();
-        }
-        $handed = array();
-        foreach ( array(CaptureEvidence::VIEWPORT_ENTRANCE, 'id') as $name ) {
-            if ( $box->hasAttribute($name) ) {
-                $child->setAttribute($name, $box->getAttribute($name));
-                $handed[] = $name;
-            }
-        }
-        if ( '' !== trim($box->getAttribute('style')) ) {
-            $child->setAttribute('style', rtrim($child->getAttribute('style'), "; \t\n\r\0\x0B") . ';' . $box->getAttribute('style'));
-            $handed[] = 'style';
-        }
-        return $handed;
-    }
-
-    /** The source child that replaces a neutral box, or null when the box is kept. */
-    private function neutralBoxChild(DOMElement $element): ?DOMElement
-    {
-        $childId = $this->neutralBoxChildren[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)] ?? null;
-        if ( null === $childId ) {
-            return null;
-        }
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $childId === $child->getAttribute(BoxTree::NODE_ATTRIBUTE) ) {
-                return $child;
-            }
-        }
-        return null;
-    }
-
-    /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
-    private function blockParentElement(DOMElement $element): ?DOMElement
-    {
-        $parent = $element->parentNode;
-        while ( $parent instanceof DOMElement && null !== $this->neutralBoxChild($parent) ) {
-            // A contents wrapper never supplied a layout box, even before
-            // reduction. Keep its observation as the projection context:
-            // rebasing the child here changes pruning and fluid inference
-            // merely because an editor-only Group has disappeared.
-            $observations = $this->session->boxTreeEvidence($parent);
-            if (array() !== $observations && count($observations) === count(array_filter($observations, static fn (array $observation): bool => 'contents' === ($observation['used_styles']['display'] ?? null)))) {
-                break;
-            }
-            $parent = $parent->parentNode;
-        }
-        return $parent instanceof DOMElement ? $parent : null;
-    }
-
-    /**
      * The sole child that replaces a retained custom-wrapper hook, or null when
      * the hook keeps its own Group.
      *
@@ -2238,27 +1901,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function boxlessWrapperHookChild(DOMElement $element): ?DOMElement
     {
-        if ( ! in_array($element, $this->retainedCustomWrapperHooks, true) ) {
-            return null;
-        }
-        $child = null;
-        foreach ( $element->childNodes as $node ) {
-            if ( $node instanceof DOMElement ) {
-                if ( null !== $child ) {
-                    return null;
-                }
-                $child = $node;
-            } elseif ( $node instanceof \DOMText && '' !== trim($node->textContent) ) {
-                return null;
-            }
-        }
-        if ( null === $child
-            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, true)
-            || ! $this->renderNeutral->isBoxlessWrapper($element)
-        ) {
-            return null;
-        }
-        return $child;
+        // Whether the hook's Group folds into its child is WrapperDecision's (#7471).
+        return WrapperDecision::retainedWrapperHook(
+            $element,
+            in_array($element, $this->retainedCustomWrapperHooks, true),
+            fn (): bool => $this->runtimeIslands->isSafeTransparentCustomElement($element, true),
+            fn (): bool => $this->renderNeutral->isBoxlessWrapper($element)
+        )['child'];
     }
 
     /**
@@ -2269,60 +1918,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         // A folded child converts with its box's declarations, decided outside
         // the subtree, so it always converts.
-        if ( true === $this->chromeJournal?->covers($element) && !isset($this->foldedInto[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)]) ) {
+        if ( true === $this->chromeJournal?->covers($element) ) {
             return $this->chromeJournal->convert($element, $fallbacks, fn (array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, $captureUnsupported));
         }
         $hookChild = $this->boxlessWrapperHookChild($element);
         if ( null !== $hookChild ) {
             return $this->convertElement($hookChild, $fallbacks, $captureUnsupported);
-        }
-        // ADR 0005: a box the classifier proves neutral emits no block. Its sole
-        // child takes its place before any converter can make it a Group or
-        // register its engine rule; the child keeps its own rule.
-        $neutralChild = $this->neutralBoxChild($element);
-        if ( null !== $neutralChild ) {
-            $boxId = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            $childId = $neutralChild->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            if ( $boxId !== ($this->foldedInto[$childId]['from'] ?? null) ) {
-                return $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
-            }
-            // A folded box's declarations survive only in its child's box-tree
-            // rule. A child converted without one (a pattern leaf such as an
-            // accessible icon link) would drop the box's placement and size,
-            // so the box keeps its own block and rule instead.
-            $before = $fallbacks;
-            $childStyle = $neutralChild->hasAttribute('style') ? $neutralChild->getAttribute('style') : null;
-            $handed = $this->handEntranceToFoldChild($element, $neutralChild);
-            $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
-            $semantic = $this->foldedInto[$childId]['semantic'] ?? false;
-            if ( (!$semantic && null === $block) || (null !== $block && $this->foldCarried($boxId, $block)
-                && (!$semantic || 'core/group' === ($block['blockName'] ?? null))) ) {
-                if ($semantic) {
-                    $attrs = $block['attrs'];
-                    $attrs['tagName'] = strtolower($element->tagName);
-                    unset($attrs['anchor']);
-                    if ($element->hasAttribute('id')) $attrs['anchor'] = $element->getAttribute('id');
-                    foreach ($element->attributes as $attribute) {
-                        if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
-                            $attrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][$attribute->name] = $attribute->value;
-                        }
-                    }
-                    $block = array_replace($block, $this->blockFactory->create('core/group', $attrs, $block['innerBlocks']));
-                }
-                return $block;
-            }
-            foreach ( $handed as $name ) {
-                $neutralChild->removeAttribute($name);
-            }
-            if ( null !== $childStyle ) {
-                $neutralChild->setAttribute('style', $childStyle);
-            }
-            $fallbacks = $before;
-            unset($this->neutralBoxChildren[$boxId], $this->foldedInto[$childId]);
-            // The box renders its own declarations again, so the child no
-            // longer receives them: it converts with its own observations,
-            // inside the box's block, or both would render the placement.
-            $this->session->restoreFoldedBoxTreeNode($boxId, $childId, $this->foldChildObservations[$childId] ?? array());
         }
         $tagName = strtolower($element->tagName);
 
@@ -2562,7 +2163,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $attrs = $this->projectBoxTreeCarrier($name, $attrs, $this->session->boxTreeBlockBox($sourceElement));
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
@@ -2602,90 +2202,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $sourceMaterializationFacts,
             $this->session->transformationProvenanceState()
         ), $sourceElement);
-    }
-
-    /**
-     * Give a source element's block its box-tree carrier: the observed
-     * presentation of an evidence route, whose author stylesheets are retired.
-     * Without box-tree evidence the attributes are returned unchanged.
-     *
-     * @param array<string, mixed> $attrs
-     * @param list<string> $withheld Properties another owner (a runtime toggle) sets on the box, kept out of the carrier.
-     * @param bool $inlineSupports Whether invariant declarations may become style attributes; a block whose markup
-     *        is built by hand keeps them all in the carrier.
-     * @return array<string, mixed>
-     */
-    public function projectBoxTreeCarrier(string $name, array $attrs, DOMElement $sourceElement, array $withheld = array(), bool $inlineSupports = true): array
-    {
-        $sourceTagName = strtolower($sourceElement->tagName);
-        $withheld = array_fill_keys($withheld, true);
-        $observations = $this->session->boxTreeEvidence($sourceElement);
-        foreach ($observations as $key => $observation) {
-            if (is_array($observation['used_styles'] ?? null)) $observations[$key]['used_styles'] = array_diff_key($observation['used_styles'], $withheld);
-        }
-        $viewports = $this->session->boxTreeViewports();
-        $blockParent = $this->blockParentElement($sourceElement);
-        $parents = $this->session->boxTreeParentEvidence($sourceElement, $blockParent);
-        $liftingFor = $this->liftingFor;
-        $this->liftingFor = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
-        $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
-        $this->liftingFor = $liftingFor;
-        $fluid = array_diff_key($fluid, $withheld);
-        $fluidIntent = new Style\BoxTreeFluidIntent();
-        $pseudoFluid = array();
-        foreach ( array( 'before', 'after' ) as $pseudo ) {
-            $pseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceElement, $this->styleResolver, $observations, $viewports, $pseudo, $this->liftEvidence());
-        }
-        // An authored figure (or a custom image host lowered as the figure)
-        // keeps its own box; the image it paints is styled from its own evidence.
-        // So is a core/media-text image, which its block saves bare in the
-        // media pane.
-        $image = array();
-        $paintedImage = 'core/image' === $name && ('figure' === $sourceTagName || str_contains($sourceTagName, '-')) ? $sourceElement->getElementsByTagName('img')->item(0) : null;
-        if ('core/media-text' === $name && 'image' === ($attrs['mediaType'] ?? null)) $paintedImage = $this->mediaTextSourceImage($sourceElement, 'right' === ($attrs['mediaPosition'] ?? null));
-        if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
-            $imageObservations = $this->session->boxTreeEvidence($paintedImage);
-            $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
-            $image = array(
-                'observations' => $imageObservations,
-                'parents' => $imageParents,
-                'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
-            );
-        }
-        // core/image saves the caption as a bare inner element, not a block.
-        $caption = 'core/image' === $name ? SourceDom::firstChildElement($sourceElement, 'figcaption') : null;
-        if ($caption instanceof DOMElement) {
-            $captionObservations = $this->session->boxTreeEvidence($caption);
-            $image['caption'] = array(
-                'observations' => $captionObservations,
-                'parents' => $observations,
-                'fluid' => $fluidIntent->lift($caption, $this->styleResolver, $captionObservations, $viewports, $observations, '', $this->liftEvidence()),
-            );
-        }
-        // core/details renders the source `<summary>` bare: its own evidence styles that element.
-        $summary = array();
-        $sourceSummary = 'core/details' === $name && 'details' === $sourceTagName ? SourceDom::firstChildElement($sourceElement, 'summary') : null;
-        if ($sourceSummary instanceof DOMElement) {
-            $summaryObservations = $this->session->boxTreeEvidence($sourceSummary);
-            $summaryPseudoFluid = array();
-            foreach ( array( 'before', 'after' ) as $pseudo ) {
-                $summaryPseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceSummary, $this->styleResolver, $summaryObservations, $viewports, $pseudo, $this->liftEvidence());
-            }
-            $summary = array(
-                'observations' => $summaryObservations,
-                'parents' => $observations,
-                'fluid' => $fluidIntent->lift($sourceSummary, $this->styleResolver, $summaryObservations, $viewports, $observations, '', $this->liftEvidence()),
-                'pseudoFluid' => $summaryPseudoFluid,
-            );
-        }
-        $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
-        $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $summary, $inlineSupports);
-        $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
-        if ( '' !== $carrierNode ) {
-            $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));
-        }
-
-        return $attrs;
     }
 
     /**
@@ -2864,30 +2380,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return $this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks);
     }
 
-    /**
-     * Keep a figure's wrapper when box-tree evidence shows that it is the
-     * positioned containing block of out-of-flow media. Reaching through an
-     * aspect box (relative positioning and percentage bottom padding around
-     * an absolute, filling image) drops its height and makes the image position
-     * against a farther ancestor instead.
-     */
     private function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
     {
-        $media = SourceDom::figureMediaElement($figure, $tagName);
-        $wrapper = $media?->parentNode;
-        if (!$media instanceof DOMElement || !$wrapper instanceof DOMElement || $wrapper === $figure) {
-            return $media;
-        }
-        $wrapperEvidence = $this->session->boxTreeEvidence($wrapper);
-        $mediaEvidence = $this->session->boxTreeEvidence($media);
-        foreach ($wrapperEvidence as $viewport => $observation) {
-            $position = (string) ($mediaEvidence[$viewport]['used_styles']['position'] ?? 'static');
-            if (in_array($position, array('absolute', 'fixed'), true)
-                && 'static' !== (string) ($observation['used_styles']['position'] ?? 'static')) {
-                return null;
-            }
-        }
-        return $media;
+        return SourceDom::figureMediaElement($figure, $tagName);
     }
+
 }
 

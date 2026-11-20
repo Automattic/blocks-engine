@@ -1492,7 +1492,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan author membership must name a canonical post.')": {
+      "InvalidArgumentException('WordPress site plan author membership must name a canonical post or page.')": {
         "class": "integrity",
         "count": 1
       },
@@ -1693,6 +1693,24 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/ClassPublisher.php": {
+      "InvalidArgumentException('A delivered stylesheet or script is not readable text, so what it names is unknown.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A runtime binding would not survive publishing byte for byte.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A selector could not be read to publish its classes.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Re-anchored runtime declarations no longer fit the plan.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/CompiledAssets.php": {
       "InvalidArgumentException('Compiled site assets must be an array.')": {
         "class": "integrity",
@@ -1729,6 +1747,16 @@
         "count": 1
       },
       "ValidationException('A declared template surface must have coherent versioned identity and declaration provenance.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
+    "src/WordPressSitePlan/DateArchives.php": {
+      "InvalidArgumentException('WordPress site plan date archive is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan date archives must be a list.')": {
         "class": "integrity",
         "count": 1
       }
@@ -2114,7 +2142,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('An asset scope does not match its canonical document.')": {
+      "InvalidArgumentException(sprintf('An asset scope does not match its canonical document: scope %s; document scope %s.',json_encode($scope,JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE),null===$canonical?'missing':json_encode($canonical,JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE)))": {
         "class": "integrity",
         "count": 1
       },

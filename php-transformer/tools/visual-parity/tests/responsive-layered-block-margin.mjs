@@ -24,28 +24,37 @@ try {
 		const widths = testCase.expected ? Object.keys(testCase.expected).map(Number) : [];
 		assert.notEqual(widths.length, 0, `${testCase.name} declares expected winners at tested widths`);
 		for (const width of widths) {
-			const source = await browser.newPage({ viewport: { width, height: 720 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
-			const candidate = await browser.newPage({ viewport: { width, height: 720 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
-			await Promise.all([source.setContent(testCase.sourceHtml), candidate.setContent(testCase.candidateHtml)]);
-			await Promise.all([source.evaluate(() => document.fonts.ready), candidate.evaluate(() => document.fonts.ready)]);
-			const probe = (page) => page.evaluate(() => {
-				const footer = document.querySelector('footer');
-				const rect = footer.getBoundingClientRect();
-				return {
-					readyState: document.readyState,
-					fontStatus: document.fonts.status,
-					pendingImages: [...document.images].filter((image) => !image.complete || !image.naturalWidth).length,
-					reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
-					devicePixelRatio,
-					marginTop: getComputedStyle(footer).marginTop,
-					box: { x: +rect.x.toFixed(2), y: +rect.y.toFixed(2), width: +rect.width.toFixed(2), height: +rect.height.toFixed(2) },
-				};
-			});
-			const [sourceProbe, candidateProbe] = await Promise.all([probe(source), probe(candidate)]);
-			// Capture one page at a time: concurrent full-page captures share the
-			// browser compositor and can fail with Page.captureScreenshot in CI.
-			const sourceScreenshot = await source.screenshot({ fullPage: true });
-			const candidateScreenshot = await candidate.screenshot({ fullPage: true });
+			// Render, probe and capture one page at a time, each alone in the
+			// browser: a full-page capture of a page that is not the only (front)
+			// page shares the compositor and can fail with Page.captureScreenshot
+			// ("Unable to capture screenshot") on CI runners.
+			const render = async (html) => {
+				const page = await browser.newPage({ viewport: { width, height: 720 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+				try {
+					await page.setContent(html);
+					await page.evaluate(() => document.fonts.ready);
+					const probe = await page.evaluate(() => {
+						const footer = document.querySelector('footer');
+						const rect = footer.getBoundingClientRect();
+						return {
+							readyState: document.readyState,
+							fontStatus: document.fonts.status,
+							pendingImages: [...document.images].filter((image) => !image.complete || !image.naturalWidth).length,
+							reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+							devicePixelRatio,
+							marginTop: getComputedStyle(footer).marginTop,
+							box: { x: +rect.x.toFixed(2), y: +rect.y.toFixed(2), width: +rect.width.toFixed(2), height: +rect.height.toFixed(2) },
+						};
+					});
+					await page.bringToFront();
+					const screenshot = await page.screenshot({ fullPage: true });
+					return { probe, screenshot };
+				} finally {
+					await page.close();
+				}
+			};
+			const { probe: sourceProbe, screenshot: sourceScreenshot } = await render(testCase.sourceHtml);
+			const { probe: candidateProbe, screenshot: candidateScreenshot } = await render(testCase.candidateHtml);
 			assert.equal(sourceProbe.readyState, 'complete');
 			assert.equal(candidateProbe.readyState, 'complete');
 			assert.equal(sourceProbe.fontStatus, 'loaded');
@@ -58,7 +67,6 @@ try {
 			assert.deepEqual(candidateProbe, sourceProbe, `${testCase.name}: materialized margin and geometry at ${width}px`);
 			assert.deepEqual(candidateScreenshot, sourceScreenshot, `${testCase.name}: source/candidate screenshots at ${width}px`);
 			measurements.push({ scenario: testCase.name, width, ...sourceProbe, screenshotSha256: createHash('sha256').update(sourceScreenshot).digest('hex') });
-			await Promise.all([source.close(), candidate.close()]);
 		}
 	}
 	console.log(JSON.stringify({ test: 'responsive layered block margin materialization passed', scenarios: cases.map(({ name, marker }) => ({ name, marker })), measurements }, null, 2));

@@ -5,11 +5,28 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 use DOMDocument;
 
-/** Immutable compiled documents, indexed once for all author stylesheets. */
+/**
+ * Immutable compiled documents, indexed once for all author stylesheets.
+ *
+ * Work is keyed on content, not on the route that asks. Routes whose
+ * documents have the same structure (tags, attributes, tree shape and the
+ * text emptiness `:empty` reads; other text is never read) share one
+ * representative, and an element's result is reported by its document-order
+ * ordinal, which is the same on every route of the group. Elements whose
+ * ancestor chains carry the same tags and attributes, such as one shared
+ * shell appended to every route, share each result of a selector that reads
+ * only ancestors. Both keys live as long as this index, one compose pass.
+ */
 final class RouteSelectorMatchIndex
 {
     private CssSelectorMatchCache $cache;
     private array $elements = array();
+    /** @var array<int, int> Element id to its interned ancestor-chain content. */
+    private array $ancestry = array();
+    /** @var array<int, int> Element id to its document-order ordinal on its route. */
+    private array $ordinals = array();
+    /** @var array<string, string> Route to the first route with the same document structure. */
+    private array $representatives = array();
     private array $owners = array();
     private array $ownerElements = array();
     private array $keys = array();
@@ -17,6 +34,7 @@ final class RouteSelectorMatchIndex
     private array $hits = array();
     private array $cascadeArms = array();
     private array $cascadeMatches = array();
+    private int $resolutions = 0;
     /** @var array<string, array<string, true>> Classes self-closing dynamic blocks render, per route. */
     private array $dynamicClasses = array();
 
@@ -24,11 +42,20 @@ final class RouteSelectorMatchIndex
     public function __construct(array $documents)
     {
         $this->cache = new CssSelectorMatchCache();
+        // Transient: only the interned ids outlive construction.
+        $chains = $structures = array();
         foreach ($documents as $owner => $document) {
             $this->owners[$owner] = true;
+            $ids = new \WeakMap();
+            $structure = '';
             foreach ($document->getElementsByTagName('*') as $element) {
                 $id = count($this->elements);
                 $this->elements[$id] = $element;
+                $ids[$element] = $id;
+                $this->ordinals[$id] = count($this->ownerElements[$owner] ?? array());
+                $this->ancestry[$id] = self::ancestry($element, $element->parentNode instanceof \DOMElement && isset($ids[$element->parentNode]) ? $this->ancestry[$ids[$element->parentNode]] : null, $id, $chains);
+                // The preorder sequence of ancestor chains fixes the tree.
+                $structure .= $this->ancestry[$id] . (self::hasText($element) ? 't' : '') . ',';
                 $keys = array('t:' . strtolower($element->tagName));
                 if ($element->hasAttribute('id')) $keys[] = 'i:' . $element->getAttribute('id');
                 foreach ($this->cache->classTokens($element) as $class) $keys[] = 'c:' . $class;
@@ -45,7 +72,40 @@ final class RouteSelectorMatchIndex
                     if ('' !== $class) $this->dynamicClasses[$owner][$class] = true;
                 }
             }
+            $classes = array_keys($this->dynamicClasses[$owner] ?? array());
+            sort($classes, SORT_STRING);
+            $structure .= "\0" . implode(' ', $classes);
+            $this->representatives[$owner] = $structures[$structure] ??= (string) $owner;
         }
+    }
+
+    /**
+     * The interned content of an element's ancestor chain: its tag name and
+     * attributes, after its parent's chain. A namespaced element or attribute
+     * may answer attribute reads it does not list, so it gets a unique chain.
+     *
+     * @param array<string, int> $chains
+     */
+    private static function ancestry(\DOMElement $element, ?int $parent, int $id, array &$chains): int
+    {
+        $attributes = array();
+        $unique = null !== $element->namespaceURI || ( $element->parentNode instanceof \DOMElement && null === $parent );
+        foreach ($element->attributes ?? array() as $attribute) {
+            if (null !== $attribute->namespaceURI || array_key_exists($attribute->nodeName, $attributes)) $unique = true;
+            $attributes[$attribute->nodeName] = $attribute->value;
+        }
+        ksort($attributes, SORT_STRING);
+        $key = $unique ? "\1" . $id : $parent . "\0" . serialize(array(strtolower($element->tagName), $attributes));
+        return $chains[$key] ??= count($chains);
+    }
+
+    /** Whether an element has a non-empty text child, which `:empty` reads. */
+    private static function hasText(\DOMElement $element): bool
+    {
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof \DOMText && '' !== $child->textContent) return true;
+        }
+        return false;
     }
 
     /**
@@ -59,10 +119,24 @@ final class RouteSelectorMatchIndex
      */
     public function matchedElements(string $arm, string $owner): ?array
     {
+        $owner = $this->representatives[$owner] ?? $owner;
         if ( ! array_key_exists($arm, $this->cascadeMatches) || ! array_key_exists($owner, $this->cascadeMatches[$arm]) ) {
+            ++$this->resolutions;
             $this->cascadeMatches[$arm][$owner] = $this->computeMatchedElements($arm, $owner);
         }
         return $this->cascadeMatches[$arm][$owner];
+    }
+
+    /**
+     * Selector arms evaluated against a document so far, and selector
+     * matcher executions behind them: both grow with distinct arms and
+     * distinct documents, never with routes that repeat a structure.
+     *
+     * @return array{resolutions: int, executions: int}
+     */
+    public function workCounts(): array
+    {
+        return array('resolutions' => $this->resolutions, 'executions' => $this->cache->matchExecutions);
     }
 
     /** @return array<int|string, true>|null */
@@ -96,8 +170,9 @@ final class RouteSelectorMatchIndex
         $candidates = $this->candidates($parsed, $owner);
         $matched = array();
         foreach ( null === $candidates ? ($this->ownerElements[$owner] ?? array()) : array_keys($candidates) as $id ) {
-            if ( $this->cache->matches($this->elements[$id], $arm, $parsed, true)['matches'] ) {
-                $matched[ null === $pseudo ? $id : $id . $pseudo ] = true;
+            if ( $this->cache->matches($this->elements[$id], $arm, $parsed, true, $this->ancestry[$id])['matches'] ) {
+                $ordinal = $this->ordinals[$id];
+                $matched[ null === $pseudo ? $ordinal : $ordinal . $pseudo ] = true;
             }
         }
         return $matched;
@@ -238,11 +313,12 @@ final class RouteSelectorMatchIndex
         if (!$parsed['supported']) return false;
         foreach ($outside as $owner => $_) {
             if (!isset($this->owners[$owner])) return false;
+            $owner = $this->representatives[$owner];
             if (!isset($this->hits[$arm][$owner])) {
                 $hit = false;
                 $candidates = $this->candidates($parsed, $owner);
                 foreach (null === $candidates ? ($this->ownerElements[$owner] ?? array()) : array_keys($candidates) as $id) {
-                    $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
+                    $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true, $this->ancestry[$id]);
                     if (!$match['supported'] || $match['matches']) { $hit = true; break; }
                 }
                 $this->hits[$arm][$owner] = $hit;

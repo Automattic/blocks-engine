@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedNavigationPanels;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMDocument;
@@ -838,6 +839,14 @@ final class CapturedDialogProjector
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
                 if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
                 if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
+                // One owner consumes both the projected panel and raw component
+                // evidence: these triggers must not be projected again below.
+                if (CapturedNavigationPanels::isSourceNavigationPanel($panel)) {
+                    CapturedNavigationPanels::restoreSourceNavigationPanel($panel);
+                    array_push($adopted, ...$triggers);
+                    ++$count;
+                    continue;
+                }
                 // Sanitize the panel envelope, retaining its content wrapper:
                 // that wrapper can own a menu's hierarchy and presentation.
                 $html = (string) $document->saveHTML($panel);
@@ -1383,6 +1392,11 @@ final class CapturedDialogProjector
                 if ('' === $key) continue;
                 $triggers = $xpath->query('//*[@' . CaptureEvidence::DIALOG_TRIGGER . '=' . $this->xpathLiteral($key) . ']');
                 if ($triggers && $triggers->length > 0) { $matched = true; break; }
+            }
+            if (!$matched) {
+                foreach ($document->getElementsByTagName('nav') as $panel) {
+                    if (CapturedNavigationPanels::isSourceNavigationPanel($panel)) { $matched = true; break; }
+                }
             }
             if (!$matched) continue;
             $projection = $this->projectPage($content, array(), $path);

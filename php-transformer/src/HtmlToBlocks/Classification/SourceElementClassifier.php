@@ -638,6 +638,11 @@ final class SourceElementClassifier
     {
         $images = $element->getElementsByTagName('img');
         $image = $images->length ? $images->item(0) : null;
+        // The capture recorded which rendition the browser chose at this
+        // copy's viewport, so the sources no longer select anything.
+        if ( $image instanceof DOMElement && '' !== SourceDom::capturedPictureRendition($image) ) {
+            return false;
+        }
         $imageUrls = $image instanceof DOMElement
             ? array_unique(array_merge(
                 '' !== SourceDom::attr($image, 'src') ? array(SourceDom::attr($image, 'src')) : array(),
@@ -1389,8 +1394,9 @@ final class SourceElementClassifier
      * Exactly two interactive controls beside a list of more than two
      * slides, not counting numbered or indexed slide selectors, are a
      * previous/next pair. A pager has one control per slide, so with two
-     * slides the pair is ambiguous. A thumbnail control shows the slide it
-     * selects; a collection with thumbnails keeps the gallery path. The signal is structural: it does not depend
+     * slides the pair is ambiguous. Several pairs, each joined in its own
+     * container, are breakpoint copies of the pair. A thumbnail control
+     * shows the slide it selects; a collection with thumbnails keeps the gallery path. The signal is structural: it does not depend
      * on the controls' wording.
      */
     private function hasSteppingControlPair(DOMElement $root, DOMElement $list, int $slideCount): bool
@@ -1434,8 +1440,66 @@ final class SourceElementClassifier
             }
             $controls[] = $candidate;
         }
+        if ( 2 === count($controls) ) {
+            return true;
+        }
 
-        return 2 === count($controls);
+        return $this->isBreakpointControlPairSet($controls, $slideCount);
+    }
+
+    /**
+     * Responsive sources ship one previous/next pair per breakpoint: a
+     * desktop pair (often each arrow in its own side wrapper) and a mobile
+     * pair. Controls pair up with the control they share the closest
+     * container with. Each pair must join in its own container; controls
+     * that all join in one container are a pager, not copies of a pair.
+     *
+     * @param list<DOMElement> $controls
+     */
+    private function isBreakpointControlPairSet(array $controls, int $slideCount): bool
+    {
+        $count = count($controls);
+        if ( $count < 4 || 0 !== $count % 2 || $count > 6 || $count >= $slideCount ) {
+            return false;
+        }
+        $depth = static function (DOMElement $element): int {
+            $depth = 0;
+            for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                ++$depth;
+            }
+            return $depth;
+        };
+        $remaining = $controls;
+        $joins = array();
+        while ( array() !== $remaining ) {
+            $best = null;
+            $bestDepth = -1;
+            $keys = array_keys($remaining);
+            foreach ( $keys as $leftIndex => $left ) {
+                foreach ( array_slice($keys, $leftIndex + 1) as $right ) {
+                    $join = $this->lowestCommonElementAncestor($remaining[$left], $remaining[$right]);
+                    if ( ! $join instanceof DOMElement ) {
+                        return false;
+                    }
+                    $joinDepth = $depth($join);
+                    if ( $joinDepth > $bestDepth ) {
+                        $best = array($left, $right, $join);
+                        $bestDepth = $joinDepth;
+                    }
+                }
+            }
+            if ( null === $best ) {
+                return false;
+            }
+            $joinId = spl_object_id($best[2]);
+            if ( isset($joins[$joinId]) ) {
+                return false;
+            }
+            $joins[$joinId] = true;
+            unset($remaining[$best[0]], $remaining[$best[1]]);
+        }
+
+        return true;
     }
 
     /**

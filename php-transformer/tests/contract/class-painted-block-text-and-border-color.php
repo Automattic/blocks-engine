@@ -10,8 +10,10 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
  * that colour through the class stylesheet. When the colour is a near shade
  * of a palette colour (`#111` beside `#171717`) it has no exact preset, so a
  * literal block style repeating it sits outside the editable design system
- * and masks the class's hover rule. The block must leave the colour to its
- * class, as a native button already does.
+ * and masks the class's hover rule. The block must not repeat the literal:
+ * its border colour stays with its class, as a native button's does, and
+ * its text colour may name only the shade's derived token, whose value
+ * restates the shade from its representative preset.
  */
 $para = '<p>Zach Richards writes about civil liberties, free expression and privacy in the workplace and beyond, every single week, for readers who care about them deeply.</p>';
 $html = '<!doctype html><html><head><style>
@@ -43,7 +45,8 @@ foreach ($matches as [, $json, $tag]) {
     if (null === $class) continue;
     ++$seen[$class];
     $assert(!isset($attributes['style']['color']['text']) && !isset($attributes['style']['border']['color']), "The .$class group must leave its text and border colour to its author class: $json");
-    $assert(!str_contains($tag, '#111') && !str_contains($tag, 'has-text-color') && !str_contains($tag, 'has-border-color'), "The saved .$class group must not repeat the class colour: $tag");
+    $assert(!str_contains($tag, '#111') && !str_contains($tag, 'has-border-color'), "The saved .$class group must not repeat the class colour: $tag");
+    $assert(!isset($attributes['textColor']) || 1 === preg_match('/^contrast-shade-[a-p]{6}$/', $attributes['textColor']), "The .$class group's text names only the derived near-shade token: $json");
     $assert(!isset($attributes['style']['border']) || 'solid' === ($attributes['style']['border']['style'] ?? null), "The .$class group keeps its own border style: $json");
 }
 $assert(array(1, 2) === array_values($seen), 'The page must carry the class-painted groups: ' . $markup);

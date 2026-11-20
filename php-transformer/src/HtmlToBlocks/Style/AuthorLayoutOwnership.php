@@ -8,9 +8,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListStructure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperCoalescer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
 
@@ -322,37 +322,18 @@ final class AuthorLayoutOwnership
         return false;
     }
 
+    /**
+     * Decided by {@see WrapperDecision::loneStyledInlineInFlowWrapper()} (#7471).
+     */
     public function isLoneStyledInlineInFlowWrapper(DOMElement $element): bool
     {
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement
-            || $this->isRichTextInlineContext($element)
-            || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
-            || ! ShellLandmarkPolicy::isInlineContentWrapperTag($parent->tagName)
-            || ! $this->hasBoxChromeWrapperStyling($parent)
-            || ( ! (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element)) && '' === $this->richTextMarker($element) )
-        ) {
-            return false;
-        }
-
-        foreach ( $parent->childNodes as $child ) {
-            if ( $child === $element ) {
-                continue;
-            }
-            if ( XML_COMMENT_NODE === $child->nodeType ) {
-                continue;
-            }
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    return false;
-                }
-                continue;
-            }
-
-            return false;
-        }
-
-        return true;
+        return WrapperDecision::loneStyledInlineInFlowWrapper(
+            $element,
+            fn (): bool => $this->isRichTextInlineContext($element),
+            fn (DOMElement $parent): bool => $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName)),
+            fn (DOMElement $parent): bool => $this->hasBoxChromeWrapperStyling($parent),
+            fn (): bool => array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element) || '' !== $this->richTextMarker($element)
+        )->isPreserve();
     }
 
     public function isAtomicDirectInlineLayoutItem(DOMElement $element): bool
@@ -572,12 +553,11 @@ final class AuthorLayoutOwnership
         return '' !== $marker ? $marker : $this->session->authorSelectorProjectionState()->richTextMarker(SourceDom::sourceElementIdentity($element));
     }
 
+    /**
+     * Decided by {@see WrapperDecision::boxChromeWrapper()} (#7471).
+     */
     public function hasBoxChromeWrapperStyling(DOMElement $element): bool
     {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        foreach ( array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && CssValueInspector::isNonZero((string) $declarations[$property]) ) return true;
-        }
-        return false;
+        return null !== WrapperDecision::boxChromeWrapper($this->styleResolver->structuralPresentationDeclarations($element));
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
@@ -81,6 +82,27 @@ final class ArtifactNormalizer
      */
     public function normalize(array $artifact): array
     {
+        return $this->normalizeArtifact($artifact, true);
+    }
+
+    /**
+     * Normalize an internal partition envelope whose inline payloads were
+     * already expanded and validated by a full normalize() pass.
+     *
+     * @param array<string, mixed> $artifact
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
+     */
+    public function normalizeExpanded(array $artifact): array
+    {
+        return $this->normalizeArtifact($artifact, false);
+    }
+
+    /**
+     * @param array<string, mixed> $artifact
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
+     */
+    private function normalizeArtifact(array $artifact, bool $expandInlineFiles): array
+    {
         $runtimeDeclarations = RuntimeDeclarations::normalize($artifact);
         $diagnostics = array();
         $files = array();
@@ -111,11 +133,18 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
-        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
-        $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
-            $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
-            $limits['max_files']
-        );
+        // Box-tree sidecars bind the bytes the capture saw: hash each document
+        // now, before include expansion or any projector rewrites it.
+        $intakeHashes = $expandInlineFiles ? $this->boxTreeIntakeHashes($rawFiles) : array();
+        // Partition envelopes already contain the canonical expansion. Reuse
+        // it rather than rescanning every source document for inline payloads.
+        if ($expandInlineFiles) {
+            $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
+            $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
+                $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
+                $limits['max_files']
+            );
+        }
         $rawFiles = array_values(self::reportsBeforeSidecars($rawFiles));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
@@ -218,6 +247,7 @@ final class ArtifactNormalizer
                 continue;
             }
 
+            $intakePath = $path;
             $path = self::dedupePath($path, $seenPaths);
             $seenPaths[$path] = true;
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
@@ -269,6 +299,15 @@ final class ArtifactNormalizer
             }
             if ( '' !== $intent ) {
                 $normalized['intent'] = $intent;
+            }
+            if ( 'html' === $kind ) {
+                $intakeHash = $expandInlineFiles
+                    ? ( $intakeHashes[$intakePath] ?? null )
+                    // A partition envelope carries the digest its full pass took.
+                    : ( $file[BoxTree::INTAKE_HASH_FIELD] ?? null );
+                if ( is_string($intakeHash) && 1 === preg_match('/^[a-f0-9]{64}$/D', $intakeHash) ) {
+                    $normalized[BoxTree::INTAKE_HASH_FIELD] = $intakeHash;
+                }
             }
             if ( is_array($file['metadata'] ?? null) ) {
                 $metadata = array();
@@ -353,12 +392,6 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
-        $boxTrees = BoxTreeReport::read($files);
-        $diagnostics = array_merge($diagnostics, $boxTrees['diagnostics']);
-        foreach ($files as &$file) {
-            if ('html' === $file['kind']) $file['box_tree'] = $boxTrees['trees'][$file['path']] ?? array();
-        }
-        unset($file);
         $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
@@ -411,6 +444,42 @@ final class ArtifactNormalizer
      * @param array<array-key,array<string,mixed>> $files
      * @return array<array-key,array<string,mixed>>
      */
+    /**
+     * Box-tree intake is off by default (#7352): the import is the import of
+     * the same capture without sidecars, and the withheld evidence is
+     * reported rather than silently ignored.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array{trees:array<string,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+
+    /**
+     * SHA-256 of each source document's original bytes, by safe path, when
+     * the artifact carries box-tree sidecars; otherwise none.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,string>
+     */
+    private function boxTreeIntakeHashes(array $files): array
+    {
+        $hasSidecar = false;
+        foreach ($files as $file) {
+            if (BoxTree::isSidecarPath(ArtifactPath::safeRelativePath((string) ($file['path'] ?? '')))) { $hasSidecar = true; break; }
+        }
+        if (! $hasSidecar) return array();
+        $hashes = array();
+        foreach ($files as $file) {
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            if ('' === $path || isset($hashes[$path]) || ! in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm'), true)) continue;
+            $payload = $this->payload($file, $path);
+            if (! $payload['accepted']) continue;
+            // A payload reference names its bytes by their digest.
+            if (is_string($payload['payload_reference']['sha256'] ?? null)) $hashes[$path] = strtolower($payload['payload_reference']['sha256']);
+            elseif (! $payload['binary']) $hashes[$path] = hash('sha256', $payload['content']);
+        }
+        return $hashes;
+    }
+
     public static function reportsBeforeSidecars(array $files): array
     {
         $normalizer = new self();

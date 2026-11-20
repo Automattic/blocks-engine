@@ -113,6 +113,18 @@ $assert(
     '4c: the theme.json version stays 3'
 );
 
+// ---------------------------------------------------------------------------
+// 5. Every projected theme opts into the editor's appearance controls, and the
+//    opt-in leaves the explicit gap settings above as they are.
+// ---------------------------------------------------------------------------
+foreach ( array( 'authored gap' => $authoredGap, 'no gap' => $noGap, 'empty' => $project( '' ), 'rich' => $rich ) as $case => $theme ) {
+    $assert(
+        true === ( $theme['settings']['appearanceTools'] ?? null ),
+        '5: ' . $case . ' declares settings.appearanceTools',
+        json_encode( $theme['settings'] ?? null )
+    );
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "ThemeJsonProjection blockGap opt-in unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

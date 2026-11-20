@@ -39,14 +39,15 @@ final class AuthorLayoutBlockLowering implements AuthorLayoutLowering
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
-        if ( ! $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
+        if ( ! $this->emptyVisualRetention->scriptStateDisposition($element)->isPreserve() ) {
             $paragraph = $this->textOnlyLayoutDivParagraph($element);
             if ( null !== $paragraph ) {
                 return $paragraph;
             }
         }
         $children = $this->tree->children($element, $fallbacks, true);
-        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
+        // A wrapper holding script-observed state stays its own layout shell.
+        if ( $this->emptyVisualRetention->scriptStateDisposition($element)->isPreserve() ) {
             return $this->layoutShells->blockForElements(array( $element ), $children, $element);
         }
         $isAuthorOwnedLayout = $this->authorLayoutOwnership->isAuthorOwnedLayout($element);
@@ -56,7 +57,7 @@ final class AuthorLayoutBlockLowering implements AuthorLayoutLowering
         $topologyChanged = $isAuthorOwnedLayout
             && 0 < $sourceChildCount
             && ( $sourceChildCount !== count($children) || $sourceTags !== $blockTags );
-        if ( 1 === count($children) && ! $topologyChanged ) {
+        if ( null === WrapperDecision::singleChildCandidate($children, $topologyChanged) ) {
             $coalesced = $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $children[0]);
             if ( null !== $coalesced ) {
                 return $coalesced;

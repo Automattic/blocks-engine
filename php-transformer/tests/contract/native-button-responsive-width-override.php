@@ -26,7 +26,7 @@ foreach ( preg_split('/(?=@media)/', $css) ?: array() as $chunk ) {
 }
 $assert(is_string($media), 'The desktop breakpoint survives projection.');
 $assert(
-    1 === preg_match('/:where\((\.blocks-engine-control-[a-f0-9]{12}-\d+)\)\1\1[^{}]*>\s*:where\(\.wp-block-button__link\)[^{}]*\{[^{}]*width:auto/', $media),
+    1 === preg_match('/:where\(\.blocks-engine-control-[a-f0-9]{12}-\d+(?:,\.blocks-engine-control-[a-f0-9]{12}-\d+)*\)\.blocks-engine-role-control\.blocks-engine-role-control[^{}]*>\s*:where\(\.wp-block-button__link\)[^{}]*\{[^{}]*width:auto/', $media),
     'The conditional width release is restated at the boosted compatibility weight.'
 );
 

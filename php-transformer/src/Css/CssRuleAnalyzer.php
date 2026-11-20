@@ -11,6 +11,27 @@ final class CssRuleAnalyzer
 {
     private ?CssRuleTreeCache $ruleTrees = null;
 
+    /** @return array<string, true> Id selectors, independent of declaration values. */
+    public static function referencedIds(string $css): array
+    {
+        $ids = array();
+        $tree = CssRuleTreeCache::parse($css);
+        for ($offset = 0; null !== ($boundary = $tree->nextBoundary($offset));) {
+            if (';' === $css[$boundary]) { $offset = $boundary + 1; continue; }
+            $end = $tree->blockEnd($boundary);
+            if (null === $end) break;
+            $prelude = trim(CssSyntaxScanner::withoutComments(substr($css, $offset, $boundary - $offset)));
+            if (preg_match('/^@(media|supports|container|layer|scope|starting-style)\b/i', $prelude)) {
+                $ids += self::referencedIds(substr($css, $boundary + 1, $end - $boundary - 1));
+            }
+            if (!str_starts_with($prelude, '@')) {
+                foreach (CssSelectorMatcher::referencedIds($prelude) as $id) $ids[$id] = true;
+            }
+            $offset = $end + 1;
+        }
+        return $ids;
+    }
+
     /**
      * @param list<array<string, mixed>> $stylesheets
      * @param list<string> $properties

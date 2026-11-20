@@ -31,6 +31,14 @@ final class SourceBlockAttributeProjector
     /** RichText content wrapped in a link propagated from an enclosing card anchor. */
     public const PROPAGATED_LINK_CLASS = 'blocks-engine-propagated-link';
     public const PROPAGATED_LINK_COLOR_CLASS = 'blocks-engine-propagated-link-color';
+    /**
+     * Boxes a block writes onto the inner element its source control becomes
+     * (core/button pads its link: `spacing.__experimentalSkipSerialization`),
+     * where the theme's element padding applies unless the attribute zeroes it.
+     */
+    private const INNER_SERIALIZED_BOXES = array(
+        'padding' => array('core/button'),
+    );
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const AUTHOR_MAX_WIDTH_IMAGE_CLASS = 'blocks-engine-author-max-width-image';
@@ -47,13 +55,27 @@ final class SourceBlockAttributeProjector
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
+    /**
+     * A figure lowered from the source's ratio frame around an image pinned
+     * out of flow inside it: the figure, not the image, owns that ratio box.
+     */
+    public const RATIO_FRAME_IMAGE_FIGURE_CLASS = 'blocks-engine-ratio-frame-image-figure';
     public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
+    /**
+     * A fill image whose figure took the place of the paint-free positioned
+     * layer it filled: the figure is that layer's box, not an image inside it.
+     */
+    public const FILL_LAYER_IMAGE_FIGURE_CLASS = 'blocks-engine-fill-layer-image';
     /** A fill image a later absolutely positioned sibling layer paints over. */
     public const COVERED_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-covered-fill-image';
     /** A positioned sibling layer whose box covers an earlier fill image's whole box. */
     public const IMAGE_COVERING_LAYER_CLASS = 'blocks-engine-image-covering-layer';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
+    /** A core/video figure that took over the source video's authored aspect-ratio box. */
+    public const SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-ratio';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
+    /** A core/embed whose source frame covered its positioned containing block. */
+    public const FILL_EMBED_FIGURE_CLASS = 'blocks-engine-fill-embed-figure';
     /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
     public const EMBED_NORMAL_WHITESPACE_CLASS = 'blocks-engine-embed-normal-whitespace';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
@@ -93,7 +115,7 @@ final class SourceBlockAttributeProjector
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
         ),
-        'core/video'     => array(self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS),
+        'core/video'     => array(self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS, self::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS),
         'core/image'     => array(
             self::SYNTHETIC_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
@@ -101,7 +123,9 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+            self::RATIO_FRAME_IMAGE_FIGURE_CLASS,
             self::LAYER_FILL_IMAGE_FIGURE_CLASS,
+            self::FILL_LAYER_IMAGE_FIGURE_CLASS,
             self::COVERED_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
             self::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS,
@@ -250,7 +274,9 @@ final class SourceBlockAttributeProjector
             } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
                 $parent = $sourceElement->parentNode;
-                if ( $parent instanceof DOMElement ) {
+                // A figure that is the layer itself has no host to put in
+                // flow and no positioned layer later in its own box.
+                if ( $parent instanceof DOMElement && ! in_array(self::FILL_LAYER_IMAGE_FIGURE_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true) ) {
                     $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? ''));
                     if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
                         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYER_FILL_IMAGE_FIGURE_CLASS);
@@ -287,6 +313,22 @@ final class SourceBlockAttributeProjector
             }
         }
         return $attrs;
+    }
+
+    /**
+     * Whether the source <video>'s own declarations fix its block size: an
+     * aspect ratio, or a definite non-percentage height.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function sizesVideoBlockAxis(array $declarations): bool
+    {
+        $aspectRatio = CssValueInspector::declared($declarations, 'aspect-ratio');
+        if ( '' !== $aspectRatio && 'auto' !== $aspectRatio && ! in_array($aspectRatio, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+            return true;
+        }
+        $height = CssValueInspector::declared($declarations, 'height');
+        return 1 === preg_match('/^(?:\d*\.?\d+(?:px|r?em|vh|svh|lvh|dvh|vmin|vmax|ch|ex|lh|cm|mm|in|pt|pc|q)|(?:calc|clamp|min|max)\(.*\))$/', $height);
     }
 
     /**
@@ -329,9 +371,29 @@ final class SourceBlockAttributeProjector
             if ( '100%' === CssValueInspector::declared($declarations, 'width')
                 && '100%' === CssValueInspector::declared($declarations, 'height') ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
+            } elseif ( $this->declaresAspectRatio($sourceElement) || $this->sizesVideoBlockAxis($declarations) ) {
+                // The source box (`.aspect-video{aspect-ratio:16/9}` or a fixed
+                // height) sized the <video> and letterboxed its frames.
+                // Projected, it sizes the figure instead, so the video must
+                // fill that box rather than take its intrinsic (often portrait)
+                // ratio.
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS);
             }
         }
         return $attrs;
+    }
+
+    private function declaresAspectRatio(DOMElement $element): bool
+    {
+        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'aspect-ratio' )) as $values ) {
+            foreach ( $values as $value ) {
+                if ( 1 === preg_match('/\d/', CssValueInspector::withoutImportant($value)) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -588,6 +650,10 @@ final class SourceBlockAttributeProjector
     private function withGlobalZeroBoxes(string $name, array $attrs, DOMElement $sourceElement, SourceBlockAttributeProjectionContext $context): array
     {
         foreach (array('padding', 'margin') as $box) {
+            // A block that serializes this box onto an inner element (core/button
+            // pads its link, not the wrapper) cannot hand it to a wrapper class:
+            // the inner element would fall back to the theme's own padding.
+            if (in_array($name, self::INNER_SERIALIZED_BOXES[$box] ?? array(), true)) continue;
             $sides = $attrs['style']['spacing'][$box] ?? array();
             $zeroSides = is_array($sides) ? array_values(array_intersect(array('top', 'right', 'bottom', 'left'), array_keys(array_filter($sides, static fn($value): bool => is_string($value) && CssValueInspector::isZeroLength($value))))) : array();
             $zeroSides = array_values(array_filter($zeroSides, fn(string $side): bool => $this->styleResolver->hasGlobalZeroBox($sourceElement, $box, $side)));
@@ -667,7 +733,7 @@ final class SourceBlockAttributeProjector
     private function laterSiblingIsPositionedLayer(DOMElement $image): bool
     {
         for ( $sibling = $image->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
-            if ( $sibling instanceof DOMElement && $this->positionedLayerCoversContainingBlock($sibling) ) {
+            if ( $sibling instanceof DOMElement && $this->styleResolver->positionedLayerCoversContainingBlock($sibling) ) {
                 return true;
             }
         }
@@ -686,38 +752,13 @@ final class SourceBlockAttributeProjector
         for ( $sibling = $sourceElement->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
             // Re-ingested output has the covered figure, not the bare image.
             if ( $sibling instanceof DOMElement && ( $this->sourceImageFillsParent($sibling) || SourceDom::hasClass($sibling, self::COVERED_FILL_IMAGE_FIGURE_CLASS) ) ) {
-                if ( $this->positionedLayerCoversContainingBlock($sourceElement) ) {
+                if ( $this->styleResolver->positionedLayerCoversContainingBlock($sourceElement) ) {
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::IMAGE_COVERING_LAYER_CLASS);
                 }
                 break;
             }
         }
         return $attrs;
-    }
-
-    /**
-     * An absolutely positioned box whose extent is its containing block's:
-     * all four insets pinned to zero, or a full width and height from a
-     * pinned top-left corner.
-     */
-    private function positionedLayerCoversContainingBlock(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( ! in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-        $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::declared($declarations, 'inset'));
-        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $index => $side ) {
-            $value = CssValueInspector::declared($declarations, $side);
-            $sides[ $index ] = '' === $value ? $sides[ $index ] : $value;
-        }
-        $zero = static fn (string $value): bool => '' !== $value && CssValueInspector::isZeroLength($value);
-        if ( 4 === count(array_filter($sides, $zero)) ) {
-            return true;
-        }
-        return $zero($sides[0]) && $zero($sides[3])
-            && '100%' === CssValueInspector::declared($declarations, 'width')
-            && '100%' === CssValueInspector::declared($declarations, 'height');
     }
 
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool

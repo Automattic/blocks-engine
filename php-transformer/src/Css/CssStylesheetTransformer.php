@@ -759,6 +759,10 @@ final class CssStylesheetTransformer
      */
     private static function layerNames(array $unit): array
     {
+        // Most units name no layer; skip their comment-stripping scans.
+        if ( false === stripos($unit['text'] . implode('', $unit['context']), 'layer') ) {
+            return array();
+        }
         $path = array();
         $names = array();
         foreach ( $unit['context'] as $prelude ) {
@@ -802,12 +806,17 @@ final class CssStylesheetTransformer
             }
         }
         $seen = array();
+        // Every route reconciles against the same shared stylesheet: its
+        // rule keys are derived once per compose pass, keyed on its bytes.
         foreach ( $present as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
-            foreach ( $units as $unit ) {
-                $seen[ self::ruleUnitKey($unit) ] = true;
-            }
+            $seen += CssRuleTreeCache::memo('present-rule-unit-keys', $stylesheet, function () use ($stylesheet): array {
+                $units = $keys = array();
+                $this->collectRuleUnits($stylesheet, array(), $units);
+                foreach ( $units as $unit ) {
+                    $keys[ self::ruleUnitKey($unit) ] = 1;
+                }
+                return $keys;
+            });
         }
         $kept = array();
         $keptProperties = array();
@@ -920,13 +929,19 @@ final class CssStylesheetTransformer
      */
     private static function cascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
     {
-        // Keyframes compete only with keyframes of the same name.
-        if ( 1 === preg_match('/^@(?:-[a-z]+-)?keyframes\s+([^\s{]+)\s*\{/i', ltrim(CssSyntaxScanner::withoutComments($rule)), $keyframes) ) {
-            return array( '@keyframes ' . trim($keyframes[1], '"\'') => true );
-        }
-        $arms = self::cascadeSelectorArms($rule);
-        if ( null === $arms ) {
+        // A shared rule recurs on every route: read its arms once per pass.
+        $arms = CssRuleTreeCache::memo('cascade-target-arms', $rule, static function () use ($rule): array|int {
+            // Keyframes compete only with keyframes of the same name.
+            if ( 1 === preg_match('/^@(?:-[a-z]+-)?keyframes\s+([^\s{]+)\s*\{/i', ltrim(CssSyntaxScanner::withoutComments($rule)), $keyframes) ) {
+                return array( 'keyframes' => '@keyframes ' . trim($keyframes[1], '"\'') );
+            }
+            return self::cascadeSelectorArms($rule) ?? 0;
+        });
+        if ( is_int($arms) ) {
             return null;
+        }
+        if ( isset($arms['keyframes']) ) {
+            return array( $arms['keyframes'] => true );
         }
         $targets = array();
         foreach ( $arms as $arm ) {
@@ -965,8 +980,12 @@ final class CssStylesheetTransformer
     {
         $carriers = array();
         foreach ($markup as $owner => $html) {
-            preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
-            foreach (array_unique($matches[0]) as $marker) $carriers[$marker][$owner] = true;
+            // Each stylesheet path reads the same route markup.
+            $markers = CssRuleTreeCache::memo('page-markers', $html, static function () use ($html): array {
+                preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
+                return array_values(array_unique($matches[0]));
+            });
+            foreach ($markers as $marker) $carriers[$marker][$owner] = true;
         }
         return $carriers;
     }
@@ -1245,7 +1264,7 @@ final class CssStylesheetTransformer
                     $reason = null;
                     $arms = null === $routeSetClass || !str_contains($scope, '.be-rs-')
                         ? self::scopeRouteArms($arms, $scope, $reason, $parsedArms, $rootTokens)
-                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms);
+                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms, $rootTokens);
                 }
                 $unit['text'] = $lead . implode(',', $arms) . $body;
                 $output[] = $unit;
@@ -1462,8 +1481,12 @@ final class CssStylesheetTransformer
         self::scopeRouteArms($arms, ':where(:root:is(.be-route-probe))', $reason, $parsedArms);
     }
 
-    /** @param list<string> $arms @return list<string> */
-    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms): array
+    /**
+     * @param list<string> $arms
+     * @param array<string,true>|null $rootTokens Classes and ids any document root can carry; null when unknown.
+     * @return list<string>
+     */
+    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms, ?array $rootTokens = null): array
     {
         // Test document membership on the subject, not on an assumed ancestor.
         // A class-led first compound can be either the root or a descendant;
@@ -1489,7 +1512,13 @@ final class CssStylesheetTransformer
             $span = $tokens['compound_spans'][$last];
             $pseudo = self::pseudoElementOffset($tokens['compounds'][$last]);
             $insert = null === $pseudo ? $span['end'] : $span['start'] + $pseudo;
-            $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
+            // A subject after a combinator has a parent or a previous sibling,
+            // so it is never the root, and neither is a lone compound that
+            // requires a type, class or id no document root carries: only the
+            // descendant alternative can hold.
+            $descendant = $tokens['supported'] && ($last > 0 || (null !== $rootTokens && !self::compoundMayMatchRoot($tokens['compounds'][0], $rootTokens)));
+            $subjectGuard = $descendant ? ':where(' . $root . ' *)' : $guard;
+            $arm = substr($arm, 0, $insert) . $subjectGuard . substr($arm, $insert);
         }
         unset($arm);
         return $arms;
@@ -1578,7 +1607,7 @@ final class CssStylesheetTransformer
      */
     private static function compoundMayMatchRoot(string $compound, array $rootTokens): bool
     {
-        if (str_contains($compound, '\\') || str_contains($compound, '|') || 1 === preg_match('/[^\x20-\x7E]/', $compound)) return true;
+        if (str_contains($compound, '|') || 1 === preg_match('/[^\x20-\x7E]/', $compound)) return true;
         $length = strlen($compound);
         if (preg_match('/^[A-Za-z][\w-]*/', $compound, $type) && 'html' !== strtolower($type[0])) return false;
         for ($i = 0; $i < $length; ++$i) {
@@ -1591,8 +1620,8 @@ final class CssStylesheetTransformer
                 $close = self::closingBracket($compound, $i);
                 if (null === $close) return true;
                 $i = $close;
-            } elseif (('.' === $char || '#' === $char) && preg_match('/\G[\w-]+/', $compound, $name, 0, $i + 1)) {
-                if (!isset($rootTokens[$name[0]]) && !('.' === $char && 1 === preg_match(self::ROOT_MINTED_CLASS, $name[0]))) return false;
+            } elseif (('.' === $char || '#' === $char) && preg_match('/\G(?:[\w-]|\\\\[0-9a-fA-F]{1,6} ?|\\\\[^\n\r\f0-9a-fA-F])+/', $compound, $name, 0, $i + 1)) {
+                if (!self::rootMayCarry(self::unescapeIdentifier($name[0]), '.' === $char, $rootTokens)) return false;
                 $i += strlen($name[0]);
             } elseif (':' === $char && preg_match('/\G:(?:is|where|matches|-webkit-any|-moz-any)\(/i', $compound, $open, 0, $i)) {
                 $start = $i + strlen($open[0]);
@@ -1613,6 +1642,35 @@ final class CssStylesheetTransformer
             }
         }
         return true;
+    }
+
+    /**
+     * Root tokens are the `[\w-]+` runs of root class/id attributes and of
+     * scripts, so a root carrying a name yields every run of that name. One
+     * missing run proves no document root carries it (an escaped utility like
+     * `hover:bg-primary/90` included).
+     *
+     * @param array<string,true> $rootTokens
+     */
+    private static function rootMayCarry(string $name, bool $class, array $rootTokens): bool
+    {
+        if ($class && 1 === preg_match(self::ROOT_MINTED_CLASS, $name)) return true;
+        preg_match_all('/[\w-]+/', $name, $runs);
+        if (array() === $runs[0]) return true;
+        foreach ($runs[0] as $run) {
+            if (!isset($rootTokens[$run])) return false;
+        }
+        return true;
+    }
+
+    /** Decode CSS escapes in an identifier (`hover\:bg-primary\/90` names `hover:bg-primary/90`). */
+    private static function unescapeIdentifier(string $identifier): string
+    {
+        return preg_replace_callback('/\\\\(?:([0-9a-fA-F]{1,6}) ?|(.))/s', static function (array $match): string {
+            if (isset($match[2]) && '' !== $match[2]) return $match[2];
+            $code = hexdec($match[1]);
+            return 0 === $code || $code > 0x10FFFF || ($code >= 0xD800 && $code <= 0xDFFF) ? "\u{FFFD}" : (string) mb_chr((int) $code, 'UTF-8');
+        }, $identifier) ?? $identifier;
     }
 
     /** Offset of the bracket or parenthesis closing the one at $open, outside strings. */
@@ -1636,6 +1694,21 @@ final class CssStylesheetTransformer
             }
         }
         return null;
+    }
+
+    /**
+     * Whether any compound of a complex selector names a pseudo-element. Such
+     * a selector is not valid inside `:is()`/`:where()`, where it matches
+     * nothing. An unreadable selector is reported as naming none.
+     */
+    public static function namesPseudoElement(string $selector): bool
+    {
+        $tokens = CssSelectorTokenizer::tokenize(trim($selector));
+        if (!$tokens['supported']) return false;
+        foreach ($tokens['compounds'] as $compound) {
+            if (null !== self::pseudoElementOffset($compound)) return true;
+        }
+        return false;
     }
 
     /** Byte offset of a top-level pseudo-element in a compound, if any. */
@@ -1692,6 +1765,12 @@ final class CssStylesheetTransformer
      */
     private static function cascadePropertyFamilies(string $rule): array
     {
+        return array_fill_keys(CssRuleTreeCache::memo('cascade-property-families', $rule, static fn (): array => array_map('strval', array_keys(self::parseCascadePropertyFamilies($rule)))), true);
+    }
+
+    /** @return array<string, true> */
+    private static function parseCascadePropertyFamilies(string $rule): array
+    {
         $brace = strpos($rule, '{');
         if ( false !== $brace && '' === trim(substr(trim($rule), $brace + 1, -1)) ) {
             return array();
@@ -1726,6 +1805,13 @@ final class CssStylesheetTransformer
 
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
     private static function ruleUnitKey(array $unit): string
+    {
+        $source = serialize(array( $unit['context'], $unit['text'] ));
+        return (string) CssRuleTreeCache::memo('rule-unit-key', $source, static fn (): array => array( self::parseRuleUnitKey($unit) ))[0];
+    }
+
+    /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
+    private static function parseRuleUnitKey(array $unit): string
     {
         return md5(implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($unit['text']), true);
     }

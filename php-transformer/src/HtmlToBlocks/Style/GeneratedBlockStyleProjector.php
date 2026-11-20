@@ -54,6 +54,11 @@ final class GeneratedBlockStyleProjector
                 }
             }
         }
+        // Descendant selectors paint native text blocks too, even when they
+        // have no author class. Carry their static winning paint into block
+        // support before site-plan preset binding; class-list observations
+        // cannot identify these elements. Leave variants in the stylesheet.
+        $attrs = $this->withContextTextPaint($name, $attrs, $sourceElement);
         $normalized = $this->runtime->normalizeBlockSupportAttributes($name, $attrs);
         $fallback = $normalized['fallbackStyle'];
         $attrs = $normalized['attrs'];
@@ -161,6 +166,101 @@ final class GeneratedBlockStyleProjector
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
         }
         return $attrs;
+    }
+
+    /**
+     * Text paint a descendant or marker selector (`.banner p`) gives a native
+     * text block, carried into the block's colour and typography support.
+     * Class-list observations cannot identify such an element, so without
+     * the handoff its paint stays in the projected rule, where Global Styles
+     * cannot reach it. Only the static winner moves: a property a state,
+     * media condition, `!important` or conditional custom property varies
+     * stays with the stylesheet, as does an element-local class recipe,
+     * which site-plan preset binding already owns.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withContextTextPaint(string $name, array $attrs, DOMElement $sourceElement): array
+    {
+        // A paragraph or a heading. A heading's font already follows its
+        // Global Styles heading element, so only its colour moves: a
+        // contextual colour (`.card h3`) otherwise stays in the projected
+        // rule, where the heading element's colour cannot reach it. An
+        // element lowered to an inline RichText mark inside the paragraph
+        // keeps its paint on that mark, so the paragraph around it must not
+        // repeat it.
+        $marker = SourceDom::attr($sourceElement, 'data-blocks-engine-richtext-marker');
+        $heading = 'core/heading' === $name;
+        if ( ( 'core/paragraph' !== $name && ! $heading )
+            || ( '' !== $marker && str_contains((string) ( $attrs['content'] ?? '' ), '--blocks-engine-richtext-marker:' . $marker) ) ) {
+            return $attrs;
+        }
+        // Only a classless element: one with an author class is identified by
+        // class-list observations, so site-plan preset binding owns its paint
+        // through that class, even when a contextual selector names it
+        // (`.card .card-title`). Handing it off here as well would bind a
+        // second, literal copy of paint the class already carries.
+        if ( $this->hasAuthorClass($sourceElement) ) {
+            return $attrs;
+        }
+        // Check the resting declarations before any variant lookup, so a
+        // paragraph no rule paints costs no further selector matching.
+        $resting = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceElement));
+        if ( ! isset($resting['color']) && ! isset($resting['font-family']) ) {
+            return $attrs;
+        }
+        // Only a context selector's paint: a class recipe is the site plan's.
+        $origins = $this->styleResolver->staticRecipeOrigins($sourceElement);
+        $wanted = array();
+        if ( isset($resting['color']) && '!context' === ( $origins['color'] ?? null ) && ! isset($attrs['textColor']) && ! isset($attrs['style']['color']['text'])
+            && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'color') ) {
+            $wanted['color'] = array( 'color' );
+        }
+        if ( ! $heading && isset($resting['font-family']) && '!context' === ( $origins['font-family'] ?? null ) && ! isset($attrs['fontFamily']) && ! isset($attrs['style']['typography']['fontFamily'])
+            && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font')
+            && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font-family')
+            && ! $this->styleResolver->hasConditionalStyleFamily($sourceElement, 'font') ) {
+            $wanted['font-family'] = array( 'font', 'font-family' );
+        }
+        if ( array() === $wanted ) {
+            return $attrs;
+        }
+        $declarations = $this->styleResolver->classOwnedResponsiveDeclarations($sourceElement, $resting);
+        foreach ( $wanted as $property => $spellings ) {
+            $value = (string) ( $declarations[$property] ?? '' );
+            if ( '' === $value || CssValueInspector::isImportant($value)
+                || in_array(strtolower(trim($value)), array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer', 'currentcolor' ), true)
+                || $this->styleResolver->readsConditionalCustomProperty($sourceElement, $spellings) ) {
+                continue;
+            }
+            $resolved = $this->styleResolver->customProperties->resolve($value, $sourceElement);
+            // An undefined author custom property has no static value to own.
+            if ( 1 === preg_match('/var\(\s*--(?!wp--preset--)/i', $resolved) ) {
+                continue;
+            }
+            $mapped = $this->styleResolver->styleAttributeMapper()->map(
+                array( $property => $resolved ),
+                static fn (string $value): string => $value
+            );
+            if ( 'color' === $property && isset($mapped['style']['color']['text']) ) {
+                $attrs['style']['color']['text'] = $mapped['style']['color']['text'];
+            } elseif ( 'font-family' === $property && isset($mapped['style']['typography']['fontFamily']) ) {
+                $attrs['style']['typography']['fontFamily'] = $mapped['style']['typography']['fontFamily'];
+            }
+        }
+        return $attrs;
+    }
+
+    /** Whether the source element carries a class its author wrote, as opposed to an engine marker. */
+    private function hasAuthorClass(DOMElement $sourceElement): bool
+    {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($sourceElement, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -694,6 +794,17 @@ final class GeneratedBlockStyleProjector
         // responsive cross-axis stretching. Intrinsic widths resolved at the
         // reference viewport must not pin it when that parent becomes a column.
         $hasWidth = array() !== ($this->styleResolver->authorDeclaredPropertyValues($control, array('width'))['width'] ?? array());
+        // The flex-row fills below size the link's border box to its carrier.
+        // A content-box source anchor without an authored size renders the
+        // same border box, but the native link rule restates that content
+        // box, which would add the padding a second time on both axes.
+        $sizeAxes = array('width', 'height', 'min-height', 'max-height');
+        $authoredSizes = array_merge(
+            array_merge(...array_values($this->styleResolver->authorDeclaredPropertyValues($control, $sizeAxes)) ?: array(array())),
+            array_map(CssValueInspector::comparable(...), array_values(array_intersect_key(SourceDeclarations::parse($control->getAttribute('style')), array_flip($sizeAxes))))
+        );
+        $fillsBorderBox = ! $hasWidth
+            && array() === array_diff($authoredSizes, array('auto', 'none', '0', 'initial', 'unset'));
         $parentDisplays = array((string) ($parentStyle['display'] ?? ''));
         if ( $parent instanceof DOMElement ) {
             $parentDisplays = array_merge($parentDisplays, array_values($this->styleResolver->conditionalDisplayRules($parent)));
@@ -736,7 +847,7 @@ final class GeneratedBlockStyleProjector
                 . $button . '>.wp-block-button__link{word-break:normal}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
                 . ($isGrid ? $button . '{width:100%}' : '')
-                . ($isFlex ? $button . '{' . (! $isColumn || $stretchesCrossAxis ? 'width:100%!important;' : '') . 'height:100%}' . $link . '{' . (! $hasWidth && (! $isColumn || $stretchesCrossAxis) ? 'width:100%!important;' : '') . 'height:100%}' : '')
+                . ($isFlex ? $button . '{' . (! $isColumn || $stretchesCrossAxis ? 'width:100%!important;' : '') . 'height:100%}' . $link . '{' . ($fillsBorderBox ? 'box-sizing:border-box!important;' : '') . (! $hasWidth && (! $isColumn || $stretchesCrossAxis) ? 'width:100%!important;' : '') . 'height:100%}' : '')
                 . $stretchRule
         );
     }
@@ -1057,7 +1168,7 @@ final class GeneratedBlockStyleProjector
             return '';
         }
         for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $declarations = $this->styleResolver->structuralPresentationDeclarations($ancestor);
             $width = CssValueInspector::declared($declarations, 'width');
             if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
                 return $width;

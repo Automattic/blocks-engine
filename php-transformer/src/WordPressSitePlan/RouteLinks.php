@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 
 /**
@@ -61,6 +62,7 @@ final class RouteLinks
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. */
     public function markup(string $content, string $origin): string
     {
+        $content = $this->capturedPanelSnapshots($content, $origin);
         $replace = fn(array $match): string => $match[1] . ($this->reference($match[2], $origin) ?? $match[2]) . $match[3];
         $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
         // Companion block attributes carry editable HTML as a JSON string, so
@@ -92,6 +94,58 @@ final class RouteLinks
         }, $content) ?? $content;
         $content = $this->unresolvedNavigationLinks($content, $origin);
         return null === $this->presetBinding ? $content : $this->presetBinding->bind($content, $origin);
+    }
+
+    /**
+     * Captured dialog panels carry runtime-swapped markup as JSON snapshots
+     * (`{resting:{html}, open:{html}}`, `{html}`). Their anchors name artifact
+     * routes like the page's own anchors, so each `html` fragment resolves
+     * through the same markup mapping; every other snapshot key stays as is.
+     * Snapshots appear as rendered attributes and inside block attributes.
+     */
+    private function capturedPanelSnapshots(string $content, string $origin): string
+    {
+        $names = array(CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL_STATE);
+        if (!str_contains($content, CaptureEvidence::EXISTING_PANEL) && !str_contains($content, CaptureEvidence::DIALOG_PANEL_STATE)) return $content;
+        $snapshot = function (string $json) use ($origin): ?string {
+            $data = json_decode($json, true);
+            if (!is_array($data)) return null;
+            $changed = false;
+            array_walk_recursive($data, function (mixed &$value, int|string $key) use ($origin, &$changed): void {
+                if ('html' !== $key || !is_string($value)) return;
+                $mapped = $this->markup($value, $origin);
+                if ($mapped === $value) return;
+                $value = $mapped;
+                $changed = true;
+            });
+            return $changed ? (json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: null) : null;
+        };
+        $content = preg_replace_callback('~<!--\s*wp:[^\s{]+\s+(\{.*?\})\s*/?-->~s', static function (array $match) use ($names, $snapshot): string {
+            if (!str_contains($match[1], CaptureEvidence::EXISTING_PANEL) && !str_contains($match[1], CaptureEvidence::DIALOG_PANEL_STATE)) return $match[0];
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs)) return $match[0];
+            $changed = false;
+            $walk = static function (array $value) use (&$walk, &$changed, $names, $snapshot): array {
+                foreach ($value as $key => $item) {
+                    if (is_array($item)) { $value[$key] = $walk($item); continue; }
+                    // Authored controls keep source attributes as name/value pairs.
+                    $named = in_array($key, $names, true) || ('value' === $key && in_array($value['name'] ?? null, $names, true));
+                    if (!$named || !is_string($item)) continue;
+                    $mapped = $snapshot($item);
+                    if (null === $mapped) continue;
+                    $value[$key] = $mapped;
+                    $changed = true;
+                }
+                return $value;
+            };
+            $attrs = $walk($attrs);
+            return $changed ? str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]) : $match[0];
+        }, $content) ?? $content;
+        $pattern = '/(\s(?:' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), $names)) . ')=")([^"]*)(")/';
+        return preg_replace_callback($pattern, static function (array $match) use ($snapshot): string {
+            $mapped = $snapshot(html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            return null === $mapped ? $match[0] : $match[1] . htmlspecialchars($mapped, ENT_QUOTES | ENT_HTML5, 'UTF-8') . $match[3];
+        }, $content) ?? $content;
     }
 
     /** Browser navigation attributes, excluding SVG resource references. */

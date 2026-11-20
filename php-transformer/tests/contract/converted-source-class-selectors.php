@@ -32,7 +32,7 @@ $assert(str_contains($markup, 'blocks-engine-role-control'), 'The link converts 
 $assert(1 === preg_match('/class="[^"]*\btag\b[^"]*blocks-engine-role-richtext/', $markup), 'The tag span is a rich-text carrier.');
 
 $sheets = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? null) ? (string) ($asset['content'] ?? '') : '', $plan['assets'] ?? array()));
-$assert(1 === preg_match('/:where\(\.blocks-engine-control-[0-9a-f]+-0\)[^{]*\{[^}]*border-radius:4px/', $sheets), 'The control keeps its projected rule.');
+$assert(1 === preg_match('/\.blocks-engine-control-[0-9a-f]+-0(?![\w-])[^{]*\{[^}]*border-radius:4px/', $sheets), 'The control keeps its projected rule.');
 $assert(!str_contains($sheets, '.cta:not(:where(.blocks-engine-role-control))'), 'No guarded source arm ships for a class every carrier converted.');
 $assert(!str_contains($sheets, '.tag:not(:where(.blocks-engine-role-richtext))'), 'No guarded source arm ships for a class only rich-text carriers name.');
 $assert(1 === preg_match('/:where\(\.blocks-engine-role-richtext[^{]*\{[^}]*font-weight:700/', $sheets), 'The rich-text carrier keeps its projected rule.');

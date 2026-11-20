@@ -60,13 +60,14 @@ final class PatternContext
      * nowhere to live on the block. The owning transformer registers the
      * resolved presentation and returns an opaque marker class for the heading
      * to carry, plus any source-proved SVG icon the theme renders into core's
-     * icon slot.
+     * icon slot, and `left` as iconPosition when the source renders that icon
+     * before the label.
      *
-     * @return array{className: string, iconSvg: string}
+     * @return array{className: string, iconSvg: string, iconPosition: string}
      */
     public function accordionToggle(DOMElement $control, ?DOMElement $row = null): array
     {
-        return $this->disclosure?->accordionToggle($control, $row) ?? array('className' => '', 'iconSvg' => '');
+        return $this->disclosure?->accordionToggle($control, $row) ?? array('className' => '', 'iconSvg' => '', 'iconPosition' => '');
     }
 
     /**

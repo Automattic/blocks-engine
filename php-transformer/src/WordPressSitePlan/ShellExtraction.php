@@ -329,6 +329,9 @@ final class ShellExtraction
         }
         unset($declaration);
         $this->resolveManifestEntities($declarations, $records);
+        // Every footer tail of every source compares its markers against the
+        // same stylesheets: index their marker arms once, not per comparison.
+        $markerArms = array('assets' => array(), 'parsed' => array());
         foreach ($parts as $partIndex => $part) {
             if ('footer' !== ($part['area'] ?? null) || 'shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
             $sources = array_keys($part['provenance']['sources'] ?? array());
@@ -351,7 +354,7 @@ final class ShellExtraction
                             if ($bindings['blocked']) continue;
                             $content = substr($markup, $range['offset'], $range['length']);
                             $identity = ChromeIdentity::document($content, $markup);
-                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets, substr_replace($markup, '<!--engine-chrome-start-->' . $content . '<!--engine-chrome-end-->', $range['offset'], $range['length']));
+                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets, $markerArms, substr_replace($markup, '<!--engine-chrome-start-->' . $content . '<!--engine-chrome-end-->', $range['offset'], $range['length']));
                             $evidence[$scope][$tailPosition][$identity][$original['source_path']] = array('content' => $content, 'refs' => $bindings['refs']);
                         }
                     }
@@ -442,45 +445,81 @@ final class ShellExtraction
      * Compare generated markers by their emitted rules, including conditional
      * context. Missing evidence keeps the class significant. The emitted copy
      * keeps its original class, so support-CSS projection still sees its rules.
+     *
+     * @param array{assets: array<int|string, array{arms: list<array{0: list<string>, 1: string, 2: string}>, classes: array<string, list<int>>}>, parsed: array<string, array<string, mixed>>} $markerArms
+     *        Marker arms of each stylesheet and parsed arms, shared by every
+     *        comparison of one footer pass.
      */
-    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets, string $documentMarkup): string
+    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets, array &$markerArms, string $documentMarkup): string
     {
         preg_match_all('/\bblocks-engine-responsive-typography-[a-f0-9]+\b/', $markup, $typography);
         $classes = array_unique(array_merge(EngineMarker::all($markup), $typography[0]));
+        if (array() === $classes) return $markup;
         $replacements = array();
         // Read the original copy, not its normalized identity, with its document
         // ancestors intact. Boundary comments add no selector-visible wrapper.
         $document = HtmlSerialization::parseDocument('<html><body>' . $documentMarkup . '</body></html>');
         $elements = (new \DOMXPath($document))->query('//*[preceding::comment()[.="engine-chrome-start"] and following::comment()[.="engine-chrome-end"]]');
+        // Whether an arm applies depends on the arm and this copy's elements,
+        // not on which of its marker classes is being compared. Compacted
+        // marker groups name hundreds of markers in one arm.
+        $applies = array();
         foreach ($classes as $class) {
             $kind = EngineMarker::withoutDocumentSeeds($class);
             if ($kind === $class) $kind = 'blocks-engine-responsive-typography';
             $rules = array();
-            foreach ($assets as $asset) {
+            foreach ($assets as $assetIndex => $asset) {
                 if ('css' !== ($asset['kind'] ?? null) || !StylesheetActivation::active($asset) || !self::stylesheetAppliesToPages($asset, array($source))) continue;
-                (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body, array $ancestors) use ($class, $kind, $elements, &$rules): void {
-                    // A grouped rule can name several documents' copies. Compare
-                    // only the arms emitted for this marker, not its neighbours.
-                    foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
-                        if (!preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $arm)) continue;
-                        $parsed = CssSelectorMatcher::parse($arm);
-                        $applies = !$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'];
+                $index = $markerArms['assets'][$assetIndex] ??= self::stylesheetMarkerArms((string) ($asset['content'] ?? ''));
+                // A grouped rule can name several documents' copies. Compare
+                // only the arms emitted for this marker, not its neighbours.
+                foreach ($index['classes'][$class] ?? array() as $armIndex) {
+                    [$ancestors, $arm, $body] = $index['arms'][$armIndex];
+                    if (!isset($applies[$arm])) {
+                        $parsed = $markerArms['parsed'][$arm] ??= CssSelectorMatcher::parse($arm);
+                        $applies[$arm] = !$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'];
                         foreach ($elements ?: array() as $element) {
-                            if ($applies) break;
+                            if ($applies[$arm]) break;
                             $match = CssSelectorMatcher::matches($element, $parsed);
-                            $applies = !$match['supported'] || $match['matches'];
+                            $applies[$arm] = !$match['supported'] || $match['matches'];
                         }
-                        if ($applies) $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
                     }
-                });
+                    if ($applies[$arm]) $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
+                }
             }
             if (array() !== $rules) $replacements[$class] = $kind . '-' . RuntimeDeclarations::hash($rules);
         }
         return strtr($markup, $replacements);
     }
 
+    /**
+     * Selector arms of one stylesheet that name a generated-marker class
+     * (`.class` not continued by another identifier character), in source
+     * order with the rule's conditional ancestors and body, and the arms
+     * naming each such class.
+     *
+     * @return array{arms: list<array{0: list<string>, 1: string, 2: string}>, classes: array<string, list<int>>}
+     */
+    private static function stylesheetMarkerArms(string $stylesheet): array
+    {
+        $index = array('arms' => array(), 'classes' => array());
+        if (!str_contains($stylesheet, '.blocks-engine-')) return $index;
+        (new CssStylesheetTransformer())->visitStyleRules($stylesheet, static function (string $selector, string $body, array $ancestors) use (&$index): void {
+            if (!str_contains($selector, '.blocks-engine-')) return;
+            foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
+                if (!preg_match_all('/\.(blocks-engine-[\w-]*)/', $arm, $named)) continue;
+                $armIndex = count($index['arms']);
+                $index['arms'][] = array($ancestors, $arm, $body);
+                foreach (array_unique($named[1]) as $class) $index['classes'][$class][] = $armIndex;
+            }
+        });
+        return $index;
+    }
+
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
     private array $manifestEntities = array();
+    /** @var array<string,array{position:array<string,mixed>,occurrence:mixed}> Source-markup anchors of bindings re-anchored while shells leave routes, by their current anchor. */
+    private array $reanchoredOrigins = array();
 
     /**
      * Bind producer-owned parts to equivalent landmarks at their authored
@@ -1135,10 +1174,14 @@ final class ShellExtraction
                 if (null === $scope) { $scoped = array(); break; }
                 $scoped[$scope][] = $variant;
             }
-            // Footer variants need not agree across devices: compare the ordered
-            // device bundle across routes, preserving each variant's controls.
-            // Headers retain their leading-chrome/overlay absorption contract.
-            $bundle = 'footer' === $area && count($scoped) > 1 && 1 !== count(array_unique($identities)) && str_contains($markup, CaptureEvidence::DOCUMENT_SCOPE);
+            // Device variants need not agree with each other: a route with
+            // separate desktop and mobile documents compares its ordered device
+            // bundle across routes, preserving each variant's controls. A
+            // footer may bundle variants of one document; a header only bundles
+            // across documents (each scope element's block attributes name
+            // the scope once), so device-only header wrappers inside one
+            // document keep the leading-chrome contract.
+            $bundle = count($scoped) > 1 && 1 !== count(array_unique($identities)) && ('footer' === $area ? str_contains($markup, CaptureEvidence::DOCUMENT_SCOPE) : preg_match_all('/"' . preg_quote(CaptureEvidence::DOCUMENT_SCOPE, '/') . '"\s*:/', $markup) > 1);
             if (!$bundle && 1 !== count(array_unique($identities))) continue;
             $pieces = array(); $scopeIdentities = array();
             if ($bundle) {
@@ -1153,7 +1196,10 @@ final class ShellExtraction
             }
             $row = $rows[0];
             if ('header' === $area && 1 === count($rows)) $row = $this->withLeadingHeaderChrome($index, $row);
-            $identity = $bundle ? json_encode($scopeIdentities, JSON_THROW_ON_ERROR) : $row['identity_markup'];
+            // The bundle identity keeps each device's markup as markup, so
+            // identity normalization (route-numbered and document-stamped ids)
+            // reads it like any other shell.
+            $identity = $bundle ? implode("\n", array_map(static fn(string $scope, string $markup): string => '<!-- device-scope ' . $scope . " -->\n" . $markup, array_keys($scopeIdentities), $scopeIdentities)) : $row['identity_markup'];
             if ('' === $identity) continue;
             $partMarkup = $bundle ? implode("\n", $pieces) : self::landmarkPartMarkup(RestingNavigation::markup($row['markup']), $area);
             $additional = array();
@@ -1849,6 +1895,7 @@ final class ShellExtraction
     public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true, array $assets = array()): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
+        $this->reanchoredOrigins = array();
         $pages = self::withWordmarkRouteState(self::withRouteCurrentLinksAtRest($pages), $assets);
         // Route-numbered id canonicalization must not merge a shell whose id an
         // applying stylesheet names, so the shared-chrome scoping inventory of
@@ -2010,11 +2057,14 @@ final class ShellExtraction
             // Entry shells can own bindings too. Anchor the hoist on the
             // actual part source, which differs from shared shells on one-page sites.
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
+            $beforeShells = array();
             foreach ($withoutShells as $index => $withoutShell) {
+                $beforeShells[$pages[$index]['source_path']] = $pages[$index]['canonical_block_markup'];
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
             if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, $sourcePath . '#' . $area);
+            $runtimeDeclarations = $this->withReanchoredPageBindings($runtimeDeclarations, $beforeShells, array_column(array_intersect_key($pages, $withoutShells), 'canonical_block_markup', 'source_path'));
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
@@ -2023,14 +2073,157 @@ final class ShellExtraction
             $partMarkup = is_array($absorbed) ? self::landmarkPartMarkup($absorbed['markup'], $area) : $first['template_part_markup'];
             // An entry shell renders on every route, but its in-page sections exist only on the entry page.
             if ($singlePage && !$inlineShell) $partMarkup = $this->links->qualifyShellFragments($partMarkup, $pages[array_key_first($applicable)]['source_path']);
-            $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
+            $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : self::populationAncestorContext($first['ancestor_context'] ?? null, array_map(static fn(int $index): mixed => $candidates[$index][0]['ancestor_context'] ?? null, array_keys($withoutShells)));
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+            // A template-bound area stays template-bound for every population
+            // that repeats one design of it, so those routes keep their own
+            // wrappers in content instead of forking route templates around them.
+            // Type and language populations rebind their parts afterwards.
+            if ('shared_shell' === $placement && $partitionTypes && $partitionHeaders) {
+                $population = $this->templateBoundShellPopulations($pages, $clusters, $identity, $candidates, $area, $excludedTemplateSlugs, $reservedSlugs + array($partSlug => true) + array_fill_keys(array_column($parts, 'slug'), true), $runtimeDeclarations);
+                $pages = $population['pages'];
+                $runtimeDeclarations = $population['runtime_declarations'];
+                array_push($parts, ...$population['parts']);
+                array_push($diagnostics, ...$population['diagnostics']);
+                $excluded = array_diff_key($excluded, $population['indexes']);
+            }
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
+        $runtimeDeclarations = $this->withSourceAnchoredPageBindings($runtimeDeclarations);
         ['pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics] = $this->withRouteLocalShellVariants($pages, $parts, $diagnostics, $runtimeDeclarations, $stylesheetIds);
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Bind each further repeated design of a template-bound area as its own
+     * template part, placed after the content like the dominant part.
+     *
+     * A route population whose shell is one source-equal design (proven by
+     * clustering, not by its route-compiled bytes) gets one part. Its routes'
+     * override templates bind that part, and the shell leaves their content
+     * while the wrappers around it (a page root, a route grid) stay route
+     * content, as they do on the dominant routes. Binding the shell in place
+     * instead would hoist each route's own page-root frame into a template
+     * of its own, forking one template per route around the same part.
+     *
+     * A population is left to route-local handling when its routes do not all
+     * own an override template, a shell carries a runtime binding its members
+     * do not share (or one that cannot move), a responsive variant, or a shell cannot be removed unambiguously.
+     *
+     * @param array<int,array<string,mixed>> $pages @param array<string,array{candidate:array<string,mixed>,indexes:array<int,int>}> $clusters @param array<int,array<int,array<string,mixed>>> $candidates @param list<string> $excludedTemplateSlugs @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,parts:list<array<string,mixed>>,diagnostics:list<array<string,mixed>>,indexes:array<int,true>,runtime_declarations:array<int,array<string,mixed>>}
+     */
+    private function templateBoundShellPopulations(array $pages, array $clusters, ?string $dominant, array $candidates, string $area, array $excludedTemplateSlugs, array $reservedSlugs, array $runtimeDeclarations): array
+    {
+        $parts = array(); $diagnostics = array(); $extracted = array();
+        $overrides = array_flip($excludedTemplateSlugs);
+        foreach ($clusters as $clusterIdentity => $cluster) {
+            if ($clusterIdentity === $dominant || count($cluster['indexes']) < 2) continue;
+            $templateSlugs = array();
+            foreach ($cluster['indexes'] as $index) {
+                $slug = TemplateSlugs::forPage($pages[$index]);
+                if (!empty($pages[$index]['entrypoint']) ? 'front-page' !== $slug : !isset($overrides[$slug])) continue 2;
+                $templateSlugs[$slug] = true;
+            }
+            if (count($templateSlugs) !== count($cluster['indexes'])) continue;
+            [$bindings, $retained] = $this->shellBindings($runtimeDeclarations, $pages, $cluster['indexes'], $candidates, $area);
+            if ($retained) continue;
+            $withoutShells = array();
+            foreach ($cluster['indexes'] as $index) {
+                $candidate = $candidates[$index][0];
+                if (!empty($candidate['device_document_bundle']) || isset($candidate['legacy_content_markup'])) continue 2;
+                $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
+                if (is_array($variants) && count($variants) > 1) continue 2;
+                $withoutShell = !empty($candidate['nested_shell'])
+                    ? $this->withoutNestedShell($pages[$index]['canonical_block_markup'], $candidate)
+                    : $this->withoutTopLevelShell($pages[$index]['canonical_block_markup'], $area, $candidate['markup'], $candidate['offset'] ?? null);
+                if (null === $withoutShell || '' === trim($withoutShell) || $this->retainsResponsiveVariantLandmark($withoutShell, $area)) continue 2;
+                $withoutShells[$index] = $withoutShell;
+            }
+            $members = array_intersect_key($pages, $withoutShells);
+            [$wrappers, $withoutShells] = $this->templateChromeWrappers($pages, $members, $cluster['indexes'], $candidates, $area, false, $withoutShells);
+            $wrappers = array_intersect_key($wrappers, $templateSlugs);
+            // Other routes' override templates keep their own population's part.
+            $otherOverrides = array();
+            foreach ($pages as $index => $page) {
+                $slug = TemplateSlugs::forPage($page);
+                if (!isset($withoutShells[$index]) && !isset($templateSlugs[$slug]) && 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug)) $otherOverrides[$slug] = true;
+            }
+            $first = $this->populationRepresentative($pages, $candidates, array_keys($withoutShells), $area) ?? $cluster['candidate'];
+            // Bindings move with the part as they do for the dominant part:
+            // every member binds the same entities, and the part keeps one.
+            $hoist = array() === $bindings ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, $cluster['indexes'], $bindings, $first, $area);
+            if (array() !== $bindings && null === $hoist) continue;
+            $partSlug = $area . '-' . substr(hash('sha256', $clusterIdentity), 0, 12);
+            for ($suffix = 2; isset($reservedSlugs[$partSlug]); ++$suffix) $partSlug = $area . '-' . substr(hash('sha256', $clusterIdentity), 0, 12) . '-' . $suffix;
+            $reservedSlugs[$partSlug] = true;
+            $sourcePath = 'wordpress-site-plan/shared/' . $partSlug;
+            $title = self::routeVariantTitle($area, $pages[$cluster['indexes'][0]], count($parts) + 2);
+            $partMarkup = (string) $first['template_part_markup'];
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => array_keys($templateSlugs), 'excluded_template_slugs' => array_keys($otherOverrides), 'template_wrappers' => $wrappers), static fn(mixed $value): bool => array() !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_population', array_intersect_key($candidates, $withoutShells), $clusterIdentity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($first['ancestor_context'] ?? null) ? array('ancestor_context' => self::populationAncestorContext($first['ancestor_context'], array_map(static fn(int $index): mixed => $candidates[$index][0]['ancestor_context'] ?? null, array_keys($withoutShells)))) : array());
+            $beforeShells = array();
+            foreach ($withoutShells as $index => $withoutShell) {
+                $beforeShells[$pages[$index]['source_path']] = $pages[$index]['canonical_block_markup'];
+                $pages[$index]['canonical_block_markup'] = $withoutShell;
+                $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
+                $extracted[$index] = true;
+            }
+            if (null !== $hoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $sourcePath . '#' . $area);
+            if (array() !== $bindings) {
+                $runtimeDeclarations = $this->withReanchoredPageBindings($runtimeDeclarations, $beforeShells, array_column(array_intersect_key($pages, $withoutShells), 'canonical_block_markup', 'source_path'));
+                foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
+                $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
+            }
+            $sources = array_values(array_map(static fn(int $index): string => (string) $pages[$index]['source_path'], array_keys($withoutShells)));
+            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_population_extracted', 'severity' => 'info', 'message' => "Extracted a {$area} design repeated by several routes as one template part bound to their templates.", 'area' => $area, 'slug' => $partSlug, 'page_count' => count($sources), 'source_paths' => $sources);
+        }
+        return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => $diagnostics, 'indexes' => $extracted, 'runtime_declarations' => $runtimeDeclarations);
+    }
+
+    /**
+     * The compiled shell a population part renders on every member route.
+     *
+     * Source equality settles one presentation for every route: the copy the
+     * evidence source compiled. A route whose author selectors retire (an
+     * evidence route) cannot render that copy when it names author hooks
+     * only: its own compilation carries the shell's presentation as engine
+     * carriers and presets instead. A population holding such routes renders
+     * their compiled copy, whose carriers follow the part into shared chrome
+     * on every member route. The most repeated evidence-route compilation
+     * wins, then the first route; null keeps the settled presentation.
+     *
+     * @param array<int,array<string,mixed>> $pages @param array<int,array<int,array<string,mixed>>> $candidates @param list<int> $indexes
+     * @return array<string,mixed>|null
+     */
+    /**
+     * The ancestor context of a part shared by a route population. Routes
+     * adopting one chrome design can still have hoisted it out of different
+     * ancestors (a page root container named after each page), and rules
+     * written for each route's own ancestors styled the chrome on that route.
+     * The part keeps every adopting route's ancestor hooks, so those rules
+     * follow it to the template instead of only the representative route's.
+     *
+     * @param array<string,mixed>|null $context
+     * @param list<mixed> $routeContexts Each adopting route's ancestor context.
+     * @return array<string,mixed>|null
+     */
+    private static function populationAncestorContext(?array $context, array $routeContexts): ?array
+    {
+        if (!is_array($context)) return $context;
+        foreach ($routeContexts as $routeContext) {
+            if (!is_array($routeContext)) continue;
+            foreach (array('classes', 'ids') as $kind) {
+                $context[$kind] = array_values(array_unique(array_merge((array) ($context[$kind] ?? array()), array_map('strval', (array) ($routeContext[$kind] ?? array())))));
+            }
+        }
+        return $context;
+    }
+
+    private function populationRepresentative(array $pages, array $candidates, array $indexes, string $area): ?array
+    {
+        return null;
     }
 
     /**
@@ -2425,8 +2618,20 @@ final class ShellExtraction
                     $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#' . $area;
                     $variantDeclarations = null === $hoist ? $runtimeDeclarations : self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $partSourcePath);
                     $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), $area, array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
-                    if (array() !== $variants['parts']) $runtimeDeclarations = $variantDeclarations;
-                    if (($anchorVariant || $pageChrome) && array() !== $variants['parts']) {
+                    // Routes whose variant is byte-identical to an earlier route's
+                    // render that route's part rather than a copy of it.
+                    $twin = null === $hoist && 1 === count($variants['parts']) ? self::routeVariantTwin($parts, $variants['parts'][0]) : null;
+                    if (null !== $twin) {
+                        $reserved = array_fill_keys(array_column($parts, 'slug'), true);
+                        unset($reserved[$parts[$twin]['slug']]);
+                        $shared = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), $area, $reserved, $variantDeclarations, $parts[$twin]['slug']);
+                        $parts[$twin]['placement']['source_paths'][] = $page['source_path'];
+                        $parts[$twin]['provenance']['sources'] += $shared['parts'][0]['provenance']['sources'] ?? array();
+                        ksort($parts[$twin]['provenance']['sources'], SORT_STRING);
+                        $variants = array('pages' => $shared['pages'], 'parts' => array(), 'diagnostics' => array());
+                    }
+                    if (array() !== $variants['parts'] || null !== $twin) $runtimeDeclarations = $variantDeclarations;
+                    if (($anchorVariant || $pageChrome) && (array() !== $variants['parts'] || null !== $twin)) {
                         foreach ($diagnostics as &$diagnostic) {
                             if ($area === ($diagnostic['area'] ?? null) && isset($diagnostic['exclusions'])) $diagnostic['exclusions'] = array_values(array_filter($diagnostic['exclusions'], static fn(array $exclusion): bool => $page['source_path'] !== ($exclusion['source_path'] ?? null)));
                         }
@@ -2439,6 +2644,19 @@ final class ShellExtraction
             }
         }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Key of the route variant part with the same area and markup as `$variant`.
+     *
+     * @param array<int,array<string,mixed>> $parts @param array<string,mixed> $variant
+     */
+    private static function routeVariantTwin(array $parts, array $variant): ?int
+    {
+        foreach ($parts as $key => $part) {
+            if ('route_variant' === ($part['provenance']['reason'] ?? null) && $variant['area'] === ($part['area'] ?? null) && $variant['canonical_block_markup'] === ($part['canonical_block_markup'] ?? null)) return $key;
+        }
+        return null;
     }
 
     /**
@@ -3220,8 +3438,6 @@ final class ShellExtraction
         $partIndex = $headers[0];
         $partSource = (string) $parts[$partIndex]['source_path'];
         $slug = preg_quote((string) $parts[$partIndex]['slug'], '/');
-        // Box-tree node ids are route-local capture observations; the same
-        // materialized icon on two routes differs only by them.
         $assetKeys = array();
         foreach ($assets as $asset) if (is_string($asset['token'] ?? null) && is_string($asset['content'] ?? null)) $assetKeys[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = 'asset:' . hash('sha256', (string) preg_replace('/\s' . preg_quote(BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $asset['content']));
         $runs = array();
@@ -3720,6 +3936,84 @@ final class ShellExtraction
         return $declarations;
     }
 
+    /**
+     * Bindings left on a route re-anchored after a shell left its markup. The
+     * blocks they bind did not change, only where they sit: a binding past the
+     * removed shell keeps its stale block position otherwise, and a later area
+     * (a mobile header after a desktop footer in a device bundle) then reads
+     * its own runtime binding as one that cannot move. A bound block keeps its
+     * ordinal among equal blocks while the shell removal drops none of them;
+     * a binding whose equal blocks changed in number keeps its old position.
+     * The re-anchoring serves the later areas of this extraction only: each
+     * binding's source-markup anchor is remembered and restored afterwards
+     * (see withSourceAnchoredPageBindings), the anchor later stages read.
+     *
+     * @param array<int,array<string,mixed>> $declarations @param array<string,string> $before @param array<string,string> $after Route markup by source path.
+     * @return array<int,array<string,mixed>>
+     */
+    private function withReanchoredPageBindings(array $declarations, array $before, array $after): array
+    {
+        $indexes = array();
+        foreach ($declarations as &$declaration) {
+            if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) continue;
+            foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) foreach (is_array($entity) && is_array($entity['bindings'] ?? null) ? $entity['bindings'] : array() as $bindingIndex => $binding) {
+                $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null;
+                if (!is_string($source) || !isset($before[$source], $after[$source]) || !is_string($search) || '' === $search || !is_array($binding['position'] ?? null)) continue;
+                $oldIndex = $indexes['before' . "\0" . $source] ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($before[$source]);
+                if (!BindingAnchors::positionMatches($binding['position'], $oldIndex, $search)) continue;
+                $newIndex = $indexes['after' . "\0" . $source] ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($after[$source]);
+                $equal = static fn(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index): array => array_filter($index->ranges(), static fn(array $range): bool => $search === substr($index->markup, $range['offset'], $range['length']));
+                $old = array_keys($equal($oldIndex)); $new = $equal($newIndex);
+                if (count($old) !== count($new)) continue;
+                $ordinal = array_search($binding['position']['block_index'], $old, true);
+                $blockIndex = array_keys($new)[$ordinal];
+                $range = $new[$blockIndex];
+                $position = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
+                $occurrence = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::occurrenceAtOffset($after[$source], $search, $range['offset']);
+                $origin = $this->reanchoredOrigins[self::bindingAnchorKey($source, $search, $binding['position'])] ?? array('position' => $binding['position'], 'occurrence' => $binding['occurrence'] ?? null);
+                unset($this->reanchoredOrigins[self::bindingAnchorKey($source, $search, $binding['position'])]);
+                $this->reanchoredOrigins[self::bindingAnchorKey($source, $search, $position)] = $origin;
+                $declaration['payload']['entities'][$entityIndex]['bindings'][$bindingIndex]['position'] = $position;
+                $declaration['payload']['entities'][$entityIndex]['bindings'][$bindingIndex]['occurrence'] = $occurrence;
+            }
+        }
+        unset($declaration);
+        return $declarations;
+    }
+
+    /**
+     * Bindings still on a route anchored on its source markup again, as they
+     * were before shells left it.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @return array<int,array<string,mixed>>
+     */
+    private function withSourceAnchoredPageBindings(array $declarations): array
+    {
+        if (array() === $this->reanchoredOrigins) return $declarations;
+        foreach ($declarations as &$declaration) {
+            if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) continue;
+            foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) foreach (is_array($entity) && is_array($entity['bindings'] ?? null) ? $entity['bindings'] : array() as $bindingIndex => $binding) {
+                $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null;
+                if (!is_string($source) || !is_string($search) || !is_array($binding['position'] ?? null)) continue;
+                $origin = $this->reanchoredOrigins[self::bindingAnchorKey($source, $search, $binding['position'])] ?? null;
+                if (null === $origin) continue;
+                $declaration['payload']['entities'][$entityIndex]['bindings'][$bindingIndex]['position'] = $origin['position'];
+                if (null === $origin['occurrence']) unset($declaration['payload']['entities'][$entityIndex]['bindings'][$bindingIndex]['occurrence']);
+                else $declaration['payload']['entities'][$entityIndex]['bindings'][$bindingIndex]['occurrence'] = $origin['occurrence'];
+            }
+        }
+        unset($declaration);
+        $this->reanchoredOrigins = array();
+        return $declarations;
+    }
+
+    /** @param array<string,mixed> $position */
+    private static function bindingAnchorKey(string $source, string $search, array $position): string
+    {
+        return $source . "\0" . hash('sha256', $search) . "\0" . (int) ($position['block_index'] ?? -1) . "\0" . (int) ($position['offset'] ?? -1);
+    }
+
     private function shellContainsRuntimeBindingOutsideRange(array $declarations, array $page, int $offset, int $length): bool
     {
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']);
@@ -3917,6 +4211,10 @@ final class ShellExtraction
         // The part renders every variant, so the backdrop ancestors of each
         // variant document are detached from it.
         $context = is_array($primaryContext) ? $primaryContext : array();
+        $primaryClass = null;
+        foreach ($variantClasses as $class) if (0 === self::responsiveVariantRank($class)) { $primaryClass = $class; break; }
+        $primaryClass ??= $variantClasses[0];
+        $context = (array) self::populationAncestorContext($context, array_map(static fn(int $index): mixed => $byPage[$index][$primaryClass][0]['ancestor_context'] ?? null, array_keys($kept)));
         if (array() !== $backdropIds) $context['backdrop_ids'] = array_map('strval', array_keys($backdropIds));
         if (array() !== $staticStartIds) $context['static_start_ids'] = array_map('strval', array_keys($staticStartIds));
         return array('pages' => $cleaned, 'markup' => implode("\n", $pieces), 'identities' => $identities, 'ancestor_context' => $context);
@@ -4562,7 +4860,11 @@ final class ShellExtraction
                     $rest = reset($rest);
                     // The item keeps its own label; only its markers are per document.
                     if (isset($row['attrs']['label'])) $rest['label'] = $row['attrs']['label'];
-                    if ($rest === $atRest($row['attrs'])) continue;
+                    // An item that already wears the resting look, as the shell
+                    // identity sees it, keeps its own copy: the stored rest is
+                    // one route's raw attributes, and an evidence route's carry
+                    // carriers and inline values no other route renders.
+                    if (BlockAttributes::encode($asIdentity($rest)) === BlockAttributes::encode($asIdentity($atRest($row['attrs'])))) continue;
                     $markers = array_values(array_filter($classes($row['attrs']), $isMarker));
                     if (array() !== $markers) $rest['className'] = trim(($rest['className'] ?? '') . ' ' . implode(' ', $markers));
                     $comment = '<!-- wp:navigation-' . $row['kind'] . ' ' . BlockAttributes::encode($rest) . ($row['closed'] ? ' /-->' : ' -->');
@@ -4741,17 +5043,26 @@ final class ShellExtraction
     {
         if (count($markups) < 2) return $markups;
         $idPattern = '/"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)"/';
+        // Builders also restate a stamped id in a data attribute (a test hook
+        // such as `data-testid="svgRoot-<id>"`), which carries the same stamp.
+        $dataPattern = '/"data-[\w-]+"\s*:\s*"([^"]+)"|\sdata-[\w-]+="([^"]+)"/';
         $segments = static fn(string $id): array => array_values(array_unique(array_filter(preg_split('/[-_]+/', $id) ?: array(), static fn(string $segment): bool => 1 === preg_match('/[0-9]/', $segment))));
-        $elementIds = array(); $segmentDocuments = array();
+        // Routes rendered from one dynamic page carry one stamp and identical
+        // shells: they are one document instance, counted once.
+        $instances = array();
+        foreach ($markups as $index => $markup) $instances[$index] = hash('sha256', $markup);
+        $elementIds = array(); $dataValues = array(); $segmentDocuments = array();
         foreach ($markups as $index => $markup) {
             preg_match_all($idPattern, $markup . ($sourceMarkups[$index] ?? ''), $matches);
             $elementIds[$index] = array_values(array_unique(array_filter(array_merge($matches[1], $matches[2]))));
-            foreach ($elementIds[$index] as $id) foreach ($segments($id) as $segment) $segmentDocuments[$segment][$index][$id] = true;
+            preg_match_all($dataPattern, $markup, $matches);
+            $dataValues[$index] = array_values(array_diff(array_unique(array_filter(array_merge($matches[1], $matches[2]))), $elementIds[$index]));
+            foreach (array_merge($elementIds[$index], $dataValues[$index]) as $id) foreach ($segments($id) as $segment) $segmentDocuments[$segment][$instances[$index]][$id] = true;
         }
         $tokens = array(); $counts = array();
         foreach ($markups as $index => $markup) {
             $stamps = array();
-            foreach ($segmentDocuments as $segment => $documents) if (1 === count($documents) && count($documents[$index] ?? array()) > 1) $stamps[$segment] = true;
+            foreach ($segmentDocuments as $segment => $documents) if (1 === count($documents) && count($documents[$instances[$index]] ?? array()) > 1) $stamps[$segment] = true;
             $tokens[$index] = array();
             if (array() === $stamps) continue;
             $ids = array_flip($elementIds[$index]);
@@ -4761,13 +5072,14 @@ final class ShellExtraction
             foreach (preg_split('/\s+/', implode(' ', array_merge($matches[1], $matches[2]))) ?: array() as $class) {
                 if (isset($ids[$class]) && !isset($tokens[$index][$class])) $tokens[$index][$class] = 'class';
             }
+            foreach ($dataValues[$index] as $value) if (!isset($tokens[$index][$value]) && 1 === preg_match('/^[\w-]+$/', $value)) $tokens[$index][$value] = 'data';
             $tokens[$index] = array_filter($tokens[$index], static fn(string $kind, int|string $token): bool => array() !== array_intersect_key($stamps, array_flip($segments((string) $token))), ARRAY_FILTER_USE_BOTH);
-            foreach (array_keys($tokens[$index]) as $token) $counts[$token] = ($counts[$token] ?? 0) + 1;
+            foreach (array_keys($tokens[$index]) as $token) $counts[$token][$instances[$index]] = true;
         }
         foreach ($tokens as $index => $documentTokens) {
             foreach ($documentTokens as $token => $kind) {
                 $token = (string) $token;
-                if (1 !== $counts[$token] || isset($inventory['classes'][$token]) || self::stylesheetTargetsId($token, $inventory)) continue;
+                if (1 !== count($counts[$token]) || isset($inventory['classes'][$token]) || self::stylesheetTargetsId($token, $inventory)) continue;
                 $quoted = preg_quote($token, '/');
                 if (preg_match('/(?:href="[^"]*#|"url"\s*:\s*"[^"]*#|(?:aria-[\w-]+|for)="(?:[^"]*\s)?)' . $quoted . '(?![\w-])/i', $markups[$index])) continue;
                 $markups[$index] = preg_replace('/(?<![\w-])' . $quoted . '(?![\w-])/', '__document_id__', $markups[$index]) ?? $markups[$index];

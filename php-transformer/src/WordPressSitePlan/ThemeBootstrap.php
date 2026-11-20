@@ -307,8 +307,10 @@ PHP;
         $lines[] = <<<'PHP'
 add_action( 'init', static function (): void {
     $theme = wp_json_file_decode( get_theme_file_path( 'theme.json' ), array( 'associative' => true ) );
-    foreach ( $theme['styles']['blocks']['core/button']['variations'] ?? array() as $slug => $look ) {
-        register_block_style( 'core/button', array( 'name' => $slug, 'label' => ucwords( str_replace( '-', ' ', $slug ) ) ) );
+    foreach ( $theme['styles']['blocks'] ?? array() as $block => $styles ) {
+        foreach ( $styles['variations'] ?? array() as $slug => $look ) {
+            register_block_style( $block, array( 'name' => $slug, 'label' => ucwords( str_replace( '-', ' ', $slug ) ) ) );
+        }
     }
 } );
 PHP;
@@ -369,22 +371,8 @@ PHP;
         if (array() !== $lookup['templates']) $lines[] = "    \$blocks_engine_design_scope = is_singular( 'post' ) && is_string( \$blocks_engine_design_template = get_page_template_slug( get_queried_object_id() ) ) ? ( " . BootstrapData::literal($lookup['templates']) . '[ $blocks_engine_design_template ] ?? -1 ) : -1;';
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
-        $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
-        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
-        // A post replays its design's sequence (see stylesheetEnqueues()), so
-        // the posts of one design share one route row, selected by template,
-        // instead of one identity-tested row per imported post.
+        if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
         $routeRows = $routeKeys = array();
-        foreach ($evidencePages as $page) {
-            $scope = PageStylesheets::documentScope($page);
-            $key = $page['source_path'];
-            if ('post' === $scope['kind']) {
-                $scope = array('kind' => 'post_template', 'template' => $page['route_template'] ?? 'single', 'source_path' => $page['source_path']);
-                $key = "post_template\0" . $scope['template'];
-            }
-            $routeKeys[$page['source_path']] = $key;
-            $routeRows[$key] ??= array('condition' => self::bootstrapScopeCondition($scope, true), 'styles' => array(), 'handles' => array());
-        }
         // The route table sits where the first route instance falls in the
         // stylesheet order, so sheets ordered ahead of the author CSS (the
         // engine reset sheets that also declare the cascade layer order) keep
@@ -548,6 +536,9 @@ PHP;
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "        if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
             $lines[] = "        if ( 'post_template' === \$scope['kind'] && 'post' === \$post->post_type && ( 'single' === \$scope['template'] ? '' === get_page_template_slug( \$post->ID ) : \$scope['template'] === get_page_template_slug( \$post->ID ) ) ) { \$matches = true; break; }";
+            if (in_array('post', array_column($scopes, 'kind'), true)) {
+                $lines[] = "        if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
+            }
             $lines[] = "        if ( 'page' === \$scope['kind'] ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
             $lines[] = "    }";
             $lines[] = "    return \$matches;";
@@ -593,6 +584,22 @@ PHP;
             $lines[] = "    return \$match[2];";
             $lines[] = "}, 10, 2 );";
             break;
+        }
+        // Captured pages share page.html with their content-owned layout. A page
+        // authored after the import, carrying no captured identity and no
+        // assigned template, renders through the new-page template instead;
+        // page-<slug> and page-<id> templates still outrank it. A captured page
+        // whose identity was not kept is still known by its captured route.
+        if (in_array(ThemeTemplates::AUTHORED_PAGE, array_column($templates, 'slug'), true)) {
+            $capturedPaths = array();
+            foreach ($pages as $page) if ('page' === ($page['post_type'] ?? 'page') && isset($page['route']['path'])) $capturedPaths[trim((string) $page['route']['path'], '/')] = true;
+            $lines[] = "add_filter( 'page_template_hierarchy', static function ( array \$templates ): array {";
+            $lines[] = "    \$id = get_queried_object_id();";
+            $lines[] = "    if ( ! \$id || '' !== get_page_template_slug( \$id ) || '' !== (string) get_post_meta( \$id, '_blocks_engine_reconciliation_identity', true ) || isset( " . BootstrapData::literal($capturedPaths) . "[ trim( (string) get_page_uri( \$id ), '/' ) ] ) ) return \$templates;";
+            $lines[] = "    \$generic = array_search( 'page.php', \$templates, true );";
+            $lines[] = "    if ( false !== \$generic ) array_splice( \$templates, \$generic, 0, array( '" . ThemeTemplates::AUTHORED_PAGE . ".php' ) );";
+            $lines[] = "    return \$templates;";
+            $lines[] = "} );";
         }
         self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
@@ -658,7 +665,12 @@ PHP;
             $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
             $lines[] = "        \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
             $lines[] = "        \$routes = array( " . implode(', ', array_map(static fn(string $source, string $route): string => var_export($source, true) . ' => ' . var_export($route, true), array_keys($currentSourceRoutes), $currentSourceRoutes)) . " );";
-            $lines[] = "        \$current = null !== \$served && ( is_array( \$sources ) ? in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served );";
+            // A link to the served document's own permalink is current, as core
+            // marks a post-type link by ID; the served route may name the source
+            // route instead (an imported product), which the URL no longer carries.
+            // The query counts too: a plain permalink (/?page_id=7) is not '/'.
+            $lines[] = "        \$path = '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' );";
+            $lines[] = "        \$current = is_array( \$sources ) ? null !== \$served && in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : ( null !== \$served && \$path === \$served ) || ( 0 !== \$document && \$path === '/' . trim( (string) parse_url( \$permalink = (string) get_permalink( \$document ), PHP_URL_PATH ), '/' ) && (string) parse_url( \$url, PHP_URL_QUERY ) === (string) parse_url( \$permalink, PHP_URL_QUERY ) );";
             $lines[] = "    }";
             if ('navigation-submenu' === $navigationBlock) {
                 // A section parent is current while its submenu displays the
@@ -887,7 +899,6 @@ PHP;
     public static function stylesheetDelivery(array $assets, array $pages, array $rootDocuments = array()): array
     {
         $routes = array();
-        foreach (array_merge($pages, $rootDocuments) as $page) if (!empty($page['document_metadata']['engine_owned_styles'])) $routes[(string) $page['source_path']] = true;
         $importLoaded = self::importLoadedStylesheets($assets);
         $enqueues = array();
         foreach (self::stylesheetEnqueues($assets, $pages, $rootDocuments) as $enqueue) {
@@ -929,6 +940,9 @@ PHP;
         foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
         $partTargets = array();
         foreach ($assets as $asset) foreach ($asset['stylesheet_parts'] ?? array() as $path) $partTargets[$path] = true;
+        // A route's copy of a shared sheet loads only in that sheet's place.
+        $partTargets += RouteStylesheetDeliveries::deliveryTargets($assets);
+        $byTarget = array_column($assets, null, 'target_path');
         foreach ($assets as $index => $asset) {
             // Empty CSS still owns ordered occurrences and route selection;
             // dropping it can incorrectly activate the global fallback.
@@ -941,7 +955,11 @@ PHP;
                 if (!isset($documentsBySource[$source])) continue;
                 if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
                 $scope = PageStylesheets::documentScope($documentsBySource[$source]);
-                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
+                // The handle stays the shared sheet's occurrence; the bytes are
+                // that route's copy without other routes' gated arms.
+                $delivered = $byTarget[$asset[RouteStylesheetDeliveries::FIELD][$source] ?? ''] ?? null;
+                $instanceAsset = null === $delivered ? $asset : array_replace($asset, array_intersect_key($delivered, array_flip(array('source_path', 'target_path', 'token', 'reconciliation_identity', 'content', 'content_hash', 'size_bytes'))));
+                $instances[$source][] = array('asset' => $instanceAsset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
             }
             // A global resource without document instances already loads on
             // every view, so lending it as a frame fallback would load it twice.
@@ -972,7 +990,6 @@ PHP;
             array_push($ordered, ...$rows);
         }
         $expanded = array();
-        $byTarget = array_column($assets, null, 'target_path');
         foreach (array_merge($ordered, $after) as $row) {
             if (!isset($row['asset']['stylesheet_parts'])) { $expanded[] = $row; continue; }
             foreach ($row['asset']['stylesheet_parts'] as $position => $path) {
@@ -986,16 +1003,12 @@ PHP;
         }
         // Replay a design's sequence once, rather than testing the identities
         // of every imported post. Keep source ownership for publication clients.
-        $postTemplates = $representatives = array();
-        foreach ($pages as $page) {
-            if ('post' !== ($page['post_type'] ?? null)) continue;
-            $template = $page['route_template'] ?? 'single';
-            $postTemplates[$page['source_path']] = $template;
-            $representatives[$template] ??= $page['source_path'];
-        }
+        $postTemplates = self::sharedPostStylesheetTemplates($expanded, $pages);
+        $representatives = array();
+        foreach ($postTemplates as $source => $template) $representatives[$template] ??= $source;
         $designScope = static function (array $scope) use ($postTemplates): array {
-            if ('post' !== $scope['kind']) return $scope;
-            return array('kind' => 'post_template', 'template' => $postTemplates[$scope['source_path']] ?? 'single', 'source_path' => $scope['source_path']);
+            if ('post' !== $scope['kind'] || !isset($postTemplates[$scope['source_path']])) return $scope;
+            return array('kind' => 'post_template', 'template' => $postTemplates[$scope['source_path']], 'source_path' => $scope['source_path']);
         };
         $result = array();
         foreach ($expanded as $row) {
@@ -1006,6 +1019,39 @@ PHP;
             $result[] = $row;
         }
         return $result;
+    }
+
+    /**
+     * A template can lend one post's stylesheet sequence only when every member
+     * agrees on the ordered resources and their delivery conditions. Template
+     * identity alone says nothing about captured route-local presentation.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @param list<array<string,mixed>> $pages
+     * @return array<string,string> Post source paths whose template can share CSS.
+     */
+    private static function sharedPostStylesheetTemplates(array $rows, array $pages): array
+    {
+        $templates = $sequences = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null)) continue;
+            $source = $page['source_path'];
+            $templates[$page['route_template'] ?? 'single'][] = $source;
+            $sequences[$source] = array();
+            foreach ($rows as $row) {
+                if (!empty($row['fallback'])) continue;
+                $scopes = $row['scopes'] ?? array($row['scope']);
+                $owned = isset($row['route']) ? $source === $row['route'] : in_array('global', array_column($scopes, 'kind'), true) || in_array($source, array_column($scopes, 'source_path'), true);
+                if (!$owned) continue;
+                $sequences[$source][] = array($row['asset']['target_path'], $row['media'], $row['asset']['stylesheet_target'] ?? 'both', PageStylesheets::deviceAttributes($row));
+            }
+        }
+        $shared = array();
+        foreach ($templates as $template => $sources) {
+            foreach ($sources as $source) if ($sequences[$source] !== $sequences[$sources[0]]) continue 2;
+            foreach ($sources as $source) $shared[$source] = (string) $template;
+        }
+        return $shared;
     }
 
     /**
@@ -1025,16 +1071,15 @@ PHP;
         $importLoaded = self::importLoadedStylesheets($assets);
         $pages = ArrayField::array($plan, 'pages');
         $bySource = array_column($pages, null, 'source_path');
-        if ('post' === ($bySource[$sourcePath]['post_type'] ?? null)) {
-            $template = $bySource[$sourcePath]['route_template'] ?? 'single';
-            foreach ($pages as $page) if ('post' === ($page['post_type'] ?? null) && $template === ($page['route_template'] ?? 'single')) { $sourcePath = $page['source_path']; break; }
-        }
         $sequence = array();
         foreach (self::stylesheetEnqueues($assets, ArrayField::array($plan, 'pages'), $plan['theme']['document_roots'] ?? array()) as $enqueue) {
             $asset = $enqueue['asset'];
             if (!empty($enqueue['fallback']) || isset($importLoaded[$asset['target_path']])) continue;
             $owned = isset($enqueue['route']) ? $sourcePath === $enqueue['route'] : ('global' === $enqueue['scope']['kind'] || $sourcePath === ($enqueue['scope']['source_path'] ?? null));
             if (isset($enqueue['scopes'])) $owned = in_array('global', array_column($enqueue['scopes'], 'kind'), true) || in_array($sourcePath, array_column($enqueue['scopes'], 'source_path'), true);
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $scope) {
+                if ('post_template' === $scope['kind'] && 'post' === ($bySource[$sourcePath]['post_type'] ?? null) && $scope['template'] === ($bySource[$sourcePath]['route_template'] ?? 'single')) $owned = true;
+            }
             if ($owned) $sequence[] = array('target_path' => (string) $asset['target_path'], 'handle' => (string) $enqueue['handle'], 'media' => (string) $enqueue['media'], 'stylesheet_target' => (string) ($asset['stylesheet_target'] ?? 'both'));
         }
         return $sequence;

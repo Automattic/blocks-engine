@@ -125,6 +125,24 @@ final class DocumentTitles
         return $matched;
     }
 
+    /** @var array<string, string> First `<title>` content by document hash. */
+    private array $memberTitles = array();
+
+    /**
+     * Every page's title resolution reads its section members' titles, so a
+     * site with many pages per section would rescan the same documents once
+     * per page. The scan is a pure function of the document.
+     */
+    private function memberTitle(string $html): string
+    {
+        $key = hash('xxh128', $html);
+        if (!isset($this->memberTitles[$key])) {
+            if (count($this->memberTitles) >= 4096) $this->memberTitles = array();
+            $this->memberTitles[$key] = HtmlTagScanner::scan($html, 'title')[0]['content'] ?? '';
+        }
+        return $this->memberTitles[$key];
+    }
+
     /**
      * Section branding needs local evidence: two member routes repeating a
      * segment, or the section index naming itself with that segment in its h1.
@@ -161,7 +179,7 @@ final class DocumentTitles
                 }
                 continue;
             }
-            $title = HtmlTagScanner::scan($html, 'title')[0]['content'] ?? '';
+            $title = $this->memberTitle($html);
             $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, trim(html_entity_decode(strip_tags($title), ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array();
             $trailing = self::siteNameEdgeRun($segments, $siteNameSegments, true);
             $leading = self::siteNameEdgeRun($segments, $siteNameSegments, false);
