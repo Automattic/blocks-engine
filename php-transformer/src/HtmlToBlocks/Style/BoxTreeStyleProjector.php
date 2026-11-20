@@ -359,7 +359,10 @@ final class BoxTreeStyleProjector
      * attributes: its observed typography that differs from its source
      * parent's goes entirely to a carrier class. A value equal to the
      * parent's is left to inheritance, so a lifted fluid block value keeps
-     * reaching it between captures.
+     * reaching it between captures. Compare used values here, not author
+     * tokens: a smaller child inheriting a unitless line-height has different
+     * used pixels and must keep its own carrier when the parent lifts its
+     * factor. Freezing the parent's factor instead loses line-box rounding.
      *
      * An element with a user-agent colour of its own (a link, a mark) also
      * carries its observed colour, whether the source inherited it or set
