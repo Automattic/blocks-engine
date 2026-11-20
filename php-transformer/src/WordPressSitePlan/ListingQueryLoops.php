@@ -943,6 +943,14 @@ final class ListingQueryLoops
         if (null !== $timestamp && PublicationDate::fromVisibleText(ListingExcerptProjection::text($slice)) === $timestamp) {
             return 'date';
         }
+        // A day-only date (no time of day in its format) names the post's
+        // publication day as the source rendered it, in the source's offset.
+        $visible = ListingExcerptProjection::text($slice);
+        $format = PublicationDate::visibleFormat($visible);
+        $published = is_string($post['publication_local_time'] ?? null) ? $post['publication_local_time'] : $timestamp;
+        if (null !== $published && null !== $format && !preg_match('/[aABgGhHisuv]/', $format) && false !== ($day = date_create_immutable($published)) && $day->format($format) === $visible) {
+            return 'date';
+        }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                 continue;
