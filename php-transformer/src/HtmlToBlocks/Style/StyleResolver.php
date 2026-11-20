@@ -882,7 +882,8 @@ final class StyleResolver implements ElementPresentationResolver
             $parents,
             strtolower($source->tagName),
             $intent->lift($source, $this, $observations, $viewports, $parents),
-            $pseudoFluid
+            $pseudoFluid,
+            $this->session->boxTreeCurrentPaint($source)
         );
     }
 
@@ -6067,6 +6068,7 @@ final class StyleResolver implements ElementPresentationResolver
                     'grid-template-columns',
                     'gap',
                     'column-gap',
+                    'justify-content',
                     'min-width',
                     'max-width',
                     'perspective',
