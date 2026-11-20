@@ -68,6 +68,7 @@ $result = $compile('');
 $node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];
 $markup = $result['serialized_blocks'];
 $assert('folded' === $node['disposition'] && in_array('viewport-entrance', $node['fold'] ?? array(), true), 'an entrance-only text wrapper is classified folded.');
+$assert(!isset($node['identity']), 'the report does not expose source identity payloads.');
 $assert(!str_contains($markup, 'rich-text-box'), 'the wrapper emits no Group.');
 $assert(1 === substr_count($markup, '<!-- wp:group '), 'only the parent remains a group.');
 $assert(1 === preg_match('/<!-- wp:paragraph (\{[^\n]*?\}) -->\s*<p id="rich-text"[^>]*>Revealed text/', $markup, $match), 'the paragraph takes the box\'s place and id.');

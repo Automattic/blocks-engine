@@ -1966,10 +1966,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // ADR 0005 slice 5: a folded box's declarations now belong to its child.
         foreach ( $classification['folds'] as $id => $fold ) {
-            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'semantic' => $fold['semantic'] ?? false);
+            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'identity' => $fold['identity']);
             $this->foldChildObservations[(string) $fold['child']] = $tree['nodes'][$fold['child']]['viewports'] ?? array();
         }
-        $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => !empty($node['link_carrier'])))));
+        $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => isset($node['identity']['link'])))));
         $this->session->recordBoxTreeFolds($classification['folds']);
         $this->session->overrideBoxTreeObservations($classification['observations']);
         $this->session->collapseBoxTreeNodes(array_map('strval', array_keys($children)));
@@ -2163,31 +2163,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
 
-    /**
-     * A box folded for its viewport entrance ({@see BoxTreeClassifier}) hands
-     * the entrance, its id and inline motion variables to the child that takes its place: the child's
-     * block renders both on its root, where the replayed entrance and the
-     * state rules keyed on that id find it.
-     *
-     * @return list<string> The attributes the child received.
-     */
-    private function handEntranceToFoldChild(DOMElement $box, DOMElement $child): array
+    /** Text block roots render both anchor and entrance runtime attributes. */
+    public static function rendersFoldEntrance(DOMElement $child): bool
     {
-        if ( !$box->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $child->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $child->hasAttribute('id') ) {
-            return array();
-        }
-        $handed = array();
-        foreach ( array(CaptureEvidence::VIEWPORT_ENTRANCE, 'id') as $name ) {
-            if ( $box->hasAttribute($name) ) {
-                $child->setAttribute($name, $box->getAttribute($name));
-                $handed[] = $name;
-            }
-        }
-        if ( '' !== trim($box->getAttribute('style')) ) {
-            $child->setAttribute('style', rtrim($child->getAttribute('style'), "; \t\n\r\0\x0B") . ';' . $box->getAttribute('style'));
-            $handed[] = 'style';
-        }
-        return $handed;
+        return in_array(strtolower($child->tagName), array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true);
     }
 
     /** The source child that replaces a neutral box, or null when the box is kept. */
@@ -2292,21 +2271,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // so the box keeps its own block and rule instead.
             $before = $fallbacks;
             $childStyle = $neutralChild->hasAttribute('style') ? $neutralChild->getAttribute('style') : null;
-            $handed = $this->handEntranceToFoldChild($element, $neutralChild);
+            $identity = $this->foldedInto[$childId]['identity'];
+            $handed = array_keys($identity['attributes'] ?? array());
+            foreach ($identity['attributes'] ?? array() as $name => $value) $neutralChild->setAttribute($name, $value);
             $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
-            $semantic = $this->foldedInto[$childId]['semantic'] ?? false;
+            $semantic = isset($identity['tagName']);
             if ( (!$semantic && null === $block) || (null !== $block && $this->foldCarried($boxId, $block)
                 && (!$semantic || 'core/group' === ($block['blockName'] ?? null))) ) {
                 if ($semantic) {
                     $attrs = $block['attrs'];
-                    $attrs['tagName'] = strtolower($element->tagName);
+                    $attrs['tagName'] = $identity['tagName'];
                     unset($attrs['anchor']);
-                    if ($element->hasAttribute('id')) $attrs['anchor'] = $element->getAttribute('id');
-                    foreach ($element->attributes as $attribute) {
-                        if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
-                            $attrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][$attribute->name] = $attribute->value;
-                        }
-                    }
+                    if (null !== $identity['anchor']) $attrs['anchor'] = $identity['anchor'];
+                    foreach ($identity['runtime'] as $name => $value) $attrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][$name] = $value;
                     $block = array_replace($block, $this->blockFactory->create('core/group', $attrs, $block['innerBlocks']));
                 }
                 return $block;
