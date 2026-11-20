@@ -347,6 +347,7 @@ final class SitePlanRun
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         // Related-section queries are registered while article chrome is factored.
         $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
+        ThemeTemplates::withPageAuthoringTitle($pages, $parts, $templates);
         $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
         $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);
         $this->timer?->start('compose.site_plan.asset_writes');

@@ -20,7 +20,8 @@ foreach ($plan['pages'] as $page) $assert(!isset($page['route_template']) && !is
 $singletonFiles = $files;
 unset($singletonFiles['south/about.html']);
 $singleton = $compile($singletonFiles);
-$assert(!array_filter($singleton['templates'], static fn(array $template): bool => str_starts_with($template['slug'], 'page-')), 'A single inner page with the generic layout needs no override.');
+$singletonTemplates = array_column($singleton['templates'], 'canonical_block_markup', 'slug');
+$assert(isset($singletonTemplates['page-about']) && !str_contains($singletonTemplates['page-about'], '<!-- wp:post-title') && str_contains($singletonTemplates['page'], '<!-- wp:post-title'), 'The captured page retains its content-owned title through a hierarchy override; new pages get a native title.');
 
 $files['special.html'] = $document('Special', 'distinct');
 $distinct = $compile($files);

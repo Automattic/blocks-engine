@@ -176,6 +176,58 @@ final class ThemeTemplates
         return $titles;
     }
 
+    /**
+     * Captured pages carry their titles in post content. Keep their original
+     * frame, while giving new pages a native title in the hierarchy default.
+     * Explicit source templates already own their authoring contract.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $templates
+     */
+    public static function withPageAuthoringTitle(array &$pages, array &$parts, array &$templates): void
+    {
+        foreach ($templates as $index => $template) {
+            if ('page' !== $template['slug'] || isset($template['source_path']) || str_contains($template['canonical_block_markup'], '<!-- wp:post-title')) continue;
+            $markup = $template['canonical_block_markup'];
+            $authored = preg_replace('/(<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->)/', '<!-- wp:post-title {"level":1} /-->' . "\n" . '$1', $markup, 1, $count);
+            if (1 !== $count) return;
+            // front-page may have been elided as identical to page. Restore
+            // that fallback before changing page's authoring behavior.
+            if (!in_array('front-page', array_column($templates, 'slug'), true) && array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint']) && 'page' === ($page['post_type'] ?? null))) {
+                $front = $template;
+                $front['slug'] = 'front-page';
+                $front['target_path'] = 'templates/front-page.html';
+                $front['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $front['target_path'], $front['target_path']);
+                $templates[] = $front;
+            }
+            foreach ($pages as $page) {
+                if ('page' !== ($page['post_type'] ?? null) || !empty($page['entrypoint'])) continue;
+                $slug = TemplateSlugs::forPage($page);
+                if (in_array($slug, array_column($templates, 'slug'), true)) continue;
+                // Keep the route's existing hierarchy key and metadata. Asset
+                // delivery and shell placement have already settled against
+                // these keys; assigning a new custom template here invalidates
+                // that contract (including route-scoped chrome selectors).
+                $copy = $template;
+                $copy['slug'] = $slug;
+                $copy['target_path'] = 'templates/' . $slug . '.html';
+                $copy['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $copy['target_path'], $copy['target_path']);
+                $templates[] = $copy;
+                foreach ($parts as &$part) {
+                    foreach (array('template_slugs', 'excluded_template_slugs') as $field) {
+                        if (in_array('page', $part['placement'][$field] ?? array(), true)) $part['placement'][$field][] = $slug;
+                    }
+                    if (isset($part['placement']['template_wrappers']['page'])) $part['placement']['template_wrappers'][$slug] = $part['placement']['template_wrappers']['page'];
+                }
+                unset($part);
+            }
+            $templates[$index]['canonical_block_markup'] = $authored;
+            $templates[$index]['content_hash'] = WordPressSitePlan::contentHash($authored);
+            return;
+        }
+    }
+
     /** Captured landmarks remain content-owned until shell extraction removes them. */
     public static function contentCarriesChrome(string $markup, string $area): bool
     {
