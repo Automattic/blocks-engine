@@ -203,13 +203,6 @@ final class ThemeTemplates
              $priority = array('header' => 0, 'footer' => 2);
              return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
          });
-         // A captured route newly separated from the authoring lifecycle
-         // inherits the frame it previously rendered through page.html.
-         foreach ($pages as $page) {
-             if ('page' !== ($page['post_type'] ?? null) || !empty($page['entrypoint'])) continue;
-             $slug = TemplateSlugs::forPage($page);
-             if (!isset($frames[$slug]) && isset($frames['page'])) $frames[$slug] = $frames['page'];
-         }
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
          $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages): string {
@@ -240,12 +233,6 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
-                 // The default page lifecycle also serves pages created after
-                 // import. Captured pages keep their content-owned headings in
-                 // route templates; a fresh page needs a native title slot.
-                 if ('page' === $templateSlug && !isset($postTemplates[$templateSlug])) {
-                     $content = '<!-- wp:post-title {"level":1} /-->' . "\n" . $content;
-                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -270,12 +257,7 @@ final class ThemeTemplates
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(TemplateSlugs::overrides($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
-        foreach ($pages as $page) {
-            if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
-            // Never prepend the authoring title to a captured page: its
-            // original title (or intentionally absent title) is content-owned.
-            if ('page' === ($page['post_type'] ?? null) && empty($page['entrypoint'])) $overrides[TemplateSlugs::forPage($page)] = true;
-        }
+        foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
         $liveOverrides = array_fill_keys(array_map(TemplateSlugs::forPage(...), $pages), true);
         $overrides = array_intersect_key($overrides, $liveOverrides);
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));

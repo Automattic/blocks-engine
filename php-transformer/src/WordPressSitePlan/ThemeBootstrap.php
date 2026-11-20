@@ -595,6 +595,20 @@ PHP;
             break;
         }
         self::serve($lines, $served, $units, 'template_frame');
+        // Captured pages already own their headings and columns. Only a new,
+        // default-template page borrows the generic source's authoring layout.
+        foreach ($pages as $page) {
+            if ('page' !== ($page['post_type'] ?? null) || !empty($page['entrypoint']) || isset($page['route_template'])) continue;
+            $layout = PageAuthoringLayout::project($page['canonical_block_markup'], $page['title']);
+            if (null === $layout) continue;
+            $lines[] = '$blocks_engine_page_authoring_layout = ' . var_export($layout, true) . ';';
+            $lines[] = "add_filter( 'render_block_core/post-content', static function ( string \$content, array \$block ) use ( \$blocks_engine_page_authoring_layout ): string {";
+            $lines[] = "    if ( ! is_singular( 'page' ) || get_the_ID() !== get_queried_object_id() || get_post_meta( get_the_ID(), '_blocks_engine_reconciliation_identity', true ) || get_page_template_slug( get_the_ID() ) ) return \$content;";
+            $lines[] = "    return str_replace( " . var_export(PageAuthoringLayout::CONTENT, true) . ", \$content, do_blocks( \$blocks_engine_page_authoring_layout ) );";
+            $lines[] = "}, 20, 2 );";
+            break;
+        }
+        self::serve($lines, $served, $units, 'page_authoring_layout');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
         }

@@ -23,9 +23,9 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 $assert(is_string($shared) && isset($templates[$shared]), 'C selects an emitted custom template');
 $assert(null !== $shared && $shared === ($pages['d']['metadata']['post_meta']['_wp_page_template'] ?? null), 'C and D select the same template');
 $assert(!isset($templates['page-c']) && !isset($templates['page-d']), 'no per-route duplicates remain');
-$assert(2 === count(array_diff(array_keys($templates), WordPressSitePlan::NATIVE_TEMPLATE_SLUGS)), 'two captured layouts are emitted separately from the native authoring lifecycle');
+$assert(1 === count(array_diff(array_keys($templates), WordPressSitePlan::NATIVE_TEMPLATE_SLUGS)), 'exactly one override is emitted beside the lifecycle templates');
 $registrations = array_values(array_filter($custom, static fn(array $row): bool => $row['name'] === $shared));
-$assert(1 === count($registrations) && 'Page (shared layout 2)' === $registrations[0]['title'] && array('page') === $registrations[0]['postTypes'], 'shared template is registered once with a short group title for pages');
+$assert(1 === count($registrations) && 'Page (shared layout)' === $registrations[0]['title'] && array('page') === $registrations[0]['postTypes'], 'shared template is registered once with a short group title for pages');
 $entry = current(array_filter($plan['pages'], static fn(array $page): bool => !empty($page['entrypoint'])));
 $assert(isset(ThemeTemplates::rendered($plan)['front-page']) && !isset($entry['metadata']['post_meta']['_wp_page_template']), 'front-page handling is unchanged');
 if (is_string($shared) && isset($templates[$shared])) {
