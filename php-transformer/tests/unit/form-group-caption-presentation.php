@@ -110,7 +110,8 @@ $mismatchedCaption = $graph($compile('<!doctype html><body><main>'
     . '<div style="font-size:14px">Which events will you attend?</div>'
     . '<div role="radiogroup" aria-label="Will you attend?">' . $choices('Attending') . '</div>'
     . '<button type="submit">Send</button></form></main></body></html>'));
-$assert(array() === ($mismatchedCaption['group_captions'] ?? array()) && 'generic/computed-form-presentation/v1' === ($mismatchedCaption['schema'] ?? null), 'a sibling whose text is not the group name owns no caption row', json_encode($mismatchedCaption['group_captions'] ?? null));
+$assert(array() === ($mismatchedCaption['group_captions'] ?? array()), 'a sibling whose text is not the group name owns no caption row', json_encode($mismatchedCaption['group_captions'] ?? null));
+$assert('generic/computed-form-presentation/v3' === ($mismatchedCaption['schema'] ?? null) && 'inline' === ($mismatchedCaption['control_rows'][0]['flow'] ?? null), 'the uncaptioned group still publishes its inline control row in v3', json_encode($mismatchedCaption['control_rows'] ?? null));
 
 $ownTextCaption = $graph($compile('<!doctype html><body><main>'
     . '<form method="post" action="/rsvp">'
