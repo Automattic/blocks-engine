@@ -196,7 +196,7 @@ final class ThemeTemplates
      * @param array<string,string> $documentChrome Shared document chrome by template slug.
      * @return array<int,array<string,mixed>>
      */
-    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array()): array
+    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array(), ?float $fallbackProseWidth = null): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -205,7 +205,7 @@ final class ThemeTemplates
          });
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages): string {
+         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages, $fallbackProseWidth): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || TemplateSlugs::partAppliesToOverride($part, $templateSlug)
@@ -237,6 +237,12 @@ final class ThemeTemplates
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
              }
+            // A lone captured entry page owns its bespoke layout in content.
+            // New pages use its prose column, not its full-width app shell.
+            if ('page' === $templateSlug && null !== $fallbackProseWidth && '<!-- wp:post-content /-->' === $content) {
+                $attrs = json_encode(array('layout' => array('type' => 'constrained', 'contentSize' => $fallbackProseWidth . 'px')), JSON_UNESCAPED_SLASHES);
+                $content = '<!-- wp:group ' . $attrs . ' --><div class="wp-block-group"><!-- wp:post-content {"layout":{"type":"constrained"}} /--></div><!-- /wp:group -->';
+            }
             if ($hasCommentForm && !str_contains($content, '<!-- wp:post-comments-form') && ('single' === $templateSlug || str_starts_with($templateSlug, 'single-'))) {
                 $content .= "\n" . '<!-- wp:comments --><div class="wp-block-comments"><!-- wp:post-comments-form /--></div><!-- /wp:comments -->';
             }
