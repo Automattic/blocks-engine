@@ -66,4 +66,21 @@ $ordinary = (new ArtifactCompiler())->compile(array(
 if (str_contains($ordinary['serialized_blocks'], 'has-text-color')) {
     throw new RuntimeException('Ordinary stylesheet colors must remain stylesheet-owned.');
 }
+// RGB promotion must not turn stateful or responsive stylesheet paint into
+// an inline override, nor replace authoritative inline source evidence.
+foreach (array(
+    '.ink:hover{color:red}',
+    '@media(max-width:600px){.ink{color:red}}',
+) as $variant) {
+    $unsafe = str_replace('</style>', $variant . '</style>', $html);
+    $output = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $unsafe)))->toArray();
+    if (preg_match('/<p[^>]*class="[^"]*ink[^"]*has-text-color/', $output['serialized_blocks'])) {
+        throw new RuntimeException('Variable RGB promotion must preserve conditional paint: ' . $variant);
+    }
+}
+$inline = str_replace('<p class="ink">', '<p class="ink" style="color:hsl(var(--ink))">', str_replace('.panel{', ':root{--ink:9 77% 48%}.panel{', $html));
+$output = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $inline)))->toArray();
+if (!str_contains($output['serialized_blocks'], 'color:hsl(var(--ink))')) {
+    throw new RuntimeException('Inline source colors must reach preset binding unchanged.');
+}
 echo "Authored text color editing boundary passed\n";

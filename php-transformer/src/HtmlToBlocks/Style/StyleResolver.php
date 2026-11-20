@@ -237,12 +237,14 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $presentation = $this->presentationDeclarations($element);
-        // Paragraph functional colors with nested source variables are not safe
-        // through WordPress's save sanitization. Preserve their editing boundary
-        // with a resolved, serializable color, without promoting ordinary
-        // stylesheet colors or replacing existing preset bindings.
+        // Opaque RGB stylesheet colors with nested source variables need a
+        // save-safe native editing boundary. Inline values and HSL palette
+        // tokens belong to PresetBinding: resolving them here destroys their
+        // source evidence and can bypass its state/importance safety checks.
         if ('p' === strtolower($element->tagName)
             && '' !== trim(SourceDom::attr($element, 'class'))
+            && !isset(SourceDeclarations::inline($element)['color'])
+            && !$this->hasStateTextColor($element)
             && (!isset($presentation['color']) || (str_contains($presentation['color'], 'var(')
                 && !str_contains($presentation['color'], '--wp--preset--color--')))
         ) {
@@ -254,7 +256,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $authored = SourceDeclarations::parse($this->resolvedCascadeStyle($element, 'cascaded-values'));
             }
             if (isset($authored['color'])
-                && preg_match('/^(?:rgb|rgba|hsl|hsla)\s*\(/i', $authored['color'])
+                && preg_match('/^rgb\s*\(/i', $authored['color'])
                 && str_contains($authored['color'], 'var(')
             ) {
                 // Resolve at the source scope before promoting a stylesheet
@@ -262,7 +264,7 @@ final class StyleResolver implements ElementPresentationResolver
                 // rgb() sanitizer dropping space-separated functional values.
                 $color = $this->customProperties->resolve($authored['color'], $element);
                 $hex = \Automattic\BlocksEngine\PhpTransformer\Css\CssColor::hex($color);
-                if (null !== $hex) {
+                if (null !== $hex && 7 === strlen($hex)) {
                     $presentation['color'] = $hex;
                 }
             }
@@ -596,6 +598,18 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $declarations;
+    }
+
+    /** A resting stylesheet color must not mask an authored interaction color. */
+    private function hasStateTextColor(DOMElement $element): bool
+    {
+        foreach ($this->session->sourceStyleResolutionState()->navigationStateRules() as $rule) {
+            if (isset($rule['declarations']['color'])
+                && $this->session->sourceStyleResolutionState()->matches($element, (string) ($rule['base_selector'] ?? ''))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
