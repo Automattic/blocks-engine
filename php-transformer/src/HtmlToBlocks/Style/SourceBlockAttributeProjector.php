@@ -49,6 +49,8 @@ final class SourceBlockAttributeProjector
     public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
     /** A fill image a later absolutely positioned sibling layer paints over. */
     public const COVERED_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-covered-fill-image';
+    /** A positioned sibling layer whose box covers an earlier fill image's whole box. */
+    public const IMAGE_COVERING_LAYER_CLASS = 'blocks-engine-image-covering-layer';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
@@ -136,6 +138,7 @@ final class SourceBlockAttributeProjector
         $sourceTagName = strtolower($sourceElement->tagName);
         $attrs = $this->withHostRenderedFormIdentity($name, $attrs, $sourceElement, $context);
         $attrs = $this->withSyntheticImageFigureClasses($name, $attrs, $sourceElement, $sourceTagName, $facts);
+        $attrs = $this->withImageCoveringLayerClass($attrs, $sourceElement);
         $attrs = $this->withInlineImageAlignment($name, $attrs, $innerBlocks, $sourceElement);
         $attrs = $this->withVideoSizeHints($name, $attrs, $sourceElement, $sourceTagName, $context);
         $attrs = $this->withInlineParagraphCarrierClasses($name, $attrs, $sourceElement, $sourceTagName, $facts, $context);
@@ -649,24 +652,68 @@ final class SourceBlockAttributeProjector
     }
 
     /**
-     * A later absolutely positioned sibling paints over an image that fills
-     * their shared parent (a scrim with a caption, a play button over a
+     * A later absolutely positioned sibling paints over the whole of an image
+     * that fills their shared parent (a scrim with a caption, a tint over a
      * poster). It is the front end's design, but in the editor that layer is
      * a block whose box covers the image block, so every click on the image
-     * selects the layer and the image can never be selected or replaced.
+     * selects the layer and the image can never be selected or replaced. A
+     * layer that covers only part of the image (a centered device frame, a
+     * corner badge) leaves the rest of the image clickable.
      */
     private function laterSiblingIsPositionedLayer(DOMElement $image): bool
     {
         for ( $sibling = $image->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
-            if ( ! $sibling instanceof DOMElement ) {
-                continue;
-            }
-            $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($sibling)['position'] ?? ''));
-            if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            if ( $sibling instanceof DOMElement && $this->positionedLayerCoversContainingBlock($sibling) ) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Mark the covering layer itself, so only it moves into editor flow after
+     * a covered image. Every other positioned sibling keeps its geometry.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withImageCoveringLayerClass(array $attrs, DOMElement $sourceElement): array
+    {
+        for ( $sibling = $sourceElement->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
+            // Re-ingested output has the covered figure, not the bare image.
+            if ( $sibling instanceof DOMElement && ( $this->sourceImageFillsParent($sibling) || SourceDom::hasClass($sibling, self::COVERED_FILL_IMAGE_FIGURE_CLASS) ) ) {
+                if ( $this->positionedLayerCoversContainingBlock($sourceElement) ) {
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::IMAGE_COVERING_LAYER_CLASS);
+                }
+                break;
+            }
+        }
+        return $attrs;
+    }
+
+    /**
+     * An absolutely positioned box whose extent is its containing block's:
+     * all four insets pinned to zero, or a full width and height from a
+     * pinned top-left corner.
+     */
+    private function positionedLayerCoversContainingBlock(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( ! in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::declared($declarations, 'inset'));
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $index => $side ) {
+            $value = CssValueInspector::declared($declarations, $side);
+            $sides[ $index ] = '' === $value ? $sides[ $index ] : $value;
+        }
+        $zero = static fn (string $value): bool => '' !== $value && CssValueInspector::isZeroLength($value);
+        if ( 4 === count(array_filter($sides, $zero)) ) {
+            return true;
+        }
+        return $zero($sides[0]) && $zero($sides[3])
+            && '100%' === CssValueInspector::declared($declarations, 'width')
+            && '100%' === CssValueInspector::declared($declarations, 'height');
     }
 
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool

@@ -185,9 +185,11 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS) ) {
             // The converse of a layer fill image: a later positioned layer
-            // paints over an in-flow fill image. Put that layer in editor flow
+            // paints over the whole fill image. Put that layer in editor flow
             // after the image, so a click on the image reaches the image block.
-            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}';
+            // Other positioned siblings (a centered frame, a corner badge)
+            // cover only part of the image and keep their geometry.
+            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block.' . SourceBlockAttributeProjector::IMAGE_COVERING_LAYER_CLASS . '{position:static!important;inset:auto!important}';
         }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line

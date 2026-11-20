@@ -265,6 +265,18 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A flex row whose items are all content-sized (none grows, and the
+        // media declares no percentage width) leaves free space that the
+        // author distributes with `justify-content` -- a brand/logo link and
+        // an action pushed to opposite ends of a header bar. core/media-text
+        // has no free space: its two grid tracks always fill the row, so the
+        // panes stretch and the distribution is lost (and in the editor the
+        // media column takes the full row inside the author flex layout).
+        // Keep the authored row through native group lowering.
+        if ( 'flex' === $displayType && $this->distributesFreeSpaceBetweenContentSizedPanes($containerStyle, $childStyles[ $textIndex ], $childStyles[ $mediaIndex ]) ) {
+            return null;
+        }
+
         // Media & Text replaces flex items with percentage grid tracks and
         // adds its own content padding. A gap, bounded column, or unequal
         // growing columns therefore cannot keep its authored geometry. Nor
@@ -972,6 +984,17 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return 0.0 < $this->flexGrow($textStyle)
             && 0.0 >= $this->flexGrow($mediaStyle)
             && null === $this->mediaWidthFromMediaStyle($mediaStyle);
+    }
+
+    private function distributesFreeSpaceBetweenContentSizedPanes(string $containerStyle, string $textStyle, string $mediaStyle): bool
+    {
+        if ( 0.0 < $this->flexGrow($textStyle) || 0.0 < $this->flexGrow($mediaStyle) || null !== $this->mediaWidthFromMediaStyle($mediaStyle) ) {
+            return false;
+        }
+
+        $justify = strtolower($this->normalizedCssValue((string) ($this->styleDeclarations($containerStyle)['justify-content'] ?? '')));
+
+        return in_array($justify, array( 'space-between', 'space-around', 'space-evenly' ), true);
     }
 
     private function flexGrow(string $style): float

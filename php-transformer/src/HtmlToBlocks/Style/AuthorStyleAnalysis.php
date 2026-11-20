@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
@@ -43,6 +45,9 @@ final class AuthorStyleAnalysis
     private array $styleRules = array();
     /** @var array<string, mixed>|null */
     private ?array $styleRuleCandidateIndex = null;
+    /** @var array<string, mixed>|null */
+    private ?array $subjectRuleCandidateIndex = null;
+    private ?string $subjectRuleCandidateCollection = null;
     /** @var array<string, true>|null */
     private ?array $captureOnlySelectors = null;
     /** @var list<array{parsed: array<string, mixed>, weight: list<int>}>|null */
@@ -132,8 +137,22 @@ final class AuthorStyleAnalysis
 
     /** Whole-site subject evidence, never stylesheet inventory. */
     public ?\Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner $siteSelectorPruner = null;
-    /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> */
-    public function stylesheetAssets(): array { return $this->stylesheetAssets; }
+    /**
+     * Analysis consumers can prune unreachable arms without changing authored
+     * provenance or the raw assets used for materialization.
+     *
+     * @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}>
+     */
+    public function stylesheetAssets(bool $pruned = false): array
+    {
+        if ( ! $pruned || null === $this->siteSelectorPruner ) return $this->stylesheetAssets;
+        return array_map(function (array $asset): array {
+            foreach ( array('content', 'cascade_content') as $key ) {
+                if ( isset($asset[$key]) ) $asset[$key] = $this->siteSelectorPruner->prune($asset[$key], true);
+            }
+            return $asset;
+        }, $this->stylesheetAssets);
+    }
     /** @return list<DOMElement> */
     public function sourceElementsByClass(string $class): array { return $this->sourceElementsByClass[$class] ?? array(); }
     /** @return list<string> */
@@ -169,6 +188,8 @@ final class AuthorStyleAnalysis
     {
         $this->styleRules = $rules;
         $this->styleRuleCandidateIndex = null;
+        $this->subjectRuleCandidateIndex = null;
+        $this->subjectRuleCandidateCollection = null;
         $this->captureOnlySelectors = null;
         $this->typeSubjectSelectors = null;
         $this->positionalParents = null;
@@ -179,6 +200,25 @@ final class AuthorStyleAnalysis
     public function styleRules(): array
     {
         return $this->styleRules;
+    }
+
+    /**
+     * Whole author rules in source order whose subjects could name the element.
+     * Unlike the projection index, retain all conditions and unsupported selectors.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function subjectRuleCandidates(DOMElement $element): array
+    {
+        $this->subjectRuleCandidateIndex ??= CssSubjectIndex::buildForSelectorLists(
+            $this->styleRules,
+            static fn (array $rule): array => array_map(
+                static fn (array $selector): array => $selector['parsed'] ?? array(),
+                $rule['selectors']
+            )
+        );
+        $this->subjectRuleCandidateCollection ??= CssSelectorMatchCache::uniqueCandidateCollection('author-subject-rules');
+        return $this->selectorMatchCache()->styleRuleCandidates($element, $this->subjectRuleCandidateCollection, $this->subjectRuleCandidateIndex);
     }
 
     /**
@@ -739,8 +779,20 @@ final class AuthorStyleAnalysis
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
     public function selectorCandidates(array $parsed): array
     {
-        $compounds = $parsed['compounds'] ?? array();
-        $rightmost = CssSelectorCompoundInspector::rightmost($compounds);
+        return $this->compoundCandidates(CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array())) ?? $this->sourceElements;
+    }
+
+    /**
+     * Elements that can match a subject compound, read from its smallest
+     * keyed index. A subject keyed only inside an `:is()`/`:where()` group
+     * matches through one of the group's alternatives, so it unions their
+     * candidates. Null when the compound has no key.
+     *
+     * @param array<string, mixed> $rightmost
+     * @return list<DOMElement>|null
+     */
+    private function compoundCandidates(array $rightmost): ?array
+    {
         $candidates = array();
         foreach ( $rightmost['ids'] ?? array() as $id ) {
             // A projected captured dialog stands in for the id's holder through
@@ -759,11 +811,27 @@ final class AuthorStyleAnalysis
                 $candidates[] = $this->sourceElementsByAttribute($name);
             }
         }
-        if ( array() === $candidates ) {
-            return $this->sourceElements;
+        if ( array() !== $candidates ) {
+            usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
+            return $candidates[0];
         }
-        usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
-        return $candidates[0];
+        foreach ( $rightmost['any'] ?? array() as $group ) {
+            $union = array();
+            foreach ( $group['alternatives'] ?? array() as $alternative ) {
+                $compounds = $alternative['compounds'] ?? array();
+                $keyed = array() === $compounds ? null : $this->compoundCandidates(CssSelectorCompoundInspector::rightmost($compounds));
+                if ( null === $keyed ) {
+                    continue 2;
+                }
+                foreach ( $keyed as $element ) {
+                    $union[spl_object_id($element)] = $element;
+                }
+            }
+            if ( array() !== ($group['alternatives'] ?? array()) ) {
+                return array_values($union);
+            }
+        }
+        return null;
     }
 
     /** @return list<DOMElement> */
@@ -843,7 +911,7 @@ final class AuthorStyleAnalysis
     private static function rendersOnScreen(array $conditions): bool
     {
         foreach ( $conditions as $condition ) {
-            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! MediaCondition::targetsScreen($media[1]) ) {
                 return false;
             }
         }

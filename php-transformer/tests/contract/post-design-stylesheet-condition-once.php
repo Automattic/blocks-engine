@@ -23,10 +23,12 @@ foreach ($plan['pages'] as $page) if ('post' === $page['post_type']) $assert('si
 $bootstrap = '';
 foreach ($plan['writes'] as $write) if ('functions.php' === basename($write['target_path'])) $bootstrap = $write['payload']['data'];
 $assert('' !== $bootstrap, 'The generated bootstrap is published.');
-$condition = "(is_singular( 'post' ) && '' === get_page_template_slug( get_queried_object_id() ))";
+// The request numbers its design once; a shared sheet lists design numbers.
+$assert(1 === preg_match("/\\$blocks_engine_design_scope = .*\\[''=>([0-9]+)/", $bootstrap, $design), 'The single design is numbered once per request.');
+$condition = 'in_array( $blocks_engine_design_scope, [' . $design[1] . '], true )';
 $enqueues = array_filter(explode("\n", $bootstrap), static fn (string $line): bool => str_contains($line, 'wp_enqueue_style') && str_contains($line, $condition));
 $assert(array() !== $enqueues, 'Support CSS shared by the posts is selected by the single design.');
-foreach ($enqueues as $line) $assert(1 === substr_count($line, $condition), 'Each enqueue tests the single design once, not once per post.');
+foreach ($enqueues as $line) $assert(1 === substr_count($line, '$blocks_engine_design_scope') && !str_contains($line, 'get_page_template_slug'), 'Each enqueue tests the single design once, not once per post.');
 $assert(1 === preg_match('/\$blocks_engine_presentation_scopes_rows = (.*);/', $bootstrap, $rows), 'The editor scope table is published.');
 $assert(1 === substr_count($rows[1], "'kind'=>'post_template'"), 'The single design has one editor scope, not one per post.');
 $assert(!str_contains($rows[1], "'source_path'=>'post-"), 'A post design editor scope names its template, not a member post.');

@@ -11,4 +11,7 @@ interface ChromeJournalStore
 
     /** @param array<string,mixed> $journal */
     public function record(string $key, array $journal): void;
+
+    /** Notes that a page reached $key; whether one had before. */
+    public function sighted(string $key): bool;
 }

@@ -59,14 +59,6 @@ final class QuotePatternContext
                 $declarations[$property] = $value;
             }
         }
-        // A figcaption is a block box. A typography span left inline inside
-        // the native cite still participates in its parent's larger line box:
-        // small captions then increase the figure height and shift everything
-        // below it. Keep the native quote topology, but give styled caption
-        // content its own line box instead of lowering the entire figure.
-        if (array() !== $declarations) {
-            $declarations = array('display' => 'block') + $declarations;
-        }
         $style = $this->styleResolver->cssDeclarationString($declarations);
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
