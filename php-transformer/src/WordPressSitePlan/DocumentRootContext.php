@@ -32,6 +32,32 @@ final class DocumentRootContext
         return preg_split('/[\x20\t\r\n\f]+/', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: array();
     }
 
+    /**
+     * Route classes (`be-r-…`) and route-set classes (`be-rs-…`) exist only
+     * for the CSS that gates rules on them. A class no published stylesheet
+     * or markup names matches nothing, so the root registry drops it and the
+     * routes that differed only by it share one attribute body. The bare
+     * `be-r` marker stays: route gates also match it.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param list<string> $sources Every published stylesheet and markup source.
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withoutUnreferencedRouteClasses(array $pages, array $sources): array
+    {
+        preg_match_all('/be-rs?-[0-9a-f]+/', implode("\n", $sources), $found);
+        $referenced = array_fill_keys($found[0], true);
+        foreach ($pages as &$page) {
+            $class = $page['document_metadata']['root_attributes']['class'] ?? null;
+            if (!is_string($class)) continue;
+            $tokens = array_values(array_filter(preg_split('/[\x20\t\r\n\f]+/', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: array(), static fn(string $token): bool => 1 !== preg_match('/^be-rs?-[0-9a-f]+$/', $token) || isset($referenced[$token])));
+            $page['document_metadata']['root_attributes']['class'] = implode(' ', $tokens);
+            if (array() === $tokens) unset($page['document_metadata']['root_attributes']['class']);
+        }
+        unset($page);
+        return $pages;
+    }
+
     /** Stable per-document route class from the compile-time source identity, used by CSS and the root registry alike. */
     public static function routeClass(string $identity, int $length = 8): string
     {
@@ -172,7 +198,9 @@ PHP;
             self::assertValid($attributes);
             self::assertValid($bodyAttributes);
             if (!empty($page['synthetic'])) continue;
-            $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => SourceClassIdentity::projectRoot($attributes), 'body_attributes' => SourceClassIdentity::projectRoot($bodyAttributes));
+            // A post matches by identity alone: neither an archive path nor a
+            // page URI can name it, so its route path is not emitted.
+            $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => 'post' === ($page['post_type'] ?? null) ? null : trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => SourceClassIdentity::projectRoot($attributes), 'body_attributes' => SourceClassIdentity::projectRoot($bodyAttributes));
         }
         if (array() === $rows) return '';
         $links = self::archiveLinks(array_values(array_filter($pages, static fn(array $page): bool => !isset($page['post_type']))));
@@ -281,8 +309,9 @@ PHP;
         unset($row);
         return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback, \$blocks_engine_document_hooks;\n"
             . BootstrapData::table('blocks_engine_document_attribute_bodies', $bodies) . "\n"
-            . '$blocks_engine_document_rows = ' . var_export($rows, true) . ";\n"
-            . 'foreach ( $blocks_engine_document_rows as &$row ) foreach ( array( \'attributes\', \'body_attributes\' ) as $field ) $row[ $field ] = $blocks_engine_document_attribute_bodies[ $row[ $field ] ]; unset( $row );' . "\n"
+            // One positional row per route; the loop restores the keyed rows.
+            . '$blocks_engine_document_rows = array();' . "\n"
+            . 'foreach ( ' . BootstrapData::literal(array_map(static fn(array $row): array => array($row['identity'], $row['path'], $row['front_page'] ? 1 : 0, $row['attributes'], $row['body_attributes']), $rows)) . ' as [$identity, $path, $front_page, $attributes, $body_attributes] ) $blocks_engine_document_rows[] = array( \'identity\' => $identity, \'path\' => $path, \'front_page\' => 1 === $front_page, \'attributes\' => $blocks_engine_document_attribute_bodies[ $attributes ], \'body_attributes\' => $blocks_engine_document_attribute_bodies[ $body_attributes ] );' . "\n"
             . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"
             . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( $blocks_engine_document_rows, null, \'identity\' ) );' . "\n"
             . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n" . $registered . $links;

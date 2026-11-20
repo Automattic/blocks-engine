@@ -79,6 +79,7 @@ $blocks = $result->toArray()['serialized_blocks'];
 $plan = $result->toWordPressSitePlanView()['wordpress_site_plan'];
 $assert(1 === preg_match_all('/<figure class="[^"]*\bblocks-engine-covered-fill-image\b/', $blocks), 'Only the fill image under a positioned layer is marked as covered.');
 $assert(1 === preg_match('/<figure class="[^"]*\bblocks-engine-covered-fill-image\b[^"]*"><img[^>]*spread\.jpg/', $blocks), 'The covered image is the one the scrim paints over.');
+$assert(1 === preg_match('/class="[^"]*\bscrim\b[^"]*\bblocks-engine-image-covering-layer\b|class="[^"]*\bblocks-engine-image-covering-layer\b[^"]*\bscrim\b/', $blocks), 'The scrim is marked as the layer covering the image.');
 $assets = array_column($plan['assets'], null, 'target_path');
 $editor = '';
 $frontend = '';
@@ -87,6 +88,6 @@ foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) {
     if ('frontend' !== $row['stylesheet_target']) $editor .= $content;
     if ('editor' !== $row['stylesheet_target']) $frontend .= $content;
 }
-$rule = ':root .editor-styles-wrapper figure.blocks-engine-covered-fill-image~.block-editor-block-list__block{position:static!important;inset:auto!important}';
+$rule = ':root .editor-styles-wrapper figure.blocks-engine-covered-fill-image~.block-editor-block-list__block.blocks-engine-image-covering-layer{position:static!important;inset:auto!important}';
 $assert(str_contains($editor, $rule), 'The editor puts the layer after a covered image in flow, so a click on the image selects it.');
 $assert(!str_contains($frontend, 'blocks-engine-covered-fill-image'), 'The front end keeps the captured layer over the image.');

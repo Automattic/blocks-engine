@@ -111,7 +111,26 @@ final class NavigationStyleProjector
         ) {
             $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
             $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
-                . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
+                . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){visibility:visible!important}';
+            // Restoring a box changes layout, so limit it to the carriers an
+            // author rule actually removes. Forcing every image carrier to
+            // `display:block` dropped flex centring from icon badges the
+            // source never hides, whenever any unrelated rule hid anything.
+            // Selectors from author sheets stay with the author-coupled
+            // repairs; box-tree evidence restates a hidden source box on its
+            // geometry carrier class, which is engine markup.
+            foreach ( self::hiddenImageCarrierBoxRules(
+                array( $this->session->authorStyleAnalysis()->combinedCss(), $projectedAuthorCss, $this->editorAnchorProjectionCss($projectedAuthorCss) ),
+                $image
+            ) as $boxRule ) {
+                $rules[] = $boxRule;
+            }
+            foreach ( self::hiddenImageCarrierBoxRules(
+                array( $this->session->layoutGeometryState()->cssForSerializedBlocks($serializedBlocks) ),
+                $image
+            ) as $boxRule ) {
+                $engineRules[] = $boxRule;
+            }
         }
         // An inline layout carrier is `display:contents` so its inline content
         // lays out in the source's own box. In the editor that paragraph is
@@ -288,6 +307,57 @@ final class NavigationStyleProjector
                 $rules[$rule] = $rule;
             }
         );
+
+        return array_values($rules);
+    }
+
+    /**
+     * Give an image's direct group carrier a box in the editor only where an
+     * author `display:none` rule removes that carrier.
+     *
+     * The hiding rule's own selector, under its own conditions, decides which
+     * groups are restored: a carrier the source hides until a runtime reveals
+     * it is matched, and any other carrier keeps its authored display.
+     *
+     * @param list<string> $stylesheets
+     * @return list<string>
+     */
+    private static function hiddenImageCarrierBoxRules(array $stylesheets, string $image): array
+    {
+        $selectorsByConditions = array();
+        foreach ( $stylesheets as $stylesheet ) {
+            if ( ! preg_match('/display\s*:\s*none/i', $stylesheet) ) {
+                continue;
+            }
+            ( new CssStylesheetTransformer() )->visitStyleRules(
+                $stylesheet,
+                static function (string $prelude, string $body, array $ancestors) use (&$selectorsByConditions): void {
+                    $display = strtolower(trim((string) ( SourceDeclarations::parse($body)['display'] ?? '' )));
+                    if ( 'none' !== trim((string) preg_replace('/\s*!\s*important$/', '', $display)) ) {
+                        return;
+                    }
+                    $key = implode('{', $ancestors);
+                    foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                        $selector = trim($selector);
+                        if ( '' === $selector || str_contains($selector, '::') || 1 === preg_match('/:(?:before|after|first-line|first-letter)(?![\w-])/i', $selector) ) {
+                            continue;
+                        }
+                        $selectorsByConditions[$key]['ancestors'] = $ancestors;
+                        $selectorsByConditions[$key]['selectors'][$selector] = true;
+                    }
+                }
+            );
+        }
+
+        $rules = array();
+        foreach ( $selectorsByConditions as $entry ) {
+            $rule = ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '):is('
+                . implode(',', array_keys($entry['selectors'])) . '){display:block!important}';
+            foreach ( array_reverse($entry['ancestors']) as $ancestor ) {
+                $rule = $ancestor . '{' . $rule . '}';
+            }
+            $rules[$rule] = $rule;
+        }
 
         return array_values($rules);
     }

@@ -1438,7 +1438,7 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     $termRootRows = array_column($blocks_engine_document_roots, null, 'path');
     $tagRoot = $termRootRows['tag/ai'] ?? array();
     $expectedTagBody = \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::projectRoot(array('class' => 'archive tag tag-ai tag-970'));
-    $assert($expectedTagBody === ($tagRoot['body_attributes'] ?? null) && !empty($tagRoot['identity']) && str_contains($tagRoot['attributes']['class'] ?? '', 'be-r-'), 'Projected tag archives retain their canonical path, root attributes, body source classes and identity in the emitted registry.');
+    $assert($expectedTagBody === ($tagRoot['body_attributes'] ?? null) && !empty($tagRoot['identity']) && in_array('be-r', explode(' ', $tagRoot['attributes']['class'] ?? ''), true), 'Projected tag archives retain their canonical path, root attributes, body source classes and identity in the emitted registry.');
     // Select the tag block explicitly; other captured documents may precede it.
     preg_match("/if \\( ('tag\\/ai' === blocks_engine_archive_path\\(\\)) \\) /", $termIdentityBootstrap, $archiveStyleMatch);
     $assert(isset($archiveStyleMatch[1]), 'A captured tag archive emits an ordered instance stylesheet route block.');

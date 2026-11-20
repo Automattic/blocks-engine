@@ -38,6 +38,13 @@ final class ScrollStateScript
             applyState( element, config, window.scrollY > threshold );
         }
         window.addEventListener( 'scroll', function() {
+            // Only restoration needs to bypass the rendering clock. Keep the
+            // captured scrolled pose frame-scheduled as before; replaying it
+            // earlier can override other scroll-driven presentation.
+            if ( window.scrollY <= threshold ) {
+                applyState( element, config, false );
+                return;
+            }
             if ( ticking ) return;
             ticking = true;
             window.requestAnimationFrame( update );

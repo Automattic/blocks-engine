@@ -34,11 +34,17 @@ final class EditorCanvasBodyBackground
     public const RULE = ':root body.editor-styles-wrapper{background-color:revert-layer}';
     public const TRANSPARENT_BODY_RULE = ':root body{background-color:transparent;background-image:none}';
 
-    /** @param array<string, string>|null $bodyDeclarations Resolved source author declarations. */
-    public function supportCss(string $stylesheet, ?array $bodyDeclarations = null, bool $htmlOwnedCanvas = false): string
+    /**
+     * @param array<string, string>|null $bodyDeclarations Resolved source author declarations.
+     * @param bool $ownsBody Whether this compile's body is the route's document body. A shared
+     *                       shell is compiled in a synthetic document that keeps only the
+     *                       stylesheets common to its member routes, so the margin its body
+     *                       resolves is no member's; each member route restores its own.
+     */
+    public function supportCss(string $stylesheet, ?array $bodyDeclarations = null, bool $htmlOwnedCanvas = false, bool $ownsBody = true): string
     {
         if ($htmlOwnedCanvas) {
-            return self::TRANSPARENT_BODY_RULE . $this->supportCss($stylesheet, $bodyDeclarations);
+            return self::TRANSPARENT_BODY_RULE . $this->supportCss($stylesheet, $bodyDeclarations, false, $ownsBody);
         }
         $layered = false;
         $unlayered = false;
@@ -56,7 +62,7 @@ final class EditorCanvasBodyBackground
         });
 
         $css = $layered && ! $unlayered ? self::RULE : '';
-        if (null !== $bodyDeclarations && ! isset($bodyDeclarations['margin'])) {
+        if ($ownsBody && null !== $bodyDeclarations && ! isset($bodyDeclarations['margin'])) {
             $margin = '';
             foreach (array('top', 'right', 'bottom', 'left') as $side) {
                 $property = 'margin-' . $side;

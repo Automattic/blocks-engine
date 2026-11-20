@@ -32,7 +32,7 @@ foreach ( array(
     $assert(1 === substr_count($markup, '<!-- wp:navigation '), $variant . ': one navigation');
     preg_match('/<!-- wp:navigation (.*?) -->/', $markup, $match);
     $attrs = json_decode($match[1] ?? '{}', true);
-    $assert('mobile' === ($attrs['overlayMenu'] ?? null), $variant . ': Core provides the mobile menu');
+    $assert('never' === ($attrs['overlayMenu'] ?? null), $variant . ': the mobile list stays visible without a toggle');
 
     // Match projected author rules against Core's kept navigation host, not
     // the original UL: a leftover #menu-desktop rule alone is harmless.

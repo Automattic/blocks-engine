@@ -34,12 +34,25 @@ if (!$cite instanceof DOMElement
     || !$caption instanceof DOMElement
     || 'font-size:9px;font-weight:700;display:block' !== $caption->getAttribute('style')
     || $cite->hasAttribute('style')
-    || !str_contains($css, ' > cite{display:block}')
-    || preg_match('/ > cite\\{[^}]*font-/', $css)
+    || !str_contains($css, ' > cite{display:block;font-style:inherit}')
+    || preg_match('/ > cite\\{[^}]*(?:font-size|font-family|font-weight):/', $css)
     || 'Publication' !== $caption->textContent
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
     throw new RuntimeException('Consumed figcaption must retain an independent line box without restyling cite: ' . $result['serialized_blocks']);
+}
+// The generated cite must not impose its UA italic style. Inheritance also
+// preserves an italic figure, while an explicitly styled caption wins locally.
+foreach (array('figure{font-style:italic}', 'figcaption{font-style:italic}') as $style) {
+    $styled = (new HtmlTransformer())->transform(
+        '<style>' . $style . 'figcaption{font-size:9px}</style>'
+        . '<figure><blockquote>A review</blockquote><figcaption>Author</figcaption></figure>'
+    )->toArray();
+    $styledCss = implode("\n", array_column(array_filter($styled['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+    if (!str_contains($styledCss, ' > cite{display:block;font-style:inherit}')
+        || ('figcaption{font-style:italic}' === $style && !str_contains($styled['blocks'][0]['attrs']['citation'], 'font-style:italic'))) {
+        throw new RuntimeException('Caption flow must preserve source font style, including authored italics');
+    }
 }
 // Existing citations and pullquotes do not have this direct-child caption topology.
 foreach (array(
@@ -50,7 +63,7 @@ foreach (array(
 ) as $html) {
     $control = (new HtmlTransformer())->transform($html)->toArray();
     $controlCss = implode("\n", array_column(array_filter($control['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-    if (str_contains($controlCss, ' > cite{display:block}')
+    if (str_contains($controlCss, ' > cite{display:block')
         || str_contains($control['serialized_blocks'], 'testimonial-card be-inline-geometry-')) {
         throw new RuntimeException('Caption flow rule must not restyle existing citations or pullquotes');
     }

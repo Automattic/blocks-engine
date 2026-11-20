@@ -385,9 +385,10 @@ final class SitePlanRun
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
         $assets = EmptyStylesheets::describingWrites($assets, $assetWrites);
+        ['assets' => $assets, 'writes' => $assetWrites] = EmptyStylesheets::withoutEmptyImports($assets, $assetWrites);
         // Bytes and delivery are final: a sheet left empty is neither written
         // nor enqueued, unless it still carries route selection or a reference.
-        $emptyStylesheets = EmptyStylesheets::elide($assets, array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus), $pages, $rootDocuments, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme']), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        $emptyStylesheets = EmptyStylesheets::elide($assets, array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus), $pages, $rootDocuments, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme']), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE), $assetWrites);
         ['assets' => $assets, 'document_sets' => ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus]] = $emptyStylesheets;
         $tokens = array_values(array_filter($tokens, static fn(array $token): bool => !isset($emptyStylesheets['tokens'][$token['token']])));
         $keptTargets = array_fill_keys(array_column($assets, 'target_path'), true);
@@ -460,7 +461,7 @@ final class SitePlanRun
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $this->input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge($this->runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'bootstrap_units' => $bootstrap['units'], 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $this->input->fontMaterialization ? array() : array('font_materialization' => $this->input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($this->compiled['source_css_bytes'] ?? 0))))),
+            'theme' => array_merge($this->runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'bootstrap_units' => $bootstrap['units'], 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $this->input->fontMaterialization ? array() : array('font_materialization' => $this->input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('literal_preset_colors' => $this->designSystem->literalPresetColors(self::markupsByDocument($pages, $templates, $parts)), 'metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($this->compiled['source_css_bytes'] ?? 0))))),
             'visual_repair' => $this->compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -554,7 +555,7 @@ final class SitePlanRun
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
-            $content = $this->presetBinding->bindStylesheet($asset['content']);
+            $content = $this->presetBinding->bindStylesheet($asset['content'], array_values(array_unique(array_map('strval', array_column($asset['stylesheet_instances'] ?? array(), 'source_path')))));
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
@@ -683,14 +684,14 @@ final class SitePlanRun
     {
         $documentsBySource = array_column($documents, null, 'source_path');
         foreach ($pages as &$page) {
-            $bound = $this->presetBinding?->bind($page['canonical_block_markup']);
+            $bound = $this->presetBinding?->bind($page['canonical_block_markup'], $page['source_path']);
             if (null === $bound || $bound === $page['canonical_block_markup']) continue;
             $page['canonical_block_markup'] = $bound;
             $page['content_hash'] = WordPressSitePlan::contentHash($bound);
             $document = $documentsBySource[$page['source_path']] ?? null;
             if (!is_array($document) || !isset($page['shell_candidates'])) continue;
             foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
-                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
+                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup'], $page['source_path']);
             }
             $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $bound);
         }
@@ -855,6 +856,8 @@ final class SitePlanRun
                 if (is_string($document['modified_timestamp'] ?? null)) $row['modified_timestamp'] = $document['modified_timestamp'];
                 if (is_string($document['author_name'] ?? null)) $row['author_name'] = $document['author_name'];
             }
+            // A proven empty source body keeps its empty content; the contract admits it only with this proof.
+            if ( ! $part && '' === trim($canonical) && DocumentIdentity::hasEmptySourceBody($document) ) $row['empty_source_body'] = true;
             if ( ! $part ) $row['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $canonical);
             $rows[] = $row;
         }
@@ -870,6 +873,19 @@ final class SitePlanRun
      * @param array<int,array<string,mixed>> $documents
      * @return list<string>
      */
+    /**
+     * @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $templates @param array<int,array<string,mixed>> $parts
+     * @return array<string,string> Canonical block markup by document identity (`page:<source path>`, `template:<slug>`, `part:<slug>`).
+     */
+    private static function markupsByDocument(array $pages, array $templates, array $parts): array
+    {
+        $markups = array();
+        foreach (array('page' => array($pages, 'source_path'), 'template' => array($templates, 'slug'), 'part' => array($parts, 'slug')) as $kind => [$documents, $key]) {
+            foreach ($documents as $document) if (is_string($document['canonical_block_markup'] ?? null)) $markups[$kind . ':' . (string) ($document[$key] ?? '')] = $document['canonical_block_markup'];
+        }
+        return $markups;
+    }
+
     private static function markups(array $documents): array
     {
         return array_values(array_filter(array_column($documents, 'canonical_block_markup'), 'is_string'));
