@@ -595,6 +595,17 @@ PHP;
             break;
         }
         self::serve($lines, $served, $units, 'template_frame');
+        // A captured page owns its source column inside post-content. A new
+        // page has no such wrapper: give its otherwise unconfigured slot the
+        // theme's native column without changing captured routes (including a
+        // front page which falls back to page.html). Explicit layouts and
+        // hoisted template frames already own their geometry.
+        $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
+        $lines[] = "    if ( 'core/post-content' !== ( \$block['blockName'] ?? null ) || ! is_singular( 'page' ) || isset( \$block['attrs']['layout'] ) || str_contains( (string) ( \$block['attrs']['className'] ?? '' ), '" . WordPressSitePlan::FRAME_CONTENT_CLASS . "' ) || '' !== (string) get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true ) ) return \$block;";
+        $lines[] = "    \$block['attrs']['layout'] = array( 'type' => 'constrained', 'contentSize' => wp_get_global_settings( array( 'layout', 'contentSize' ) ) ?: '65ch' );";
+        $lines[] = "    return \$block;";
+        $lines[] = "} );";
+        self::serve($lines, $served, $units, 'authored_page_layout');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
         }
