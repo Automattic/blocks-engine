@@ -31,13 +31,27 @@ final class DirectoryChromeJournalStore implements ChromeJournalStore
     public function record(string $key, array $journal): void
     {
         $this->read->record($key, $journal);
-        if (!is_dir($this->directory) && !mkdir($this->directory, 0777, true) && !is_dir($this->directory)) return;
+        if (!$this->directory()) return;
         $temporary = $this->path($key) . '.' . bin2hex(random_bytes(4));
         if (false !== file_put_contents($temporary, serialize($journal))) rename($temporary, $this->path($key));
     }
 
-    private function path(string $key): string
+    /** Workers racing on a first sighting may each convert without recording. */
+    public function sighted(string $key): bool
     {
-        return rtrim($this->directory, '/') . '/' . preg_replace('/[^a-f0-9]/', '', $key) . '.journal';
+        $path = $this->path($key, 'sighted');
+        if (is_file($path)) return true;
+        if ($this->directory()) touch($path);
+        return false;
+    }
+
+    private function directory(): bool
+    {
+        return is_dir($this->directory) || mkdir($this->directory, 0777, true) || is_dir($this->directory);
+    }
+
+    private function path(string $key, string $extension = 'journal'): string
+    {
+        return rtrim($this->directory, '/') . '/' . preg_replace('/[^a-f0-9]/', '', $key) . '.' . $extension;
     }
 }

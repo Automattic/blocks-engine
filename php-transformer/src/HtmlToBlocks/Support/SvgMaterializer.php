@@ -242,7 +242,18 @@ final class SvgMaterializer implements SvgElementMaterializer
             return null;
         }
 
-        return $this->createBlock->createBlock('core/image', $attrs, array(), $element);
+        $block = $this->createBlock->createBlock('core/image', $attrs, array(), $element);
+        // Like a lowered <img>, core/image saves the SVG's classes and id on
+        // its <figure>; an author subject naming the SVG by them must find
+        // that figure, which now owns the SVG's outer box.
+        $this->session->authorSelectorProjectionState()->recordImageFigure(
+            $element->getNodePath() ?? '',
+            (string) ( $block['attrs']['className'] ?? '' ),
+            (string) ( $block['attrs']['anchor'] ?? '' ),
+            false
+        );
+
+        return $block;
     }
 
     /**
