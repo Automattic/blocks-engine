@@ -1586,7 +1586,8 @@ final class SharedChromeStylesheets
                 $index = $emitted['index'];
                 $existing = $projected[$index];
                 if ($emitted['contract'] !== $contract
-                    || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], $referenceOrigin, $references)) continue;
+                    || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], $referenceOrigin, $references)
+                    || self::consolidationSpansRouteRules($projected, $existing, $shared, self::stylesheetProjectionOrigin($asset))) continue;
                 $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
                 $existing = CompiledAssets::withRewrittenTextContent($existing, $combined);
                 $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $combined), 0, 16) . '.css';
@@ -1598,6 +1599,69 @@ final class SharedChromeStylesheets
             }
         }
         return false;
+    }
+
+    /**
+     * Whether folding $shared, lifted from $origin, into the shared asset
+     * $existing would move a lifted rule past a route rule it competes with.
+     * A consolidated asset loads once per condition, after the last of its
+     * source stylesheets a document applies. On a document applying both
+     * sources, a route rule loaded between them would then load before the
+     * earlier slice instead of after it, and lose to it on equal specificity
+     * although it won by source order. A route rule competes when it declares
+     * a property the slices declare (a shorthand and its longhands overlap).
+     *
+     * @param array<int,array<string,mixed>> $projected
+     * @param array<string,mixed> $existing
+     * @param array{source_path:string,scopes:array<int,array<string,mixed>>} $origin
+     */
+    private static function consolidationSpansRouteRules(array $projected, array $existing, string $shared, array $origin): bool
+    {
+        $sources = array_flip(array_column($existing['_stylesheet_projection_origins'] ?? array(), 'source_path'));
+        $positions = array();
+        $routeSheets = array();
+        foreach ($projected as $index => $asset) {
+            if ('css' !== ($asset['kind'] ?? null)) continue;
+            $source = (string) ($asset['source_path'] ?? '');
+            $side = $source === $origin['source_path'] ? 'new' : (isset($sources[$source]) ? 'emitted' : null);
+            $rules = is_string($asset['content'] ?? null) && '' !== trim($asset['content']) && StylesheetActivation::active($asset);
+            foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                $document = (string) ($instance['source_path'] ?? '');
+                $order = (int) ($instance['order'] ?? 0);
+                if (null !== $side) $positions[$document][$side][] = $order;
+                if ($rules) $routeSheets[$document][$order] = $index;
+            }
+        }
+        $lifted = null;
+        $declared = array();
+        foreach ($positions as $document => $sides) {
+            if (!isset($sides['new'], $sides['emitted'])) continue;
+            $all = array_merge($sides['new'], $sides['emitted']);
+            $first = min($all);
+            $last = max($all);
+            foreach ($routeSheets[$document] ?? array() as $order => $index) {
+                if ($order <= $first || $order > $last) continue;
+                $lifted ??= self::declaredProperties((string) $existing['content'] . "\n" . $shared);
+                $declared[$index] ??= self::declaredProperties((string) $projected[$index]['content']);
+                foreach (array_keys($declared[$index]) as $property) {
+                    if (isset($lifted[$property]) || isset($lifted['all']) || 'all' === $property) return true;
+                    foreach (array_keys($lifted) as $other) {
+                        if (str_starts_with($property, $other . '-') || str_starts_with($other, $property . '-')) return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** @return array<string,true> Property names the stylesheet's style rules declare. */
+    private static function declaredProperties(string $css): array
+    {
+        $properties = array();
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body) use (&$properties): void {
+            foreach (CssRuleAnalyzer::declarationList($body) as $declaration) $properties[$declaration['name']] = true;
+        });
+        return $properties;
     }
 
     /**
