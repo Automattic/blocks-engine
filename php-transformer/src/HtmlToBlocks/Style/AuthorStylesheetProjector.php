@@ -2923,11 +2923,14 @@ final class AuthorStylesheetProjector
         }
         $objectFit = $this->explicitObjectFit($declarations);
         $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
-        // Bare image subjects still paint the leaf. A bridge must not reset
-        // their focal point from the synthetic figure, even in a later rule
-        // that does not itself declare object-position.
+        // Bare image subjects still paint the leaf, but the bridge is more
+        // specific than the authored selector. Replay its focal point here so
+        // figure/core defaults cannot win. Paint-only leaf rules must not
+        // reset it; moved subjects still inherit their figure-owned crop.
         if ( $inheritObjectPosition ) {
             $bridge[] = 'object-position:inherit';
+        } elseif ( isset($declarations['object-position']) ) {
+            $bridge[] = 'object-position:' . $declarations['object-position'];
         }
         if ( $inheritRadius ) {
             $bridge[] = 'border-radius:inherit';

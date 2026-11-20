@@ -25,12 +25,20 @@ preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css, $rules, PREG_SET_ORDER);
 $movedBridge = false;
 foreach ($rules as $rule) {
     if (!str_contains($rule[1], '> img')) continue;
-    if (str_contains($rule[1], '.frame ') && str_contains($rule[2], 'object-position:')) {
-        $fail('bare image bridge must not override the leaf focal point');
+    if (str_contains($rule[1], '.frame ') && str_contains($rule[2], 'object-position:inherit')) {
+        $fail('bare image bridge must not inherit over the leaf focal point');
     }
     if (str_contains($rule[1], '.portrait.wp-block-image') && str_contains($rule[2], 'object-position:inherit')) {
         $movedBridge = true;
     }
 }
 if (!$movedBridge) $fail('class-owned focal points must still inherit from the figure');
+foreach (array('center 25%', '20% 30%!important') as $position) {
+    $found = false;
+    foreach ($rules as $rule) {
+        if (str_contains($rule[1], '> img') && str_contains($rule[1], '.frame ')
+            && str_contains($rule[2], 'object-position:' . $position)) $found = true;
+    }
+    if (!$found) $fail('leaf focal point must be replayed on the higher-specificity bridge');
+}
 echo "Image leaf focal point cascade passed\n";
