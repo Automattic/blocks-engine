@@ -34,10 +34,11 @@ final class BoxTreeStyleProjector
      *        The source `<summary>` of a core/details, the same way, plus its pseudo-elements' lifted author values.
      * @param bool $inlineSupports Whether invariant declarations may become block style attributes. A block whose
      *        saved markup is built by hand (and so never serializes them) keeps every declaration in its carrier.
+     * @param array<string, array<string, mixed>>|null $domParents Observations of the DOM parent when it is not the block parent.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), array $summary = array(), bool $inlineSupports = true): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), array $summary = array(), bool $inlineSupports = true, ?array $domParents = null): array
     {
-        $attrs = $this->projectBlock($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $sourceTag, $image, $inlineSupports);
+        $attrs = $this->projectBlock($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $sourceTag, $image, $inlineSupports, $domParents);
         $caption = $image['caption'] ?? array();
         if ('core/image' === $blockName && array() !== ($caption['observations'] ?? array())) {
             $attrs = $this->projectRenderedElement($attrs, $caption['observations'], $viewports, $state, $caption['parents'] ?? array(), $caption['fluid'] ?? array(), false, self::SELECTOR . ' > figcaption.wp-element-caption', 'core/image', 'figcaption');
@@ -78,12 +79,12 @@ final class BoxTreeStyleProjector
     }
 
     /** {@see self::project()} for the block's own source element and an authored figure's image. */
-    private function projectBlock(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid, string $sourceTag, array $image, bool $inlineSupports): array
+    private function projectBlock(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid, string $sourceTag, array $image, bool $inlineSupports, ?array $domParents = null): array
     {
         $target = self::renderedElement($blockName, $attrs, $sourceTag);
         if (array() !== $observations) {
             $attrs = self::SELECTOR === $target
-                ? $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $inlineSupports)
+                ? $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $inlineSupports, $domParents)
                 : $this->projectRenderedElement($attrs, $observations, $viewports, $state, $parents, $fluid, true, $target, $blockName, $sourceTag, $pseudoFluid);
         }
         $imageObservations = $image['observations'] ?? array();
@@ -92,7 +93,7 @@ final class BoxTreeStyleProjector
     }
 
     /** One carrier for the block's own box, from its source element's observations. */
-    private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array(), bool $inlineSupports = true): array
+    private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array(), bool $inlineSupports = true, ?array $domParents = null): array
     {
         $keys = array_keys($observations);
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
@@ -101,7 +102,8 @@ final class BoxTreeStyleProjector
         $tagName = self::emittedTag($blockName, $attrs);
         foreach ($keys as $key) {
             $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
+            $domParent = null === $domParents ? null : ($domParents[$key]['used_styles'] ?? null);
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName, is_array($domParent) ? $domParent : null);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);

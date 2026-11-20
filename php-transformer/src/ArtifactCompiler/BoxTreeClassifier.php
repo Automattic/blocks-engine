@@ -121,8 +121,8 @@ final class BoxTreeClassifier
             }
             $referenced = isset($references[$element->getAttribute('id')]);
             $blockParent = $effective['nodes'][$blockParents[$id]] ?? null;
-            $criterion = self::criterion($element, $node, $effective, $blockParent, isset($containing[$id]), $referenced, $stateTargeted);
-            $disposition = 'equal-child-geometry' === $criterion ? 'neutral' : 'load-bearing';
+            $criterion = self::criterion($element, $node, $effective, $blockParent, isset($containing[$id]), $referenced, $stateTargeted, false, $effective['nodes'][$parent] ?? null);
+            $disposition = in_array($criterion, self::NEUTRAL_CRITERIA, true) ? 'neutral' : 'load-bearing';
             $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion);
             if ('semantics/id/anchor' === $criterion && self::isLinkCarrier($element, $referenced)) {
                 $stateCompounds ??= self::stateCompounds($dom);
@@ -191,7 +191,17 @@ final class BoxTreeClassifier
         ) : null);
     }
 
-    private static function criterion(DOMElement $element, array $node, array $tree, ?array $blockParent, bool $containing, bool $referenced, bool $stateTargeted = false, bool $linkCarried = false): string
+    /** Criteria that prove a box renders nothing its sole child does not. */
+    private const NEUTRAL_CRITERIA = array('equal-child-geometry', 'no-box');
+
+    /** Inherited properties a boxless custom element can still pass to its child. */
+    private const BOXLESS_INHERITED = array(
+        'color', 'cursor', 'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing', 'line-height',
+        'list-style-position', 'list-style-type', 'overflow-wrap', 'pointer-events', 'text-align', 'text-indent',
+        'text-shadow', 'text-transform', 'visibility', 'white-space', 'word-break', 'word-spacing',
+    );
+
+    private static function criterion(DOMElement $element, array $node, array $tree, ?array $blockParent, bool $containing, bool $referenced, bool $stateTargeted = false, bool $linkCarried = false, ?array $domParent = null): string
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
@@ -215,6 +225,19 @@ final class BoxTreeClassifier
         // to the outer layout already; comparing it to the wrapper's unused
         // placement values invents a Group boundary.
         if (self::boxlessContents($element, $node, $childNode)) return 'equal-child-geometry';
+        // A custom element captured as `display: contents` at every viewport
+        // generates no box: its child already takes the parent's layout, so
+        // neither placement nor geometry can differ without it. Only
+        // inherited values pass through it.
+        if (self::boxlessCustomElement($element, $node)) {
+            if (null === $domParent) return 'inherits';
+            foreach ($node['viewports'] as $viewport => $observation) {
+                foreach (self::BOXLESS_INHERITED as $property) {
+                    if (($observation['used_styles'][$property] ?? null) !== ($domParent['viewports'][$viewport]['used_styles'][$property] ?? null)) return 'inherits';
+                }
+            }
+            return 'no-box';
+        }
         $placement = self::placement($node, $childNode);
         if (null !== $placement) return $placement;
         foreach ($element->childNodes as $child) {
@@ -281,6 +304,21 @@ final class BoxTreeClassifier
         foreach (array('border-left', 'border-right') as $edge) $line -= (float) (self::borderWidth((string) ($p['used_styles'][$edge] ?? '')) ?? 0.0);
         $margins = (float) (self::pixels((string) ($node['viewports'][$viewport]['used_styles']['margin-left'] ?? '0px')) ?? 0.0) + (float) (self::pixels((string) ($node['viewports'][$viewport]['used_styles']['margin-right'] ?? '0px')) ?? 0.0);
         return abs((float) $box + $margins - $line) <= 0.5;
+    }
+
+    /**
+     * Whether an autonomous custom element generates no box at every captured
+     * viewport. A host carrying an author class keeps its transparent-hook
+     * lowering: the class can still give descendants selector context.
+     */
+    private static function boxlessCustomElement(DOMElement $element, array $node): bool
+    {
+        if (!self::isAutonomousCustomElement($element) || '' !== trim($element->getAttribute('class'))) return false;
+        if (array() === ($node['viewports'] ?? array())) return false;
+        foreach ($node['viewports'] as $observation) {
+            if ('contents' !== ($observation['used_styles']['display'] ?? null)) return false;
+        }
+        return true;
     }
 
     /** A single-child, non-interactive contents wrapper contributes no box. */
@@ -842,6 +880,16 @@ final class BoxTreeClassifier
         return null;
     }
 
+    /** Whether the element generates no box at every captured viewport. */
+    private static function boxless(array $node): bool
+    {
+        if (array() === ($node['viewports'] ?? array())) return false;
+        foreach ($node['viewports'] as $observation) {
+            if ('contents' !== ($observation['used_styles']['display'] ?? null)) return false;
+        }
+        return true;
+    }
+
     /** Names the HTML spec reserves despite the hyphen; they are not autonomous custom elements. */
     private const RESERVED_HYPHENATED_NAMES = array(
         'annotation-xml', 'color-profile', 'font-face', 'font-face-src', 'font-face-uri', 'font-face-format', 'font-face-name', 'missing-glyph',
@@ -849,7 +897,10 @@ final class BoxTreeClassifier
 
     /** Non-resting states: interaction pseudo-classes and runtime state attributes the capture replays. */
     private const STATE_PSEUDO_CLASS = '/(?<!:):(?:hover|focus-visible|focus-within|focus|active|checked|target)(?![\w(-])/i';
-    private const STATE_ATTRIBUTE = '/\[\s*data-interact-/i';
+    // data-interact-key is a stable selector identity, not a runtime state.
+    // It can scope resting rules too; a pseudo-class or another interaction
+    // attribute in the selector still protects the host as a state handle.
+    private const STATE_ATTRIBUTE = '/\[\s*data-interact-(?!key\s*(?:[~|^$*]?=|\]))/i';
     /** A `:not()` filter, with up to two levels of nested parentheses. */
     private const NEGATION = '/:not\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/i';
 

@@ -331,12 +331,15 @@ final class BoxTreeDeclarationPruner
      * @param array<string, string> $styles Observed used styles of one box.
      * @param array<string, string>|null $parent Observed used styles of the box it inherits from, if captured.
      * @param string $tagName The element the carrier lands on, when known.
+     * @param array<string, string>|null $domParent Observed used styles of the element's DOM parent, when that is
+     *        not $parent (a neutral box between them emits no block). The browser resolved `min-*: auto` against it.
      * @return array<string, string> Property => one of the class constants.
      */
-    public function classify(array $styles, ?array $parent, string $blockName = '', string $tagName = ''): array
+    public function classify(array $styles, ?array $parent, string $blockName = '', string $tagName = '', ?array $domParent = null): array
     {
         $display = strtolower($styles['display'] ?? '');
         $parentDisplay = null === $parent ? null : strtolower($parent['display'] ?? '');
+        $resolvedDisplay = null === $domParent ? $parentDisplay : strtolower($domParent['display'] ?? '');
         $protected = array_fill_keys(self::BLOCK_BASE_PROPERTIES[$blockName] ?? array(), true);
         $ownDefaults = array_fill_keys(array_merge(self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), self::BLOCK_INHERITED_DEFAULTS[$blockName] ?? array()), true);
         $zeroDefault = self::zeroDefaultSides($styles, $blockName, $tagName);
@@ -348,7 +351,7 @@ final class BoxTreeDeclarationPruner
                 $result[$property] = self::NOT_APPLICABLE;
                 continue;
             }
-            $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
+            $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, $resolvedDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
             if (self::KEPT === $result[$property] && isset($zeroDefault[$property]) && in_array(trim((string) $value), array('0', '0px'), true)) $result[$property] = self::INITIAL;
         }
         return $result;
@@ -374,7 +377,7 @@ final class BoxTreeDeclarationPruner
         return $sides;
     }
 
-    private function classifyOne(string $property, string $value, array $styles, ?array $parent, string $display, ?string $parentDisplay, bool $protected, bool $ownDefault): string
+    private function classifyOne(string $property, string $value, array $styles, ?array $parent, string $display, ?string $parentDisplay, ?string $resolvedDisplay, bool $protected, bool $ownDefault): string
     {
         if ('display' === $property) return self::KEPT;
         if ('' === $value || 'initial' === $value || 'inherit' === $value) return self::NOT_APPLICABLE;
@@ -385,7 +388,7 @@ final class BoxTreeDeclarationPruner
             return null !== $parent && isset($parent[$property]) && self::inheritedValue($property, (string) $parent[$property]) === self::inheritedValue($property, $value) ? self::INHERITED : self::KEPT;
         }
         if ($protected) return self::KEPT;
-        $initial = $this->isInitial($property, $value, $styles, $parentDisplay);
+        $initial = $this->isInitial($property, $value, $styles, $parentDisplay, $resolvedDisplay);
         if ($this->notApplicable($property, $initial, $styles, $display, $parentDisplay)) return self::NOT_APPLICABLE;
         if ($this->protectedInContext($property, $display)) return self::KEPT;
         return $initial ? self::INITIAL : self::KEPT;
@@ -426,7 +429,7 @@ final class BoxTreeDeclarationPruner
         return in_array($property, self::BACKGROUND_LAYER, true);
     }
 
-    private function isInitial(string $property, string $value, array $styles, ?string $parentDisplay): bool
+    private function isInitial(string $property, string $value, array $styles, ?string $parentDisplay, ?string $resolvedDisplay): bool
     {
         if (in_array($property, self::BORDERS, true) || 'outline' === $property) {
             // A side whose style is none, or whose width is zero, paints nothing.
@@ -436,9 +439,10 @@ final class BoxTreeDeclarationPruner
         if ('text-decoration-color' === $property) return $value === ($styles['color'] ?? null);
         // A relatively positioned box with zero offsets does not move.
         if (in_array($property, self::OFFSETS, true) && 'relative' === ($styles['position'] ?? null)) return 'auto' === $value || '0px' === $value;
-        // Outside a flex or grid parent `min-*: auto` resolves to zero.
+        // Outside a flex or grid DOM parent `min-*: auto` resolves to zero, even
+        // when that parent is `display: contents` and the box is a layout item.
         if (in_array($property, self::MIN_SIZE, true)) {
-            return 'auto' === $value || ('0px' === $value && null !== $parentDisplay && ! self::isFlex($parentDisplay) && ! self::isGrid($parentDisplay));
+            return 'auto' === $value || ('0px' === $value && null !== $resolvedDisplay && ! self::isFlex($resolvedDisplay) && ! self::isGrid($resolvedDisplay));
         }
         return in_array($value, self::INITIAL_VALUES[$property] ?? array(), true);
     }

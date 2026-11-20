@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Closure;
 use DOMElement;
 use WeakMap;
@@ -498,14 +499,18 @@ final class ReadableFormBlockBuilder
      * attribute is a presence marker: when no stylesheet, script or runtime
      * selector tests for it, it is inert, so dropping it loses nothing and
      * needs no generated block to keep it. A data attribute with a value
-     * carries data a Group cannot hold, so it keeps the shell.
+     * carries data a Group cannot hold, so it keeps the shell. An inline
+     * style is the Group's own presentation: the source block projection
+     * moves its declarations onto the Group's style and geometry carrier,
+     * as for any flow container. A custom property is the exception: it can
+     * feed descendants and the carrier does not restate it.
      */
     private function hasNativeContainerAttributes(DOMElement $element): bool
     {
         foreach ($element->attributes as $attribute) {
             $name = strtolower($attribute->name);
             if (in_array($name, array('class', 'id', BoxTree::NODE_ATTRIBUTE), true)
-                || ('style' === $name && '' === trim($attribute->value))) {
+                || ('style' === $name && ! $this->declaresCustomProperty($attribute->value))) {
                 continue;
             }
             if (str_starts_with($name, 'data-')
@@ -517,6 +522,14 @@ final class ReadableFormBlockBuilder
             return false;
         }
         return true;
+    }
+
+    private function declaresCustomProperty(string $style): bool
+    {
+        foreach (array_keys(SourceDeclarations::parse($style)) as $property) {
+            if (str_starts_with((string) $property, '--')) return true;
+        }
+        return false;
     }
 
     /**

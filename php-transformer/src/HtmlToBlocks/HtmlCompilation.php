@@ -2678,8 +2678,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 'pseudoFluid' => $summaryPseudoFluid,
             );
         }
+        // A neutral box between the element and its block parent emits no
+        // block, but the browser resolved `min-*: auto` against it.
+        $domParent = $sourceElement->parentNode;
+        $domParents = $domParent instanceof DOMElement && $domParent !== $blockParent ? $this->session->boxTreeEvidence($domParent) : null;
         $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
-        $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $summary, $inlineSupports);
+        $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $summary, $inlineSupports, $domParents);
         $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
         if ( '' !== $carrierNode ) {
             $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));
