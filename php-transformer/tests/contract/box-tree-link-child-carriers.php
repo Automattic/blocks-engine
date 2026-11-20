@@ -23,10 +23,11 @@ $author = 'body{margin:0;font-family:sans-serif;color:#111}'
     . '.brand{display:inline-flex;flex-direction:column;color:#111;text-decoration:none}'
     . '.brand strong{font:900 35px sans-serif}'
     . '.brand small{text-align:right;letter-spacing:8px;font-size:11px;margin-top:8px}'
-    . '@media(max-width:900px){.brand strong{font-size:28px}}';
+    . '@media(max-width:900px){.brand strong{font-size:28px}}'
+    . 'h1 em{font-style:italic;color:#a9a9a9}';
 $markup = '<!doctype html><html><head><meta charset="utf-8"><title>Brand</title><style>' . $author . '</style></head><body>'
     . '<header><a class="brand" href="/"><strong>MX<span>PERF</span></strong><small>BY ME</small></a></header>'
-    . '<main><p>Body copy.</p></main></body></html>';
+    . '<main><h1>IK BEN<br><em>GREY WORDS.</em></h1><p>Body copy.</p></main></body></html>';
 $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'tablet' => array('width' => 768, 'height' => 1024));
 
 // Used values the browser reports; the link's children are blockified flex items.
@@ -37,6 +38,9 @@ $observed = array(
     '//a[@class="brand"]/strong' => array('desktop' => $strong('35px', '160px'), 'tablet' => $strong('28px', '128px')),
     '//a[@class="brand"]/strong/span' => array('desktop' => array_replace($strong('35px', '80px'), array('display' => 'inline')), 'tablet' => array_replace($strong('28px', '64px'), array('display' => 'inline'))),
     '//a[@class="brand"]/small' => array_fill_keys(array_keys($viewports), $small),
+    // #7241: the em's carrier projects only its font-style; its colour is not a
+    // carrier property and must still reach the text.
+    '//h1/em' => array_fill_keys(array_keys($viewports), array('display' => 'inline', 'font-style' => 'italic', 'color' => 'rgb(169, 169, 169)', 'width' => '200px', 'height' => '40px')),
 );
 
 $fixture = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
@@ -125,3 +129,8 @@ $assert(!preg_match('/(?:margin|padding):0px/', $rule($strongCarrier[1])), 'Zero
 if (false !== ($target = getenv('BOX_TREE_LINK_CHILD_CARRIERS_ARTIFACT'))) {
     file_put_contents($target, json_encode(array('html' => '<!doctype html><html><head><style>' . $css . '</style></head><body>' . $blocks . '</body></html>'), JSON_THROW_ON_ERROR));
 }
+
+// #7241: the carrier-owned filter withholds only what a carrier projects; a
+// colour the em's carrier never states still reaches its text.
+$assert(1 === preg_match('/<em class="be-inline-geometry-[0-9a-f]+">(.*?)<\/em>/s', $blocks, $em), 'The em keeps its box-tree carrier.', $blocks);
+$assert(1 === preg_match('/(?:has-[\w-]+-color|color:\s*(?:#a9a9a9|rgb\(169, 169, 169\)))[^>]*>GREY WORDS\./i', $em[1]), 'The em text keeps the colour its carrier does not state.', $em[1]);

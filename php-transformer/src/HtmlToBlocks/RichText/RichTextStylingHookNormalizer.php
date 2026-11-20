@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\BoxTreeStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -459,8 +460,10 @@ final class RichTextStylingHookNormalizer
 
     /**
      * Declarations a descendant run of an element with box-tree carriers
-     * must not restate: inherited text styling, which the carriers state or
-     * deliberately leave to inheritance, and anything a carrier declares.
+     * must not restate: the inline typography a carrier projects, which it
+     * states or deliberately leaves to inheritance, and anything a carrier
+     * declares. Text styling a carrier never projects (a colour bound to a
+     * preset mark) still reaches the run.
      *
      * @param array<string, string> $declarations
      * @param list<string> $carriers
@@ -476,7 +479,7 @@ final class RichTextStylingHookNormalizer
             $property = (string) $property;
             $name = strtolower($property);
             $shorthand = strstr($name, '-', true);
-            if ( $this->descendantInheritsLinkDeclaration($name) || isset($carried[$name])
+            if ( in_array($name, BoxTreeStyleProjector::INLINE_TYPOGRAPHY, true) || isset($carried[$name])
                 || ( false !== $shorthand && isset($carried[$shorthand]) )
                 || array() !== array_filter(array_keys($carried), static fn(string $longhand): bool => str_starts_with($longhand, $name . '-')) ) {
                 unset($declarations[$property]);
