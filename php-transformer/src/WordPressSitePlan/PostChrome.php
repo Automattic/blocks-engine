@@ -739,18 +739,17 @@ final class PostChrome
             elseif (isset($featuredImages[$index])) $pages[$index]['metadata']['featured_image'] = $featuredImages[$index];
         }
         // A post's own template differs where it renders its own literal
-        // values (a hero image). Per-post evidence in block metadata and an
-        // optional block the shared template carries (a title) render from the
-        // post itself, so those posts render the shared template.
+        // values (a hero image). Per-post evidence in block metadata and post
+        // blocks (a title an untitled post lacks) render from the post itself,
+        // so a post whose only differences are those renders the shared one.
         $rendered = static fn(string $markup): string => preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match): string {
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
             unset($attrs['metadata']);
             return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . $match[3] . '-->';
-        }, $markup) ?? $markup;
-        $skeleton = static fn(string $markup): string => preg_match_all('/<!-- \/?wp:[a-z0-9\/-]+/', $markup, $names) ? implode(' ', $names[0]) : '';
+        }, preg_replace('/<!-- wp:post-(?!content\b)[a-z-]+(?:\s+\{.*?\})?\s*\/-->/s', '', $markup) ?? $markup) ?? $markup;
         foreach ($postTemplates as $index => $template) {
-            if ($skeleton($template) !== $skeleton((string) $single) || $rendered($template) === $rendered((string) $single)) $postTemplates[$index] = $single;
+            if ($rendered($template) === $rendered((string) $single)) $postTemplates[$index] = $single;
         }
         return array('pages' => $pages, 'single' => $single, 'post_templates' => $postTemplates);
     }
