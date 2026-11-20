@@ -60,6 +60,9 @@ final class AuthorStyleAnalysis
     private ?array $markerCollisionIndex = null;
     /** @var list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
     private readonly array $stylesheetAssets;
+    /** @var list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}>|null */
+    private ?array $prunedStylesheetAssets = null;
+    private ?\Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner $prunedStylesheetAssetsPruner = null;
     private readonly string $specificityShim;
     private readonly string $classSpecificityShim;
     private readonly string $idSpecificityShim;
@@ -83,6 +86,7 @@ final class AuthorStyleAnalysis
     {
         $this->combinedCss = $combinedCss;
         $this->stylesheetAssets = $stylesheetAssets;
+        $this->prunedStylesheetAssets = null;
         $this->sourceBody = $sourceBody;
         $this->selectorMatchCache = new CssSelectorMatchCache();
         // Ignore generated-looking markers while hashing each input separately,
@@ -145,8 +149,14 @@ final class AuthorStyleAnalysis
      */
     public function stylesheetAssets(bool $pruned = false): array
     {
+        // The pruner is publicly assignable; observe replacements here rather
+        // than requiring callers to use a new setter. Assets are readonly.
+        if ( $this->prunedStylesheetAssetsPruner !== $this->siteSelectorPruner ) {
+            $this->prunedStylesheetAssets = null;
+            $this->prunedStylesheetAssetsPruner = $this->siteSelectorPruner;
+        }
         if ( ! $pruned || null === $this->siteSelectorPruner ) return $this->stylesheetAssets;
-        return array_map(function (array $asset): array {
+        return $this->prunedStylesheetAssets ??= array_map(function (array $asset): array {
             foreach ( array('content', 'cascade_content') as $key ) {
                 if ( isset($asset[$key]) ) $asset[$key] = $this->siteSelectorPruner->prune($asset[$key], true);
             }
