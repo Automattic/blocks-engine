@@ -461,6 +461,19 @@ final class FlowContainerElementConverter implements ElementConverter
             }
         }
         if ( 1 === count($children) ) {
+            // A synthetic paragraph is an anonymous source text run, not a
+            // second box. For a normal block div, let the paragraph carry the
+            // source box instead of making the author navigate an extra Group.
+            $child = $children[0];
+            if ('div' === $tagName
+                && 'core/paragraph' === ($child['blockName'] ?? '')
+                && 'blocks-engine-synthetic-paragraph' === ($child['attrs']['className'] ?? '')
+                && ! $this->emptyVisualRetention->preservesScriptStateWrapper($element)
+                && $this->sourceElementClassifier->hasOnlyPhrasingChildren($element)
+            ) {
+                $paragraph = $this->inlineFlows->sourceTextBoxParagraph($element);
+                if (null !== $paragraph) return ConversionOutcome::handled($paragraph);
+            }
             $block = $this->context->coalescedSingleGroupWrapper($element, $children[0]);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);

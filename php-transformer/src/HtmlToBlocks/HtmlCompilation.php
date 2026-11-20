@@ -2415,7 +2415,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Control boxes transport source attributes through runtime metadata.
         // Forms must also keep their core/group identity for provider substitution;
         // their hidden state travels through the generic runtime attributes.
-        if ( 'core/group' === $name && ! str_contains((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
+        if ( 'core/group' === $name && ! str_contains((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && ! SourceDom::isCaptureDeviceVisibilityCarrier($sourceElement) && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
         if ( 'core/heading' === $name ) {

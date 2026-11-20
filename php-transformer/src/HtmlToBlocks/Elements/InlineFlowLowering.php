@@ -67,6 +67,19 @@ final class InlineFlowLowering
         return $this->blocks->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
+    /** @return array<string, mixed>|null */
+    public function sourceTextBoxParagraph(DOMElement $element): ?array
+    {
+        $display = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? 'block')));
+        if (!in_array($display, array('', 'block', 'inline-block'), true)) return null;
+        $content = $this->richTextMaterializer->content($element);
+        if (!$this->runtime->hasVisibleText($content) || $this->richTextMaterializer->requiresHtmlFallback($content)) return null;
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation::LOWERED_PARAGRAPH_CLASS);
+        $attrs['content'] = $content;
+        return $this->blocks->createBlock('core/paragraph', $attrs, array(), $element);
+    }
+
     public function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
         if ( ! ShellLandmarkPolicy::isInlineTokenContainerTag($element->tagName) ) {

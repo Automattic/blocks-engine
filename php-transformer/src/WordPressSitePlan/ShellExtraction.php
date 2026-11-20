@@ -4028,7 +4028,15 @@ final class ShellExtraction
                 foreach ($wrap['wrapper']['attributes'] as $name => $value) {
                     $opening .= true === $value ? ' ' . $name . '=""' : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
                 }
-                $innerMarkup = '<!-- wp:' . $wrap['block'] . ' ' . BlockAttributes::encode(array('wrappers' => array($wrap['wrapper']))) . ' -->' . $opening . '>' . $innerMarkup . '</' . $tag . '><!-- /wp:' . $wrap['block'] . ' -->';
+                $attributes = array('wrappers' => array($wrap['wrapper']));
+                if (in_array($wrap['block'], array('group', 'core/group'), true)) {
+                    $runtime = $wrap['wrapper']['attributes'];
+                    $class = (string) ($runtime['class'] ?? '');
+                    unset($runtime['class']);
+                    $attributes = array('tagName' => $tag, 'className' => $class, 'metadata' => array('blocksEngineRuntimeAttributes' => $runtime));
+                    $opening = '<' . $tag . ' class="' . htmlspecialchars('wp-block-group ' . $class, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
+                $innerMarkup = '<!-- wp:' . $wrap['block'] . ' ' . BlockAttributes::encode($attributes) . ' -->' . $opening . '>' . $innerMarkup . '</' . $tag . '><!-- /wp:' . $wrap['block'] . ' -->';
             }
             return $innerMarkup;
         }
@@ -4048,7 +4056,14 @@ final class ShellExtraction
      */
     private static function deviceDocumentShell(string $blockName, array $attrs, string $scopeClass): ?array
     {
-        if (!str_ends_with($blockName, '/layout-shell')) return null;
+        if ('group' === $blockName || 'core/group' === $blockName) {
+            $attrs['wrappers'] = array(array(
+                'tagName' => $attrs['tagName'] ?? 'div',
+                'attributes' => array_merge($attrs['metadata']['blocksEngineRuntimeAttributes'] ?? array(), array('class' => $attrs['className'] ?? '')),
+            ));
+        } elseif (!str_ends_with($blockName, '/layout-shell')) {
+            return null;
+        }
         foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
             $attributes = is_array($wrapper) && is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
             if (!in_array($scopeClass, preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array(), true)) continue;
