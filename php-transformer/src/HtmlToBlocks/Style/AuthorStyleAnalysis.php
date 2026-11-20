@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
@@ -44,6 +45,9 @@ final class AuthorStyleAnalysis
     private array $styleRules = array();
     /** @var array<string, mixed>|null */
     private ?array $styleRuleCandidateIndex = null;
+    /** @var array<string, mixed>|null */
+    private ?array $subjectRuleCandidateIndex = null;
+    private ?string $subjectRuleCandidateCollection = null;
     /** @var array<string, true>|null */
     private ?array $captureOnlySelectors = null;
     /** @var list<array{parsed: array<string, mixed>, weight: list<int>}>|null */
@@ -184,6 +188,8 @@ final class AuthorStyleAnalysis
     {
         $this->styleRules = $rules;
         $this->styleRuleCandidateIndex = null;
+        $this->subjectRuleCandidateIndex = null;
+        $this->subjectRuleCandidateCollection = null;
         $this->captureOnlySelectors = null;
         $this->typeSubjectSelectors = null;
         $this->positionalParents = null;
@@ -194,6 +200,25 @@ final class AuthorStyleAnalysis
     public function styleRules(): array
     {
         return $this->styleRules;
+    }
+
+    /**
+     * Whole author rules in source order whose subjects could name the element.
+     * Unlike the projection index, retain all conditions and unsupported selectors.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function subjectRuleCandidates(DOMElement $element): array
+    {
+        $this->subjectRuleCandidateIndex ??= CssSubjectIndex::buildForSelectorLists(
+            $this->styleRules,
+            static fn (array $rule): array => array_map(
+                static fn (array $selector): array => $selector['parsed'] ?? array(),
+                $rule['selectors']
+            )
+        );
+        $this->subjectRuleCandidateCollection ??= CssSelectorMatchCache::uniqueCandidateCollection('author-subject-rules');
+        return $this->selectorMatchCache()->styleRuleCandidates($element, $this->subjectRuleCandidateCollection, $this->subjectRuleCandidateIndex);
     }
 
     /**

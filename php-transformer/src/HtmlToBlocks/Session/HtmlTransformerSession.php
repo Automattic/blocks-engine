@@ -344,6 +344,17 @@ final class HtmlTransformerSession
             ?? (null !== $parent ? $this->boxTreeEvidence($parent) : array());
     }
 
+    /**
+     * Paint a shared chrome node shows only while it is the served route's
+     * current link, by viewport.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public function boxTreeCurrentPaint(\DOMElement $element): array
+    {
+        return $this->boxTree['current_paint'][$element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)] ?? array();
+    }
+
     public function boxTreeEvidence(\DOMElement $element): array
     {
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
@@ -383,6 +394,51 @@ final class HtmlTransformerSession
         return isset($this->linkCarrierBoxTreeNodes[$element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)]);
     }
 
+    /** @var array<string, \DOMElement> Source boxes a block's carrier is observed on, by the block source's node id. */
+    private array $boxTreeBlockBoxes = array();
+
+    /**
+     * Record that the block lowered from a source element renders another
+     * source element's box: core's navigation item stands for the source
+     * item while the anchor it is built from keeps its own carrier inside.
+     */
+    public function substituteBoxTreeBlockBox(\DOMElement $source, \DOMElement $box): void
+    {
+        $id = $source->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
+        if ('' === $id) return;
+        $this->boxTreeBlockBoxes[$id] = $box;
+        // The box renders again, so a fold of it into the source (ADR 0005
+        // slice 5) is undone: the source keeps only its own observations.
+        $boxId = $box->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
+        if ($boxId === ($this->boxTreeFolds[$id]['from'] ?? null)) {
+            $this->boxTree['nodes'][$id]['viewports'] = $this->boxTreeFolds[$id]['viewports'];
+            unset($this->boxTreeFolds[$id], $this->collapsedBoxTreeNodes[$boxId]);
+        }
+    }
+
+    /** @var array<string, array{from: string, viewports: array<string, mixed>}> Folded boxes by child node id, with the child's own observations. */
+    private array $boxTreeFolds = array();
+
+    /**
+     * Record folds before their declarations replace the children's
+     * observations.
+     *
+     * @param array<string, array{child: string}> $folds Folds by box node id.
+     */
+    public function recordBoxTreeFolds(array $folds): void
+    {
+        foreach ($folds as $from => $fold) {
+            $child = (string) $fold['child'];
+            if (isset($this->boxTree['nodes'][$child])) $this->boxTreeFolds[$child] = array('from' => (string) $from, 'viewports' => $this->boxTree['nodes'][$child]['viewports'] ?? array());
+        }
+    }
+
+    /** The source element whose observed box the block lowered from this element renders. */
+    public function boxTreeBlockBox(\DOMElement $source): \DOMElement
+    {
+        return $this->boxTreeBlockBoxes[$source->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)] ?? $source;
+    }
+
     /** The nearest source ancestor that keeps its own box in the output. */
     public function boxTreeOutputParent(\DOMElement $element): ?\DOMElement
     {
@@ -406,9 +462,23 @@ final class HtmlTransformerSession
         }
     }
 
+    /**
+     * Undo a fold conversion could not carry (ADR 0005 slice 5): the box keeps
+     * its own block, so it is an output box again, and its child is restyled
+     * with its own observations instead of the declarations it received.
+     *
+     * @param array<string, array<string, mixed>> $childViewports The child's own viewport observations.
+     */
+    public function restoreFoldedBoxTreeNode(string $box, string $child, array $childViewports): void
+    {
+        unset($this->collapsedBoxTreeNodes[$box]);
+        if (array() !== $childViewports && isset($this->boxTree['nodes'][$child])) $this->boxTree['nodes'][$child]['viewports'] = $childViewports;
+    }
+
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
+        $this->boxTreeFolds = array();
         $this->collapsedBoxTreeNodes = $this->linkCarrierBoxTreeNodes = array();
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));

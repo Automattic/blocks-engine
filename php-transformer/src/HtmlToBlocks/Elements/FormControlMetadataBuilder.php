@@ -691,6 +691,15 @@ final class FormControlMetadataBuilder
         $marker = $this->requiredMarker($control);
         if ( $marker instanceof DOMElement ) {
             $metadata['required_text'] = trim($marker->textContent ?? '');
+            // A visible asterisk marker is read into the label text. It now
+            // travels as the required text, so the label keeps only its own
+            // words and the separator, as it does beside a decorative marker.
+            if ( ! SourceDom::isAriaHidden($marker) && isset($metadata['label']) && is_string($metadata['label'])
+                && 1 === preg_match('/^\*{1,4}$/D', $metadata['required_text'])
+                && 1 === preg_match('/^(.*?\S)(\s*)' . preg_quote($metadata['required_text'], '/') . '\s*$/u', $metadata['label'], $markedLabel)
+            ) {
+                $metadata['label'] = $markedLabel[1] . ( '' !== $markedLabel[2] ? ' ' : '' );
+            }
         }
         if ( $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
             $metadata['required'] = true;
@@ -960,9 +969,13 @@ final class FormControlMetadataBuilder
         if ( ! $label instanceof DOMElement ) {
             return null;
         }
+        // A visible asterisk element marks a field only when the control is
+        // required; a decorative (aria-hidden) one marks it either way.
+        $required = $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required')));
         foreach ( $label->getElementsByTagName('*') as $marker ) {
             $text = trim($marker->textContent ?? '');
             if ( ( 'span' === strtolower($marker->tagName) && 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden')) && preg_match('/^\*{1,4}$/D', $text) )
+                || ( $required && ! FormControlClassifier::isControlElement($marker) && 1 === preg_match('/^\*{1,4}$/D', $text) )
                 || 1 === preg_match('/^\(\s*required\s*\)$/iu', $text)
             ) {
                 return $marker;
