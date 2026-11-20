@@ -233,7 +233,11 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
-                 if ('single' === $templateSlug && !$hasCapturedPosts) {
+                 // When every captured page selects an override, page.html is
+                 // exclusively the authoring fallback. Give new pages native
+                 // chrome without adding a second title to captured content.
+                 $uncapturedPageFallback = 'page' === $templateSlug && '<!-- wp:post-content /-->' === $content && !isset($frames['page']) && !array_filter($pages, static fn(array $page): bool => 'page' === TemplateSlugs::forPage($page));
+                 if (('single' === $templateSlug && !$hasCapturedPosts) || $uncapturedPageFallback) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
              }
