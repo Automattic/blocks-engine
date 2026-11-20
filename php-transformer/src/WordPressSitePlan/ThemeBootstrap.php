@@ -506,21 +506,22 @@ PHP;
         }
         if (array() !== $editorStyles) {
             // Files and scopes own shared data; replay owns occurrence order,
-            // handles, media and fallback semantics (including repeated links).
+            // scope, template parts, handles, media and fallback semantics
+            // (including repeated links). The replay loop sets each style's
+            // scope and template parts from its entry, so a file row carries
+            // only what every occurrence of that file shares.
             $files = $fileIndices = $scopes = $scopeIndices = $replay = array();
             foreach ($editorStyles as $style) {
                 $path = $style['target_path'];
                 if (!isset($fileIndices[$path])) {
                     $fileIndices[$path] = count($files);
-                    $files[] = array_diff_key($style, array_flip(array('handle', 'scopes', 'template_part_slugs', 'media', 'fallback'))) + array('scopes' => array(), 'template_part_slugs' => array());
+                    $files[] = array_diff_key($style, array_flip(array('handle', 'scopes', 'template_part_slugs', 'media', 'fallback')));
                 }
                 $file = $fileIndices[$path];
                 $scope = $style['scopes'][0];
                 $key = serialize($scope);
                 if (!isset($scopeIndices[$key])) { $scopeIndices[$key] = count($scopes); $scopes[] = $scope; }
                 $scopeIndex = $scopeIndices[$key];
-                $files[$file]['scopes'][$scopeIndex] = $scopeIndex;
-                $files[$file]['template_part_slugs'] = array_values(array_unique(array_merge($files[$file]['template_part_slugs'], $style['template_part_slugs'])));
                 $entry = array($file, $scopeIndex, $style['handle'], $style['media'], !empty($style['fallback']), $style['template_part_slugs']);
                 foreach (array(5 => array(), 4 => false, 3 => '') as $field => $default) {
                     if ($entry[$field] !== $default) break;
@@ -536,8 +537,6 @@ PHP;
                 }
                 $replay[] = $entry;
             }
-            foreach ($files as &$file) $file['scopes'] = array_values($file['scopes']);
-            unset($file);
             $lines[] = BootstrapData::table('blocks_engine_presentation_scopes', $scopes);
             $lines[] = BootstrapData::table('blocks_engine_presentation_styles', $files);
             $lines[] = '$blocks_engine_presentation_replay = ' . BootstrapData::literal($replay) . ';';
