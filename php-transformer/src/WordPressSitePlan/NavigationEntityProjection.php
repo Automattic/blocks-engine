@@ -66,6 +66,11 @@ final class NavigationEntityProjection
             $identity = hash('sha256', 'navigation:' . $contentIdentity);
             $token = 'navigation-' . substr($identity, 0, 16);
             $markup = self::sharedItemClasses($occurrences);
+            // Before a subset supplies the shared items, this cluster's own
+            // copy is the presentation its references fell back to.
+            $unfolded = self::itemPresentation($markup);
+            if (isset($folded[$contentIdentity])) $markup = self::withPreferredSubsetItems($markup, $canonical, $folded[$contentIdentity]);
+            $replacedItems = $markup !== self::sharedItemClasses($occurrences);
             $entities[] = array(
                 'kind' => 'menu', 'source_path' => $canonical['source_path'],
                 'target_slug' => $slug, 'title' => $title,
@@ -83,6 +88,7 @@ final class NavigationEntityProjection
                 if ($own !== $shared || isset($occurrence['folded'])) {
                     $own = self::withCapturedCurrentState($own, $occurrence['captured_inner']);
                     if (isset($occurrence['folded'])) $own = self::subsetPresentation($own, self::contentItems($occurrence['inner']), self::contentItems($canonical['inner']));
+                    elseif ($replacedItems) $own = self::withUnfoldedEntityState($own, $unfolded);
                     $attrs['metadata'][self::ITEMS_KEY] = self::withEntityLabels($own, $occurrence['inner'], $markup);
                 }
                 $replacements[$occurrence['kind']][$occurrence['index']][] = array(
@@ -219,6 +225,58 @@ final class NavigationEntityProjection
             if (!in_array($label, $shared, true)) $presentation[$index]['label'] = $label;
         }
         return $presentation;
+    }
+
+    /**
+     * Items whose recorded presentation is the one this reference's own
+     * entity held before a preferred subset supplied the shared items. The
+     * runtime renders those in either state, as the unfolded entity did,
+     * instead of falling back to the other placement's items.
+     */
+    private static function withUnfoldedEntityState(array $presentation, array $unfolded): array
+    {
+        foreach ($presentation as $position => $item) {
+            $bare = $item;
+            unset($bare['current']);
+            if (($unfolded[$position] ?? null) === $bare) $presentation[$position]['entity'] = true;
+        }
+        return $presentation;
+    }
+
+    /**
+     * A folded subset placed ahead of the wider menu (the header's own
+     * desktop menu ahead of its overlay) supplies the entity's copy of the
+     * items it shares, so its references present exactly as an unfolded
+     * entity would and only the wider placement records its own items. The
+     * runtime gives an item served in another state than it was captured the
+     * entity's presentation, which must therefore be the preferred
+     * placement's. Only flat item lists are rewritten.
+     */
+    private static function withPreferredSubsetItems(string $markup, array $canonical, array $folded): string
+    {
+        $rank = static fn(array $occurrence): array => array(
+            'header' === $occurrence['area'] ? 0 : 1, 'part' === $occurrence['kind'] ? 0 : 1,
+            $occurrence['source_path'], $occurrence['block']['offset'],
+        );
+        usort($folded, static fn(array $left, array $right): int => $rank($left) <=> $rank($right));
+        if ($rank($folded[0]) >= $rank($canonical)) return $markup;
+        $narrowItems = self::contentItems($folded[0]['inner']);
+        $narrow = array_values(array_filter($folded, static fn(array $occurrence): bool => self::contentItems($occurrence['inner']) === $narrowItems));
+        $narrowMarkup = self::sharedItemClasses($narrow);
+        $wideItems = self::contentItems($markup);
+        preg_match_all(self::ITEM_PATTERN, $markup, $wide, PREG_OFFSET_CAPTURE);
+        preg_match_all(self::ITEM_PATTERN, $narrowMarkup, $own);
+        $flat = static fn(array $items): bool => array() === array_filter($items, static fn(array $item): bool => array() !== $item['children']);
+        if (!$flat($wideItems) || !$flat($narrowItems) || count($wide[0]) !== count($wideItems) || count($own[0]) !== count($narrowItems)) return $markup;
+        $position = 0;
+        $replacements = array();
+        foreach ($wideItems as $index => $item) {
+            if ($item !== ($narrowItems[$position] ?? null)) continue;
+            $replacements[] = array($wide[0][$index][1], strlen($wide[0][$index][0]), $own[0][$position++]);
+        }
+        if ($position !== count($narrowItems)) return $markup;
+        foreach (array_reverse($replacements) as [$offset, $length, $replacement]) $markup = substr_replace($markup, $replacement, $offset, $length);
+        return $markup;
     }
 
     /**

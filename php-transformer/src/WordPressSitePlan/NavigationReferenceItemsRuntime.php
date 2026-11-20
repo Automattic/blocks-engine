@@ -81,7 +81,8 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         $url = is_string( $attrs['url'] ?? null ) ? trim( $attrs['url'] ) : '';
         $current = str_contains( (string) ( $attrs['className'] ?? '' ), 'blocks-engine-current-navigation-item' )
             || ( null !== $served && '' !== $url && '/' === $url[0] && ( 1 === strlen( $url ) || '/' !== $url[1] ) && ! str_contains( $url, '#' ) && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served );
-        if ( ! $current && ! empty( $own['current'] ) ) continue;
+        // An item recorded as its reference's own pre-fold entity presentation renders in either state.
+        if ( $current !== ! empty( $own['current'] ) && empty( $own['entity'] ) ) continue;
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
         if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) $attrs['metadata']['blocksEngineNavigationAnchor'] = $own['blocksEngineNavigationAnchor'];
