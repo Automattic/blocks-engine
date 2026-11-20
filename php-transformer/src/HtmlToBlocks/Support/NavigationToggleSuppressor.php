@@ -1141,7 +1141,7 @@ final class NavigationToggleSuppressor
         }
     }
 
-    /** @var \WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Document labels by trimmed `for`, while {@see collectSupersededNavToggleSelectors()} runs. */
+    /** @var \WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Document labels by trimmed `for`, during read-only scans. */
     private ?\WeakMap $labelsByFor = null;
 
     /**
@@ -1945,6 +1945,19 @@ final class NavigationToggleSuppressor
     }
 
     public function navigationToggleControl(DOMElement $navigation): ?DOMElement
+    {
+        // This read-only scan may inspect every checkbox. Share one label index
+        // for the scan, but do not retain it across possible source mutations.
+        $previous = $this->labelsByFor;
+        $this->labelsByFor ??= new \WeakMap();
+        try {
+            return $this->findNavigationToggleControl($navigation);
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    private function findNavigationToggleControl(DOMElement $navigation): ?DOMElement
     {
         $fold = $this->session->navigationProjectionState()->foldForRow($navigation);
         if ( $fold instanceof CapturedMenuDialogFold ) {
