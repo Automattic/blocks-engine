@@ -2430,6 +2430,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $attrs = (new SocialSourceStyleProjector($this->styleResolver, $this->session->sourceStyleResolutionState()))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
             }
         }
+        if ( 'core/cover' === $name && $sourceElement instanceof DOMElement ) {
+            $positionClass = $this->styleResolver->responsiveCoverPositionClassName($sourceElement);
+            if ( '' !== $positionClass ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $positionClass);
+            }
+        }
         if ( 'core/cover' === $name && $sourceElement instanceof DOMElement && in_array(CoverPattern::CONSUMED_BACKGROUND_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {
             $this->session->authorSelectorProjectionState()->markConsumedCoverBackground($sourceElement->getNodePath() ?? '');
         }
