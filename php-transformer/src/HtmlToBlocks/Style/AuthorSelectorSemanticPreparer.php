@@ -560,7 +560,7 @@ final class AuthorSelectorSemanticPreparer
     }
 
     /**
-     * Attribute conditions on grouped-container ancestors or subjects are
+     * Attribute conditions on canonical-block ancestors or subjects are
      * dropped when their source elements become blocks that serialize only
      * supported wrapper attributes. Record a stable class on each converted
      * holder and let the stylesheet projector derive a selector arm with the
@@ -651,7 +651,7 @@ final class AuthorSelectorSemanticPreparer
             foreach ( $subjects as $subject ) {
                 if ( $condition['subject'] ) {
                     $path = $subject->getNodePath() ?? '';
-                    if ( '' !== $path && in_array(strtolower($subject->tagName), self::GROUPED_CONTAINER_TAGS, true)
+                    if ( '' !== $path && in_array(strtolower($subject->tagName), self::BLOCK_ATTRIBUTE_HOLDER_TAGS, true)
                         && $projections->visitAttributeStateProjectionPath($holderKey, $path)
                     ) {
                         $projections->addAttributeStateProjectionMarker($path, $marker, $holderKey);
@@ -665,7 +665,7 @@ final class AuthorSelectorSemanticPreparer
                     if ( '' === $path || ! $projections->visitAttributeStateProjectionPath($holderKey, $path) ) {
                         break;
                     }
-                    if ( ! in_array(strtolower($element->tagName), self::GROUPED_CONTAINER_TAGS, true)
+                    if ( ! in_array(strtolower($element->tagName), self::BLOCK_ATTRIBUTE_HOLDER_TAGS, true)
                         || ! CssSelectorMatcher::matches($element, $condition['compound'], true, $authorStyles->selectorMatchCache())['matches']
                     ) {
                         continue;
@@ -677,7 +677,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( $condition['subject'] ) {
                     continue; // The subject keeps this attribute; leave its authored predicate live.
                 }
-                return; // No grouped ancestor holder is emitted in this document.
+                return; // No canonical ancestor holder is emitted in this document.
             }
             $installed[$condition['text']] = $marker;
         }
@@ -685,12 +685,16 @@ final class AuthorSelectorSemanticPreparer
     }
 
     /**
-     * Generic containers that convert to blocks serializing only id, class
-     * and style. Other holders (custom elements and `details` kept as layout
-     * shells, inline anchors) retain their attributes and the original
-     * selector keeps matching them.
+     * Source elements whose canonical blocks serialize supported attributes
+     * rather than arbitrary source attributes. This includes native rich-text
+     * blocks, not just lowered containers. Other holders (custom elements and
+     * `details` kept as layout shells, inline anchors) retain their attributes
+     * and the original selector keeps matching them.
      */
-    private const GROUPED_CONTAINER_TAGS = array( 'div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'nav', 'figure', 'form', 'ul', 'ol', 'li' );
+    private const BLOCK_ATTRIBUTE_HOLDER_TAGS = array(
+        'div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'nav', 'figure', 'form', 'ul', 'ol', 'li',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'pre', 'blockquote', 'hr', 'img', 'table', 'label',
+    );
 
     /**
      * Attributes a runtime or the page toggles (`details[open]`,

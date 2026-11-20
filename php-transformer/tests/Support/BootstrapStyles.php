@@ -15,7 +15,12 @@ final class BootstrapStyles
             preg_match('/\\$' . $name . '_references = (\\[[^\\n]*\\]);/', $bootstrap, $referencesMatch);
             foreach (eval('return ' . $referencesMatch[1] . ';') as $key => $index) $value[$key] = $rows[$index];
         }
-        if ('blocks_engine_presentation_replay' === $name) foreach ($value as &$entry) $entry += array(3 => '', 4 => false, 5 => array());
+        if ('blocks_engine_presentation_replay' === $name) {
+            // A scope run is one emitted entry; expose one entry per scope.
+            $entries = array();
+            foreach ($value as $entry) foreach ((array) $entry[1] as $scope) $entries[] = array_replace($entry, array(1 => $scope)) + array(3 => '', 4 => false, 5 => array());
+            $value = $entries;
+        }
         return $value;
     }
 

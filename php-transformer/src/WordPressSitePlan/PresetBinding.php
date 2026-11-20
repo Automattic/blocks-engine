@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
@@ -107,7 +108,7 @@ final class PresetBinding
     private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
 
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
-    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
+    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'cover', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');
@@ -259,6 +260,12 @@ final class PresetBinding
      */
     private ?float $rootPx = null;
 
+    /** Bodies of unconditional-state rules that style core button links. @var list<string> */
+    private array $buttonLinkBodies = array();
+
+    /** Button-link properties some rule sets to a value other than the element's. @var array<string,true>|null */
+    private ?array $buttonLinkCompetitors = null;
+
     /**
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
@@ -269,8 +276,13 @@ final class PresetBinding
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
-                $this->indexRule($prelude, $body);
+            $printOnly = $conditional && !MediaCondition::targetsScreen((string) $asset['media']);
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $printOnly, $asset): void {
+                // A rule that never renders on screen (print or speech
+                // media) cannot override a screen preset, so it does not
+                // block binding.
+                if (!$printOnly && !self::offScreen($ancestors)) $this->indexRule($prelude, $body);
+                if (!$printOnly && !self::offScreen($ancestors) && str_contains($prelude, '.wp-block-button__link') && !preg_match('/:(?:hover|focus|active|disabled)/i', $prelude)) $this->buttonLinkBodies[] = $body;
                 $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -1355,7 +1367,9 @@ final class PresetBinding
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
                 $tag = strtolower($selector);
-                if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
+                // Captured-body box materialization uses :root body. It is
+                // still the document body, not a component font override.
+                if (1 === preg_match('/^(?::root\s+)?body(?:\.editor-styles-wrapper)?$/', $tag)) $tag = 'body';
                 $kept = $body;
                 // A matching body paint belongs to Global Styles just like its
                 // font. Preset binding alone would keep the author declaration
@@ -1443,6 +1457,21 @@ final class PresetBinding
      *
      * @return array{list<string>, list<string>}
      */
+    private function competesWithButtonElement(string $property): bool
+    {
+        if (null === $this->buttonLinkCompetitors) {
+            $this->buttonLinkCompetitors = array();
+            foreach ($this->buttonLinkBodies as $body) {
+                foreach (self::declarations($body) as [$name, $value]) {
+                    if (str_starts_with($name, '--') || $this->matchesButtonElement($name, $value)) continue;
+                    $this->buttonLinkCompetitors[$name] = true;
+                    if ('font' === $name) $this->buttonLinkCompetitors['font-size'] = $this->buttonLinkCompetitors['font-weight'] = $this->buttonLinkCompetitors['font-family'] = true;
+                }
+            }
+        }
+        return isset($this->buttonLinkCompetitors[$property]);
+    }
+
     private function partitionButtonDeclarations(string $body): array
     {
         $declarations = CssValueSplitter::splitTopLevel($body, array(';'));
@@ -1457,7 +1486,9 @@ final class PresetBinding
                 default => $family,
             };
             $families[$index] = $family;
-            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1]));
+            // Another button-link rule that sets this property differently
+            // outranks the element style, so yielding would hand it the paint.
+            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1])) && !$this->competesWithButtonElement($property);
             if (!$matches[$index]) $retained[$family] = true;
         }
         $shared = $kept = array();
@@ -2047,6 +2078,10 @@ final class PresetBinding
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
+                // A compound subject (`.a.b`) applies only where every one of
+                // its classes stands; sharing one class is not enough.
+                $classes = array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'class:'));
+                if (array() !== array_diff_key(array_flip($classes), $finalClasses)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
                     foreach ($rule['attributes'] as [$name, $value]) {
@@ -2274,6 +2309,15 @@ final class PresetBinding
                 else $this->rootVariables[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
             } else $this->scopedVariables[$name][$value] = true;
         }
+    }
+
+    /** Whether a rule's at-rule ancestors include a media list no screen matches. */
+    private static function offScreen(array $ancestors): bool
+    {
+        foreach ($ancestors as $ancestor) {
+            if (1 === preg_match('/^@media\s+(.+)$/is', $ancestor, $match) && !MediaCondition::targetsScreen($match[1])) return true;
+        }
+        return false;
     }
 
     private function indexRule(string $prelude, string $body): void

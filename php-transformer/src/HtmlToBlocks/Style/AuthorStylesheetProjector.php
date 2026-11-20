@@ -253,11 +253,14 @@ final class AuthorStylesheetProjector
             }
         }
         if ( array() === $subjects ) return '';
-        $blockSubjects = array_filter($subjects, static fn (\DOMElement $element): bool => in_array(
+        // A separately compiled shared shell has no post-content ancestor to
+        // shield it from Core defaults. Bridge its unchanged block subjects,
+        // not every utility class in every route's shared stylesheet.
+        $blockSubjects = $context->onlyMatchedRules ? array_filter($subjects, static fn (\DOMElement $element): bool => in_array(
             strtolower($element->tagName),
             array('div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'figure'),
             true
-        ));
+        )) : array();
         $rules = '';
         (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body) use (&$rules, $subjects, $blockSubjects): void {
             // Only positive block targets own this escape. A projected arm in
@@ -273,7 +276,7 @@ final class AuthorStylesheetProjector
                     // Source classes often survive conversion unchanged. They
                     // need the same hand-back as rewritten selectors, but only
                     // on block hosts, never on their inline RichText children.
-                    $targets[] = ':is(' . $arm . '):where(.wp-block-group,.wp-block-heading,.wp-block-list,.wp-block-list-item,.wp-block-image,.wp-block-cover,.wp-block-columns,.wp-block-column,p)';
+                    $targets[] = ':is(' . $arm . '):where(.wp-block-group,.wp-block-heading,.wp-block-list,.wp-block-image,p)';
                 }
             }
             if ( array() === $targets ) return;

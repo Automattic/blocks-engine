@@ -52,6 +52,20 @@ final class NavigationToggleSuppressor
     /** @var SplObjectStorage<DOMElement, DOMElement|null> Control-independent hidden-target recognition. */
     private SplObjectStorage $hiddenNavigationTargets;
 
+    /** @var SplObjectStorage<DOMElement, DOMElement|null> Equivalent variants, including misses. */
+    private SplObjectStorage $equivalentNavigationVariants;
+
+    /** @var SplObjectStorage<DOMElement, bool> Mobile signal per candidate. */
+    private SplObjectStorage $mobileNavigationSignals;
+
+    /** @var SplObjectStorage<DOMElement, bool> Visibility evidence per candidate. */
+    private SplObjectStorage $menuVisibilityEvidence;
+
+    /** Cache-miss counters for deterministic work-bound checks. */
+    public int $navigationVariantEvaluations = 0;
+    public int $mobileNavigationSignalEvaluations = 0;
+    public int $menuVisibilityEvidenceEvaluations = 0;
+
     /** Recognizer executions behind {@see self::convertsToCoreNavigation()}. */
     public int $coreNavigationRecognitionExecutions = 0;
 
@@ -60,8 +74,7 @@ final class NavigationToggleSuppressor
         private readonly NavigationToggleSuppressionContext $context,
         private readonly StyleResolver $styleResolver
     ) {
-        $this->coreNavigationRecognitions = new SplObjectStorage();
-        $this->hiddenNavigationTargets = new SplObjectStorage();
+        $this->forgetCoreNavigationRecognitions();
     }
 
     /** Source markup changed after selector analysis, so memoized recognitions are stale. */
@@ -69,6 +82,9 @@ final class NavigationToggleSuppressor
     {
         $this->coreNavigationRecognitions = new SplObjectStorage();
         $this->hiddenNavigationTargets = new SplObjectStorage();
+        $this->equivalentNavigationVariants = new SplObjectStorage();
+        $this->mobileNavigationSignals = new SplObjectStorage();
+        $this->menuVisibilityEvidence = new SplObjectStorage();
     }
     /**
      * Bind a hidden dialog/menu to its source hamburger before recursive
@@ -2139,6 +2155,15 @@ final class NavigationToggleSuppressor
 
     private function equivalentSourceNavigationVariant(DOMElement $navigation): ?DOMElement
     {
+        if ( ! $this->equivalentNavigationVariants->contains($navigation) ) {
+            ++$this->navigationVariantEvaluations;
+            $this->equivalentNavigationVariants[$navigation] = $this->findEquivalentSourceNavigationVariant($navigation);
+        }
+        return $this->equivalentNavigationVariants[$navigation];
+    }
+
+    private function findEquivalentSourceNavigationVariant(DOMElement $navigation): ?DOMElement
+    {
         $document = $navigation->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
             return null;
@@ -2272,6 +2297,15 @@ final class NavigationToggleSuppressor
 
     private function hasMobileNavigationSignal(DOMElement $element): bool
     {
+        if ( ! $this->mobileNavigationSignals->contains($element) ) {
+            ++$this->mobileNavigationSignalEvaluations;
+            $this->mobileNavigationSignals[$element] = $this->computeMobileNavigationSignal($element);
+        }
+        return $this->mobileNavigationSignals[$element];
+    }
+
+    private function computeMobileNavigationSignal(DOMElement $element): bool
+    {
         // Device-document names describe the whole capture, not a collapsed
         // menu. A document variant needs its own hidden menu as evidence.
         if ( null !== SourceDom::documentVariantRoot($element) && $this->hasMenuVisibilityEvidence($element) ) {
@@ -2292,6 +2326,15 @@ final class NavigationToggleSuppressor
     }
 
     private function hasMenuVisibilityEvidence(DOMElement $element): bool
+    {
+        if ( ! $this->menuVisibilityEvidence->contains($element) ) {
+            ++$this->menuVisibilityEvidenceEvaluations;
+            $this->menuVisibilityEvidence[$element] = $this->computeMenuVisibilityEvidence($element);
+        }
+        return $this->menuVisibilityEvidence[$element];
+    }
+
+    private function computeMenuVisibilityEvidence(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
             if ( SourceDom::isDocumentVariantRoot($node) ) {

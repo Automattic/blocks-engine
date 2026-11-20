@@ -87,7 +87,7 @@ final class AuthorViewportDeclarations
      * @param list<string> $stateClasses
      * @return array<string, string>
      */
-    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false, array $stateClasses = array(), string $pseudoElement = ''): array
+    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false, array $stateClasses = array(), string $pseudoElement = '', ?float $viewportHeight = null): array
     {
         $pseudoElement = strtolower($pseudoElement);
         $authorStyles = $this->session->authorStyleAnalysis();
@@ -95,8 +95,8 @@ final class AuthorViewportDeclarations
         if ( $excludeCaptureDisclosure ) {
             $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
         }
-        ['parsed' => $parsedBySelector] = $this->rules($styleRules, $viewportWidth);
-        $declaring = $this->rulesDeclaring($viewportWidth, $properties, $pseudoElement);
+        ['parsed' => $parsedBySelector] = $this->rules($styleRules, $viewportWidth, $viewportHeight);
+        $declaring = $this->rulesDeclaring($viewportWidth, $properties, $pseudoElement, $viewportHeight);
         $selectorCache = $authorStyles->selectorMatchCache();
         if ( array() !== $stateClasses ) {
             $selectorCache = new CssSelectorMatchCache();
@@ -111,7 +111,7 @@ final class AuthorViewportDeclarations
             return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
         };
 
-        return $this->cascade->declarationsAtViewport($element, $properties, $rules, $matches, $viewportWidth, '' === $pseudoElement);
+        return $this->cascade->declarationsAtViewport($element, $properties, $rules, $matches, $viewportWidth, '' === $pseudoElement, $viewportHeight);
     }
 
     /**
@@ -158,13 +158,13 @@ final class AuthorViewportDeclarations
      * @param list<array<string, mixed>> $styleRules
      * @return array{rules: list<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer: mixed}>, parsed: array<string, array<string, mixed>>}
      */
-    private function rules(array $styleRules, float $viewportWidth): array
+    private function rules(array $styleRules, float $viewportWidth, ?float $viewportHeight = null): array
     {
         if ( $styleRules !== $this->ruleSource ) {
             $this->ruleSource = $styleRules;
             $this->rulesByViewport = array();
         }
-        $key = (string) $viewportWidth;
+        $key = self::viewportKey($viewportWidth, $viewportHeight);
         if ( isset($this->rulesByViewport[ $key ]) ) {
             return $this->rulesByViewport[ $key ];
         }
@@ -209,7 +209,7 @@ final class AuthorViewportDeclarations
                     $conditions[] = $condition;
                 }
             }
-            if ( array() !== $conditions && ! $this->cascade->conditionsApplyAtViewport($conditions, $viewportWidth) ) {
+            if ( array() !== $conditions && ! $this->cascade->conditionsApplyAtViewport($conditions, $viewportWidth, $viewportHeight) ) {
                 continue;
             }
             $rules[] = array(
@@ -246,9 +246,9 @@ final class AuthorViewportDeclarations
      * @param list<string> $properties
      * @return array{index: array<string, mixed>, collection: string}
      */
-    private function rulesDeclaring(float $viewportWidth, array $properties, string $pseudoElement = ''): array
+    private function rulesDeclaring(float $viewportWidth, array $properties, string $pseudoElement = '', ?float $viewportHeight = null): array
     {
-        $key = (string) $viewportWidth;
+        $key = self::viewportKey($viewportWidth, $viewportHeight);
         $set = $pseudoElement . "\1" . implode("\0", $properties);
         if ( isset($this->rulesByViewport[ $key ]['declaring'][ $set ]) ) {
             return $this->rulesByViewport[ $key ]['declaring'][ $set ];
@@ -268,5 +268,11 @@ final class AuthorViewportDeclarations
             ),
             'collection' => CssSelectorMatchCache::uniqueCandidateCollection('author-viewport'),
         );
+    }
+
+    /** Width-only evaluations must not share rules with known-height evaluations. */
+    private static function viewportKey(float $viewportWidth, ?float $viewportHeight): string
+    {
+        return null === $viewportHeight ? (string) $viewportWidth : $viewportWidth . 'x' . $viewportHeight;
     }
 }

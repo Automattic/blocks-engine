@@ -1284,11 +1284,8 @@ final class ButtonsPattern
         // labels without treating arbitrary nested content as a button. Empty
         // spans paint decoration, not the label's control surface: their padding,
         // background and radius must not promote an otherwise bare text link.
-        // A painted badge containing only part of the text is decoration too:
-        // its box does not establish a control surface for the entire link.
-        $anchorText = $this->plainText($anchor->textContent);
         foreach ( $anchor->getElementsByTagName('span') as $label ) {
-            if ( $label instanceof DOMElement && '' !== trim($label->textContent) && $anchorText === $this->plainText($label->textContent) && ( ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($label) ) || $this->signalClassifier->hasTransformSignal($label, $buttons->resolvedStyle($label)) ) ) {
+            if ( $label instanceof DOMElement && '' !== trim($label->textContent) && ( ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($label) ) || $this->signalClassifier->hasTransformSignal($label, $buttons->resolvedStyle($label)) ) ) {
                 return true;
             }
         }
