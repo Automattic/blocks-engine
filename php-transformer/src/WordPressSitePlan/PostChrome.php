@@ -1150,7 +1150,13 @@ final class PostChrome
                 if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
                 $slice = substr($cardMarkup, $range['offset'], $range['length']);
                 if ('paragraph' !== PostBlocks::sourceBlockName($slice)) continue;
-                if ('title' === $this->listings->classifyCardBlock($slice, $card['post'], $card['route'], $cardIndex)) continue;
+                $kind = $this->listings->classifyCardBlock($slice, $card['post'], $card['route'], $cardIndex);
+                if ('title' === $kind) continue;
+                // Each related post's own date renders through post-date.
+                if ('date' === $kind) {
+                    $bound[$range['offset']] = PostBlocks::date($slice);
+                    continue;
+                }
                 $key = 'blocks_engine_post_field_' . substr(hash('sha256', $heading . ':' . $ordinal++), 0, 12);
                 $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
                 $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, PostBlocks::sourceAttributes($slice), $key, '');
