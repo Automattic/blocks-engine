@@ -29,7 +29,7 @@ final class AuthorProjection
     {
         $authors = array();
         foreach ($documents as $document) {
-            if ('post' !== ($document['metadata']['post_type'] ?? null) || !is_string($document['source_path'] ?? null)) continue;
+            if (!in_array($document['metadata']['post_type'] ?? null, array('post', 'page'), true) || !is_string($document['source_path'] ?? null)) continue;
             $html = (string) ($document['html'] ?? '');
             if ('' === $html || !preg_match('/\brel\s*=\s*["\'][^"\']*\bauthor\b/i', $html)) continue;
             $names = array();

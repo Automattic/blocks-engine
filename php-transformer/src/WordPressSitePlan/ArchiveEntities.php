@@ -32,7 +32,8 @@ final class ArchiveEntities
             sort($sorted, SORT_STRING);
             if ($members !== $sorted) throw new InvalidArgumentException('WordPress site plan author membership must be sorted.');
             foreach ($members as $source) {
-                if (!is_string($source) || 'post' !== ($pagesBySource[$source]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan author membership must name a canonical post.');
+                // WordPress records an author on posts and pages alike.
+                if (!is_string($source) || !in_array($pagesBySource[$source]['post_type'] ?? null, array('post', 'page'), true)) throw new InvalidArgumentException('WordPress site plan author membership must name a canonical post or page.');
                 WordPressSitePlan::unique($claimed, $source, 'post author membership');
             }
             if (($entity['evidence'] ?? null) !== (array_key_exists('archive', $entity) ? array('membership' => true, 'name' => true, 'archive' => true) : array('membership' => true, 'name' => true))) throw new InvalidArgumentException('WordPress site plan author evidence is invalid.');
