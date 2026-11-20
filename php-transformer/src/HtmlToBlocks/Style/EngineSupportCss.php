@@ -157,9 +157,9 @@ final class EngineSupportCss
             // `max-width:100%` that core and the base support rule put on
             // a core/image <img> is not the source's: its percentage zeroes the
             // replaced element's min-content contribution and lets the flex
-            // item shrink below its own width. A max-width the author states
-            // for the image still reaches it through its projected rule.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ').wp-block-image>img{max-width:none}';
+            // item shrink below its own width. Do not reset an authored
+            // max-width: a projected type selector cannot outrank this rule.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ':not(.' . SourceBlockAttributeProjector::AUTHOR_MAX_WIDTH_IMAGE_CLASS . ')).wp-block-image>img{max-width:none}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS) ) {
             // The source image fills both axes of its parent. Its core/image
@@ -628,6 +628,17 @@ final class EngineSupportCss
             // instead of squeezing its columns into the space next to it.
             // Zero specificity: Core layout displays and author CSS still win.
             $parts[] = ':where(.wp-block-group.' . LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS . '){display:flow-root}';
+        }
+        if ( str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern::FLOAT_WIDTHS_CLASS) ) {
+            // An auto basis reads the author's width at *each* breakpoint,
+            // including calc() and variables, rather than freezing desktop
+            // pixels into an inline width attribute. No equal-grow default.
+            $row = '.wp-block-columns.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern::FLOAT_WIDTHS_CLASS;
+            $parts[] = ':root ' . $row . '{flex-wrap:wrap!important;gap:0}'
+                . "\n" . ':root ' . $row . '>.wp-block-column{flex-basis:auto;flex-grow:0;flex-shrink:0}'
+                // A normal-flow auto-width block fills the row. Zero
+                // specificity lets every authored width override the fallback.
+                . "\n" . ':where(' . $row . '>.wp-block-column){width:100%}';
         }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
             $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . ':not(:where(.blocks-engine-layout-table-table,.blocks-engine-layout-table-row)){display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'

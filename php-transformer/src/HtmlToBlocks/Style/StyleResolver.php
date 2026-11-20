@@ -2057,30 +2057,6 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element, $nativeBackgroundColor);
     }
 
-    /** Restore only the consumed blockquote's paragraph, not unrelated synthetic text. */
-    public function figureQuotationClassName(DOMElement $blockquote): string
-    {
-        $authored = $this->structuralPresentationDeclarations($blockquote);
-        $declarations = array('display' => 'block');
-        foreach (array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end') as $property) {
-            if (isset($authored[$property])) {
-                $declarations[$property] = $authored[$property];
-            }
-        }
-        $body = $this->cssDeclarationString($declarations);
-        $className = $this->session->layoutGeometryState()->allocateCarrier($this->geometryStructuralPath($blockquote) . "\nfigure-quotation\n" . $body);
-        $this->session->layoutGeometryState()->registerRule($className, 'p.' . $className . '{' . $body . '}');
-        return $className;
-    }
-
-    /** Keep the native citation's font metrics and spacing, but restore the caption's block flow. */
-    public function figureQuoteCaptionClassName(DOMElement $caption): string
-    {
-        $className = $this->session->layoutGeometryState()->allocateCarrier($this->geometryStructuralPath($caption) . "\nfigure-quote-caption-display");
-        $this->session->layoutGeometryState()->registerRule($className, '.' . $className . ' > cite{display:block;font-style:inherit}');
-        return $className;
-    }
-
     /** Restate source caption margins that differ from core/image's defaults. */
     public function imageCaptionMarginClassName(DOMElement $caption): string
     {
@@ -5490,6 +5466,46 @@ final class StyleResolver implements ElementPresentationResolver
         return $widths;
     }
 
+    /** Carry media-owned image positions onto Core's image, not the emptied background wrapper. */
+    public function responsiveCoverPositionClassName(DOMElement $element): string
+    {
+        $resolver = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver();
+        $style = $this->coverPresentationStyle($element);
+        $base = $resolver->focalPointFromStyle($style);
+        $sequence = $this->declarationSequence($element, 'background-position');
+        $inlinePosition = SourceDeclarations::inline($element)['background-position'] ?? null;
+        $fact = self::stylesheetCascadeFact(...);
+        $baseEntry = null;
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] && (null === $baseEntry || CssCascade::wins($fact($entry), $fact($baseEntry)))) {
+                $baseEntry = $entry;
+            }
+        }
+        $conditional = array();
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] || (null !== $baseEntry && !CssCascade::wins($fact($entry), $fact($baseEntry)))) continue;
+            if (null !== $inlinePosition && (CssValueInspector::isImportant($inlinePosition) || !$entry['important'])) continue;
+            $key = serialize($entry['queries']);
+            if (!isset($conditional[$key]) || CssCascade::wins($fact($entry), $fact($conditional[$key]))) $conditional[$key] = $entry;
+        }
+        usort($conditional, static fn (array $a, array $b): int => CssCascade::wins($fact($a), $fact($b)) ? (CssCascade::wins($fact($b), $fact($a)) ? 0 : 1) : -1);
+        $rules = array();
+        foreach ($conditional as $entry) {
+            $position = $resolver->focalPointFromStyle($style . ';background-position:' . $entry['value']);
+            if (null === $position || $position === $base) continue;
+            // Core saves the base object-position inline, so the scoped override
+            // must be important even when the source declaration is not.
+            $rule = '.%s>.wp-block-cover__image-background{object-position:'
+                . (int) round($position['x'] * 100) . '% ' . (int) round($position['y'] * 100) . '%!important}';
+            foreach (array_reverse($entry['queries']) as $query) $rule = $query . '{' . $rule . '}';
+            $rules[] = $rule;
+        }
+        if (array() === $rules) return '';
+        $className = 'blocks-engine-cover-position-' . substr(hash('sha256', serialize($rules)), 0, 12);
+        $this->session->layoutGeometryState()->registerRule($className, str_replace('.%s>', '.' . $className . '>', implode("\n", $rules)));
+        return $className;
+    }
+
     /**
      * Promote only a viewport-invariant photo/overlay to editable cover media.
      * Other conditional presentation remains stylesheet-owned.
@@ -5788,6 +5804,21 @@ final class StyleResolver implements ElementPresentationResolver
      * @return array<string, string>
      */
     private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array(), bool $skipForeignConditions = false): array
+    {
+        return $this->session->sourceStyleResolutionState()->authoredInheritedDeclarations(
+            $element,
+            $navigationEditor,
+            $conditions,
+            $skipForeignConditions,
+            fn (DOMElement $element): array => $this->computeAuthoredInheritedDeclarations($element, $navigationEditor, $conditions, $skipForeignConditions)
+        );
+    }
+
+    /**
+     * @param list<string> $conditions
+     * @return array<string, string>
+     */
+    private function computeAuthoredInheritedDeclarations(DOMElement $element, bool $navigationEditor, array $conditions, bool $skipForeignConditions): array
     {
         $cascade = array();
         $sequence = 0;

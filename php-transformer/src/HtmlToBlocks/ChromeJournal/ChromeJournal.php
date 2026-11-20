@@ -58,19 +58,24 @@ final class ChromeJournal
         unset($options['source'], $options['declarative_state_html'], $options['box_tree'], $options['chrome_journal']);
         $options = array_filter($options, static fn (mixed $option): bool => !is_object($option));
         ksort($options);
-        // Stylesheets inlined in the page name it as their source; their
-        // relative URLs resolve against its directory.
+        // Inline CSS names the page as its source. Key relative URLs by
+        // their targets, not by directories that may resolve to the same asset.
         $page = $session->sourcePath();
-        $relative = false;
+        $resolvedUrls = array();
         foreach ($options['author_stylesheet_assets'] ?? array() as $asset) {
-            $relative = $relative || (is_array($asset) && $page === ($asset['source_path'] ?? null)
-                && 1 === preg_match('~url\(\s*[\'"]?(?![a-z][a-z0-9+.-]*:|/|#|[\'"]?\))~i', (string) ($asset['content'] ?? '')));
+            if (!is_array($asset) || $page !== ($asset['source_path'] ?? null)) continue;
+            \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite((string) ($asset['content'] ?? ''), static function (string $url) use ($page, &$resolvedUrls): string {
+                if (1 !== preg_match('~^(?:[a-z][a-z0-9+.-]*:|/|#)~i', $url)) $resolvedUrls[] = ArtifactPath::resolveRelativePath($url, $page);
+                return $url;
+            });
         }
+        $resolvedUrls = array_values(array_unique($resolvedUrls));
+        sort($resolvedUrls);
         unset($options['author_stylesheet_assets'], $options['static_css'], $options['stylesheet_payloads'], $options['asset_metadata']);
         array_walk_recursive($options, static function (mixed &$value) use ($page): void {
             if ($value === $page) $value = "\0page";
         });
-        $this->pageDigest = hash('sha256', serialize(array($options, $relative ? dirname($page) : '')));
+        $this->pageDigest = hash('sha256', serialize(array($options, $resolvedUrls)));
     }
 
     private readonly string $pageDigest;
@@ -151,7 +156,7 @@ final class ChromeJournal
             $css,
             SubtreeIdentity::normalize((string) $element->ownerDocument?->saveHTML($element)),
             // Source descriptions of the subtree read its root's preceding
-            // heading and its ancestors below body.
+            // heading and its ancestors' start tags.
             SourceDom::nearestPreviousHeadingText($element),
             self::ancestorStartTags($element),
             str_contains($sourcePath, '/') ? strtok($sourcePath, '/') : '',
@@ -203,6 +208,7 @@ final class ChromeJournal
         }
         return $encoded + array(
             'node_ids' => $nodeIds,
+            'bound_markers' => self::boundMarkers($before, $element->getNodePath(), serialize($encoded)),
             'dom' => $dom,
             'root_path' => $element->getNodePath(),
             'source_path' => $this->session->sourcePath(),
@@ -266,6 +272,15 @@ final class ChromeJournal
         foreach ($journal['allocations'] as [$method, $arguments, $marker]) {
             $markers[$marker] = $analysis->$method(...array_map($translate, $arguments));
         }
+        // Markers bound to subtree paths before recording began (a navigation
+        // pre-pass, say) take this page's names for the same paths.
+        $states = $this->session->journaledStates();
+        foreach ($journal['bound_markers'] as [$name, $property, $keys, $marker]) {
+            $value = self::read($states[$name], $property);
+            foreach ($translate($keys) as $key) $value = is_array($value) ? ($value[$key] ?? null) : null;
+            if (!is_string($value)) return null;
+            $markers[$marker] = $value;
+        }
         $markers = array_filter($markers, static fn (string $replacement, string $marker): bool => $replacement !== $marker, ARRAY_FILTER_USE_BOTH);
         $delta = $translate($journal['delta']);
         $block = $translate($journal['block']);
@@ -281,7 +296,6 @@ final class ChromeJournal
             foreach (array_diff_key($current[$index], $attributes) as $name => $_) if (!str_starts_with($name, 'xmlns')) $node->removeAttribute($name);
             foreach ($attributes as $name => $value) if (!str_starts_with($name, 'xmlns') && ($current[$index][$name] ?? null) !== $value) $node->setAttribute($name, $value);
         }
-        $states = $this->session->journaledStates();
         $provenanceState = $this->session->transformationProvenanceState();
         foreach ($delta as [$name, $property, $changes]) {
             $state = $states[$name];
@@ -369,6 +383,30 @@ final class ChromeJournal
         return $value;
     }
 
+    /**
+     * Engine markers the state held, before recording, under a key path that
+     * names an element of the subtree and that the recording refers to. Their
+     * names can depend on the whole page, so each replay looks its own up.
+     *
+     * @param array<string,array<string,mixed>> $state
+     * @return list<array{0:string,1:string,2:list<int|string>,3:string}>
+     */
+    private static function boundMarkers(array $state, string $root, string $recording): array
+    {
+        $bound = array();
+        $walk = static function (mixed $value, array $keys, bool $inside) use (&$walk, &$bound, $root, $recording): void {
+            if (is_array($value)) {
+                foreach ($value as $key => $entry) {
+                    $walk($entry, array(...$keys, $key), $inside || (is_string($key) && ($key === $root || str_starts_with($key, $root . '/'))));
+                }
+            } elseif ($inside && is_string($value) && 1 === preg_match('/^blocks-engine-[a-z-]+-[a-f0-9]{12}-\d+$/', $value) && str_contains($recording, $value)) {
+                $bound[] = array($keys[0], $keys[1], array_slice($keys, 2), $value);
+            }
+        };
+        $walk($state, array(), false);
+        return $bound;
+    }
+
     /** @return array<string,array<string,mixed>> */
     private function state(): array
     {
@@ -405,12 +443,20 @@ final class ChromeJournal
         return $elements;
     }
 
-    /** @return list<string> */
+    /**
+     * Document classes (WordPress's `postid-N`, say) differ on every page and
+     * reach conversion only through CSS, which the author-style identity
+     * already matches against each ancestor; they are left out here.
+     *
+     * @return list<string>
+     */
     private static function ancestorStartTags(DOMElement $element): array
     {
         $tags = array();
         for ($parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode) {
-            $tags[] = SubtreeIdentity::normalize((string) $parent->ownerDocument?->saveHTML($parent->cloneNode(false)));
+            $tag = $parent->cloneNode(false);
+            if ($tag instanceof DOMElement && in_array(strtolower($tag->tagName), array('body', 'html'), true)) $tag->removeAttribute('class');
+            $tags[] = SubtreeIdentity::normalize((string) $parent->ownerDocument?->saveHTML($tag));
         }
         return $tags;
     }

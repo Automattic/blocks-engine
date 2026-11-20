@@ -47,42 +47,22 @@ final class QuotePatternContext
             : $content;
     }
 
-    /** Preserve the consumed quotation's line box and separation from its caption. */
-    public function figureQuotationClassName(DOMElement $blockquote): string
+    /** Whether collapsing the caption would discard its independent line box. */
+    public function captionNeedsLineBox(DOMElement $caption): bool
     {
-        return $this->styleResolver->figureQuotationClassName($blockquote);
+        $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
+        foreach ( array( 'font-size', 'line-height' ) as $property ) {
+            if ( isset($authored[$property]) && '' !== $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** Preserve the typography and independent line box of a consumed caption. */
+    /** Preserve the typography of the caption consumed by a native quote. */
     public function figureCaptionContent(DOMElement $caption): string
     {
         $content = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::innerHtml($caption);
-        $declarations = $this->figureCaptionTypography($caption);
-        if (array() === $declarations) {
-            return $content;
-        }
-        // An inline span shares the native cite's (potentially larger) strut.
-        // Keep typography on its original carrier, but give that carrier the
-        // independent line box the source figcaption had. Styling cite itself
-        // would also change inherited/em-based native citation presentation.
-        $declarations['display'] = 'block';
-        $style = $this->styleResolver->cssDeclarationString($declarations);
-        return '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
-    }
-
-    /** A consumed block caption must not split an inline cite into anonymous boxes. */
-    public function figureCaptionClassName(DOMElement $caption): string
-    {
-        // Only a styled caption gets a block span in figureCaptionContent().
-        // Without that span, the native inline cite has no split line box to fix.
-        return array() === $this->figureCaptionTypography($caption)
-            ? ''
-            : $this->styleResolver->figureQuoteCaptionClassName($caption);
-    }
-
-    /** @return array<string, string> */
-    private function figureCaptionTypography(DOMElement $caption): array
-    {
         $declarations = array();
         $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
         foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
@@ -91,7 +71,8 @@ final class QuotePatternContext
                 $declarations[$property] = $value;
             }
         }
-        return $declarations;
+        $style = $this->styleResolver->cssDeclarationString($declarations);
+        return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
 
     public function citationFromElement(DOMElement $element): string

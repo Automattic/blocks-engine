@@ -1654,6 +1654,14 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'color' === $property && in_array(strtolower($resolved), array('inherit', 'unset'), true) ) {
                 continue;
             }
+            if ( '' !== $resolved && ! preg_match('/[<>]/', $resolved) && preg_match('/var\s*\(/i', $resolved) && array() === $this->styleResolver->customProperties->carried($resolved, $current) ) {
+                // Every custom property the declaration reads is undefined in
+                // the source cascade, so the value is invalid at computed-value
+                // time and this inherited property behaves as `unset`: the
+                // element inherits its parent's paint. Keep walking, as the
+                // browser does, rather than leaving the isolated image black.
+                continue;
+            }
             if ( '' === $resolved || preg_match('/var\s*\(|[<>]/i', $resolved) ) {
                 // The declared value could not be fully resolved. Stop rather
                 // than risk baking the wrong ancestor's paint.

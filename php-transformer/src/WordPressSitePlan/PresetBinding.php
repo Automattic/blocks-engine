@@ -439,7 +439,7 @@ final class PresetBinding
     {
         $markup = $this->bindNavigations($markup);
         $markup = $this->bindSiteTitles($markup);
-        $pattern = '/<!-- wp:(' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS))) . ') (\{.*?\}) (\/)?-->/s';
+        $pattern = '/<!-- wp:([\w-]+) (\{.*?\}) (\/)?-->/s';
         $result = '';
         $offset = 0;
         while (1 === preg_match($pattern, $markup, $match, PREG_OFFSET_CAPTURE, $offset)) {
@@ -507,7 +507,7 @@ final class PresetBinding
      * as `textColor`/`backgroundColor` where the `!important` preset class
      * would not change the cascade (safe()), otherwise as the preset
      * reference, which core renders as the same inline declaration now
-     * following the token. Only exact palette values bind. Shell extraction
+     * following the token (so state rules cascade over it as over the literal). Only exact palette values bind. Shell extraction
      * promotes shared wordmarks after page binding, so header parts call this
      * directly.
      */
@@ -520,6 +520,7 @@ final class PresetBinding
             if (!$color instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1]) return $match[0];
             $classes = 'wp-block-site-title ' . (is_string($attributes->className ?? null) ? $attributes->className : '');
             $changed = false;
+            $reason = null;
             foreach (array('text' => array('textColor', 'color', 'has-text-color', 'has-%s-color'), 'background' => array('backgroundColor', 'background-color', 'has-background', 'has-%s-background-color')) as $key => [$preset, $property, $marker, $class]) {
                 $literal = $color->$key ?? null;
                 if (isset($attributes->$preset) || !is_string($literal) || str_starts_with($literal, 'var')) continue;
@@ -529,7 +530,7 @@ final class PresetBinding
                 if ($this->safe($property, $tokens, array($marker, sprintf($class, $slug)))) {
                     unset($color->$key);
                     $attributes->$preset = $slug;
-                } elseif ($this->safe($property, $tokens, array(), true)) {
+                } elseif ($this->safe($property, $tokens, array(), true, false, $reason, true)) {
                     $color->$key = 'var:preset|color|' . $slug;
                 } else {
                     continue;
@@ -837,15 +838,15 @@ final class PresetBinding
     }
 
     /**
-     * Literal colours on blocks binding does not handle: a block type
-     * without colour support for them, or a self-closing block.
+     * Literal colours on blocks binding cannot inspect: a namespaced
+     * custom block, or a self-closing block without a serialized style tag.
      */
     private function refuseUnsupportedBlocks(string $markup): void
     {
         if (!preg_match_all('/<!-- wp:([a-z0-9\/-]+) (\{(?:(?!-->).)*\}) (\/)?-->/s', $markup, $blocks, PREG_SET_ORDER)) return;
         foreach ($blocks as $block) {
             $name = (string) preg_replace('/^core\//', '', $block[1]);
-            if ('/' !== ($block[3] ?? '') && in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) continue;
+            if ('/' !== ($block[3] ?? '') && 1 === preg_match('/^[\w-]+$/', $name)) continue;
             $attributes = json_decode($block[2], true);
             foreach (array('text', 'background') as $key) {
                 $literal = is_array($attributes) ? ($attributes['style']['color'][$key] ?? null) : null;
@@ -956,9 +957,11 @@ final class PresetBinding
         $d = new PresetBlockDraft($name, $html, $classes, $attributes, $style, $declarations, $tokens, $observed, $supports, $isLink, $deviceOverridden, $buttonLook);
         $this->bindButtonLook($d, $variation);
         $this->bindColorPresets($d);
-        $this->bindBorderColors($d);
-        $this->bindTypography($d);
-        $this->bindSpacing($d);
+        if (in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
+            $this->bindBorderColors($d);
+            $this->bindTypography($d);
+            $this->bindSpacing($d);
+        }
         if (0 === $d->bound) return null;
         return $this->boundBlock($d, $authoredKeys, $tagStart, $tagEnd);
     }
@@ -1044,6 +1047,17 @@ final class PresetBinding
             $literal = $style->color->{$key} ?? null;
             if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
+            if (!in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
+                // Observed paint can reach any block after authored-style
+                // projection. Bind only a proven inline literal here: unlike
+                // adding a preset class, this preserves its cascade slot and
+                // does not assume anything about the block's class supports.
+                if (!is_string($literal)) continue;
+                $slug = $this->system->blockColorSlug($this->resolve($literal)) ?? $this->presetSlug('color', $literal, null, $reason);
+                if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'unsupported_block');
+                continue;
+            }
             $blockSlug = is_string($literal) ? $this->system->blockColorSlug($this->resolve($literal)) : null;
             if (null !== $blockSlug) {
                 // A block-only token names this literal where it stands: the

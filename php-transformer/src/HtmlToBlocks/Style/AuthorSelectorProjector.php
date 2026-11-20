@@ -695,7 +695,22 @@ final class AuthorSelectorProjector
             elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
             // Many source items share one recorded marker target. Emit
             // that subject once per source rule, not once per matching item.
-            $navigationProjection = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+            $itemCondition = '';
+            if ('li' === strtolower($element->tagName) && (
+                ($subject['first_child'] ?? false) || ($subject['last_child'] ?? false)
+                || null !== ($subject['nth_child'] ?? null) || null !== ($subject['nth_of_type'] ?? null)
+                || array() !== ($subject['not'] ?? array()) || array() !== ($subject['any'] ?? array())
+                || 0 !== ($subject['resting_state_negations'] ?? 0)
+            )) {
+                // A container target is shared by siblings, not an identity
+                // for this match. Keep the live item predicate, including
+                // negations, without counting its specificity twice: the
+                // shims below already carry the complete source weight.
+                $span = $parsed['rightmost_compound_span'];
+                $end = $parsed['pseudo_state_suffix_span']['start'] ?? $span['end'];
+                $itemCondition = ':where(' . substr($selector, $span['start'], $end - $span['start']) . ')';
+            }
+            $navigationProjection = ':root ' . $target . $itemCondition . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             $navigationSubjects[$navigationProjection] = true;
         }
         return array(array_keys($navigationSubjects), $otherSubjects);

@@ -588,19 +588,15 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         $sourceAttributes = \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::staticAttributes(SourceDom::htmlAttributes($element));
         if (array() === array_filter(array_keys($sourceAttributes), static fn (string $name): bool => str_starts_with($name, 'data-'))) return array();
         $author = $this->session->authorStyleAnalysis();
-        foreach ($author->styleRules() as $rule) {
-            foreach ($rule['selectors'] as $selector) {
-                foreach ($selector['parsed']['compounds'] ?? array() as $compound) {
-                    $names = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::dataAttributeNames($compound);
-                    if (array() === $names) continue;
-                    $parsed = array_replace($selector['parsed'], array('compounds' => array($compound), 'combinators' => array(), 'pseudo_state_suffix_span' => null));
-                    if (!($parsed['supported'] ?? false) || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $parsed)['matches']) continue;
-                    $marker = $this->session->authorSelectorProjectionState()->attributeMarker($element->getNodePath() ?? '', $selector['selector']);
-                    if ('' !== $marker) continue;
-                    foreach (array_intersect_key($sourceAttributes, array_flip($names)) as $name => $value) {
-                        $attributes[$name] = $value;
-                    }
-                }
+        foreach ($author->dataAttributeSelectorCompounds() as $selector) {
+            $carried = array_intersect_key($sourceAttributes, array_flip($selector['names']));
+            if (array() === $carried) continue;
+            $parsed = $selector['parsed'];
+            if (!($parsed['supported'] ?? false) || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $parsed)['matches']) continue;
+            $marker = $this->session->authorSelectorProjectionState()->attributeMarker($element->getNodePath() ?? '', $selector['selector']);
+            if ('' !== $marker) continue;
+            foreach ($carried as $name => $value) {
+                $attributes[$name] = $value;
             }
         }
         return $attributes;

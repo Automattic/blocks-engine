@@ -153,8 +153,14 @@ final class QuotePattern implements PatternRecognizerInterface
         if ( '' === $citation && $caption instanceof DOMElement && preg_match(self::STRUCTURAL_CONTENT_PATTERN, SourceDom::innerHtml($caption)) ) {
             return null;
         }
-        $consumedCaption = '' === $citation && $caption instanceof DOMElement;
-        if ( $consumedCaption ) {
+        // A caption with its own font metrics needs its own block line box.
+        // An inline RichText citation sits in the native cite's larger strut;
+        // styling a span cannot preserve the source figure's height. Keep the
+        // figure and lower both children independently instead.
+        if ( '' === $citation && $caption instanceof DOMElement && $quotes->captionNeedsLineBox($caption) ) {
+            return null;
+        }
+        if ( '' === $citation && $caption instanceof DOMElement ) {
             $citation = $quotes->figureCaptionContent($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
@@ -172,11 +178,6 @@ final class QuotePattern implements PatternRecognizerInterface
 
         if ( SourceDom::hasClass($figure, 'wp-block-pullquote') || SourceDom::hasClass($blockquote, 'wp-block-pullquote') ) {
             return new PatternRecognitionResult($createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure));
-        }
-
-        $captionCarrier = $consumedCaption && '' !== trim($citation) ? $quotes->figureCaptionClassName($caption) : '';
-        if ( '' !== $captionCarrier ) {
-            $attrs['className'] = trim(($attrs['className'] ?? '') . ' ' . $captionCarrier);
         }
 
         $fallbacks = array();
@@ -197,7 +198,7 @@ final class QuotePattern implements PatternRecognizerInterface
             // (especially margins) must not become the synthetic paragraph's box.
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => trim('blocks-engine-synthetic-paragraph ' . ('' !== $captionCarrier ? $quotes->figureQuotationClassName($blockquote) : '')),
+                'className' => 'blocks-engine-synthetic-paragraph',
                 'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
             ));
         }

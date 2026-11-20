@@ -1538,7 +1538,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $conversionSelectorCache = clone $selectorCache;
         $timer->start('transform.validation.design_usage');
         $designUsageCollector = new DesignUsageCollector($this->styleResolver);
-        $designUsage = $designUsageCollector->collect($body, $buttonElements);
+        $designUsage = $designUsageCollector->collect($body, $buttonElements, $this->session->boxTreeEvidence(...), $this->session->boxTreeViewports());
         foreach ( $designUsageCollector->schemeColorFindings() as $finding ) {
             $diagnostics[] = ConversionFindingContract::withClassification($finding + array('source' => HtmlTransformer::class));
         }
@@ -1966,7 +1966,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // ADR 0005 slice 5: a folded box's declarations now belong to its child.
         foreach ( $classification['folds'] as $id => $fold ) {
-            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box']);
+            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'semantic' => $fold['semantic'] ?? false);
             $this->foldChildObservations[(string) $fold['child']] = $tree['nodes'][$fold['child']]['viewports'] ?? array();
         }
         $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => !empty($node['link_carrier'])))));
@@ -2294,7 +2294,21 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $childStyle = $neutralChild->hasAttribute('style') ? $neutralChild->getAttribute('style') : null;
             $handed = $this->handEntranceToFoldChild($element, $neutralChild);
             $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
-            if ( null === $block || $this->foldCarried($boxId, $block) ) {
+            $semantic = $this->foldedInto[$childId]['semantic'] ?? false;
+            if ( (!$semantic && null === $block) || (null !== $block && $this->foldCarried($boxId, $block)
+                && (!$semantic || 'core/group' === ($block['blockName'] ?? null))) ) {
+                if ($semantic) {
+                    $attrs = $block['attrs'];
+                    $attrs['tagName'] = strtolower($element->tagName);
+                    unset($attrs['anchor']);
+                    if ($element->hasAttribute('id')) $attrs['anchor'] = $element->getAttribute('id');
+                    foreach ($element->attributes as $attribute) {
+                        if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
+                            $attrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][$attribute->name] = $attribute->value;
+                        }
+                    }
+                    $block = array_replace($block, $this->blockFactory->create('core/group', $attrs, $block['innerBlocks']));
+                }
                 return $block;
             }
             foreach ( $handed as $name ) {
@@ -2428,6 +2442,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             if ($anchor instanceof DOMElement) {
                 $this->session->authorSelectorProjectionState()->markSocialAnchor($anchor);
                 $attrs = (new SocialSourceStyleProjector($this->styleResolver, $this->session->sourceStyleResolutionState()))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
+            }
+        }
+        if ( 'core/cover' === $name && $sourceElement instanceof DOMElement ) {
+            $positionClass = $this->styleResolver->responsiveCoverPositionClassName($sourceElement);
+            if ( '' !== $positionClass ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $positionClass);
             }
         }
         if ( 'core/cover' === $name && $sourceElement instanceof DOMElement && in_array(CoverPattern::CONSUMED_BACKGROUND_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {
