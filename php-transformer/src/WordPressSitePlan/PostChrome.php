@@ -1032,6 +1032,12 @@ final class PostChrome
                     }
                 }
             }
+            // A date linked to its own post (Blogger's timestamp permalink)
+            // varies only by that post's URL and date: post-date renders both.
+            if ('date' === $this->classifyBlock($slice, $post, $route, $index) && $this->listings->linksOnlyToRoute($slice, $route)) {
+                $slots[$leaf['offset']] = PostBlocks::date($slice);
+                continue;
+            }
             if ('paragraph' === PostBlocks::sourceBlockName($slice)) {
                 // Slot identity is structural, never a byte offset or source text.
                 $path = array();
