@@ -6,8 +6,9 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 // Pages that share the article layout of their posts (Blogger static pages)
-// own their title, byline and body like posts do, so a page authored in
-// WordPress renders the same layout. Each page also carries its own author CSS,
+// own their title, byline and body like posts do, and their design owns the
+// page hierarchy template, so a page authored in WordPress renders the same
+// layout. Each page also carries its own author CSS,
 // which gives the same chrome a different richtext marker per document.
 $article = static function (string $slug, string $title, string $body, string $css, string $date = ''): string {
     $time = '' === $date ? '' : '<span class="post_date"><time datetime="' . $date . '">' . $date . '</time></span>';
@@ -26,11 +27,17 @@ $pages = array('about' => array('About Me', '<p>About body one.</p><p>About body
 foreach ($pages as $slug => [$title, $body, $css]) {
     $files[] = array('path' => 'p/' . $slug . '.html', 'metadata' => array('post_type' => 'page', 'declared_content' => array('title' => $title, 'slug' => $slug)), 'content' => $article($slug, $title, $body, $css));
 }
+// A page without a byline is not an article; it keeps its own layout.
+$files[] = array('path' => 'contact.html', 'metadata' => array('post_type' => 'page', 'declared_content' => array('title' => 'Contact', 'slug' => 'contact')), 'content' => '<!doctype html><html><head><title>Contact</title></head><body><header class="site-header"><p>Shared header</p></header><main><h1>Contact</h1><p>Write to us.</p></main><footer><p>Footer</p></footer></body></html>');
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
 $failures = array();
 $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
 $used = array();
 foreach ($plan['pages'] as $page) {
+    if ('contact.html' === $page['source_path']) {
+        $contact = $templates[$page['route_template'] ?? 'page'] ?? '';
+        if (str_contains($contact, '<!-- wp:post-title') || !str_contains($page['canonical_block_markup'], 'Contact')) $failures[] = 'the unbylined page keeps its own template and title: ' . ($page['route_template'] ?? 'page');
+    }
     if ('page' !== $page['post_type'] || !str_starts_with($page['source_path'], 'p/')) continue;
     [$title, $body] = $pages[basename($page['source_path'], '.html')];
     $used[] = $page['route_template'] ?? 'page';
@@ -39,7 +46,7 @@ foreach ($plan['pages'] as $page) {
 }
 $used = array_unique($used);
 $template = $templates[$used[0] ?? ''] ?? '';
-if (1 !== count($used)) $failures[] = 'both pages share one template: ' . json_encode($used);
+if (array('page') !== $used) $failures[] = 'both pages render through the page hierarchy template, as a new page does: ' . json_encode($used);
 foreach (array('post-title', 'post-author-name', 'post-content') as $block) {
     if (!str_contains($template, '<!-- wp:' . $block)) $failures[] = 'the page template renders core/' . $block;
 }

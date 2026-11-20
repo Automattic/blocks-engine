@@ -272,14 +272,21 @@ final class PostChrome
             if ('author' === ($entity['kind'] ?? null)) $bylined += array_fill_keys($entity['membership_source_paths'] ?? array(), true);
         }
         $bound = array();
+        $users = array();
         foreach ($pages as $index => $page) {
+            if (in_array($page['post_type'] ?? null, array('post', 'page'), true)) {
+                $used = $page['route_template'] ?? ('post' === $page['post_type'] ? 'single' : 'page');
+                $users[$used] = ($users[$used] ?? 0) + 1;
+            }
             if (!('post' === ($page['post_type'] ?? null) || ('page' === ($page['post_type'] ?? null) && isset($bylined[$page['source_path'] ?? '']))) || !empty($page['synthetic']) || !empty($page['entrypoint'])) continue;
             $slug = $page['route_template'] ?? ('post' === $page['post_type'] ? 'single' : 'page');
             if (!isset($bySlug[$slug]) || isset($bySlug[$slug]['source_path']) || str_contains($bySlug[$slug]['canonical_block_markup'], '<!-- wp:post-title')) continue;
             $bound[$slug][$index] = $page;
         }
-        $canonical = null;
-        $canonicalSize = 0;
+        // Per article type, the largest factored design owns the hierarchy
+        // slot, so a post or page authored in WordPress renders like it.
+        $canonical = array();
+        $canonicalSize = array();
         foreach ($bound as $slug => $posts) {
             // One template's articles share a post type: posts, or pages.
             if (1 !== count(array_unique(array_column($posts, 'post_type')))) continue;
@@ -365,7 +372,8 @@ final class PostChrome
                 $factored = $layout['factored'];
                 // A partial group cannot change the template used by the other
                 // layouts (or by posts whose complete article must be retained).
-                $target = '' === $layout['scope'] && count($layout['members']) === count($posts) ? $slug : ('post' === $this->articleType ? 'single-post-article-' : 'page-article-') . substr(hash('sha256', $slug . "\0" . $identity . ('' === $layout['scope'] ? '' : "\0" . $layout['scope'])), 0, 12);
+                // Documents outside the factored layouts keep the template.
+                $target = '' === $layout['scope'] && count($layout['members']) === ($users[$slug] ?? 0) ? $slug : ('post' === $this->articleType ? 'single-post-article-' : 'page-article-') . substr(hash('sha256', $slug . "\0" . $identity . ('' === $layout['scope'] ? '' : "\0" . $layout['scope'])), 0, 12);
                 $template = $baseTemplate;
                 $template['slug'] = $target;
                 $template['target_path'] = 'templates/' . $target . '.html';
@@ -377,9 +385,9 @@ final class PostChrome
                 $bySlug[$target] = $template;
                 // The largest factored post design owns the hierarchy slot.
                 // Stable traversal breaks ties without depending on post IDs.
-                if ('post' === $this->articleType && count($layout['members']) > $canonicalSize) {
-                    $canonical = $target;
-                    $canonicalSize = count($layout['members']);
+                if (count($layout['members']) > ($canonicalSize[$this->articleType] ?? 0)) {
+                    $canonical[$this->articleType] = $target;
+                    $canonicalSize[$this->articleType] = count($layout['members']);
                 }
                 foreach ($factored['pages'] as $index => $page) {
                     $pages[$index] = $page;
@@ -397,18 +405,19 @@ final class PostChrome
                 unset($part);
             }
         }
-        if (null !== $canonical) {
-            $remap = array($canonical => 'single');
-            if ('single' !== $canonical) {
+        foreach ($canonical as $type => $design) {
+            $hierarchy = 'post' === $type ? 'single' : 'page';
+            $remap = array($design => $hierarchy);
+            if ($hierarchy !== $design) {
                 // Unfactored articles still need their original frame; do not
                 // put the canonical chrome around their retained full article.
-                $fallback = 'single-post-article-' . substr(hash('sha256', $bySlug['single']['canonical_block_markup']), 0, 12);
-                $remap['single'] = $fallback;
-                $original = $bySlug['single'];
-                $bySlug['single'] = $bySlug[$canonical];
-                unset($bySlug[$canonical]);
-                if (array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && 'single' === ($page['route_template'] ?? 'single'))) $bySlug[$fallback] = $original;
-                foreach (array('single', $fallback) as $target) {
+                $fallback = ('post' === $type ? 'single-post-article-' : 'page-article-') . substr(hash('sha256', $bySlug[$hierarchy]['canonical_block_markup']), 0, 12);
+                $remap[$hierarchy] = $fallback;
+                $original = $bySlug[$hierarchy];
+                $bySlug[$hierarchy] = $bySlug[$design];
+                unset($bySlug[$design]);
+                if (array_filter($pages, static fn(array $page): bool => $type === ($page['post_type'] ?? null) && $hierarchy === ($page['route_template'] ?? $hierarchy))) $bySlug[$fallback] = $original;
+                foreach (array($hierarchy, $fallback) as $target) {
                     if (!isset($bySlug[$target])) continue;
                     $bySlug[$target]['slug'] = $target;
                     $bySlug[$target]['target_path'] = 'templates/' . $target . '.html';
@@ -419,10 +428,10 @@ final class PostChrome
                         if (isset($part['placement'][$field])) $part['placement'][$field] = array_values(array_unique(array_map(static fn(string $value): string => $remap[$value] ?? $value, $part['placement'][$field])));
                     }
                     if (in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)) {
-                        $field = str_contains($bySlug['single']['canonical_block_markup'], '"slug":"' . $part['slug'] . '"') ? 'template_slugs' : 'excluded_template_slugs';
+                        $field = str_contains($bySlug[$hierarchy]['canonical_block_markup'], '"slug":"' . $part['slug'] . '"') ? 'template_slugs' : 'excluded_template_slugs';
                         $other = 'template_slugs' === $field ? 'excluded_template_slugs' : 'template_slugs';
-                        $part['placement'][$field][] = 'single';
-                        $part['placement'][$other] = array_values(array_diff($part['placement'][$other] ?? array(), array('single')));
+                        $part['placement'][$field][] = $hierarchy;
+                        $part['placement'][$other] = array_values(array_diff($part['placement'][$other] ?? array(), array($hierarchy)));
                     }
                     $wrappers = $part['placement']['template_wrappers'] ?? array();
                     if ($wrappers) {
@@ -433,10 +442,10 @@ final class PostChrome
                 unset($part);
             }
             foreach ($pages as &$page) {
-                if ('post' !== ($page['post_type'] ?? null)) continue;
-                $target = $remap[$page['route_template'] ?? 'single'] ?? ($page['route_template'] ?? 'single');
+                if ($type !== ($page['post_type'] ?? null)) continue;
+                $target = $remap[$page['route_template'] ?? $hierarchy] ?? ($page['route_template'] ?? $hierarchy);
                 $page['route_template'] = $target;
-                if ('single' === $target) unset($page['metadata']['post_meta']['_wp_page_template']);
+                if ($hierarchy === $target) unset($page['metadata']['post_meta']['_wp_page_template']);
                 else $page['metadata']['post_meta']['_wp_page_template'] = $target;
             }
             unset($page);
