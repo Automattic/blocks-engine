@@ -58,19 +58,24 @@ final class ChromeJournal
         unset($options['source'], $options['declarative_state_html'], $options['box_tree'], $options['chrome_journal']);
         $options = array_filter($options, static fn (mixed $option): bool => !is_object($option));
         ksort($options);
-        // Stylesheets inlined in the page name it as their source; their
-        // relative URLs resolve against its directory.
+        // Inline CSS names the page as its source. Key relative URLs by
+        // their targets, not by directories that may resolve to the same asset.
         $page = $session->sourcePath();
-        $relative = false;
+        $resolvedUrls = array();
         foreach ($options['author_stylesheet_assets'] ?? array() as $asset) {
-            $relative = $relative || (is_array($asset) && $page === ($asset['source_path'] ?? null)
-                && 1 === preg_match('~url\(\s*[\'"]?(?![a-z][a-z0-9+.-]*:|/|#|[\'"]?\))~i', (string) ($asset['content'] ?? '')));
+            if (!is_array($asset) || $page !== ($asset['source_path'] ?? null)) continue;
+            \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite((string) ($asset['content'] ?? ''), static function (string $url) use ($page, &$resolvedUrls): string {
+                if (1 !== preg_match('~^(?:[a-z][a-z0-9+.-]*:|/|#)~i', $url)) $resolvedUrls[] = ArtifactPath::resolveRelativePath($url, $page);
+                return $url;
+            });
         }
+        $resolvedUrls = array_values(array_unique($resolvedUrls));
+        sort($resolvedUrls);
         unset($options['author_stylesheet_assets'], $options['static_css'], $options['stylesheet_payloads'], $options['asset_metadata']);
         array_walk_recursive($options, static function (mixed &$value) use ($page): void {
             if ($value === $page) $value = "\0page";
         });
-        $this->pageDigest = hash('sha256', serialize(array($options, $relative ? dirname($page) : '')));
+        $this->pageDigest = hash('sha256', serialize(array($options, $resolvedUrls)));
     }
 
     private readonly string $pageDigest;
@@ -187,6 +192,11 @@ final class ChromeJournal
         foreach (self::elements($element) as $index => $node) $indexes[$node] = $index;
         $encoded = self::encodeElements(array('delta' => $delta, 'fallbacks' => $fallbacks, 'block' => $block), $indexes);
         if (null === $encoded) return null;
+        $richTextMarkers = array();
+        foreach ($attributes as $index => $original) {
+            $marker = $original['data-blocks-engine-richtext-marker'] ?? '';
+            if ('' !== $marker) $richTextMarkers[$marker] = $index;
+        }
         $nodeIds = array();
         foreach ($attributes as $index => $original) {
             if (!isset($original[BoxTree::NODE_ATTRIBUTE])) continue;
@@ -203,6 +213,7 @@ final class ChromeJournal
         }
         return $encoded + array(
             'node_ids' => $nodeIds,
+            'richtext_markers' => $richTextMarkers,
             'dom' => $dom,
             'root_path' => $element->getNodePath(),
             'source_path' => $this->session->sourcePath(),
@@ -228,6 +239,9 @@ final class ChromeJournal
         foreach ($journal['node_ids'] ?? array() as $id => $index) {
             $target = null !== $index ? ($elements[$index] ?? null) : null;
             $nodeIds[$id] = $target?->getAttribute(BoxTree::NODE_ATTRIBUTE) ?: null;
+        }
+        foreach ($journal['richtext_markers'] ?? array() as $marker => $index) {
+            $nodeIds[$marker] = isset($elements[$index]) ? ($elements[$index]->getAttribute('data-blocks-engine-richtext-marker') ?: null) : null;
         }
         $nodePattern = array() === $nodeIds ? null : '~(?<![a-zA-Z0-9_-])(?:' . implode('|', array_map(static fn (string $id): string => preg_quote($id, '~'), array_keys($nodeIds))) . ')(?![a-zA-Z0-9_-])~';
         $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath, $nodeIds, $nodePattern): mixed {
