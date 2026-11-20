@@ -135,7 +135,7 @@ final class SourceShells
                 // Comparison ignores route-local observations; emission keeps
                 // node IDs so the canonical route's accepted tree can restyle
                 // the isolated shared shell rather than falling back to CSS.
-                if ($ignoreViewportEntrance && \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name)) $node->removeAttributeNode($attribute);
+                if ($ignoreViewportEntrance && (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name) || str_starts_with($attribute->name, CaptureEvidence::VIEWPORT_CLASS_PREFIX))) $node->removeAttributeNode($attribute);
             }
         }
         if ($ignoreViewportEntrance) {

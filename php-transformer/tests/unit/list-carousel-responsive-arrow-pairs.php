@@ -76,6 +76,49 @@ $assert($visible === ($carousels[0]['attrs']['itemsPerView'] ?? null), 'single p
 [$carousels, $galleries] = $transform($fixture('', ''));
 $assert(array() === $carousels && 1 === count($galleries), 'negative: an uncontrolled collection stays a gallery');
 
+// The captured shape: the visible slides carry no aria-hidden at all while
+// their siblings are aria-hidden="true". The rendered window is positioned by
+// inline translate3d offsets on one pitch (a leading and a trailing buffer
+// slide beside four on view), and the desktop arrows sit in separate side
+// wrappers outside the clipping gutter.
+$pitch = 339;
+$windowSlides = '';
+for ($index = 1; $index <= 12; ++$index) {
+    $offset = $index <= 6 ? ($index - 2) * $pitch : null;
+    $attributes = null !== $offset
+        ? ' style="transform: translate3d(' . $offset . 'px, 0px, 0px)"'
+        : (12 === $index ? ' style="transform: translate3d(-9999px, 0px, 0px)" aria-hidden="true"' : ' style="" aria-hidden="true"');
+    $windowSlides .= '<li class="window-carousel__slide list-item"' . $attributes . '><div class="window-carousel__media-container">'
+        . '<img src="/partner-' . $index . '.png" alt="Partner ' . $index . '"></div><div class="list-item-content"></div></li>';
+}
+$side = static fn (string $direction): string => '<div class="desktop-arrows window-carousel__arrow-wrapper window-carousel__arrow-wrapper--' . $direction . '">'
+    . '<div class="window-carousel__arrow-container"><div class="window-carousel__arrow-icon-holder">' . $arrow('window-carousel__arrow-button', $direction) . '</div></div></div>';
+$windowStyle = '<style>.window-carousel{position:relative}.window-carousel__gutter{position:relative;overflow:hidden}.window-carousel__slideshow-holder{position:relative;margin:0 auto}'
+    . '.window-carousel__slides-revealer{overflow:hidden}.window-carousel__slides{margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);list-style-type:none}'
+    . '.window-carousel__slide{grid-row-start:1;grid-column-start:1;transform:translatex(-9999px)}.mobile-arrows{display:none}@media(max-width:767px){.desktop-arrows{display:none}.mobile-arrows{display:flex}}</style>';
+$windowFixture = static fn (string $controls): string => $windowStyle . '<section class="list-section"><div class="window-carousel">'
+    . '<div class="window-carousel__gutter" role="region" aria-label="Carousel" tabindex="0"><div class="window-carousel__slideshow-holder"><div class="window-carousel__slides-revealer">'
+    . '<ul class="window-carousel__slides" style="grid-gap: 60px">' . $windowSlides . '</ul></div></div></div>' . $controls . '</div></section>';
+
+[$carousels, $galleries, $markup] = $transform($windowFixture($side('left') . $side('right') . $pair('mobile-arrows', 'mobile-arrow-button')));
+$assert(array() === $galleries, 'window: the translated list carousel is not lowered to a gallery');
+$assert(1 === count($carousels), 'window: one authored carousel block');
+$attrs = $carousels[0]['attrs'] ?? array();
+$assert('track' === ($attrs['presentation'] ?? null), 'window: the slides move as a track');
+$assert(4 === ($attrs['itemsPerView'] ?? null), 'window: the track shows the four slides inside the window, not its buffer slides');
+$assert(12 === ($attrs['slideCount'] ?? null), 'window: every slide survives');
+$carouselMarkup = (new Runtime())->serializeBlocks(array($carousels[0] ?? array()));
+$assert(str_contains($carouselMarkup, 'blocks-engine-authored-carousel--items-4'), 'window: the root paints four slides per view');
+$assert(2 === substr_count($carouselMarkup, 'data-carousel-previous="true"') && 2 === substr_count($carouselMarkup, 'data-carousel-next="true"'), 'window: both the desktop and the mobile arrow pairs step the track');
+$assert(str_contains($carouselMarkup, 'window-carousel__arrow-wrapper--left') && str_contains($carouselMarkup, 'window-carousel__arrow-wrapper--right'), 'window: the desktop side wrappers survive around their arrows');
+$assert(!str_contains($markup, 'columns-'), 'window: no gallery grid');
+
+// Four unlabeled controls that all join in one container are a pager, not
+// breakpoint copies of a pair.
+$pager = '<div class="list-carousel__pager">' . str_repeat('<button class="list-carousel__dot"></button>', 4) . '</div>';
+[$carousels, $galleries] = $transform($fixture($pager, ''));
+$assert(array() === $carousels && 1 === count($galleries), 'pager: four controls in one container keep the gallery path');
+
 if (array() !== $failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

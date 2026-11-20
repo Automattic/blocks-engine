@@ -116,6 +116,9 @@ final class AuthorSelectorProjector
      * That holds only for a selector naming positioned images alone: its
      * figure arm reaches every figure the type matches, so a global `img`
      * rule would also restyle the figures of static images.
+     * A positioned `svg` materialized as a standalone core/image is the same
+     * case: left static, its figure falls into flow and the image renders at
+     * the viewBox's intrinsic ratio instead of the author's stretched box.
      * Attributes stay on the <img>. Classes and id must be on the figure, so a
      * class the figure did not keep leaves the authored selector alone.
      *
@@ -123,7 +126,7 @@ final class AuthorSelectorProjector
      */
     private function isPositionedImage(DOMElement $element): bool
     {
-        return 'img' === strtolower($element->tagName)
+        return in_array(strtolower($element->tagName), array( 'img', 'svg' ), true)
             && in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array( 'absolute', 'fixed' ), true);
     }
 
@@ -145,7 +148,7 @@ final class AuthorSelectorProjector
         // Only an explicit type subject can use the existing type-span rewrite;
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
-            && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
+            && 1 === preg_match('/^' . preg_quote($tagName, '/') . '\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
         if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
@@ -1698,7 +1701,8 @@ final class AuthorSelectorProjector
     {
         $typeSpans = $parsed['type_spans'];
         $bridgeAnchors = $this->hasLoweredAnchorCarrier($context->emittedMarkup);
-        if ($bridgeAnchors && ! $parsed['supported']) {
+        $bridgeSpans = str_contains($context->emittedMarkup, EngineMarker::subjectTagClass('span'));
+        if (($bridgeAnchors || $bridgeSpans) && ! $parsed['supported']) {
             // Ancestor states are outside the matcher's static subset, but
             // tokenization still identifies each compound's leading type.
             $tokens = CssSelectorTokenizer::tokenize($selector);
@@ -1706,7 +1710,7 @@ final class AuthorSelectorProjector
                 $resting = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound) ?? $compound;
                 $compoundParsed = CssSelectorMatcher::parse($resting);
                 foreach ($compoundParsed['type_spans'] as $span) {
-                    if (0 !== $span['start'] || 'a' !== strtolower($span['name'])) continue;
+                    if (0 !== $span['start'] || ! in_array(strtolower($span['name']), array('a', 'span'), true)) continue;
                     $start = $tokens['compound_spans'][$index]['start'];
                     $typeSpans[] = array('start' => $start, 'end' => $start + $span['end'], 'name' => $span['name']);
                 }
@@ -1759,7 +1763,14 @@ final class AuthorSelectorProjector
                 // Keep real source spans addressable, without adding weight.
                 // A span carrier for another source tag (a lowered `<p>`)
                 // matches only that tag's rules, never those for real spans.
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))' );
+                $span = 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))';
+                // RichText can replace source spans with marks. The native
+                // arm keeps its chrome/foreign-carrier guards; the marker arm
+                // reaches only source spans and adds no class specificity.
+                if ($bridgeSpans) {
+                    $span = ':is(' . $span . ',:where(.' . EngineMarker::subjectTagClass('span') . '))';
+                }
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $span );
             } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }

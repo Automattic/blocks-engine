@@ -46,6 +46,12 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         $attributes = array() === $leadingElements ? $presentationAttributes($element) : array();
+        // core/accordion states the icon side for all its headings; it is set
+        // only when every source row puts its icon before the label.
+        $leftIcons = array_filter($items, static fn (array $item): bool => 'left' === ( $item['innerBlocks'][0]['attrs']['iconPosition'] ?? '' ));
+        if ( count($leftIcons) === count($items) ) {
+            $attributes['iconPosition'] = 'left';
+        }
         for ($node = $itemElements[0]->parentNode, $depth = 0; $node instanceof DOMElement && $depth < 8; $node = $node->parentNode, $depth++) {
             if ('true' === strtolower(SourceDom::attr($node, CaptureEvidence::EXCLUSIVE_DISCLOSURES))) {
                 $attributes['autoclose'] = true;
@@ -149,6 +155,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             'level' => $this->headingLevel($title),
             'style' => $headingTypography($control),
             'className' => $toggle['className'],
+            'iconPosition' => $toggle['iconPosition'] ?? '',
             'metadata' => '' !== $toggle['iconSvg'] ? array('blocksEngineIcon' => $toggle['iconSvg']) : '',
         ), static fn ($value): bool => '' !== $value && array() !== $value);
 
