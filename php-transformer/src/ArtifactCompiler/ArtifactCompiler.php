@@ -1943,7 +1943,7 @@ final class ArtifactCompiler
         $byPath = array_column($files, null, 'path');
         foreach ($split['statements'] as $statement) {
             $clean = rtrim(trim(preg_replace('#^(?:\s|/\*.*?\*/)*#s', '', $statement) ?? $statement), ';');
-            if (!preg_match('/^@import\s+(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')(.*)$/is', $clean, $match)) {
+            if (!preg_match('/^' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . '(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')(.*)$/is', $clean, $match)) {
                 $preamble[] = $statement;
                 continue;
             }

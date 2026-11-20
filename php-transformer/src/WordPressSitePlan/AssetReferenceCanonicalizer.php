@@ -350,7 +350,7 @@ final class AssetReferenceCanonicalizer
     private static function css(string $css, callable $replace, string $element = ''): string
     {
         $css = CssUrlRewriter::rewrite($css, static fn(string $reference): string => $replace($reference, $element, 'css:url'));
-        return self::replaceRegex('~(@import\s+)(["\'])([^"\']+)\2~i', static fn(array $match): string => $match[1] . $match[2] . $replace($match[3], $element, 'css:@import') . $match[2], $css);
+        return self::replaceRegex('~(' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . ')(["\'])([^"\']+)\2~i', static fn(array $match): string => $match[1] . $match[2] . $replace($match[3], $element, 'css:@import') . $match[2], $css);
     }
 
     /** @param callable(string,string,string):string $replace */

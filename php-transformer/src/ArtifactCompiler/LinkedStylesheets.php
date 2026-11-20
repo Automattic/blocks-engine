@@ -213,7 +213,7 @@ final class LinkedStylesheets
             $preamble = (new CssStylesheetTransformer())->splitLeadingAtRulePreamble($content);
             foreach ($preamble['statements'] as $statement) {
                 $clean = preg_replace('#^(?:\s|/\*.*?\*/)*#s', '', $statement) ?? $statement;
-                if (!preg_match('/^@import\s+(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')/is', $clean, $match)) continue;
+                if (!preg_match('/^' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . '(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')/is', $clean, $match)) continue;
                 $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
                 $path = ArtifactPath::linkedFilePath($reference, $sourcePath, $files);
                 if ('' === $path || isset($linkedStylesheetPaths[$path])) continue;
