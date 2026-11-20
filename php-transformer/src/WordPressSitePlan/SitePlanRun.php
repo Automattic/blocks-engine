@@ -120,7 +120,7 @@ final class SitePlanRun
         // A box-tree carrier on a button's link owns that button's look.
         $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
         $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents), array_values(array_column(array_filter($documents, static fn(array $document): bool => !empty($document['document_metadata']['engine_owned_styles'])), 'source_path')));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $this->surfaces = TemplateSurfaces::select($documents);
