@@ -39,10 +39,41 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
     $text = static fn ( string $label ): string => trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $label ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
     // An edited menu no longer has the recorded items; it keeps its own.
     if ( count( $items ) !== count( $presentation ) ) return $inner_blocks;
+    // Remove recorded top-level extras before replaying positional presentation.
+    // WP_Block_List preserves stored WP_Block instances (and their context).
+    if ( array_filter( $presentation, static fn ( $own ): bool => is_array( $own ) && ! empty( $own['omit'] ) ) ) {
+    $kept = array();
+    $kept_presentation = array();
+    $position = 0;
+    foreach ( $inner_blocks as $block ) {
+        $descendants = array();
+        $visit = static function ( $node ) use ( &$visit, &$descendants ): void {
+            if ( in_array( $node->name, array( 'core/navigation-link', 'core/navigation-submenu' ), true ) ) $descendants[] = $node;
+            foreach ( $node->inner_blocks as $child ) $visit( $child );
+        };
+        $visit( $block );
+        $length = count( $descendants );
+        $own = $presentation[ $position ] ?? array();
+        $attrs = $block->parsed_block['attrs'] ?? array();
+        $omit = ! empty( $own['omit'] ) && isset( $own['label'], $own['url'] )
+            && $text( (string) ( $attrs['label'] ?? '' ) ) === $own['label']
+            && (string) ( $attrs['url'] ?? '' ) === $own['url'];
+        if ( ! $omit ) {
+            $kept[] = $block;
+            array_push( $kept_presentation, ...array_slice( $presentation, $position, $length ) );
+        }
+        $position += $length;
+    }
+    $inner_blocks = new WP_Block_List( $kept );
+    $presentation = $kept_presentation;
+    $items = array();
+    $collect( $inner_blocks );
+    }
     $document = __DOCUMENT_ID__;
     $served = apply_filters( 'blocks_engine_served_route', is_front_page() ? '/' : ( 0 !== $document && 'page' === get_post_type( $document ) ? '/' . trim( (string) get_page_uri( $document ), '/' ) : null ), $document );
     foreach ( $items as $position => $block ) {
         $own = is_array( $presentation[ $position ] ) ? $presentation[ $position ] : array();
+        if ( ! empty( $own['omit'] ) ) continue; // Owner edits fail open, with entity presentation.
         $attrs = $block->parsed_block['attrs'] ?? array();
         // The recorded presentation holds the state the item was captured in.
         // Served in the other state, the item keeps the entity's presentation,

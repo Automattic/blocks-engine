@@ -48,6 +48,7 @@ final class NavigationEntityProjection
         }
         if (array() === $clusters) return array('pages' => $pages, 'parts' => $parts, 'menus' => $menus);
 
+        $folded = self::foldSubsets($clusters);
         $entities = array();
         $usedSlugs = array();
         $replacements = array();
@@ -73,13 +74,17 @@ final class NavigationEntityProjection
                 'token' => $token, 'reconciliation_identity' => $identity,
             );
             $shared = self::itemPresentation($markup);
-            foreach ($occurrences as $occurrence) {
+            foreach (array_merge($occurrences, $folded[$contentIdentity] ?? array()) as $occurrence) {
                 $attrs = $occurrence['block']['attrs'];
                 $attrs['ref'] = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
                 // The entity holds one copy of each item's presentation. A
                 // reference whose items present differently renders its own.
                 $own = self::itemPresentation($occurrence['inner']);
-                if ($own !== $shared) $attrs['metadata'][self::ITEMS_KEY] = self::withCapturedCurrentState($own, $occurrence['captured_inner']);
+                if ($own !== $shared || isset($occurrence['folded'])) {
+                    $own = self::withCapturedCurrentState($own, $occurrence['captured_inner']);
+                    if (isset($occurrence['folded'])) $own = self::subsetPresentation($own, self::contentItems($occurrence['inner']), self::contentItems($canonical['inner']));
+                    $attrs['metadata'][self::ITEMS_KEY] = $own;
+                }
                 $replacements[$occurrence['kind']][$occurrence['index']][] = array(
                     'offset' => $occurrence['block']['offset'], 'length' => $occurrence['block']['length'],
                     'markup' => '<!-- wp:navigation ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' /-->',
@@ -161,6 +166,12 @@ final class NavigationEntityProjection
     /** Ordered item semantics, not source carriers or placement presentation. */
     private static function contentIdentity(string $markup): string
     {
+        return hash('sha256', json_encode(self::contentItems($markup), JSON_THROW_ON_ERROR));
+    }
+
+    /** The same ordered semantic tuples drive identity and top-level folding. */
+    private static function contentItems(string $markup): array
+    {
         $items = static function (array $blocks) use (&$items): array {
             $result = array();
             foreach ($blocks as $block) {
@@ -183,7 +194,67 @@ final class NavigationEntityProjection
             }
             return $result;
         };
-        return hash('sha256', json_encode($items((new Runtime())->parseBlocks($markup)), JSON_THROW_ON_ERROR));
+        return $items((new Runtime())->parseBlocks($markup));
+    }
+
+    /** Fold only strict top-level subsequences with a shared document witness. */
+    private static function foldSubsets(array &$clusters): array
+    {
+        $items = array();
+        foreach ($clusters as $identity => $occurrences) $items[$identity] = self::contentItems($occurrences[0]['inner']);
+        $targets = array();
+        foreach ($clusters as $identity => $occurrences) {
+            if (count($items[$identity]) < 2) continue;
+            foreach ($clusters as $candidate => $wider) {
+                if (count($items[$identity]) >= count($items[$candidate])) continue;
+                if (isset($targets[$identity]) && count($items[$targets[$identity]]) <= count($items[$candidate])) continue;
+                $position = 0;
+                foreach ($items[$candidate] as $item) {
+                    if ($item === ($items[$identity][$position] ?? null)) ++$position;
+                }
+                if ($position !== count($items[$identity])) continue;
+                foreach ($occurrences as $left) foreach ($wider as $right) {
+                    if ($left['kind'] === $right['kind'] && $left['index'] === $right['index']) {
+                        $targets[$identity] = $candidate;
+                        break 2;
+                    }
+                }
+            }
+        }
+        $folded = array();
+        foreach ($targets as $identity => $target) {
+            while (isset($targets[$target])) $target = $targets[$target];
+            foreach ($clusters[$identity] as $occurrence) {
+                $occurrence['folded'] = true;
+                $folded[$target][] = $occurrence;
+            }
+        }
+        foreach ($targets as $identity => $target) unset($clusters[$identity]);
+        return $folded;
+    }
+
+    /** Align flattened presentation with the wider menu, omitting whole subtrees. */
+    private static function subsetPresentation(array $own, array $narrow, array $wide): array
+    {
+        $size = static function (array $item) use (&$size): int {
+            return 1 + array_sum(array_map($size, $item['children']));
+        };
+        $result = array();
+        $position = 0;
+        $offset = 0;
+        foreach ($wide as $item) {
+            if ($item === ($narrow[$position] ?? null)) {
+                $length = $size($item);
+                array_push($result, ...array_slice($own, $offset, $length));
+                $offset += $length;
+                ++$position;
+            } else {
+                $result[] = array('omit' => true, 'label' => $item['label'], 'url' => $item['url']);
+                // Descendants count toward the edit guard, but are removed with their parent.
+                for ($i = 1; $i < $size($item); ++$i) $result[] = array('omit' => true);
+            }
+        }
+        return $result;
     }
 
     /**
