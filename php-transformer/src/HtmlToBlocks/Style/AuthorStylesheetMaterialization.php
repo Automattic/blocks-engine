@@ -56,9 +56,13 @@ final class AuthorStylesheetMaterialization
         return $this->projectedSelectorBindings;
     }
 
+    /** @var list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}>|null */
+    private ?array $projections = null;
+
     /** @return list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> */
     public function projections(): array
     {
+        if (null !== $this->projections) return $this->projections;
         $projections = array();
         $contentBoxRestatements = new ContentBoxRestatements();
         foreach ( $this->session->authorStyleAnalysis()->stylesheetAssets() as $asset ) {
@@ -87,7 +91,7 @@ final class AuthorStylesheetMaterialization
             );
         }
         $this->contentBoxCss = $contentBoxRestatements->css();
-        return $projections;
+        return $this->projections = $projections;
     }
 
 

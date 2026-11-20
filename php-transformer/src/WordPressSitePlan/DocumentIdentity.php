@@ -54,7 +54,7 @@ final class DocumentIdentity
                 );
                 continue;
             }
-            if ('page' === $documentKind && self::isEmptyRedirect($document)) continue;
+            if ('page' === $documentKind && (self::isEmptyRedirect($document) || self::hasEmptySourceBody($document))) continue;
             // Native term captures may contain no presentation at all. Defer
             // their content validation until taxonomy ownership is resolved;
             // any unproven capture still faces the final page contract.
@@ -131,6 +131,36 @@ final class DocumentIdentity
             'pattern_family' => 'site_plan_document',
             'repair_bucket' => 'restore_compiled_document_identity',
         );
+    }
+
+    /**
+     * A page whose declared source body renders nothing a visitor can see: no
+     * text, no media or form controls, no drawable SVG, no inline background
+     * painting, and no script that could build content at runtime. Its empty
+     * compiled body is the faithful result, not a loss, so it becomes an
+     * empty-content page under the shared template. A document without a
+     * declared body (an empty file or a bare fragment) still has to prove
+     * content.
+     *
+     * @param array<string,mixed> $document
+     */
+    public static function hasEmptySourceBody(array $document): bool
+    {
+        if (!empty($document['entrypoint']) || !is_string($document['html'] ?? null)) return false;
+        $html = preg_replace('~<!--.*?-->~s', '', $document['html']) ?? '';
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
+            if ('script' !== ($node['name'] ?? null) || 'tag' !== ($node['kind'] ?? null)) continue;
+            $type = strtolower(trim((string) ($node['attributes']['type'] ?? '')));
+            if (!in_array($type, array('application/json', 'application/ld+json', 'importmap', 'speculationrules', 'text/template'), true)) return false;
+        }
+        $html = preg_replace('~<(head|script|style|template)\b[^>]*>.*?</\1\s*>~is', '', $html) ?? '';
+        if (1 !== preg_match('~<body\b([^>]*)>(.*?)(?:</body\s*>|$)~is', $html, $match)) return false;
+        $body = $match[0];
+        // An SVG with no drawable element (a hidden symbol store) paints nothing.
+        $body = preg_replace_callback('~<svg\b[^>]*>.*?</svg\s*>~is', static fn(array $svg): string => preg_match('~<(?:path|rect|circle|ellipse|line|polyline|polygon|text|image|use|foreignObject)\b~i', $svg[0]) ? $svg[0] : '', $body) ?? $body;
+        if ('' !== trim(html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8'), " \t\n\r\0\x0B\u{00A0}")) return false;
+        if (preg_match('~<(?:img|picture|video|audio|iframe|object|embed|canvas|svg|math|input|select|textarea|button)\b~i', $body)) return false;
+        return 1 !== preg_match('~\bstyle\s*=\s*(["\'])[^"\']*\bbackground(?:-image|-color)?\s*:\s*(?!\s*(?:none|transparent|initial|unset)\s*(?:;|\1))~i', $body);
     }
 
     /** @param array<string,mixed> $document */

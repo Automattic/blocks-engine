@@ -164,12 +164,42 @@ final class RuntimeEntityManifest
     {
         $normalized = array();
         foreach ($records as $record) {
-            if (!is_array($record) || array('content_hash', 'entity') !== array_keys($record) || !is_string($record['content_hash'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $record['content_hash']) || !is_array($record['entity'] ?? null) || $record['content_hash'] !== RuntimeDeclarations::hash($record['entity']) || strlen(RuntimeDeclarations::canonicalJson($record)) > RuntimeDeclarations::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException('Runtime entity manifest record is invalid or exceeds the 5 MiB payload limit.');
-            if (isset($normalized[$record['content_hash']])) throw new InvalidArgumentException('Runtime entity manifest record hashes must be unique.');
-            $normalized[$record['content_hash']] = array('content_hash' => $record['content_hash'], 'entity' => RuntimeDeclarations::canonical($record['entity']));
+            if (!is_array($record) || array('content_hash', 'entity') !== array_keys($record) || !is_string($record['content_hash'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $record['content_hash']) || !is_array($record['entity'] ?? null)) throw new InvalidArgumentException('Runtime entity manifest record is invalid or exceeds the 5 MiB payload limit.');
+            $hash = $record['content_hash'];
+            $entity = self::verifiedEntity($hash, $record);
+            if (isset($normalized[$hash])) throw new InvalidArgumentException('Runtime entity manifest record hashes must be unique.');
+            $normalized[$hash] = array('content_hash' => $hash, 'entity' => $entity);
         }
         ksort($normalized, SORT_STRING);
         return array_values($normalized);
+    }
+
+    /**
+     * Records already proven to match their content hash and payload limit,
+     * keyed by that hash, beside their canonical form.
+     *
+     * One composition resolves the same manifest records many times (shell
+     * extraction, binding projection, navigation, whole-page candidates), and a
+     * record can carry megabytes of block markup. An entity identical (`===`)
+     * to one already verified under the same hash serializes to the same bytes,
+     * so it needs neither re-hashing nor re-encoding. Identical arrays usually
+     * share storage, which makes the comparison constant-time.
+     *
+     * @var array<string,array{0:array<string,mixed>,1:array<string,mixed>}>
+     */
+    private static array $verifiedRecords = array();
+    private const VERIFIED_RECORD_CACHE_LIMIT = 1024;
+
+    /** @param array{content_hash:string,entity:array<string,mixed>} $record @return array<string,mixed> */
+    private static function verifiedEntity(string $hash, array $record): array
+    {
+        $verified = self::$verifiedRecords[$hash] ?? null;
+        if (null !== $verified && $verified[0] === $record['entity']) return $verified[1];
+        if ($hash !== RuntimeDeclarations::hash($record['entity']) || strlen(RuntimeDeclarations::canonicalJson($record)) > RuntimeDeclarations::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException('Runtime entity manifest record is invalid or exceeds the 5 MiB payload limit.');
+        $canonical = RuntimeDeclarations::canonical($record['entity']);
+        if (count(self::$verifiedRecords) >= self::VERIFIED_RECORD_CACHE_LIMIT) unset(self::$verifiedRecords[array_key_first(self::$verifiedRecords)]);
+        self::$verifiedRecords[$hash] = array($record['entity'], $canonical);
+        return $canonical;
     }
 
     /**

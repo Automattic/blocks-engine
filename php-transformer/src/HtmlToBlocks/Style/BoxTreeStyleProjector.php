@@ -359,7 +359,10 @@ final class BoxTreeStyleProjector
      * attributes: its observed typography that differs from its source
      * parent's goes entirely to a carrier class. A value equal to the
      * parent's is left to inheritance, so a lifted fluid block value keeps
-     * reaching it between captures.
+     * reaching it between captures. Compare used values here, not author
+     * tokens: a smaller child inheriting a unitless line-height has different
+     * used pixels and must keep its own carrier when the parent lifts its
+     * factor. Freezing the parent's factor instead loses line-box rounding.
      *
      * An element with a user-agent colour of its own (a link, a mark) also
      * carries its observed colour, whether the source inherited it or set
@@ -413,9 +416,10 @@ final class BoxTreeStyleProjector
      * @param string $tagName The emitted (source) element's tag, for UA defaults.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid {@see BoxTreeFluidIntent::liftPseudo()}, by name.
+     * @param array<string, array<string, string>> $currentPaint Route-current paint, by viewport.
      * @return string The carrier class, or '' when nothing observed differs from what the element gets anyway.
      */
-    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array()): string
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array(), array $currentPaint = array()): string
     {
         $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
         if (array() === $observations) return '';
@@ -429,7 +433,8 @@ final class BoxTreeStyleProjector
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, '', $tagName);
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
+        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid);
+        return $this->carrier($css . $this->currentPaintRule($currentPaint), $state);
     }
 
     /**
@@ -522,6 +527,9 @@ final class BoxTreeStyleProjector
             $kept = 0;
             $layoutHeight = isset(self::LAYOUT_HEIGHTS[$property]) && array() === array_diff(array_column($propertyBands, 1), array('auto'));
             foreach ($keys as $key) {
+                // Hidden observations are not layout evidence: they neither
+                // keep nor veto the author's proven declaration.
+                if (self::unrendered($key, $observations, $parents)) continue;
                 if (isset($declarations[$key][$property])) {
                     ++$kept;
                     continue;
@@ -534,7 +542,7 @@ final class BoxTreeStyleProjector
                 if (count($propertyBands) > 1 && BoxTreeDeclarationPruner::INITIAL === $reason) continue;
                 if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property]) && !$layoutHeight) continue 2;
             }
-            if (0 === $kept && (isset(self::GRID_LINES[$property]) || $layoutHeight)) continue;
+            if (0 === $kept) continue;
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             if (1 === count($propertyBands) && 'display' !== $property) $unbanded[] = $property;
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
@@ -555,6 +563,13 @@ final class BoxTreeStyleProjector
         }
         foreach ($keys as $key) $declarations[$key] = array_diff_key($declarations[$key], $redundant);
         return $bands;
+    }
+
+    /** Whether the box is hidden itself or inside a hidden parent at a capture. */
+    private static function unrendered(string $key, array $observations, array $parents): bool
+    {
+        return 'none' === ($observations[$key]['used_styles']['display'] ?? null)
+            || 'none' === ($parents[$key]['used_styles']['display'] ?? null);
     }
 
     /**
@@ -675,6 +690,21 @@ final class BoxTreeStyleProjector
             if ('none' !== $winner) return false;
         }
         return true;
+    }
+
+    /**
+     * The paint a shared navigation link shows only as the served route's
+     * current link, under WordPress's per-request current state. Only paint
+     * every observed viewport agrees on is restated.
+     *
+     * @param array<string, array<string, string>> $currentPaint
+     */
+    private function currentPaintRule(array $currentPaint): string
+    {
+        if (array() === $currentPaint) return '';
+        $shared = array_shift($currentPaint);
+        foreach ($currentPaint as $paint) $shared = array_intersect_assoc($shared, $paint);
+        return array() === $shared ? '' : $this->rule(self::SELECTOR . '[aria-current="page"]', $shared);
     }
 
     /** Register one carrier per distinct declaration set, not per source node. */
