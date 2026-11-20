@@ -394,7 +394,32 @@ final class HtmlTransformerSession
     public function substituteBoxTreeBlockBox(\DOMElement $source, \DOMElement $box): void
     {
         $id = $source->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
-        if ('' !== $id) $this->boxTreeBlockBoxes[$id] = $box;
+        if ('' === $id) return;
+        $this->boxTreeBlockBoxes[$id] = $box;
+        // The box renders again, so a fold of it into the source (ADR 0005
+        // slice 5) is undone: the source keeps only its own observations.
+        $boxId = $box->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
+        if ($boxId === ($this->boxTreeFolds[$id]['from'] ?? null)) {
+            $this->boxTree['nodes'][$id]['viewports'] = $this->boxTreeFolds[$id]['viewports'];
+            unset($this->boxTreeFolds[$id], $this->collapsedBoxTreeNodes[$boxId]);
+        }
+    }
+
+    /** @var array<string, array{from: string, viewports: array<string, mixed>}> Folded boxes by child node id, with the child's own observations. */
+    private array $boxTreeFolds = array();
+
+    /**
+     * Record folds before their declarations replace the children's
+     * observations.
+     *
+     * @param array<string, array{child: string}> $folds Folds by box node id.
+     */
+    public function recordBoxTreeFolds(array $folds): void
+    {
+        foreach ($folds as $from => $fold) {
+            $child = (string) $fold['child'];
+            if (isset($this->boxTree['nodes'][$child])) $this->boxTreeFolds[$child] = array('from' => (string) $from, 'viewports' => $this->boxTree['nodes'][$child]['viewports'] ?? array());
+        }
     }
 
     /** The source element whose observed box the block lowered from this element renders. */
@@ -429,6 +454,7 @@ final class HtmlTransformerSession
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
+        $this->boxTreeFolds = array();
         $this->collapsedBoxTreeNodes = $this->linkCarrierBoxTreeNodes = array();
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
