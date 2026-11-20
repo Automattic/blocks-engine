@@ -870,18 +870,6 @@ final class StyleResolver implements ElementPresentationResolver
         if (array() === $observations) return '';
         $parent = $block ? $this->session->boxTreeOutputParent($source) : $source->parentNode;
         $parents = $parent instanceof DOMElement ? $this->session->boxTreeEvidence($parent) : array();
-        if (null !== $properties) {
-            // A replaced element already has dedicated sizing and paint lowering.
-            // Only its outer layout belongs on the replacement's carrier.
-            $allowed = array_fill_keys($properties, true);
-            foreach ($observations as &$observation) {
-                $observation['used_styles'] = array_intersect_key($observation['used_styles'] ?? array(), $allowed);
-                // A replacement carrier owns only the requested box properties.
-                // SVG pseudo paint belongs to the materialized artwork, not img.
-                unset($observation['pseudo']);
-            }
-            unset($observation);
-        }
         $intent = new BoxTreeFluidIntent();
         $pseudoFluid = array();
         foreach (array('before', 'after') as $pseudo) {
@@ -893,10 +881,9 @@ final class StyleResolver implements ElementPresentationResolver
             $this->session->layoutGeometryState(),
             $parents,
             strtolower($source->tagName),
-            null === $properties
-                ? $intent->lift($source, $this, $observations, $viewports, $parents)
-                : array_intersect_key($intent->lift($source, $this, $observations, $viewports, $parents), $allowed),
-            $pseudoFluid
+            $intent->lift($source, $this, $observations, $viewports, $parents),
+            $pseudoFluid,
+            $properties
         );
     }
 

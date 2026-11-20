@@ -586,12 +586,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         $imageAttributes = array(
             'src' => (string) $attrs['url'],
             'alt' => (string) ($attrs['alt'] ?? ''),
-            // Preserve outer layout without replaying SVG paint, typography,
-            // display or dimensions on an img. Those have separate lowering
-            // above; a full element carrier can change surrounding line boxes.
+            // The replacement's media geometry is lowered above. Carry the
+            // source margins separately without changing its flex sizing:
+            // SVG and img have different intrinsic flex-size behavior.
             'class' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->boxTreeElementCarrier($element, false, array(
                 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-                'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'order',
             ))),
             'style' => $style,
         );

@@ -855,6 +855,8 @@ final class SitePlanRun
                 if (is_string($document['modified_timestamp'] ?? null)) $row['modified_timestamp'] = $document['modified_timestamp'];
                 if (is_string($document['author_name'] ?? null)) $row['author_name'] = $document['author_name'];
             }
+            // A proven empty source body keeps its empty content; the contract admits it only with this proof.
+            if ( ! $part && '' === trim($canonical) && DocumentIdentity::hasEmptySourceBody($document) ) $row['empty_source_body'] = true;
             if ( ! $part ) $row['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $canonical);
             $rows[] = $row;
         }

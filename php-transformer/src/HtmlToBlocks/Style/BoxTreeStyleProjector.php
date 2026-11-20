@@ -386,7 +386,7 @@ final class BoxTreeStyleProjector
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid {@see BoxTreeFluidIntent::liftPseudo()}, by name.
      * @return string The carrier class, or '' when nothing observed differs from what the element gets anyway.
      */
-    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array()): string
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array(), ?array $properties = null): string
     {
         $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
         if (array() === $observations) return '';
@@ -400,7 +400,15 @@ final class BoxTreeStyleProjector
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, '', $tagName);
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
+        // Pruning and fluid lifting need the complete observed box context.
+        // Restrict only the output: filtering evidence first loses display and
+        // positioning information used to interpret layout properties.
+        $split = null;
+        if (null !== $properties) {
+            $allowed = array_fill_keys($properties, true);
+            $split = fn(array $declared): string => $this->rule(self::SELECTOR, array_intersect_key($declared, $allowed));
+        }
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, null === $properties, $parents, false, $pseudoFluid, self::SELECTOR, $split), $state);
     }
 
     /**

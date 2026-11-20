@@ -44,12 +44,19 @@ foreach (explode(' ', $image[1]) as $class) {
 $preserved = false;
 foreach (explode(' ', $image[1]) as $class) {
     if (preg_match('/\.' . preg_quote($class, '/') . '\.' . preg_quote($class, '/') . '\{([^}]*)\}/', $css, $rule)
-        && (str_contains($rule[1], 'margin-top:2px') || str_contains($rule[1], 'margin:2px 0px 0px')) && str_contains($rule[1], 'flex-shrink:0')) {
+        && (str_contains($rule[1], 'margin-top:2px') || str_contains($rule[1], 'margin:2px 0px 0px'))) {
         $preserved = true;
-        if (preg_match('/(?:^|;)(?:background[^:]*|line-height|display|width|height):/', $rule[1])) {
+        if (preg_match('/(?:^|;)(?:background[^:]*|line-height|display|width|height|flex[^:]*|align-self|order):/', $rule[1])) {
             throw new RuntimeException('Outer geometry carrier must not replay SVG paint or line box styles: ' . $rule[1]);
         }
     }
 }
-if (!$preserved) throw new RuntimeException('RichText SVG must carry its observed margin and flex geometry.' . $markup . $css);
+if (!$preserved) throw new RuntimeException('RichText SVG must carry its observed margins without changing replacement flex sizing.' . $markup . $css);
+// A mobile reset must not be lost while restricting replacement properties.
+$tree['nodes']['n8']['viewports']['mobile']['used_styles']['margin-top'] = '0px';
+$responsive = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))))->toArray();
+$responsiveCss = implode("\n", array_column(array_filter($responsive['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'content'));
+if (!preg_match('/@media \(max-width:390px\)\{[^}]*\{[^}]*margin(?:-top)?:0px/', $responsiveCss)) {
+    throw new RuntimeException('RichText SVG margin must reset at the narrower viewport: ' . $responsiveCss);
+}
 echo "RichText SVG box geometry passed\n";
