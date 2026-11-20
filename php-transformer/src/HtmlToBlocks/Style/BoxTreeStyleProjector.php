@@ -521,7 +521,7 @@ final class BoxTreeStyleProjector
      * Inherited typography an inline can set apart from its block. Colour
      * joins only for an element that computes its own ({@see self::inlineCarrier()}).
      */
-    private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
+    public const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /** Box declarations an inline laid out as a box carries ({@see self::inlineCarrier()}). */
     private const INLINE_BOX = array('text-align', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
