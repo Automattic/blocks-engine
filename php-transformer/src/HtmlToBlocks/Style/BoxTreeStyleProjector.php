@@ -219,7 +219,7 @@ final class BoxTreeStyleProjector
         // it: a boxless paragraph is a RichText root the editor cannot focus,
         // so text typed into it never reaches the block (issue #5797). Around
         // a source inline link, an unpadded inline box lays out the same line.
-        $boxless = $synthetic && null === $split
+        $boxless = $synthetic && null === $split && self::SELECTOR . ' > mark' !== $selector
             && !in_array(SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true);
         $wrapper = $boxless ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '';
         $class = $this->carrier($wrapper . $css . $extraCss, $state);
@@ -342,13 +342,38 @@ final class BoxTreeStyleProjector
         $link = 'button' === ($attrs['tagName'] ?? '') || ('core/buttons' === $blockName && 'button' === $sourceTag) ? '.wp-block-button__link' : 'a.wp-block-button__link';
         if ('core/button' === $blockName) return self::SELECTOR . ' > ' . $link;
         if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) return self::SELECTOR . ' > .wp-block-button > ' . $link;
-        // Only a link survives RichText as the paragraph's own child: a span
-        // is lowered to a `<mark>` carrier or unwrapped, so a `> span` rule
+        // A retained RichText mark already owns the source span's box. Project
+        // onto it, not also onto its synthetic paragraph: duplicating inline-flex
+        // and margins on both boxes adds the margin twice and nests flex items.
+        if ('core/paragraph' === $blockName && 'span' === $sourceTag
+            && in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true)
+            && self::hasSoleLayoutMark((string) ($attrs['content'] ?? ''))) return self::SELECTOR . ' > mark';
+        // A span without a retained mark is unwrapped, so a `> span` rule
         // would match nothing and the transparent paragraph would leave its
         // text on the parent's font and line box. The paragraph is its box.
         if ('core/paragraph' === $blockName && 'a' === $sourceTag
             && in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true)) return self::SELECTOR . ' > a';
         return self::SELECTOR;
+    }
+
+    /**
+     * Only a retained layout span owns the source box. A mark at the start
+     * of ordinary RichText can instead be a styled child, followed by text
+     * or other marks; moving the paragraph's geometry onto it changes both
+     * wrapping and the boxes of those siblings.
+     */
+    private static function hasSoleLayoutMark(string $content): bool
+    {
+        if (!str_starts_with(ltrim($content), '<mark ')) return false;
+        $document = new \DOMDocument();
+        @$document->loadHTML('<?xml encoding="utf-8" ?><html><body>' . $content . '</body></html>', LIBXML_NONET);
+        $body = $document->getElementsByTagName('body')->item(0);
+        if (null === $body || 1 !== $body->childNodes->length) return false;
+        $mark = $body->firstChild;
+        if (!$mark instanceof \DOMElement || 'mark' !== $mark->tagName) return false;
+        $style = SourceDeclarations::parse($mark->getAttribute('style'));
+        return isset($style['--blocks-engine-richtext-marker'])
+            && in_array($style['display'] ?? '', array('inline-flex', 'inline-grid', 'inline-block'), true);
     }
 
     /** core/image attributes serialized inline on its `<img>` => the observed property each sets. */
