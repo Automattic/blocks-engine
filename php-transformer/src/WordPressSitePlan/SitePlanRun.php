@@ -296,7 +296,7 @@ final class SitePlanRun
             'target_path' => $collision['target_path'],
             'resolved_target_path' => $collision['resolved_target_path'],
         ));
-        $assets = PageStylesheets::withFrameFallbacks($assets, $shellFrames, $parts);
+        $assets = PageStylesheets::withFrameFallbacks($assets, $shellFrames, $parts, $pages);
         $assets = SharedChromeStylesheets::projectDetachedPaintOrder($assets, $parts, $pages);
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $this->references);

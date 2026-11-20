@@ -176,6 +176,49 @@ final class ThemeTemplates
         return $titles;
     }
 
+    /**
+     * New pages need the source's body column as well as a native title. Copy
+     * only the ancestor path of a body paragraph, never its route-owned siblings.
+     * Captured documents continue to render through their content-only overrides.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function pageAuthoringContent(array $pages, string $content): string
+    {
+        foreach ($pages as $page) {
+            if ('page' !== ($page['post_type'] ?? null) || !empty($page['entrypoint']) || !empty($page['synthetic'])) continue;
+            $markup = (string) ($page['canonical_block_markup'] ?? '');
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+            foreach ($index->ranges() as $range) {
+                $slice = substr($markup, $range['offset'], $range['length']);
+                if (!str_starts_with($slice, '<!-- wp:paragraph') || !preg_match('~<p\b([^>]*)>\s*\S~', $slice, $paragraph)) continue;
+                $path = array();
+                for ($parent = $index->parent($range); null !== $parent; $parent = $index->parent($parent)) $path[] = $parent;
+                // Chrome paragraphs are not evidence of the article column.
+                $ancestors = implode('', array_map(static fn(array $parent): string => substr($markup, $parent['offset'], strpos($markup, '>', strpos($markup, '-->', $parent['offset']) + 3) - $parent['offset'] + 1), $path));
+                if (preg_match('~<(?:header|footer|aside|nav)\b|"tagName":"(?:header|footer|aside|nav)"~', $ancestors)) continue;
+                $column = $content;
+                // Paragraph box constraints must also contain future body text.
+                if (preg_match('~\bclass="([^"]+)"~', $paragraph[1], $classes)) {
+                    $attrs = json_encode(array('className' => $classes[1]), JSON_UNESCAPED_SLASHES);
+                    $column = '<!-- wp:group ' . $attrs . ' --><div class="wp-block-group ' . $classes[1] . '">' . $column . '</div><!-- /wp:group -->';
+                }
+                foreach ($path as $parent) {
+                    $children = $index->children($parent);
+                    if (array() === $children) break;
+                    $first = $children[0]; $last = $children[count($children) - 1];
+                    $opening = substr($markup, $parent['offset'], $first['offset'] - $parent['offset']);
+                    // Non-group ancestors may carry links or dynamic behavior.
+                    if (!str_starts_with($opening, '<!-- wp:group')) break;
+                    $closing = substr($markup, $last['offset'] + $last['length'], $parent['offset'] + $parent['length'] - $last['offset'] - $last['length']);
+                    $column = $opening . $column . $closing;
+                }
+                return $column;
+            }
+        }
+        return $content;
+    }
+
     /** Captured landmarks remain content-owned until shell extraction removes them. */
     public static function contentCarriesChrome(string $markup, string $area): bool
     {
@@ -205,7 +248,7 @@ final class ThemeTemplates
          });
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages): string {
+         $markup = static function (string $templateSlug, bool $authoring = true) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || TemplateSlugs::partAppliesToOverride($part, $templateSlug)
@@ -233,6 +276,12 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
+                 // A new page has no captured content to supply its title. Keep
+                 // that native landmark in the fallback lifecycle, not in the
+                 // captured route templates (whose content already owns it).
+                 if ($authoring && 'page' === $templateSlug && !isset($frames['page']) && !isset($postTemplates['page'])) {
+                     $content = self::pageAuthoringContent($pages, '<!-- wp:post-title {"level":1} /-->' . "\n" . $content);
+                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -258,9 +307,19 @@ final class ThemeTemplates
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(TemplateSlugs::overrides($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
         foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
+        // Without a shared frame, captured pages keep their complete source
+        // document. Do not render the new-page title around that document.
+        $contentOnlyOverrides = array();
+        if (!isset($frames['page']) && !isset($postTemplates['page'])) foreach ($pages as $page) {
+            $slug = TemplateSlugs::forPage($page);
+            if ('page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && !isset($overrides[$slug])) {
+                $contentOnlyOverrides[$slug] = true;
+                $overrides[$slug] = true;
+            }
+        }
         $liveOverrides = array_fill_keys(array_map(TemplateSlugs::forPage(...), $pages), true);
         $overrides = array_intersect_key($overrides, $liveOverrides);
-        foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
+        foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', isset($contentOnlyOverrides[$slug]) ? $markup('page', false) : $markup($slug));
         foreach ($templates as &$template) {
             if (!isset($documentChrome[$template['slug']])) continue;
             // Document chrome frames the post content (leading and trailing side

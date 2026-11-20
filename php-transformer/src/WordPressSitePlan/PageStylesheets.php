@@ -37,12 +37,18 @@ final class PageStylesheets
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,mixed> $shellFrames
      * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $pages
      * @return array<int,array<string,mixed>>
      */
-    public static function withFrameFallbacks(array $assets, array $shellFrames, array $parts): array
+    public static function withFrameFallbacks(array $assets, array $shellFrames, array $parts, array $pages = array()): array
     {
         $fallbackSources = array();
         if (isset($shellFrames['frames']['page']) && is_string($shellFrames['generic_source'])) $fallbackSources[$shellFrames['generic_source']] = true;
+        if (!isset($shellFrames['frames']['page'])) foreach ($pages as $page) {
+            if ('page' !== ($page['post_type'] ?? null) || !empty($page['entrypoint']) || !empty($page['synthetic'])) continue;
+            $fallbackSources[$page['source_path']] = true;
+            break;
+        }
         foreach ($parts as $part) if ('entry_shell' === ($part['placement']['kind'] ?? null)) $fallbackSources[substr((string) $part['source_path'], 0, (int) strrpos((string) $part['source_path'], '#'))] = true;
         if (array() !== $fallbackSources) foreach ($assets as &$asset) if ('css' === ($asset['kind'] ?? null) && array() !== array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'page' === ($scope['kind'] ?? null) && isset($fallbackSources[$scope['source_path'] ?? '']))) $asset['frame_fallback'] = true; unset($asset);
         return $assets;
