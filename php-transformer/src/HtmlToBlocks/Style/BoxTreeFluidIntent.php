@@ -120,7 +120,8 @@ final class BoxTreeFluidIntent
         'flex-basis' => 'flex',
         'grid-column-start' => array('grid-column', 'grid-area'), 'grid-column-end' => array('grid-column', 'grid-area'),
         'grid-row-start' => array('grid-row', 'grid-area'), 'grid-row-end' => array('grid-row', 'grid-area'),
-        'row-gap' => 'gap', 'column-gap' => 'gap',
+        // `grid-gap` and `grid-*-gap` are legacy name aliases (CSS Box Alignment §8.4).
+        'row-gap' => array('gap', 'grid-gap', 'grid-row-gap'), 'column-gap' => array('gap', 'grid-gap', 'grid-column-gap'),
     );
 
     /**
@@ -289,7 +290,7 @@ final class BoxTreeFluidIntent
         foreach ($properties as $property) {
             $bands = $this->liftedAuthor($property, $widths, $authorSamples, $observations, $viewports, $parents)
                 ?? (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
-                ?? $this->liftedIntrinsic($property, $widths, $samples)
+                ?? $this->liftedIntrinsic($property, $widths, $samples, $observations)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
                 ?? $this->liftedInheritance($property, $widths, $samples, $observations, $parents, $inheriting);
@@ -335,6 +336,7 @@ final class BoxTreeFluidIntent
             $value = $winner($width);
             if (null === $value || '' === $value) return null;
             $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
+            if (in_array($property, self::GRID_TEMPLATES, true) && self::observedRepeatCount($value, $actual) !== $value) return null;
             if ($value !== $actual
                 && !('0' === $value && '0px' === $actual)
                 && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
@@ -468,13 +470,17 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedIntrinsic(string $property, array $widths, array $samples): ?array
+    private function liftedIntrinsic(string $property, array $widths, array $samples, array $observations): ?array
     {
         if (!isset(self::INTRINSIC[$property])) return null;
         $keywords = array();
         foreach ($widths as $key => $width) {
             $keyword = $this->intrinsicKeyword($property, $width);
             if (null === $keyword) return null;
+            if (in_array($property, self::GRID_TEMPLATES, true)) {
+                $keyword = self::observedRepeatCount($keyword, (string) ($observations[$key]['used_styles'][$property] ?? ''));
+                if (null === $keyword) return null;
+            }
             $keywords[$key] = $keyword;
         }
         // A track list the author switches at a breakpoint between captures
@@ -569,6 +575,21 @@ final class BoxTreeFluidIntent
     private static function percentHeight(string $value): bool
     {
         return 1 === preg_match('/\d%/', $value) && 0 === preg_match('/\bvar\(|\battr\(|\benv\(/i', $value);
+    }
+
+    /**
+     * Restate a serialized repeat count only when a capture proves a different
+     * count of equal pixel tracks. Unequal tracks cannot prove that the same
+     * author track was repeated by a runtime resize handler.
+     */
+    private static function observedRepeatCount(string $declared, string $observed): ?string
+    {
+        if (!preg_match('/^repeat\(\s*(\d+)\s*,\s*([^,()]+(?:\([^()]*\))?[^,()]*)\)$/i', trim($declared), $match)) return $declared;
+        if (!preg_match_all('/(-?\d*\.?\d+)px/', $observed, $tracks) || count($tracks[1]) !== count(preg_split('/\s+/', trim($observed)))) return $declared;
+        $count = count($tracks[1]);
+        if ($count === (int) $match[1]) return $declared;
+        if (max($tracks[1]) - min($tracks[1]) > self::TOLERANCE) return null;
+        return 'repeat(' . $count . ', ' . trim($match[2]) . ')';
     }
 
     /**
@@ -762,7 +783,8 @@ final class BoxTreeFluidIntent
             return self::gridLines($value, $shorthand)[$property] ?? '';
         }
         // `gap` is `<row-gap> <column-gap>?`, the first two box sides.
-        if ('gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
+        if ('grid-row-gap' === $shorthand || 'grid-column-gap' === $shorthand) return $value;
+        if ('gap' === $shorthand || 'grid-gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
         $side = self::SIDES['inset' === $shorthand ? $property : substr($property, (int) strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
     }
