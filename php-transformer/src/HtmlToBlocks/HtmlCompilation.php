@@ -781,7 +781,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->imageLowering->figureLinkedMediaAnchor(...),
             $this->imageLowering->convertPicture(...),
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($image, $figure, $picture, $link),
-            SourceDom::figureMediaElement(...),
+            $this->figureMediaElement(...),
             (new Elements\GenericFigureLowering($this, $this, $this->styleResolver, $this->runtime, $this->emptyVisualRetention, $emptyVisualSpacers, $this->emptyElementFootprint, $this->session))->block(...),
             $this->runtime->hasVisibleText(...)
         ));
@@ -2827,6 +2827,32 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     public function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
         return $this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks);
+    }
+
+    /**
+     * Keep a figure's wrapper when box-tree evidence shows that it is the
+     * positioned containing block of out-of-flow media. Reaching through an
+     * aspect box (relative positioning and percentage bottom padding around
+     * an absolute, filling image) drops its height and makes the image position
+     * against a farther ancestor instead.
+     */
+    private function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
+    {
+        $media = SourceDom::figureMediaElement($figure, $tagName);
+        $wrapper = $media?->parentNode;
+        if (!$media instanceof DOMElement || !$wrapper instanceof DOMElement || $wrapper === $figure) {
+            return $media;
+        }
+        $wrapperEvidence = $this->session->boxTreeEvidence($wrapper);
+        $mediaEvidence = $this->session->boxTreeEvidence($media);
+        foreach ($wrapperEvidence as $viewport => $observation) {
+            $position = (string) ($mediaEvidence[$viewport]['used_styles']['position'] ?? 'static');
+            if (in_array($position, array('absolute', 'fixed'), true)
+                && 'static' !== (string) ($observation['used_styles']['position'] ?? 'static')) {
+                return null;
+            }
+        }
+        return $media;
     }
 }
 
