@@ -35,6 +35,14 @@ final class EditorRestingStateRuntime
 ( function( hooks, element, data, compose ) {
     if ( ! hooks || ! element || ! data || ! compose ) return;
     var createElement = element.createElement;
+    hooks.addFilter( 'blocks.getSaveContent.extraProps', 'blocks-engine/document-host', function( props, type, attributes ) {
+        var runtime = attributes && attributes.metadata && attributes.metadata.blocksEngineRuntimeAttributes;
+        if ( type.name !== 'core/group' || ! runtime || ! Object.prototype.hasOwnProperty.call( runtime, 'data-blocks-engine-capture-document-scope' ) ) return props;
+        Object.keys( runtime ).forEach( function( name ) {
+            if ( name !== 'class' && name !== 'style' && name !== 'id' ) props[ name ] = runtime[ name ];
+        } );
+        return props;
+    } );
     function hiddenAtRest( attributes ) {
         var metadata = attributes && attributes.metadata || {};
         var runtime = metadata.blocksEngineRuntimeAttributes;

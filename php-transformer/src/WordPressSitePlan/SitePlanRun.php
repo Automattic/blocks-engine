@@ -415,6 +415,18 @@ final class SitePlanRun
         $integrity = new SubresourceIntegrity($assetWrites, $tokens);
         $pages = $integrity->documents($pages);
         $parts = $integrity->documents($parts);
+        // Capture document boundaries have finished serving shell extraction.
+        // Lower them now, without changing any selector or shared chrome plan.
+        $pages = NativeDocumentShells::documents($pages);
+        $parts = NativeDocumentShells::documents($parts);
+        $templates = NativeDocumentShells::documents($templates);
+        $syncedPatterns = NativeDocumentShells::documents($syncedPatterns);
+        foreach ($taxonomyProjection['entities'] as &$entity) {
+            if (isset($entity['archive']['presentation_markup'])) {
+                $entity['archive']['presentation_markup'] = NativeDocumentShells::markup($entity['archive']['presentation_markup']);
+            }
+        }
+        unset($entity);
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $bootstrap = ThemeBootstrap::bootstrap($assets, $scriptLoading['scripts'], $parts, $tokens, $templates, $pages, $menus, $this->runtimeEmoji, $rootDocuments);
         $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $this->runtimeEmoji, $rootDocuments, $bootstrap['source']), $assetWrites);

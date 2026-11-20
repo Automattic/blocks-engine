@@ -58,6 +58,14 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
     if ( ! is_array( $attributes ) || array() === $attributes || '' === $content ) return $content;
     $processor = new WP_HTML_Tag_Processor( $content );
     if ( ! $processor->next_tag() ) return $content;
+    // Document shells are lowered after chrome extraction. Their source
+    // attributes, including the original class list, are the runtime contract.
+    if ( 'core/group' === ( $block['blockName'] ?? '' ) && array_key_exists( 'data-blocks-engine-capture-document-scope', $attributes ) ) {
+        foreach ( $attributes as $name => $value ) {
+            if ( is_string( $name ) && is_string( $value ) ) $processor->set_attribute( $name, $value );
+        }
+        return $processor->get_updated_html();
+    }
     $entrance = $attributes['__VIEWPORT_ENTRANCE__'] ?? null;
     $state = is_string( $entrance ) ? json_decode( $entrance, true ) : null;
     if ( is_array( $state ) && is_array( $state['attributes'] ?? null ) ) {

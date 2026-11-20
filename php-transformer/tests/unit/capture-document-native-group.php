@@ -16,9 +16,14 @@ foreach (array('index.html' => 'Home', 'about/index.html' => 'About') as $path =
 }
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
 $plan = (new WordPressSitePlan())->fromCompilerResult($result);
-$markup = json_encode($plan, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-if (str_contains($markup, '/layout-shell')) {
-    throw new RuntimeException('Capture document roots and shared chrome must use native Groups.');
+$markup = implode("\n", array_column(array_merge($plan['pages'], $plan['templates'], $plan['template_parts']), 'canonical_block_markup'));
+preg_match_all('/<!-- wp:[a-z0-9-]+\/layout-shell (\{.*?\}) -->/s', $markup, $shells);
+foreach ($shells[1] as $json) {
+    foreach (json_decode($json, true)['wrappers'] ?? array() as $wrapper) {
+        if (array_key_exists('data-blocks-engine-capture-document-scope', $wrapper['attributes'] ?? array())) {
+            throw new RuntimeException('Capture document roots must use native Groups after shared chrome extraction.');
+        }
+    }
 }
 if (!str_contains($markup, 'blocksEngineRuntimeAttributes') || !str_contains($markup, 'body-hook') || !str_contains($markup, 'data-blocks-engine-capture-device-document')) {
     throw new RuntimeException('Native document Groups must retain capture selector and visibility hooks.');

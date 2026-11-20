@@ -34,11 +34,12 @@ foreach (array('reduction' => $desktop, 'paired' => $desktop . $mobile) as $name
         $assert($xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " ' . $class . ' ")]')->length > 0,
             $name . ': projected carrier missing from rendered HTML: ' . $class);
     }
-    preg_match_all('/<!-- wp:custom\/layout-shell (.*?) -->\s*<([a-z0-9-]+)\b([^>]*)>/s', $markup, $shells, PREG_SET_ORDER);
-    $assert(count($shells) === ('paired' === $name ? 2 : 1), $name . ': captured roots remain layout shells.');
+    preg_match_all('/<!-- wp:group (.*?) -->\s*<([a-z0-9-]+)\b([^>]*)>/s', $markup, $shells, PREG_SET_ORDER);
+    $shells = array_values(array_filter($shells, static fn(array $shell): bool => str_contains($shell[1], 'data-blocks-engine-capture-document-scope')));
+    $assert(count($shells) === ('paired' === $name ? 2 : 1), $name . ': captured roots become native Groups.');
     foreach ($shells as $shell) {
         $attrs = json_decode($shell[1], true, 512, JSON_THROW_ON_ERROR);
-        $outer = $attrs['wrappers'][0];
+        $outer = array('tagName' => 'div', 'attributes' => array('class' => 'wp-block-group ' . $attrs['className']));
         $assert($outer['tagName'] === $shell[2], 'Outermost tag agrees with save.');
         preg_match('/\bclass="([^"]*)"/', $shell[3], $savedClass);
         $assert($outer['attributes']['class'] === html_entity_decode($savedClass[1], ENT_QUOTES | ENT_HTML5), 'Wrapper classes agree with the save contract.');

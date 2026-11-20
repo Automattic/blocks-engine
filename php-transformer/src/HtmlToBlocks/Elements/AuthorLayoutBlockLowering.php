@@ -46,7 +46,7 @@ final class AuthorLayoutBlockLowering implements AuthorLayoutLowering
             }
         }
         $children = $this->tree->children($element, $fallbacks, true);
-        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) && ! SourceDom::isCaptureDeviceVisibilityCarrier($element) ) {
+        if ( $this->emptyVisualRetention->preservesScriptStateWrapper($element) ) {
             return $this->layoutShells->blockForElements(array( $element ), $children, $element);
         }
         $isAuthorOwnedLayout = $this->authorLayoutOwnership->isAuthorOwnedLayout($element);
@@ -63,15 +63,6 @@ final class AuthorLayoutBlockLowering implements AuthorLayoutLowering
             }
         }
         $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($element, false, $topologyChanged);
-        // Capture visibility is a native Group contract, not an author script
-        // boundary. Keep its selector tokens and restore its attributes through
-        // the same render-time transport used by other native runtime hosts.
-        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) {
-            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceDom::attr($element, 'class'));
-            $attributes = SourceDom::htmlAttributes($element);
-            unset($attributes['class'], $attributes['style'], $attributes['id']);
-            $attrs['metadata']['blocksEngineRuntimeAttributes'] = $attributes;
-        }
         if ( 0 === count($children) && '' === SourceDom::renderedTextContent($element) ) {
             // Empty source layout containers are visual boundaries, not new
             // authoring targets. Mark them so the editor suppresses Core's

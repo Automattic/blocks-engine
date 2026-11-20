@@ -127,7 +127,7 @@ foreach ($differentPlan['pages'] as $post) {
     if ('second' !== $post['slug']) continue;
     $content = $post['canonical_block_markup'];
     $assert('single' === ($post['route_template'] ?? null), 'Differing responsive bodies share single.');
-    $assert(str_contains($content, '<!-- wp:ssi-example/layout-shell '), 'Responsive copies stay in the consumer-namespaced layout shell.');
+    $assert(str_contains($content, '<!-- wp:group ') && str_contains($content, 'blocksEngineRuntimeAttributes'), 'Responsive document copies use native Groups with their runtime attributes.');
     $assert(!preg_match('/wp:(?:template-part|post-title|post-date)\\b|wp-block-post-(?:title|date)|<main/', $content), 'Neither responsive body retains template, title or date chrome.');
     $assert(2 === substr_count($content, 'Unique article') && str_contains($content, 'More about second.') && str_contains($content, 'Mobile article detail.'), 'Both differing article bodies survive.');
     foreach (array('desktop', 'mobile') as $device) {

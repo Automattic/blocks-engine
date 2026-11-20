@@ -59,8 +59,8 @@ $assert(
     'The phone document is still shown for the phone selection.'
 );
 $assert(
-    str_contains($blocks, '"data-blocks-engine-capture-device-document":"desktop"') && str_contains($blocks, '"data-blocks-engine-capture-device-document":"mobile"') && str_contains($blocks, 'blocksEngineRuntimeAttributes'),
-    'Both native device documents carry the live selector attributes in render-time metadata.'
+    1 === preg_match('/<div[^>]*data-blocks-engine-capture-device-document="desktop"/', $blocks) && 1 === preg_match('/<div[^>]*data-blocks-engine-capture-device-document="mobile"/', $blocks),
+    'Both device documents keep the attribute the live selectors match.'
 );
 $assert(str_contains($blocks, 'Desktop welcome') && str_contains($blocks, 'Phone welcome'), 'Both device documents stay editable content.');
 

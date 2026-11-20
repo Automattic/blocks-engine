@@ -466,6 +466,10 @@ final class FlowContainerElementConverter implements ElementConverter
             // source box instead of making the author navigate an extra Group.
             $child = $children[0];
             if ('div' === $tagName
+                && $element->hasAttribute('data-blocks-engine-capture-responsive-fragment')
+                && 'region' === SourceDom::attr($element, 'role')
+                && '-1' === SourceDom::attr($element, 'tabindex')
+                && $element->hasAttribute('aria-label')
                 && 'core/paragraph' === ($child['blockName'] ?? '')
                 && 'blocks-engine-synthetic-paragraph' === ($child['attrs']['className'] ?? '')
                 && ! $this->emptyVisualRetention->preservesScriptStateWrapper($element)
