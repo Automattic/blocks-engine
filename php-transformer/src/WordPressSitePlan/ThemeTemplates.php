@@ -118,6 +118,7 @@ final class ThemeTemplates
      */
     public static function shareOverrides(array &$pages, array &$parts, array &$templates): array
     {
+        self::separatePageLifecycle($pages, $parts, $templates);
         $bySlug = array_column($templates, null, 'slug');
         $groups = array(); $renames = array(); $redundant = array();
         foreach ($pages as $index => $page) {
@@ -174,6 +175,59 @@ final class ThemeTemplates
         }
         unset($part);
         return $titles;
+    }
+
+    /**
+     * Captured page bodies already own their headings. Keep their exact layout
+     * on a selectable template, leaving the native page lifecycle free to render
+     * a title for newly authored content (which has no captured heading).
+     */
+    private static function separatePageLifecycle(array &$pages, array &$parts, array &$templates): void
+    {
+        foreach ($templates as $index => $template) {
+            if ('page' !== $template['slug'] || isset($template['source_path']) || str_contains($template['canonical_block_markup'], '<!-- wp:post-title')) continue;
+            $markup = $template['canonical_block_markup'];
+            $native = preg_replace('/(?=<!-- wp:post-content(?:\\s|\\/-->))/', '<!-- wp:post-title {"level":1} /-->' . "\n", $markup, 1, $count);
+            if (1 !== $count) continue;
+            $slug = 'page-captured-' . substr(hash('sha256', $markup), 0, 12);
+            $slugs = array_column($templates, 'slug');
+            while (in_array($slug, $slugs, true)) $slug .= '-captured';
+            // Redundancy removal may have made the captured front page fall
+            // back to page.html. Restore its original layout before changing it.
+            if (!in_array('front-page', $slugs, true) && array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint']) && 'page' === $page['post_type'])) {
+                $front = $template;
+                $front['slug'] = 'front-page';
+                $front['target_path'] = 'templates/front-page.html';
+                $front['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $front['target_path'], $front['target_path']);
+                $templates[] = $front;
+            }
+            $used = false;
+            foreach ($pages as &$page) {
+                if ('page' !== $page['post_type'] || !empty($page['entrypoint'])) continue;
+                $key = TemplateSlugs::forPage($page);
+                if ('page' !== $key && in_array($key, $slugs, true)) continue;
+                $page['route_template'] = $slug;
+                $page['metadata']['post_meta']['_wp_page_template'] = $slug;
+                $used = true;
+            }
+            unset($page);
+            if ($used) {
+                $captured = $template;
+                $captured['slug'] = $slug;
+                $captured['target_path'] = 'templates/' . $slug . '.html';
+                $captured['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $captured['target_path'], $captured['target_path']);
+                $templates[] = $captured;
+                foreach ($parts as &$part) {
+                    if (in_array('page', $part['placement']['template_slugs'] ?? array(), true)) $part['placement']['template_slugs'][] = $slug;
+                    if (in_array('page', $part['placement']['excluded_template_slugs'] ?? array(), true)) $part['placement']['excluded_template_slugs'][] = $slug;
+                    if (isset($part['placement']['template_wrappers']['page'])) $part['placement']['template_wrappers'][$slug] = $part['placement']['template_wrappers']['page'];
+                }
+                unset($part);
+            }
+            $templates[$index]['canonical_block_markup'] = $native;
+            $templates[$index]['content_hash'] = WordPressSitePlan::contentHash($native);
+            break;
+        }
     }
 
     /** Captured landmarks remain content-owned until shell extraction removes them. */

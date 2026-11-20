@@ -19,6 +19,12 @@ $plan = (new ArtifactCompiler())->compile($artifact)->toWordPressSitePlanView()[
 WordPressSitePlan::assertValid($plan);
 $templates = array_column($plan['templates'], null, 'slug');
 $rendered = ThemeTemplates::rendered($plan);
+$assert(str_contains($templates['page']['canonical_block_markup'], '<!-- wp:post-title {"level":1} /-->'), 'Newly authored pages receive a native title independently of captured body headings.');
+foreach ($plan['pages'] as $page) {
+    $slug = !empty($page['entrypoint']) ? 'front-page' : ($page['route_template'] ?? 'page');
+    $assert(!str_contains($rendered[$slug], 'wp:post-title'), 'Captured pages retain their original title-free template, avoiding duplicate headings.');
+    $assert(str_contains($page['canonical_block_markup'], '<h1'), 'Captured title markup stays in its original content position.');
+}
 $assert(isset($templates['single'], $templates['404'], $rendered['archive'], $rendered['search']), 'A page-only import still supplies future native WordPress routes.');
 $assert(!isset($templates['archive'], $templates['search']), 'Archive and search render through the identical index listing rather than repeating it.');
 $assert(str_contains($templates['single']['canonical_block_markup'], 'wp:post-title') && str_contains($templates['single']['canonical_block_markup'], 'wp:post-content') && !str_contains($templates['single']['canonical_block_markup'], 'wp:query '), 'A newly authored native post renders title/body rather than an archive loop.');
@@ -35,5 +41,6 @@ foreach (array('single', 'archive', '404') as $slug) {
 }
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => 'https://portable.example/themes/lifecycle'));
 $writes = array_column($resolved['writes'], null, 'target_path');
+$assert(str_contains($writes['templates/page.html']['payload']['data'] ?? '', 'wp:post-title'), 'The resolved default page template exposes its native title to WordPress.');
 $assert(isset($writes['templates/single.html'], $writes['templates/404.html']), 'Canonical resolution retains every native template write.');
 echo "Native template lifecycle contract passed.\n";
