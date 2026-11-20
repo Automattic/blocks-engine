@@ -495,6 +495,11 @@ final class BoxTreeClassifier
                     if (!in_array($c[$offset] ?? 'auto', array('auto', '0px'), true)) return null;
                 }
                 if ('auto' !== ($c['z-index'] ?? 'auto') && $c['z-index'] !== ($b['z-index'] ?? 'auto')) return null;
+                // With its sole child out of flow, a grid box's explicit
+                // tracks alone can size it (`minmax(45px, auto)` rows). The
+                // replacing child lays its own children on its own tracks,
+                // so the size those tracks produced would be lost.
+                if (in_array($b['display'], array('grid', 'inline-grid'), true) && (self::sizedTracks($b['grid-template-rows'] ?? 'none') || self::sizedTracks($b['grid-template-columns'] ?? 'none'))) return null;
             }
             foreach (self::NEVER_FOLD as $property => $inert) {
                 if ('transform' === $property && self::identityTransform($b[$property] ?? 'none')) {
@@ -688,6 +693,16 @@ final class BoxTreeClassifier
         if (array() === $rules) return null;
         $moves += $inheritedMoves;
         return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);
+    }
+
+    /** A used track list that occupies space: any track resolves to a positive length. */
+    private static function sizedTracks(string $tracks): bool
+    {
+        preg_match_all('/(?<![\w.-])(\d*\.?\d+)px\b/', $tracks, $lengths);
+        foreach ($lengths[1] as $length) {
+            if ((float) $length > 0.0) return true;
+        }
+        return false;
     }
 
     /** Missing descendant evidence cannot prove that moving a clip is safe. */
