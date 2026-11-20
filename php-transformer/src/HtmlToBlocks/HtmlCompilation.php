@@ -2554,15 +2554,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // is built from these attributes and so carries them too.
         $attrs = $this->session->authorSelectorProjectionState()->withRichTextCarrierAttrs($attrs);
 
-        // An unconditionally hidden text carrier is a support box, not an
-        // editable text surface. Preserve its identity and hidden presentation;
-        // keep its label in List View instead of creating unfocusable RichText.
-        if ( in_array($name, array('core/paragraph', 'core/heading'), true)
-            && in_array(SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS, self::classTokens((string) ($attrs['className'] ?? '')), true) ) {
-            $attrs['metadata']['name'] = trim(html_entity_decode(strip_tags((string) ($attrs['content'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-            unset($attrs['content'], $attrs['level']);
-            $name = 'core/group';
-        }
         $block = $this->blockMaterializer->materialize(
             $name,
             $attrs,
