@@ -2303,7 +2303,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     unset($attrs['anchor']);
                     if ($element->hasAttribute('id')) $attrs['anchor'] = $element->getAttribute('id');
                     foreach ($element->attributes as $attribute) {
-                        if ('tabindex' === $attribute->name || (str_starts_with($attribute->name, 'data-') && BoxTree::NODE_ATTRIBUTE !== $attribute->name)) {
+                        if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
                             $attrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][$attribute->name] = $attribute->value;
                         }
                     }

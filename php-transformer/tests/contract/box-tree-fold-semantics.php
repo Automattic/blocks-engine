@@ -27,12 +27,12 @@ $assert = static function (bool $ok, string $message): void {
     echo "PASS: $message\n";
 };
 
-$compile = static function (string $childId = '', string $boxStyle = '', string $childStyle = '', string $tag = 'section', string $extra = '') use ($base, $initial): array {
+$compile = static function (string $childId = '', string $boxStyle = '', string $childStyle = '', string $tag = 'section', string $extra = '', string $childExtra = '') use ($base, $initial): array {
     $html = '<!doctype html><html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head"><title data-blocks-engine-node-id="title">Entrance</title>'
         . $childStyle . '</head>'
         . '<body data-blocks-engine-node-id="body"><main class="fold-parent" data-blocks-engine-node-id="parent">'
         . '<' . $tag . ' id="s" tabindex="-1" data-testid="section" ' . $extra . ' data-blocks-engine-node-id="box">'
-        . '<div id="' . $childId . '" data-blocks-engine-node-id="child"><p data-blocks-engine-node-id="one">One</p><p data-blocks-engine-node-id="two">Two</p></div></' . $tag . '>'
+        . '<div id="' . $childId . '" ' . $childExtra . ' data-blocks-engine-node-id="child"><p data-blocks-engine-node-id="one">One</p><p data-blocks-engine-node-id="two">Two</p></div></' . $tag . '>'
         . '<p data-blocks-engine-node-id="sibling">Sibling</p></main></body></html>';
     $tree = $base;
     $tree['source_hash'] = hash('sha256', $html);
@@ -70,7 +70,19 @@ foreach (array('role="region"', 'aria-label="Region"', 'name="region"', 'onclick
     $result = $compile('', '', '', 'section', $extra);
     $assert('load-bearing' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], "$extra: keeps box");
 }
-echo "Semantic fold contracts passed.\n";
+// Builder test hooks are resolved during conversion, not live root attributes.
+$result = $compile('unused', '', '', 'section', 'data-block-level-container="section"', 'data-testid="internal-container-root" data-block-level-container="child"');
+$assert('folded' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], 'conflicting builder data attributes still fold');
+$assert(!str_contains($result['serialized_blocks'], 'data-testid') && !str_contains($result['serialized_blocks'], 'data-block-level-container'), 'dropped builder attributes are not promoted to runtime metadata');
+
+foreach (array('tabindex', 'data-interact-enter', 'data-blocks-engine-runtime-hook') as $attribute) {
+    $extra = 'tabindex' === $attribute ? '' : $attribute . '="section"';
+    $result = $compile('', '', '', 'section', $extra, $attribute . '="child"');
+    $assert('load-bearing' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], "$attribute: conflicting runtime hooks keep both boxes");
+}
+$result = $compile('', '', '', 'section', 'data-interact-enter="fade" data-blocks-engine-runtime-hook="section"');
+$assert('folded' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], 'nonconflicting runtime hooks fold');
+$assert(str_contains($result['serialized_blocks'], '"data-interact-enter":"fade"') && str_contains($result['serialized_blocks'], '"data-blocks-engine-runtime-hook":"section"'), 'folded runtime hooks survive in metadata');
 
 $result = $compile('target', '', '<style>#target { color: red }</style>');
 $assert('load-bearing' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], 'a stylesheet-referenced child id keeps both boxes');

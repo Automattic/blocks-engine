@@ -411,8 +411,8 @@ final class BoxTreeClassifier
         }
         // Conflicting runtime hooks cannot share a single root.
         foreach ($element->attributes as $attribute) {
-            if (('tabindex' === $attribute->name || str_starts_with($attribute->name, 'data-'))
-                && BoxTree::NODE_ATTRIBUTE !== $attribute->name && $child->hasAttribute($attribute->name)
+            if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)
+                && $child->hasAttribute($attribute->name)
                 && $child->getAttribute($attribute->name) !== $attribute->value) return false;
         }
         return true;
