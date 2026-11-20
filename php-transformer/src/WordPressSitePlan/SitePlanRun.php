@@ -279,6 +279,7 @@ final class SitePlanRun
             if (isset($part['content_hash'])) $part['content_hash'] = WordPressSitePlan::contentHash($bound);
         }
         unset($part);
+        ['pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'theme' => $themeProjection['theme']] = $this->withRepeatedBlockStyles($pages, $parts, $frameParts, $assets, $shellDeclarations, $themeProjection['theme']);
         $assetTargetCollisions = array();
         // Element markers some emitted markup still carries. A rule naming
         // any other marker names an element extraction replaced (one route's
@@ -341,7 +342,7 @@ final class SitePlanRun
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array());
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array(), isset($themeProjection['theme']['styles']['blocks']['core/paragraph']['spacing']['margin']));
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);
@@ -708,6 +709,41 @@ final class SitePlanRun
         unset($page);
         return $pages;
     }
+    /**
+     * Moves block margins that repeat across a block type into theme.json
+     * block styles (RepeatedBlockStyles). It runs once shared chrome sits in
+     * its parts, so a part's blocks are read once, and before templates copy
+     * any markup. Parts lose values only when every route is engine-owned.
+     *
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,frame_parts:array<int,array<string,mixed>>,theme:array<string,mixed>}
+     */
+    private function withRepeatedBlockStyles(array $pages, array $parts, array $frameParts, array $assets, array $runtimeDeclarations, array $theme): array
+    {
+        $owned = array() !== $pages && array() === array_filter($pages, static fn(array $page): bool => empty($page['document_metadata']['engine_owned_styles']));
+        $documents = array();
+        foreach (array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts) as $set => $rows) {
+            foreach ($rows as $index => $row) {
+                if (!is_string($row['canonical_block_markup'] ?? null)) continue;
+                $documents[$set . ':' . $index] = array('markup' => $row['canonical_block_markup'], 'strippable' => 'pages' === $set ? !empty($row['document_metadata']['engine_owned_styles']) : $owned);
+            }
+        }
+        $anchors = array();
+        array_walk_recursive($runtimeDeclarations, static function (mixed $value, int|string $key) use (&$anchors): void {
+            if ('search_block_markup' === $key && is_string($value)) $anchors[$value] = $value;
+        });
+        $surfaces = array_values(array_filter(array_column($this->surfaces, 'block_markup'), 'is_string'));
+        $hoisted = RepeatedBlockStyles::hoist($documents, $surfaces, $assets, array_values($anchors));
+        if (array() === $hoisted['blocks']) return array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'theme' => $theme);
+        $sets = array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts);
+        foreach ($hoisted['markup'] as $key => $markup) {
+            [$set, $index] = explode(':', $key, 2);
+            $sets[$set][$index]['canonical_block_markup'] = $markup;
+            if (isset($sets[$set][$index]['content_hash'])) $sets[$set][$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+        }
+        $theme['styles']['blocks'] = array_replace_recursive($theme['styles']['blocks'] ?? array(), $hoisted['blocks']);
+        return array('pages' => $sets['pages'], 'parts' => $sets['parts'], 'frame_parts' => $sets['frame_parts'], 'theme' => $theme);
+    }
+
     /**
      * Gives each page its route, and records each document's own breadcrumb
      * trail while it still has it: shared chrome later moves the breadcrumb
