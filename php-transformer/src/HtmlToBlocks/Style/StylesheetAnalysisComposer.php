@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -32,12 +33,12 @@ final class StylesheetAnalysisComposer
             }
             $styleBlock = trim(html_entity_decode($style['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
             if ( '' !== $styleBlock ) {
-                $cssParts[] = $styleBlock;
+                $cssParts[] = CssSyntaxScanner::closedAtEnd($styleBlock);
             }
         }
         $staticCss = trim($staticCss);
         if ( '' !== $staticCss ) {
-            $cssParts[] = $staticCss;
+            $cssParts[] = CssSyntaxScanner::closedAtEnd($staticCss);
         }
         // An inline style on <body> never reaches the stylesheet pipeline, so
         // its spacing and custom properties would be lost. Append the carried
@@ -59,18 +60,15 @@ final class StylesheetAnalysisComposer
         $inlinePayloads = is_array($options['stylesheet_payloads'] ?? null)
             ? array()
             : $this->inlineStylesheetPayloads($html);
-        $payloads = array_merge($staticPayloads, $inlinePayloads);
+        // CSS error recovery ends at each sheet's EOF, never at the end of
+        // the document-wide stream used by presentation and marker analysis.
+        $payloads = array_map(CssSyntaxScanner::closedAtEnd(...), array_merge($staticPayloads, $inlinePayloads));
         $sitePruner = $options['site_selector_pruner'] ?? null;
         if ($sitePruner instanceof \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner && $this->hasSafeStylesheetBoundaries($payloads)) {
             $payloads = array_map(static fn (string $css): string => $sitePruner->prune($css, true), $payloads);
         }
-        if ( ! $this->hasSafeStylesheetBoundaries($payloads) ) {
-            // Preserve the legacy parser's recovery across a concatenated stream.
-            $combined = trim($staticCss . ('' === trim($staticCss) || array() === $inlinePayloads ? '' : "\n") . implode("\n", $inlinePayloads));
-            return '' === $combined ? array() : array($combined);
-        }
 
-        if ( count($payloads) <= self::MAX_SEPARATE_PRESENTATION_PAYLOADS ) {
+        if ( count($payloads) <= self::MAX_SEPARATE_PRESENTATION_PAYLOADS || ! $this->hasSafeStylesheetBoundaries($payloads) ) {
             return array_values(array_filter(array_map('trim', $payloads), static fn (string $payload): bool => '' !== $payload));
         }
 
@@ -86,11 +84,7 @@ final class StylesheetAnalysisComposer
     {
         if ( array() !== $authorStyles->stylesheetAssets() ) {
             $payloads = array_values(array_filter($authorStyles->stylesheetAssets(), static fn (array $asset): bool => '' !== trim($asset['content'])));
-            if ( $this->hasSafeStylesheetBoundaries(array_column($payloads, 'content')) ) {
-                return array_map(static fn (array $asset): array => array('content' => $asset['content'], 'source_path' => $asset['source_path'], 'source_hash' => $asset['source_hash'], 'capture_only' => ! empty($asset['capture_only'])), $payloads);
-            }
-            $content = implode("\n\n", array_column($payloads, 'content'));
-            return array(array('content' => $content, 'source_path' => 'combined-stylesheets', 'source_hash' => hash('sha256', $content)));
+            return array_map(static fn (array $asset): array => array('content' => CssSyntaxScanner::closedAtEnd($asset['content']), 'source_path' => $asset['source_path'], 'source_hash' => $asset['source_hash'], 'capture_only' => ! empty($asset['capture_only'])), $payloads);
         }
 
         $payloads = array();
@@ -99,15 +93,11 @@ final class StylesheetAnalysisComposer
         foreach ( array_merge($this->inlineStylesheetPayloads($html), array($staticCss)) as $payload ) {
             $payload = trim(html_entity_decode($payload, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
             if ( '' !== $payload ) {
-                $payloads[] = $payload;
+                $payloads[] = CssSyntaxScanner::closedAtEnd($payload);
             }
         }
 
-        if ( $this->hasSafeStylesheetBoundaries($payloads) ) {
-            return array_map(static fn (string $content): array => array('content' => $content, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $content)), $payloads);
-        }
-        $content = implode("\n\n", $payloads);
-        return array(array('content' => $content, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $content)));
+        return array_map(static fn (string $content): array => array('content' => $content, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $content)), $payloads);
     }
 
     /** @param list<string> $payloads @return array{static: array, conditional: array, navigation_state: array, reveal_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array} */
@@ -207,6 +197,8 @@ final class StylesheetAnalysisComposer
         if ( ! is_array($options['author_stylesheet_assets'] ?? null) ) {
             return array();
         }
+        // Keep source bytes intact for provenance, diagnostics and asset rewriting.
+        // EOF recovery belongs to the analysis payloads, not the source assets.
         $assets = array();
         foreach ( $options['author_stylesheet_assets'] as $asset ) {
             if ( ! is_array($asset) || ! is_string($asset['path'] ?? null) || '' === $asset['path'] || ! is_string($asset['content'] ?? null) ) {
@@ -253,7 +245,7 @@ final class StylesheetAnalysisComposer
         $payloads = array();
         foreach ( $options['stylesheet_payloads'] as $payload ) {
             if ( is_array($payload) && is_string($payload['content'] ?? null) ) {
-                $content = $payload['content'];
+                $content = CssSyntaxScanner::closedAtEnd($payload['content']);
                 $media = is_string($payload['media'] ?? null) ? trim($payload['media']) : '';
                 // A link/style media attribute scopes the entire stylesheet.
                 // Preserve that scope for presentation analysis just as emitted
