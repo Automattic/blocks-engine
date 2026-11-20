@@ -120,7 +120,7 @@ final class SitePlanRun
         // A box-tree carrier on a button's link owns that button's look.
         $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
         $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents), array_values(array_column(array_filter($documents, static fn(array $document): bool => !empty($document['document_metadata']['engine_owned_styles'])), 'source_path')));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $this->surfaces = TemplateSurfaces::select($documents);
@@ -271,6 +271,13 @@ final class SitePlanRun
         $compiledParts = is_array($this->compiled['template_parts'] ?? null) ? array_values(array_filter($this->compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $this->timer?->start('compose.site_plan.shell_extraction');
         ['pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'shell_frames' => $shellFrames, 'document_chrome' => $documentChrome, 'runtime_declarations' => $shellDeclarations, 'runtime_entity_records' => $runtimeEntityRecords, 'diagnostics' => $shellDiagnostics] = $this->extractedShells($pages, $compiledParts, $tokens, $runtimeDeclarations, $runtimeEntityRecords, $assets);
+        if (null !== $this->presetBinding) foreach ($parts as &$part) {
+            $bound = $this->presetBinding->bindSiteTitles((string) ($part['canonical_block_markup'] ?? ''));
+            if ($bound === ($part['canonical_block_markup'] ?? '')) continue;
+            $part['canonical_block_markup'] = $bound;
+            if (isset($part['content_hash'])) $part['content_hash'] = WordPressSitePlan::contentHash($bound);
+        }
+        unset($part);
         $assetTargetCollisions = array();
         // Element markers some emitted markup still carries. A rule naming
         // any other marker names an element extraction replaced (one route's
@@ -331,7 +338,7 @@ final class SitePlanRun
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates']);
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null);
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);

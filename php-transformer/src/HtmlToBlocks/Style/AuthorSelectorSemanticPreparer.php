@@ -55,7 +55,10 @@ final class AuthorSelectorSemanticPreparer
         }
         $combinedAuthorCss = array() === $stylesheetAssets
             ? $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss)
-            : implode("\n\n", array_column(array_filter($stylesheetAssets, static fn(array $asset): bool => StylesheetActivation::active($asset)), 'content'));
+            : implode("\n\n", array_map(
+                \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::closedAtEnd(...),
+                array_column(array_filter($stylesheetAssets, static fn(array $asset): bool => StylesheetActivation::active($asset)), 'content')
+            ));
         $authorStyles = new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody);
         $this->runtimeScriptSources = array_values(array_filter(
             array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),

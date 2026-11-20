@@ -116,8 +116,8 @@ foreach (array_keys($states) as $i => $slug) {
     $body = '';
     for ($paragraph = 1; $paragraph <= 8; ++$paragraph) $body .= '<p>' . $slug . ' paragraph ' . $paragraph . '.</p>';
     $widget = in_array($slug, array('c', 'd', 'e'), true) ? '<div class="widget Archive"><h3>Archive</h3><p>Archive text.</p></div>' : '';
-    $html = '<!doctype html><html><head><title>' . $title . '</title><meta property="article:published_time" content="' . $date . 'T00:00:00Z"><style>' . $css . '</style></head><body>' . $nav . '<div class="uk-container"><div class="uk-grid"><div class="main"><div id="single_post" class="single_post hfeed"><article class="post hentry"><div class="post_content"><h1 class="post_title entry-title uk-article-title">' . $title . '</h1><div class="post_header uk-article-meta"><span class="post_timestamp"><time datetime="' . $date . '">' . $label . '</time></span></div><div class="post_body entry-content" id="post_body_' . $pid . '">' . $body . '</div>' . $related . '</div></article></div></div><div class="side"><div class="widget About"><h3>About</h3><p>Sidebar text.</p></div>' . $widget . '</div></div></div><footer class="site-footer"><p>Footer text</p></footer></body></html>';
-    $files[] = array('path' => '2023/11/' . $slug . '.html', 'content' => $html, 'metadata' => array('post_type' => 'post', 'declared_content' => array('title' => $title, 'slug' => $slug, 'published' => $date . 'T00:00:00Z', 'updated' => $date . 'T00:00:00Z', 'author' => 'Example Author', 'terms' => array('Notes'))));
+    $html = '<!doctype html><html><head><title>' . $title . '</title><meta property="article:published_time" content="' . $date . 'T20:30:00-08:00"><style>' . $css . '</style></head><body>' . $nav . '<div class="uk-container"><div class="uk-grid"><div class="main"><div id="single_post" class="single_post hfeed"><article class="post hentry"><div class="post_content"><h1 class="post_title entry-title uk-article-title">' . $title . '</h1><div class="post_header uk-article-meta"><span class="post_timestamp"><time datetime="' . $date . '">' . $label . '</time></span></div><div class="post_body entry-content" id="post_body_' . $pid . '">' . $body . '</div>' . $related . '</div></article></div></div><div class="side"><div class="widget About"><h3>About</h3><p>Sidebar text.</p></div>' . $widget . '</div></div></div><footer class="site-footer"><p>Footer text</p></footer></body></html>';
+    $files[] = array('path' => '2023/11/' . $slug . '.html', 'content' => $html, 'metadata' => array('post_type' => 'post', 'declared_content' => array('title' => $title, 'slug' => $slug, 'published' => $date . 'T20:30:00-08:00', 'updated' => $date . 'T20:30:00-08:00', 'author' => 'Example Author', 'terms' => array('Notes'))));
 }
 $files[] = array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example Journal</title></head><body><div class="uk-container"><h1>Example Journal</h1>' . $links . '</div></body></html>');
 foreach (array('t225', 't510', 'mq') as $image) $files[] = array('path' => 'media/' . $image . '.png', 'content' => hex2bin('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63000100000500010d0a2db40000000049454e44ae426082'));
@@ -135,8 +135,10 @@ foreach ($posts as $post) {
     $text = trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace('/<!--.*?-->/s', '', $content))));
     if ($expected !== $text || str_contains($content, '<img')) $failures[] = $case . ': body only for ' . $slug;
     $dateLabel = 'Nov ' . (10 + array_search($slug, array_keys($states), true)) . ', 2023';
-    if (!in_array('<span>' . $dateLabel . '</span>', $post['metadata']['post_meta'] ?? array(), true)) $failures[] = $case . ': projected card date for ' . $slug;
+    if (in_array('<span>' . $dateLabel . '</span>', $post['metadata']['post_meta'] ?? array(), true)) $failures[] = $case . ': card date for ' . $slug . ' renders through post-date, not post meta';
 }
+$relatedSingle = array_column($plan['templates'], null, 'slug')['single']['canonical_block_markup'] ?? '';
+if (!preg_match('/<!-- wp:query .*<!-- wp:post-date \{[^}]*"format":"M j, Y"/s', $relatedSingle)) $failures[] = $case . ': related cards render their dates with core/post-date';
 echo $case . ': ' . implode('/', array_map(static fn(array $post): int => strlen($post['canonical_block_markup']), $posts)) . ' bytes; ' . count($findings) . " findings\n";
 
 // #6334: source `container > *` rules reach the rendered card root through

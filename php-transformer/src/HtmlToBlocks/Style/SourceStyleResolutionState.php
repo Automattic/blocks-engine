@@ -206,6 +206,13 @@ final class SourceStyleResolutionState
      */
     public function matchingRules(DOMElement $element, string $collection): array
     {
+        // The hot read must not allocate a closure or repeat the connected
+        // node check on every hit. Invalidation owns this memo's lifetime.
+        $key = $collection . "\0" . $this->selectorMatchCache->elementKey($element);
+        if (isset($this->matchedRules[$key]) && $element->isConnected
+            && $this->matchedRules[$key]['node']->isSameNode($element)) {
+            return $this->matchedRules[$key]['rules'];
+        }
         return $this->remembered($element, $collection, function (DOMElement $element) use ($collection): array {
             $rules = array();
             foreach ( $this->candidateRules($element, $collection) as $rule ) {
