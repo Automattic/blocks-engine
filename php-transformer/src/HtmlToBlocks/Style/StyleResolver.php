@@ -236,9 +236,26 @@ final class StyleResolver implements ElementPresentationResolver
             return $cache->attributes[$cacheKey];
         }
 
+        $presentation = $this->presentationDeclarations($element);
+        // Text colour is also an editing boundary: an explicitly coloured
+        // child must retain its own colour when an ancestor's control changes.
+        // Low-value text elements otherwise leave stylesheet presentation in
+        // CSS, where core cannot distinguish it from inherited text.
+        if (1 === preg_match('/^(?:p|h[1-6])$/i', $element->tagName)) {
+            $authored = SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element));
+            if (isset($authored['color'])) {
+                // Resolve at the source scope before promoting a stylesheet
+                // color to native support. Nested author variables (e.g. the
+                // opacity in rgb()) are not safe native color attributes.
+                $color = $this->customProperties->resolve($authored['color'], $element);
+                if ( ! str_contains($color, 'var(') ) {
+                    $presentation['color'] = $color;
+                }
+            }
+        }
         $declarations = $this->classOwnedResponsiveDeclarations(
             $element,
-            $this->presentationDeclarations($element)
+            $presentation
         );
         $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
         $mapped       = $this->styleAttributeMapper()->map(
