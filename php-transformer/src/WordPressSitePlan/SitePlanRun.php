@@ -109,6 +109,7 @@ final class SitePlanRun
         $retainedSources = array_fill_keys(array_column($documents, 'source_path'), true);
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || isset($retainedSources[$asset['compilation']['id'] ?? ''])));
         $assets = AssetPublications::apply($assets, $runtimeDeclarations);
+        ProductImages::diagnose($assets, $runtimeDeclarations, $this->unitFindings->record(...));
         // The design system comes from what every document renders, before
         // any document is projected: RouteLinks::markup() binds literal block values
         // to its tokens wherever block markup enters the plan.
@@ -338,7 +339,7 @@ final class SitePlanRun
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null);
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array());
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);

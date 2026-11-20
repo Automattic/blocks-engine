@@ -385,7 +385,7 @@ final class StylesheetAnalysisComposer
                     // Text leaves lowered to a different tag need the same source
                     // identity carrier as structural lowering. This keeps the full
                     // authored cascade (including conditional rules), not a snapshot.
-                    if ( in_array($tagName, array('div', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) || in_array($tagName, TextLeafElementConverter::LOWERED_TAGS, true) || ( str_contains($tagName, '-') && EngineMarker::isDeclaredKind('source-' . $tagName) ) ) {
+                    if ( in_array($tagName, array('div', 'figcaption', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) || in_array($tagName, TextLeafElementConverter::LOWERED_TAGS, true) || ( str_contains($tagName, '-') && EngineMarker::isDeclaredKind('source-' . $tagName) ) ) {
                         $sourceTags[$tagName] = true;
                     }
                 }
