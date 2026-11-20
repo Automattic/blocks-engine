@@ -116,6 +116,9 @@ final class AuthorSelectorProjector
      * That holds only for a selector naming positioned images alone: its
      * figure arm reaches every figure the type matches, so a global `img`
      * rule would also restyle the figures of static images.
+     * A positioned `svg` materialized as a standalone core/image is the same
+     * case: left static, its figure falls into flow and the image renders at
+     * the viewBox's intrinsic ratio instead of the author's stretched box.
      * Attributes stay on the <img>. Classes and id must be on the figure, so a
      * class the figure did not keep leaves the authored selector alone.
      *
@@ -123,7 +126,7 @@ final class AuthorSelectorProjector
      */
     private function isPositionedImage(DOMElement $element): bool
     {
-        return 'img' === strtolower($element->tagName)
+        return in_array(strtolower($element->tagName), array( 'img', 'svg' ), true)
             && in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array( 'absolute', 'fixed' ), true);
     }
 
@@ -145,7 +148,7 @@ final class AuthorSelectorProjector
         // Only an explicit type subject can use the existing type-span rewrite;
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
-            && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
+            && 1 === preg_match('/^' . preg_quote($tagName, '/') . '\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
         if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
