@@ -212,6 +212,22 @@ final class PresetBinding
     /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
     private array $subjectBuckets = array();
     private int $bound = 0;
+    /** Set by bindColorTokens() when it derived a near shade (nearShadeColor()). */
+    private bool $derivedNearShade = false;
+    /**
+     * Near-shade derivations of the rule being bound. They are emitted under
+     * RELATIVE_COLOR_SUPPORTS after the declarations that keep the literal.
+     *
+     * @var list<string>
+     */
+    private array $derivedDeclarations = array();
+    /**
+     * A near-shade derivation reads a preset through var(), so a browser
+     * without relative colours would accept it at parse time and compute it
+     * as `unset`; a later declaration in the same block could never fall
+     * back to the literal. The feature query keeps the literal for them.
+     */
+    private const RELATIVE_COLOR_SUPPORTS = '@supports (color:rgb(from red r g b))';
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
     /** Preset slugs of the projected font defaults, keyed like $fontDefaults. @var array<string,string> */
@@ -232,6 +248,16 @@ final class PresetBinding
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
     private array $uniformVariables = array();
+    /** @var array<string,?float> The root font size each document renders (DesignSystem::renderedRoots()). */
+    private array $documentRoots = array();
+    /** The root every document renders, or null when they differ or one is unknown. */
+    private ?float $siteRootPx = null;
+    /**
+     * The root that renders the markup or stylesheet being bound, which rem
+     * values are measured against; null when its documents render different
+     * or unknown roots, so a rem value names no token.
+     */
+    private ?float $rootPx = null;
 
     /**
      * @param array<int,array<string,mixed>> $assets
@@ -290,6 +316,25 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
+        $this->documentRoots = DesignSystem::renderedRoots($usageBySource);
+        $this->siteRootPx = $this->rootPx = array() === $this->documentRoots ? $this->system->rootPx : $this->rootOf(array_map('strval', array_keys($this->documentRoots)));
+    }
+
+    /**
+     * The root the given documents render: theirs when they all render one,
+     * the site's when none is named, otherwise null.
+     *
+     * @param list<string> $sources
+     */
+    private function rootOf(array $sources): ?float
+    {
+        $roots = array();
+        foreach ($sources as $source) {
+            $root = array_key_exists($source, $this->documentRoots) ? $this->documentRoots[$source] : $this->siteRootPx;
+            $roots[null === $root ? '' : CssLength::format($root)] = $root;
+        }
+        if (array() === $roots) return $this->siteRootPx;
+        return 1 === count($roots) ? reset($roots) : null;
     }
 
     /**
@@ -360,9 +405,20 @@ final class PresetBinding
         return $refusals;
     }
 
-    public function bind(string $markup): string
+    /** Bind the block markup of the document at `$source` (rem lengths resolve at its root). */
+    public function bind(string $markup, ?string $source = null): string
     {
         if (!str_contains($markup, '<!-- wp:')) return $markup;
+        $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
+        try {
+            return $this->bindMarkup($markup);
+        } finally {
+            $this->rootPx = $this->siteRootPx;
+        }
+    }
+
+    private function bindMarkup(string $markup): string
+    {
         $markup = $this->bindNavigations($markup);
         $pattern = '/<!-- wp:(' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS))) . ') (\{.*?\}) (\/)?-->/s';
         $result = '';
@@ -410,6 +466,8 @@ final class PresetBinding
         if (!str_contains($markup, '<!-- wp:navigation ')) return $markup;
         $markup = (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) (\/?-->)/s', function (array $match): string {
             $attributes = $this->navigationFontSize($match[1]);
+            $json = null === $attributes ? $match[1] : BlockAttributes::encode($attributes);
+            $attributes = $this->navigationOverlayColors($json) ?? $attributes;
             return null === $attributes ? $match[0] : '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' ' . $match[2];
         }, $markup);
         return (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) -->(.*?)<!-- \/wp:navigation -->/s', function (array $match): string {
@@ -422,6 +480,28 @@ final class PresetBinding
             ++$this->bound;
             return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
         }, $markup);
+    }
+
+    /**
+     * Core renders overlay paint from attributes, including on ref navigations;
+     * there is no saved wrapper or inline style to rewrite. Bind only exact
+     * palette values, never a nearest shade, and leave existing presets alone.
+     */
+    private function navigationOverlayColors(string $json): ?\stdClass
+    {
+        $attributes = json_decode($json, false);
+        if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json) return null;
+        $changed = false;
+        foreach (array('customOverlayBackgroundColor' => 'overlayBackgroundColor', 'customOverlayTextColor' => 'overlayTextColor') as $custom => $preset) {
+            if (isset($attributes->$preset) || !is_string($attributes->$custom ?? null)) continue;
+            $slug = $this->system->colorSlug($attributes->$custom);
+            if (null === $slug) continue;
+            unset($attributes->$custom);
+            $attributes->$preset = $slug;
+            ++$this->bound;
+            $changed = true;
+        }
+        return $changed ? $attributes : null;
     }
 
     /**
@@ -918,8 +998,10 @@ final class PresetBinding
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
-            if (is_string($literal) && null !== CssColor::parse($literal)) {
-                // A plain inline colour belongs to this block, not every
+            $resolvedInline = 'text' === $key && is_string($literal) && str_contains($literal, 'var(') && null !== CssColor::parse($this->resolve($literal));
+            $inlineOnly = $resolvedInline && null === $this->presetSlug('color', $literal, $observation);
+            if (is_string($literal) && (null !== CssColor::parse($literal) || $inlineOnly)) {
+                // A proven inline colour belongs to this block, not every
                 // element sharing its author classes. Ordinary breakpoint
                 // rules cannot override it. safe() still checks all reachable
                 // !important, state and style-text rules; removeDeclaration()
@@ -936,6 +1018,16 @@ final class PresetBinding
                     $style->color->{$key} = 'transparent';
                     ++$d->bound;
                 }
+                continue;
+            }
+            if (null !== $slug && $inlineOnly) {
+                // Resolving custom properties proves the colour, not that an
+                // !important preset class is equivalent to the authored inline
+                // declaration. Keep its cascade slot (and avoid adding core's
+                // background presentation) when binding that evidence. Backgrounds
+                // retain the existing class/element ownership checks below.
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'inconsistent_source');
                 continue;
             }
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
@@ -1215,13 +1307,35 @@ final class PresetBinding
      *   A `var()` in a whole colour must resolve the same way as
      *   for a block literal, or have unanimous class-list rendering evidence
      *   for a class-only selector when global resolution is impossible.
+     * - A literal near shade the palette omits (DesignSystem::nearShadeColor())
+     *   keeps its literal, and a feature-queried copy of the rule right after
+     *   it restates the shade relative to its family's representative:
+     *   `.band{background:#f7f7f4}` gains `@supports (color:rgb(from red r g b))
+     *   {.band{background:rgb(from var(--wp--preset--color--base) calc(r - 8)
+     *   calc(g - 8) calc(b - 11))}}`. Both paint the source shade until the
+     *   representative is edited; the derived value then follows it.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
      *   or rounding changes what renders. Font-shorthand custom properties
      *   bind only an exactly matching complete stack, in place, leaving the
      *   rest of the shorthand literal.
+     * - A rem length is measured at the root of the documents that load the
+     *   sheet (`$sources`), and names no token when they render different
+     *   roots.
+     *
+     * @param list<string> $sources Source paths of the documents that load the stylesheet.
      */
-    public function bindStylesheet(string $css): string
+    public function bindStylesheet(string $css, array $sources = array()): string
+    {
+        $this->rootPx = $this->rootOf($sources);
+        try {
+            return $this->bindStylesheetRules($css);
+        } finally {
+            $this->rootPx = $this->siteRootPx;
+        }
+    }
+
+    private function bindStylesheetRules(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
         // Yield unconditional body paint to matching emitted defaults.
@@ -1297,11 +1411,27 @@ final class PresetBinding
                     // Keep off-look controls unchanged, but let the registered
                     // variation beat both author rules and wp-element-button.
                     $excluded = implode(',', array_map(static fn(string $arm): string => trim($arm) . ':not(:where(.is-style-' . $slug . ' *))', CssValueSplitter::splitTopLevel($prelude, array(','))));
-                    return $prelude . '{' . $this->bindRuleBody($transformer, implode(';', $kept), false) . '}' . $excluded . '{' . $this->bindRuleBody($transformer, implode(';', $shared), false) . '}';
+                    return $this->boundRule($transformer, $prelude, implode(';', $kept)) . $this->boundRule($transformer, $excluded, implode(';', $shared));
                 }
             }
-            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude), $prelude) . '}';
+            return $this->boundRule($transformer, $prelude, $body, self::rootSelector($prelude), $prelude);
         });
+    }
+
+    /**
+     * The bound rule, followed by a feature-queried copy of its selector
+     * carrying any near-shade derivations: `.note{color:#151515}` becomes
+     * `.note{color:#151515}@supports (color:rgb(from red r g b)){.note{color:rgb(from var(--wp--preset--color--contrast) calc(r + 4) calc(g + 4) calc(b + 4))}}`.
+     * The copy directly follows the rule with the same selector and
+     * importance, so it wins exactly where the literal would have.
+     */
+    private function boundRule(CssStylesheetTransformer $transformer, string $prelude, string $body, bool $rootSelector = false, string $selector = ''): string
+    {
+        $this->derivedDeclarations = array();
+        $rule = $prelude . '{' . $this->bindRuleBody($transformer, $body, $rootSelector, $selector) . '}';
+        $derived = $this->derivedDeclarations;
+        $this->derivedDeclarations = array();
+        return array() === $derived ? $rule : $rule . self::RELATIVE_COLOR_SUPPORTS . '{' . $prelude . '{' . implode(';', $derived) . '}}';
     }
 
     /**
@@ -1450,14 +1580,14 @@ final class PresetBinding
             if (null !== $expected && str_starts_with($expected, 'var:preset|spacing|')) {
                 $slug = substr($expected, strlen('var:preset|spacing|'));
                 return $value === $expected || $value === 'var(--wp--preset--spacing--' . $slug . ')'
-                    || $this->system->spacingSlug($this->resolve($value)) === $slug;
+                    || $this->spacingSlug($this->resolve($value)) === $slug;
             }
         }
         if (null === $expected || '' === $value) return false;
         $value = $this->resolve($value);
         if (in_array($property, array('color', 'background', 'background-color'), true)) return null !== CssColor::hex($value) && CssColor::hex($value) === CssColor::hex($expected);
         if ($value === $expected) return true;
-        $a = CssLength::toPx($value, $this->system->rootPx);
+        $a = $this->lengthPx($value);
         $b = CssLength::toPx($expected, $this->system->rootPx);
         return null !== $a && null !== $b && abs($a - $b) < 0.001;
     }
@@ -1468,7 +1598,14 @@ final class PresetBinding
         foreach ($transformer->splitStyleRuleBody($body) as $part) {
             if (!isset($part['declarations'])) {
                 $nested = '' === $part['at_rule'] || in_array($part['at_rule'], array('media', 'supports', 'container', 'layer', 'scope'), true);
-                $result .= $part['prelude'] . '{' . ($nested ? $this->bindRuleBody($transformer, $part['body'], $rootSelector) : $part['body']) . '}';
+                $outer = $this->derivedDeclarations;
+                $this->derivedDeclarations = array();
+                $inner = $nested ? $this->bindRuleBody($transformer, $part['body'], $rootSelector) : $part['body'];
+                // A nested rule's derivations stay nested in it: bare
+                // declarations in a nested feature query apply to its selector.
+                if (array() !== $this->derivedDeclarations) $inner = rtrim($inner) . ('' === trim($inner) || preg_match('/[;}]\s*$/', $inner) ? '' : ';') . self::RELATIVE_COLOR_SUPPORTS . '{' . implode(';', $this->derivedDeclarations) . '}';
+                $this->derivedDeclarations = $outer;
+                $result .= $part['prelude'] . '{' . $inner . '}';
                 continue;
             }
             $declarations = $part['declarations'];
@@ -1570,16 +1707,19 @@ final class PresetBinding
         // Borders may carry a colour alongside width/style tokens, or several
         // colours in a longhand. Reuse the author-CSS token binder so only
         // the colour changes and its original bytes remain the fallback.
+        $source = self::sourcePresets($parts[0]) . ':' . self::sourcePresets($value) . $important;
         if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-color)?$/', $property)) {
+            $this->derivedNearShade = false;
             $bound = $this->bindColorTokens($value);
-            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+            return $this->boundTokens($declaration, $parts[0], $value, $bound, $important, $source);
         }
         // A light-dark() pair binds each scheme's colour on its own, so the
         // dark argument keeps rendering under a dark preference.
         $schemeColor = null !== CssColor::lightDark($this->resolve($value)) && in_array($property, array('color', 'background-color', 'background'), true);
         if ($schemeColor || ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value)))) {
+            $this->derivedNearShade = false;
             $bound = $this->bindColorTokens($value);
-            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+            return $this->boundTokens($declaration, $parts[0], $value, $bound, $important, $source);
         }
         $kind = match (true) {
             in_array($property, array('color', 'background-color', 'background'), true), str_starts_with($property, '--') => 'color',
@@ -1597,6 +1737,15 @@ final class PresetBinding
             $slug = $this->observedSelectorColorSlug($selector, $property);
         }
         if (null === $slug && 'color' === $kind) {
+            // A near shade the palette omits keeps its literal here and is
+            // restated as a relative colour of its representative under a
+            // feature query (boundRule()), exact at the default palette.
+            $derived = $this->nearShade($value);
+            if (null !== $derived) {
+                ++$this->bound;
+                $this->derivedDeclarations[] = self::sourcePresets($parts[0]) . ':' . $derived . $important;
+                return $source;
+            }
             $mix = $this->translucentMix($value);
             if (null === $mix) return $declaration;
             ++$this->bound;
@@ -1612,6 +1761,20 @@ final class PresetBinding
         // weight repeated on every rule. A different stack stays the fallback.
         $fallback = 'font-family' === $kind && $this->presetHoldsFamily($slug, $value) ? '' : ',' . self::sourcePresets($value);
         return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . $fallback . ')' . $important;
+    }
+
+    /**
+     * A declaration whose colour tokens bindColorTokens() rewrote. When a
+     * token is a near-shade derivation the rewritten value moves under the
+     * feature query (boundRule()) and the declaration keeps its source value.
+     */
+    private function boundTokens(string $declaration, string $property, string $value, string $bound, string $important, string $source): string
+    {
+        if ($bound === self::sourcePresets($value)) return $declaration;
+        $rewritten = self::sourcePresets($property) . ':' . $bound . $important;
+        if (!$this->derivedNearShade) return $rewritten;
+        $this->derivedDeclarations[] = $rewritten;
+        return $source;
     }
 
     /**
@@ -1637,6 +1800,7 @@ final class PresetBinding
                 } elseif (null !== CssColor::parse($resolved)) {
                     $slug = $this->system->stylesheetColorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
+                    if (null === $replacement && null !== ($replacement = $this->nearShade($token))) $this->derivedNearShade = true;
                     if (null !== $replacement) ++$this->bound;
                 } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {
                     $replacement = $match[1] . '(' . $this->bindColorTokens($match[2]) . ')';
@@ -1646,6 +1810,18 @@ final class PresetBinding
             }
         }
         return $result . self::sourcePresets(substr($value, $offset));
+    }
+
+    /**
+     * A literal near shade the palette omits as a relative colour of its
+     * family's representative preset (DesignSystem::nearShadeColor()). A
+     * value that reads a custom property is left alone: the property's own
+     * definition carries the derivation.
+     */
+    private function nearShade(string $value): ?string
+    {
+        if (str_contains($value, 'var(') || !$this->comparable('color', $value)) return null;
+        return $this->system->nearShadeColor($value);
     }
 
     /**
@@ -1690,10 +1866,29 @@ final class PresetBinding
 
     private function exactFontSizeSlug(string $value): ?string
     {
-        $px = CssLength::toPx($value, $this->system->rootPx);
+        $px = $this->lengthPx($value);
         if (null === $px) return null;
-        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
+        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->fontSizeSlug($value)) return $size['slug'];
         return null;
+    }
+
+    /** A length in px at the root being bound; null when it is a rem length and that root is unknown. */
+    private function lengthPx(string $value): ?float
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return CssLength::toPx($value, $this->rootPx ?? $this->system->rootPx);
+    }
+
+    private function fontSizeSlug(string $value): ?string
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return $this->system->fontSizeSlug($value, $this->rootPx);
+    }
+
+    private function spacingSlug(string $value): ?string
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return $this->system->spacingSlug($value, $this->rootPx);
     }
 
     private function exactFontFamilySlug(string $value): ?string
@@ -1784,9 +1979,9 @@ final class PresetBinding
         if (!$this->comparable($kind, $value)) return null;
         return match ($kind) {
             'color' => $this->system->colorSlug($value),
-            'font-size' => $this->system->fontSizeSlug($value),
+            'font-size' => $this->fontSizeSlug($value),
             'font-family' => $this->system->fontFamilySlug($value),
-            default => $this->system->spacingSlug($value),
+            default => $this->spacingSlug($value),
         };
     }
 
@@ -1852,6 +2047,10 @@ final class PresetBinding
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
+                // A compound subject (`.a.b`) applies only where every one of
+                // its classes stands; sharing one class is not enough.
+                $classes = array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'class:'));
+                if (array() !== array_diff_key(array_flip($classes), $finalClasses)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
                     foreach ($rule['attributes'] as [$name, $value]) {
@@ -2519,7 +2718,8 @@ final class PresetBinding
      * preset variable (`var:preset|color|primary`, which core serializes as
      * `var(--wp--preset--color--primary)`). Unlike a preset class this adds
      * no `!important` and keeps the declaration where it was, so it renders
-     * exactly as before until the token changes in Global Styles.
+     * exactly as before until the token changes in Global Styles. Font sizes
+     * use the CSS variable form in attributes too, for core's editor hook.
      *
      * @param list<array{0:string,1:string}> $declarations
      */
@@ -2528,7 +2728,9 @@ final class PresetBinding
         if ('color' === $kind && null === CssColor::parse($this->resolve($literal))) return false;
         $type = 'color' === $kind ? 'color' : $kind;
         if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
-        $group->{$key} = 'var:preset|' . $type . '|' . $slug;
+        // Core's editor passes custom font sizes straight to inline CSS;
+        // its internal preset syntax is only resolved by frontend serialization.
+        $group->{$key} = 'font-size' === $kind ? 'var(--wp--preset--font-size--' . $slug . ')' : 'var:preset|' . $type . '|' . $slug;
         return true;
     }
 

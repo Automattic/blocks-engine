@@ -482,7 +482,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
+        }
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -1022,7 +1024,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
+        }
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
@@ -1743,7 +1747,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * Carry a source list that stacks block items onto core's flow layout.
+     * Carry a source list that stacks block items onto core's stacked layout.
      *
      * An in-flow list navigation renders its generated list as
      * `display:contents`, so the items lay out in the navigation host. With no
@@ -1755,7 +1759,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * `.item{display:flex}`, as it does in the browser). Floated
      * block items still need flow: a flex row ignores the float that the
      * projected item rule carries. UA-only floated items keep the existing
-     * horizontal output rather than being mistaken for a stack.
+     * horizontal output rather than being mistaken for a stack. An explicitly
+     * block-displayed list uses a vertical, non-wrapping flex layout because its
+     * list-box projection maps the authored display onto the native flex root.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -1770,10 +1776,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $items = 0;
+        $floated = false;
         foreach ( $list->childNodes as $child ) {
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
+            $floated = $floated || $navigationContext->isFloated($child);
             $itemDisplay = $navigationContext->cascadeDisplay($child);
             if ( '' === $itemDisplay && $navigationContext->isFloated($child) ) {
                 return $attrs;
@@ -1785,7 +1793,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( 0 < $items ) {
-            $attrs['layout'] = array( 'type' => 'default' );
+            // The list-box projector maps authored block display to flex.
+            // Keep that box vertical; floated items still require flow.
+            $attrs['layout'] = ! $floated && in_array($navigationContext->cascadeDisplay($list), array( 'block', 'flow-root' ), true)
+                ? array( 'type' => 'flex', 'orientation' => 'vertical', 'flexWrap' => 'nowrap' )
+                : array( 'type' => 'default' );
         }
 
         return $attrs;
@@ -3128,7 +3140,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( array() !== $submenuBlocks ) {
-            if ( null === $siblingLabel && 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
+            if ( null === $siblingLabel && ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) || $this->holdsTextOutsideAnchor($element, $anchor) ) ) {
                 return null;
             }
 
@@ -3146,11 +3158,62 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes, $navigationContext), $submenuBlocks, $element);
         }
 
-        if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
+        if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor))
+            || ( null === $siblingLabel && $this->holdsTextOutsideAnchor($element, $anchor) ) ) {
             return null;
         }
 
         return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element, $navigationContext);
+    }
+
+    /**
+     * Whether a menu item shows words or numbers outside its one anchor.
+     *
+     * An item becomes a navigation link (or submenu parent) that holds only
+     * its anchor's label; anything else the item renders is dropped. A row
+     * that lists an index and a year beside its linked title
+     * (`<div><span>1.</span><a>Title</a><span>2026</span></div>`) is a
+     * listing, not a menu item, and reducing it to the title loses content.
+     * Declining the item leaves the whole landmark to ordinary block
+     * conversion, which keeps every part and the row layout.
+     *
+     * What a menu item legitimately keeps beside its anchor does not count:
+     * its submenu, its toggle and other navigation chrome, controls, text
+     * hidden from sight or from assistive technology (icon-font ligatures),
+     * and glyph-only indicators or separators (no letter or digit).
+     */
+    private function holdsTextOutsideAnchor(DOMElement $item, DOMElement $anchor): bool
+    {
+        $excluded = $this->submenuContainers($item, $anchor);
+        $stack = array( $item );
+        while ( null !== ( $node = array_pop($stack) ) ) {
+            foreach ( $node->childNodes as $child ) {
+                if ( XML_TEXT_NODE === $child->nodeType ) {
+                    if ( 1 === preg_match('/[\p{L}\p{N}]/u', $child->textContent ?? '') ) {
+                        return true;
+                    }
+                    continue;
+                }
+                if ( ! $child instanceof DOMElement || $child->isSameNode($anchor) ) {
+                    continue;
+                }
+                foreach ( $excluded as $container ) {
+                    if ( $child->isSameNode($container) ) {
+                        continue 2;
+                    }
+                }
+                if ( in_array(strtolower($child->tagName), array( 'a', 'button', 'input', 'select', 'textarea', 'label', 'script', 'style', 'template' ), true)
+                    || $child->hasAttribute('hidden')
+                    || 'true' === strtolower(trim($child->getAttribute('aria-hidden')))
+                    || 1 === preg_match('/(?:^|[\s_-])(?:visually-hidden|sr-only|screen-reader-only|screen-reader-text)(?:$|[\s_-])/', strtolower($child->getAttribute('class')))
+                    || $this->isNavigationChromeElement($child) ) {
+                    continue;
+                }
+                $stack[] = $child;
+            }
+        }
+
+        return false;
     }
 
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?NavigationPatternContext $navigationContext = null): array

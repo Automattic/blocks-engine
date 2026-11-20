@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
@@ -22,10 +23,10 @@ use DOMElement;
 final class BoxTreeClassifier
 {
     /** Fold rules, in report order. */
-    public const FOLD_RULES = array('own-sizing', 'paint', 'containing-block', 'own-placement', 'viewport-entrance');
+    public const FOLD_RULES = array('own-sizing', 'paint', 'containing-block', 'own-placement', 'viewport-entrance', 'clip');
 
     /** Criteria a fold can discharge; every other criterion keeps the box. */
-    private const FOLDABLE = array('paints', 'containing-block', 'own-sizing', 'own-placement', 'viewport-entrance');
+    private const FOLDABLE = array('paints', 'clips', 'containing-block', 'own-sizing', 'own-placement', 'viewport-entrance');
 
     /**
      * Text blocks a viewport entrance can move to: each always emits its own
@@ -128,6 +129,9 @@ final class BoxTreeClassifier
                     foreach ($effective['nodes'][$child]['viewports'] as $viewport => &$observation) {
                         if (!isset($node['viewports'][$viewport])) continue;
                         foreach ($fold['moves'] as $to => $from) $observation['used_styles'][$to] = $node['viewports'][$viewport]['used_styles'][$from];
+                        if (isset($fold['moves']['position']) && 'absolute' === $observation['used_styles']['position']) {
+                            $observation['used_styles']['align-self'] = $observation['used_styles']['justify-self'] = 'auto';
+                        }
                     }
                     unset($observation);
                     // The child's border box is the box's, so it now contains what the box contained.
@@ -180,7 +184,12 @@ final class BoxTreeClassifier
         $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted, $linkCarried);
         if (null !== $behavior) return $behavior;
         if (1 !== count($node['children'])) return 'own-sizing';
-        $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
+        $childNode = $tree['nodes'][$node['children'][0]] ?? array();
+        // display:contents has no principal box. Its child's placement belongs
+        // to the outer layout already; comparing it to the wrapper's unused
+        // placement values invents a Group boundary.
+        if (self::boxlessContents($element, $node, $childNode)) return 'equal-child-geometry';
+        $placement = self::placement($node, $childNode);
         if (null !== $placement) return $placement;
         foreach ($element->childNodes as $child) {
             if ($child instanceof \DOMText && '' !== trim($child->textContent)) return 'own-sizing';
@@ -194,6 +203,35 @@ final class BoxTreeClassifier
             }
         }
         return 'equal-child-geometry';
+    }
+
+    /** A single-child, non-interactive contents wrapper contributes no box. */
+    private static function boxlessContents(DOMElement $element, array $node, array $child): bool
+    {
+        // Custom hosts have a separate transparent-hook lowering. Their DOM
+        // boundary still supplies selector and runtime context to descendants;
+        // treating them as ordinary neutral boxes changes that lowering.
+        if (str_contains($element->tagName, '-')) return false;
+        foreach ($element->childNodes as $text) {
+            if ($text instanceof \DOMText && '' !== trim($text->textContent)) return false;
+        }
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $styles = $observation['used_styles'];
+            $own = $child['viewports'][$viewport]['used_styles'] ?? null;
+            if ('contents' !== ($styles['display'] ?? null) || !is_array($own)) return false;
+            // Do not erase a live ancestor state rule, or rebase an inherited
+            // value the child derives from this wrapper.
+            foreach (self::INHERITED as $property) {
+                if (($styles[$property] ?? null) !== ($own[$property] ?? null)) return false;
+            }
+            // A contents box cannot itself be hit. A sole child restoring
+            // pointer-events:auto already overrides its disabled ancestor;
+            // removing that ancestor changes neither it nor its descendants.
+            // Keep other values conservative (including missing evidence).
+            if (($styles['pointer-events'] ?? null) !== ($own['pointer-events'] ?? null)
+                && !('none' === ($styles['pointer-events'] ?? null) && 'auto' === ($own['pointer-events'] ?? null))) return false;
+        }
+        return !self::targetedByState($element, self::stateCompounds($element->ownerDocument));
     }
 
     /**
@@ -260,19 +298,22 @@ final class BoxTreeClassifier
 
     /**
      * The sole child a box's viewport entrance and id can move to: a text
-     * block with no id or capture marker of its own, under a box with no
-     * inline style of its own, so its state rules
+     * block with no id, capture marker or inline motion properties of its own,
+     * under a box with only transferable --motion-* inline declarations, so its state rules
      * (keyed on the box's id) and the replayed entrance stay on one element.
      */
     public static function entranceTarget(DOMElement $element, array $node): ?DOMElement
     {
-        // Inline declarations (the motion variables a reveal's keyframes
-        // read, for one) are authored on the box itself; the child cannot
-        // stand in for an element whose own style the entrance resolves.
-        if (1 !== count($node['children']) || '' !== trim($element->getAttribute('style'))) return null;
+        if (1 !== count($node['children'])) return null;
+        foreach (CssRuleAnalyzer::declarationList($element->getAttribute('style')) as $declaration) {
+            if (!preg_match('/^--motion-/i', $declaration['name'])) return null;
+        }
         foreach ($element->childNodes as $child) {
             if (!$child instanceof DOMElement || $node['children'][0] !== $child->getAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
             if (!in_array(strtolower($child->tagName), self::ENTRANCE_TARGETS, true) || $child->hasAttribute('id') || self::carriesCaptureMarker($child)) return null;
+            foreach (CssRuleAnalyzer::declarationList($child->getAttribute('style')) as $declaration) {
+                if (preg_match('/^--motion-/i', $declaration['name'])) return null;
+            }
             return $child;
         }
         return null;
@@ -342,8 +383,12 @@ final class BoxTreeClassifier
      *   that cell), where the child's margin box then equals the box's margin
      *   box.
      *
-     * Never folded: pseudo-elements, clipping overflow, transforms, filters,
-     * opacity, blending, isolation, z-index, non-flow boxes, and every
+     * Absolute inset-zero boxes can hand position to an equal-box flow child.
+     * A clip is redundant when that child repeats it without exterior paint,
+     * or moves to a non-clipping child that preserves descendant clipping.
+     *
+     * Never folded: pseudo-elements, transforms, filters, opacity, blending,
+     * isolation, unmatched z-index, other non-flow boxes, and every
      * criterion {@see self::behavior()} reports.
      *
      * @param array<string, mixed>|null $parent The node the child would sit in.
@@ -369,6 +414,8 @@ final class BoxTreeClassifier
         $constrained = false;
         $paints = false;
         $relative = false;
+        $absolute = null;
+        $clipped = false;
         // Inherited property => [the box owns a value its parent lacks, the child repeats the box's value at every viewport].
         $inherited = array();
         foreach ($node['viewports'] as $viewport => $observation) {
@@ -376,11 +423,38 @@ final class BoxTreeClassifier
             $c = $child['viewports'][$viewport]['used_styles'] ?? null;
             $p = $parent['viewports'][$viewport]['used_styles'] ?? null;
             if (!is_array($c) || !is_array($p) || !empty($observation['pseudo'])) return null;
+            $fill = 'absolute' === $b['position'];
+            if (null !== $absolute && $absolute !== $fill) return null;
+            $absolute = $fill;
             foreach (self::NEVER_FOLD as $property => $inert) {
+                if ('z-index' === $property && $fill && $b[$property] === ($c[$property] ?? null)) continue;
                 if (isset($b[$property]) && !in_array(strtolower(trim($b[$property])), $inert, true)) return null;
             }
+            // A square child can take the box's rounded clip. The geometry
+            // and border checks below still require equal, borderless boxes.
+            $roundedClip = !in_array($b['border-radius'], array('0px', 'none'), true)
+                && '0px' === $c['border-radius'];
+            $transferClip = false;
             foreach (array('overflow-x', 'overflow-y') as $overflow) {
-                if (in_array($b[$overflow], array('hidden', 'clip', 'auto', 'scroll'), true)) return null;
+                if (!in_array($b[$overflow], array('hidden', 'clip', 'auto', 'scroll'), true)) continue;
+                if (($b[$overflow] !== $c[$overflow] && 'visible' !== $c[$overflow]) || 'none' !== $c['box-shadow']
+                    || self::paintsLine($c['outline']) || !self::identityTransform($c['transform'])
+                    || ($b['border-radius'] !== $c['border-radius'] && !$roundedClip)) return null;
+                $transferClip = $transferClip || $b[$overflow] !== $c[$overflow];
+                if ($roundedClip) $moves['border-radius'] = 'border-radius';
+                $clipped = true;
+            }
+            if ($transferClip) {
+                // Moving both axes must not erase an independent child clip.
+                foreach (array('overflow-x', 'overflow-y') as $overflow) {
+                    if ($b[$overflow] !== $c[$overflow] && 'visible' !== $c[$overflow]) return null;
+                    $moves[$overflow] = $overflow;
+                }
+                $moves['border-radius'] = 'border-radius';
+                // A static child need not be the containing block of a
+                // positioned descendant. Refuse rather than moving its clip
+                // below the ancestor that positions that descendant.
+                if ('static' === $c['position'] && self::hasPositionedDescendant($child, $tree, $viewport)) return null;
             }
             $display = $b['display'];
             $childDisplay = $c['display'];
@@ -390,8 +464,13 @@ final class BoxTreeClassifier
             // A box that establishes its own formatting context keeps the
             // child's margins from collapsing with the child's content; in a
             // block parent the child must establish one itself.
-            if ('block' !== $display && !$parentLays && !in_array($childDisplay, array('flex', 'grid', 'flow-root', 'table'), true)) return null;
-            if (!in_array($b['position'], array('static', 'relative'), true) || !in_array($c['position'], array('static', 'relative'), true)) return null;
+            if (!$fill && 'block' !== $display && !$parentLays && !in_array($childDisplay, array('flex', 'grid', 'flow-root', 'table'), true)) return null;
+            if (!in_array($b['position'], array('static', 'relative', 'absolute'), true) || !in_array($c['position'], array('static', 'relative'), true)) return null;
+            if ($fill) {
+                foreach (array('top', 'right', 'bottom', 'left') as $offset) {
+                    if ('0px' !== ($b[$offset] ?? null) || !in_array($c[$offset] ?? 'auto', array('auto', '0px'), true)) return null;
+                }
+            }
             if ('relative' === $b['position']) {
                 $offsets = false;
                 foreach (array('top', 'right', 'bottom', 'left') as $offset) $offsets = $offsets || !in_array($b[$offset] ?? 'auto', array('auto', '0px'), true);
@@ -415,6 +494,8 @@ final class BoxTreeClassifier
                 $childEdge = 1 === $direction ? $inner[$axis] : $inner[$axis] + $inner[$size];
                 if (abs($edge + $direction * $padding - $childEdge) > 0.01) return null;
                 $childBorder = self::borderWidth($c['border-' . $side]);
+                // Overflow clips at the padding edge, not outside a child's border.
+                if ($clipped && 0.0 !== $childBorder) return null;
                 if (0.0 !== $padding || null === $childBorder || 0.0 !== $childBorder || 0.0 !== (float) (self::pixels($c['padding-' . $side]) ?? 1.0)) $boxless = false;
                 if (0.0 !== $padding) {
                     $equalBox = false;
@@ -429,6 +510,9 @@ final class BoxTreeClassifier
                 }
             }
             foreach (self::PLACEMENT_INITIAL as $property => $initial) {
+                // Four zero insets determine an absolute fill's placement;
+                // the child's former self-alignment is no longer relevant.
+                if ($fill && in_array($property, array('align-self', 'justify-self'), true)) continue;
                 if ($b[$property] === $c[$property]) continue;
                 if ($initial !== $c[$property] && !self::fillsSoleGridCell($b, $property, $c[$property])) return null;
                 $moves[$property] = $property;
@@ -442,7 +526,7 @@ final class BoxTreeClassifier
             if (self::boxPaints($b)) {
                 if (self::boxPaints($c) || !in_array($c['border-radius'], array('0px', 'none'), true)) return null;
                 // A rounded child that clips would start clipping its own content.
-                if (!in_array($b['border-radius'], array('0px', 'none'), true) && (in_array($c['overflow-x'], array('hidden', 'clip', 'auto', 'scroll'), true) || in_array($c['overflow-y'], array('hidden', 'clip', 'auto', 'scroll'), true))) return null;
+                if (!$roundedClip && !in_array($b['border-radius'], array('0px', 'none'), true) && (in_array($c['overflow-x'], array('hidden', 'clip', 'auto', 'scroll'), true) || in_array($c['overflow-y'], array('hidden', 'clip', 'auto', 'scroll'), true))) return null;
                 $paints = true;
             }
             foreach (self::INHERITED as $property) {
@@ -478,7 +562,7 @@ final class BoxTreeClassifier
             }
         }
         // Positioned descendants resolve against the padding box: it must not change.
-        if (($containing || $relative) && !$equalBox) return null;
+        if (($containing || $relative || $absolute || $clipped) && !$equalBox) return null;
         if ($paints && !$equalBox) return null;
         // With an equal box the box has no padding or border, so its
         // constraint bounds the border box the child shares: the child holds
@@ -501,7 +585,11 @@ final class BoxTreeClassifier
                 foreach (array('position', 'top', 'right', 'bottom', 'left') as $property) $moves[$property] = $property;
             }
         }
-        if (array_intersect_key($moves, self::PLACEMENT_INITIAL) || in_array('margin', $source, true)) $rules[] = 'own-placement';
+        if ($absolute) {
+            foreach (array('position', 'top', 'right', 'bottom', 'left') as $property) $moves[$property] = $property;
+        }
+        if ($clipped) $rules[] = 'clip';
+        if ($absolute || array_intersect_key($moves, self::PLACEMENT_INITIAL) || in_array('margin', $source, true)) $rules[] = 'own-placement';
         if ('viewport-entrance' === $behavior) {
             // The replayed entrance animates the element that carries it; the
             // child plays it identically only on the box's own border box.
@@ -511,6 +599,19 @@ final class BoxTreeClassifier
         if (array() === $rules) return null;
         $moves += $inheritedMoves;
         return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);
+    }
+
+    /** Missing descendant evidence cannot prove that moving a clip is safe. */
+    private static function hasPositionedDescendant(array $node, array $tree, string|int $viewport): bool
+    {
+        $pending = $node['children'];
+        while ($pending) {
+            $descendant = $tree['nodes'][array_pop($pending)] ?? null;
+            $position = $descendant['viewports'][$viewport]['used_styles']['position'] ?? null;
+            if (null === $position || in_array($position, array('absolute', 'fixed'), true)) return true;
+            foreach ($descendant['children'] as $id) $pending[] = $id;
+        }
+        return false;
     }
 
     /**

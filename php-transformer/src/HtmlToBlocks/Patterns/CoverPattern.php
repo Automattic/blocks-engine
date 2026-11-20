@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -35,7 +36,7 @@ final class CoverPattern implements PatternRecognizerInterface
     use PatternGateHelpersTrait;
 
     public const CONSUMED_BACKGROUND_CLASS = 'blocks-engine-cover-consumed-background';
-    /** A column hero whose child grows to fill it: the inner container and wrapper group must fill the cover too. */
+    /** A column hero: the inner container and wrapper group fill it to project main-axis alignment. */
     public const FILL_CLASS = 'blocks-engine-cover-fill';
     /** A flex/grid hero with an authored gap: the wrapper group lays out its children with that gap. */
     public const GAP_CLASS = 'blocks-engine-cover-gap';
@@ -220,14 +221,21 @@ final class CoverPattern implements PatternRecognizerInterface
                 'justifyContent' => $fillsInline ? 'stretch' : $horizontalToken,
                 'verticalAlignment' => $this->positionToken($vertical, 'top', 'bottom'),
             );
-            $children = array($createBlock('core/group', array('layout' => $layout), $children, null));
+            // Flex items retain UA/authored margins rather than Core's layout
+            // resets, just like a plain source stack. Keep the default gap at
+            // zero; an authored gap is inherited below.
+            $groupAttrs = AuthorLayoutOwnership::withCssOwnedFlow(array('layout' => $layout));
+            $children = array($createBlock('core/group', $groupAttrs, $children, null));
             // The stacked children are laid out by the wrapper group inside
             // the inner container, not by the cover wrapper that keeps the
             // authored gap; the group inherits it at every breakpoint.
             if ( array() !== array_intersect_key($declarations, array_flip(array( 'gap', 'row-gap', 'column-gap' ))) ) {
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::GAP_CLASS);
             }
-            if ( 'flex' === $display && $column && null !== $presentationDeclarations && $this->hasGrowingChild($element, $presentationDeclarations) ) {
+            // Source CSS may align the cover itself, but the wrapper group
+            // owns the children. Give it the available height so its native
+            // verticalAlignment can position them on the source main axis.
+            if ( 'flex' === $display && $column ) {
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::FILL_CLASS);
             }
         }
@@ -465,31 +473,6 @@ final class CoverPattern implements PatternRecognizerInterface
         }
 
         return $declarations;
-    }
-
-    /** @param callable(DOMElement): array<string, string> $childDeclarations */
-    private function hasGrowingChild(DOMElement $element, callable $childDeclarations): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            try {
-                $declarations = $childDeclarations($child);
-            } catch ( Throwable ) {
-                continue;
-            }
-            $grow = (string) ($declarations['flex-grow'] ?? '');
-            if ( '' === $grow && isset($declarations['flex']) ) {
-                $flex = strtolower(trim((string) $declarations['flex']));
-                $grow = 'auto' === $flex ? '1' : ('none' === $flex ? '0' : (string) strtok($flex, ' '));
-            }
-            if ( is_numeric($grow) && (float) $grow > 0 ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

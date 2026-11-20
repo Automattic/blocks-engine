@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -71,6 +72,18 @@ final class FormBuildScope
         self::$memo[$form] = $entries;
 
         return $value;
+    }
+
+    /**
+     * Step-track detection shared by the inventory and fallback finding.
+     *
+     * @param array<string, mixed> $graph
+     * @param list<array<string, mixed>> $stylesheets
+     * @return array<string, mixed>|null
+     */
+    public static function stepTrack(DOMElement $form, array $graph, array $stylesheets, string $inlineCss): ?array
+    {
+        return self::remember($form, 'step_track', array( $graph, $stylesheets, $inlineCss ), static fn (): ?array => (new FormStepTrackDetector())->detect($form, $graph, $stylesheets, $inlineCss));
     }
 
     /**

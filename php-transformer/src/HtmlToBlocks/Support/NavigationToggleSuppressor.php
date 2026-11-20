@@ -1849,6 +1849,9 @@ final class NavigationToggleSuppressor
     public function navigationOverlayMenu(DOMElement $navigation): string
     {
         if ('' !== $this->inlineMirrorMarker($navigation)) return 'never';
+        if ( null !== $this->expandedMobileNavigation($navigation) ) {
+            return 'never';
+        }
         if ( $this->hasEquivalentSourceNavigationVariant($navigation) ) {
             return 'mobile';
         }
@@ -2107,9 +2110,38 @@ final class NavigationToggleSuppressor
 
     private function hasEquivalentSourceNavigationVariant(DOMElement $navigation): bool
     {
+        return null !== $this->equivalentSourceNavigationVariant($navigation);
+    }
+
+    /**
+     * An expanded list is content, not evidence of a hamburger.
+     *
+     * @return array{source: DOMElement, breakpoint: float}|null
+     */
+    public function expandedMobileNavigation(DOMElement $navigation): ?array
+    {
+        $candidate = $this->equivalentSourceNavigationVariant($navigation);
+        if ( ! $candidate instanceof DOMElement || $this->navigationToggleControl($navigation) instanceof DOMElement
+            || $this->navigationToggleControl($candidate) instanceof DOMElement
+            || ! in_array(strtolower($candidate->tagName), array('ul', 'ol'), true) ) {
+            return null;
+        }
+        $boundary = $this->sourceCollapseBreakpoint($navigation, $candidate);
+        if ( null === $boundary ) return null;
+        for ( $node = $candidate; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $values = $this->styleResolver->authorViewport->atViewport($node, array('display', 'visibility', 'opacity'), $boundary);
+            if ( 'none' === CssValueInspector::comparable($values['display'] ?? '')
+                || in_array(CssValueInspector::comparable($values['visibility'] ?? ''), array('hidden', 'collapse'), true)
+                || '0' === CssValueInspector::comparable($values['opacity'] ?? '') ) return null;
+        }
+        return array('source' => $candidate, 'breakpoint' => $boundary);
+    }
+
+    private function equivalentSourceNavigationVariant(DOMElement $navigation): ?DOMElement
+    {
         $document = $navigation->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
-            return false;
+            return null;
         }
 
         $navigationRoot = $this->navigationLandmarkAncestor($navigation) ?? $navigation;
@@ -2117,14 +2149,14 @@ final class NavigationToggleSuppressor
         // It remains an independent mobile surface, rather than evidence that a
         // sibling desktop navigation should be replaced by Core's overlay toggle.
         if ( $this->isInsideNativeDisclosure($navigationRoot) ) {
-            return false;
+            return null;
         }
         $signature = $this->sourceNavigationSignature($navigationRoot);
         if ( '' === $signature ) {
-            return false;
+            return null;
         }
         if ( $this->hasNativeDisclosureNavigation($document, $signature) ) {
-            return false;
+            return null;
         }
 
         $variantRoot = SourceDom::documentVariantRoot($navigationRoot);
@@ -2145,11 +2177,11 @@ final class NavigationToggleSuppressor
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
                 && (null === $variantRoot || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
-                return true;
+                return $candidate;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
@@ -2191,6 +2223,13 @@ final class NavigationToggleSuppressor
      */
     private function isEquivalentNavigationVariantCandidate(DOMElement $element): bool
     {
+        // A branch inherits its mobile menu's signal, but is not a device
+        // counterpart of an independent navigation with the same links.
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'li' === strtolower($node->tagName) ) {
+                return false;
+            }
+        }
         if ( $this->isNavigationMenuCandidate($element) ) {
             return true;
         }

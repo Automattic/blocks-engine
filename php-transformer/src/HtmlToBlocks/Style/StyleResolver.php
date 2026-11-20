@@ -824,7 +824,7 @@ final class StyleResolver implements ElementPresentationResolver
             $parents = $this->session->boxTreeParentEvidence($source, $parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
-            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid, $target->tagName);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
     }
@@ -1301,6 +1301,13 @@ final class StyleResolver implements ElementPresentationResolver
             if ('' !== $value) {
                 $conditional[implode('{', $entry['queries'])] = $value;
             }
+        }
+        // Captured typography already owns the base and token-only variants.
+        // Do not turn a discarded token breakpoint into a base-only rescue
+        // (often Tailwind's layered h1{font-size:inherit}). Besides competing
+        // with the carrier this duplicates rules across route support sheets.
+        if (array() === $conditional && array() !== $this->session->boxTreeEvidence($element)) {
+            return '';
         }
         $base = null === $baseEntry ? '' : $this->carriedFontSizeValue($baseEntry, $element);
         $restatesImportant = null !== $baseEntry && $baseEntry['important'];
@@ -3568,9 +3575,13 @@ final class StyleResolver implements ElementPresentationResolver
                 $authoredNames[strtolower($name)] ??= $name;
             }
         }
-        // Keyframes are not ordinary selector consumers. Preserve only the
-        // variables they read, not unrelated capture layout variables.
+        // Keyframes are not ordinary selector consumers. Preserve their
+        // variables and entrance motion parameters (including on folded text
+        // children), not unrelated capture layout variables.
         if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
+            foreach ($declarations as $property => $value) {
+                if (preg_match('/^--motion-/i', $property)) $required[$property] = true;
+            }
             $required = $this->inlineCustomPropertiesRequired(
                 $declarations,
                 $required + $this->keyframeCustomProperties($this->session->authorStyleAnalysis()->combinedCss())

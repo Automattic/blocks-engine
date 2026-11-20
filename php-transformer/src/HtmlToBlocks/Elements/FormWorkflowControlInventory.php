@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -28,7 +27,7 @@ final class FormWorkflowControlInventory
         $assets = $session->authorStyleAnalysis()->stylesheetAssets();
         $css = $session->sourceStyleResolutionState()->formLayoutCss();
         $layout = FormBuildScope::layoutGraph($form, null, $assets, $css);
-        $steps = true === ($layout['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($form, $layout, $assets, $css);
+        $steps = true === ($layout['truncated'] ?? true) ? null : FormBuildScope::stepTrack($form, $layout, $assets, $css);
         $intent = FormRuntimeRequirementAnalyzer::intentControls($form);
         if (null === $steps) {
             $panels = (new FormWorkflowPanelDetector())->controls($form, $intent);

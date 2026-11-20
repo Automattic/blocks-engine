@@ -31,4 +31,13 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
     'box-tree/index.json' => json_encode($tree, JSON_THROW_ON_ERROR),
 )))->toWordPressSitePlanView()['wordpress_site_plan'];
 if (str_contains($plan['pages'][0]['canonical_block_markup'], 'blocks-engine-responsive-typography-')) throw new RuntimeException('Captured token-only typography must not acquire a second owner.');
+// A layered reset is not a reason to emit a base-only rescue after every
+// token breakpoint was discarded. This is the Tailwind heading cascade.
+$html = str_replace(':root{--title:36px}h1{font-size:var(--title)}', ':root{--title:36px}@layer base{h1{font-size:inherit}}', $html);
+$tree['source_hash'] = hash('sha256', $html);
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $html,
+    'box-tree/index.json' => json_encode($tree, JSON_THROW_ON_ERROR),
+)))->toWordPressSitePlanView()['wordpress_site_plan'];
+if (str_contains($plan['pages'][0]['canonical_block_markup'], 'blocks-engine-responsive-typography-')) throw new RuntimeException('A layered reset must not create a base-only captured typography rescue.');
 echo "PASS: Captured token sizes retain one owner and literal breakpoints retain their rescue.\n";

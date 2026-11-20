@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertComputedEqual } from './computed-colors.mjs';
 const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const url = process.env.SHELL_LANDMARK_TEST_URL;
 const variant = process.env.SHELL_LANDMARK_FRAMED === '1' ? 'framed' : 'body-level';
@@ -16,7 +17,7 @@ try {
         }));
         assert.equal(headers.length, 1, `${variant} ${path} renders exactly one <header>: ${JSON.stringify(headers)}`);
         assert.deepEqual(headers[0].padding, ['12px', '12px', '12px', '12px'], `${variant} ${path} header carries the authored 12px padding once: ${JSON.stringify(headers)}`);
-        assert.equal(headers[0].background, 'rgb(250, 250, 250)', `${variant} ${path} header carries the authored background`);
+        assertComputedEqual(headers[0].background, 'rgb(250, 250, 250)', `${variant} ${path} header carries the authored background`);
         // The padding is applied once: a second box around or inside the
         // landmark would push its navigation further from the header edge.
         assert.equal(headers[0].inset, 12, `${variant} ${path} header navigation sits 12px inside the one padded box: ${JSON.stringify(headers)}`);
