@@ -1670,11 +1670,12 @@ final class PresetBinding
         if (!preg_match('/^<(h[1-6]|p|div|ul|ol|li|blockquote)\b/i', $html, $match)) return false;
         $tag = strtolower($match[1]);
         $default = $this->fontDefaults[$tag] ?? (str_starts_with($tag, 'h') ? null : ($this->fontDefaults['body'] ?? null));
-        // Body-copy utilities keep their declarations in bindStylesheet(),
-        // so equality with the root font does not prove inheritance: retain
-        // their block preset. Heading defaults use the separate heading-rule
-        // projection and must not acquire a redundant block font setting.
-        if (!str_starts_with($tag, 'h') && array() !== $this->fontRules) return false;
+        // Paragraph utilities keep their declarations in bindStylesheet(),
+        // so equality with the root font does not prove inheritance. Retain
+        // their block preset, but do not pin containers (groups, lists and
+        // quotes): their font participates in the cascade of descendant blocks,
+        // not just this text. Heading defaults have their own projection.
+        if ('p' === $tag && array() !== $this->fontRules) return false;
         return null !== $default && $this->sameFont($value, $default);
     }
 

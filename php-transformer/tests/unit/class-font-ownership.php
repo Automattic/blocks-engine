@@ -15,6 +15,25 @@ $markup = $plan['pages'][0]['canonical_block_markup'];
 if (!str_contains($markup, '"fontFamily":"body"') || !str_contains($markup, 'has-body-font-family')) {
     throw new RuntimeException('A retained utility font must be owned by a block preset: ' . $markup);
 }
+// A container's matching body font must not become a block override.
+// Its descendants can have independent typography; only the paragraph that
+// owns the retained utility should acquire the preset.
+$nested = '<!doctype html><html><head><style>body{font-family:Georgia,serif}.font-body{font-family:Georgia,serif}.font-other{font-family:Arial,sans-serif}</style></head><body><main><div class="font-body"><p class="font-body">Body copy</p><div class="font-other"><p>Other copy</p></div></div></main></body></html>';
+$plan = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html', 'files' => array('index.html' => $nested),
+))->toWordPressSitePlanView()['wordpress_site_plan'];
+$markup = $plan['pages'][0]['canonical_block_markup'];
+preg_match_all('/<!-- wp:group (\{.*?\}) -->/', $markup, $groups);
+if (array() === $groups[1]) throw new RuntimeException('Expected a container in the regression fixture');
+foreach ($groups[1] as $json) {
+    $attributes = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    if (isset($attributes['fontFamily'])) {
+        throw new RuntimeException('Container defaults must not acquire a font override: ' . $json);
+    }
+}
+if (!str_contains($markup, '"fontFamily":"body"')) {
+    throw new RuntimeException('The body-copy paragraph still needs its font preset: ' . $markup);
+}
 // Heading font defaults must retain their existing projection rather than
 // adding a block override alongside responsive typography.
 $artifact = require __DIR__ . '/../fixtures/design-system/tailwind-v3.php';
