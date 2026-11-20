@@ -805,8 +805,8 @@ final class DesignSystem
      * existing preset (within COLOR_CONSOLIDATION_DISTANCE) does not re-enter
      * the palette and keeps its exact literal on the block: safecss strips a
      * relative colour from a block's inline style, and a preset attribute
-     * would repaint it. It is recorded in nearShades so stylesheet rules
-     * painting it derive it from that preset (nearShadeColor()).
+     * would repaint it. Block-only observations do not extend nearShades:
+     * stylesheet projection must retain the usage-ranked palette's scope.
      *
      * Like withBlockTypography(), this covers the colour the browser rendered
      * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
@@ -843,21 +843,19 @@ final class DesignSystem
         $used = array_fill_keys(array_column($this->colors, 'slug'), true);
         $accent = 0;
         $colors = $this->colors;
-        $nearShades = $this->nearShades;
         foreach (array_keys($counts) as $hex) {
-            // A near shade keeps its block literal rather than re-entering
-            // the palette; stylesheets derive it from the nearest preset.
+            // A block-only observation must not change stylesheet projection.
+            // Near shades keep their exact block literal; only usage evidence
+            // may establish a stylesheet's relative-color binding.
             do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
             $used[$slug] = true;
             $near = $this->nearestColor($hex);
             if (null !== $near) {
-                $nearShades[$hex] ??= $near;
                 continue;
             }
             $colors[] = array('slug' => $slug, 'name' => self::colorName($hex), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
         }
-        ksort($nearShades, SORT_STRING);
-        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $nearShades);
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
     }
 
     /**
