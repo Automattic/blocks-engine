@@ -107,6 +107,8 @@ final class AuthorSelectorProjector
     /**
      * The figure selector for an `img.x` / `img#x` subject whose image became a
      * core/image block, or null when the subject can still reach an <img>.
+     * An `svg.x` / `svg#x` subject materialized as a standalone core/image
+     * follows the same rule: nothing named `svg` remains in the output.
      *
      * A subject naming the image by class or id follows that identity. A
      * type-only positioned image also needs its figure to own the source box:
@@ -127,7 +129,8 @@ final class AuthorSelectorProjector
 
     private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context, bool $namesOnlyPositionedImages): ?string
     {
-        if ( 'img' !== strtolower($element->tagName) ) {
+        $tagName = strtolower($element->tagName);
+        if ( 'img' !== $tagName && 'svg' !== $tagName ) {
             return null;
         }
         $leafMarker = $context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '';
@@ -143,7 +146,7 @@ final class AuthorSelectorProjector
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
             && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
-        if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
+        if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
             || array() !== ($subject['attributes'] ?? array())
@@ -406,6 +409,20 @@ final class AuthorSelectorProjector
         // The emitted tree is authoritative: add a zero-specificity hop
         // only when that topology actually exists, keeping the source arm
         // for matches that were not wrapped.
+        // A column cover inserts two neutral layout boxes between the
+        // source panel and its items. Keep a child selector's source weight
+        // while following that emitted edge (not arbitrary descendants).
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        if ( is_array($rightmost) && '>' === end($combinators) ) {
+            $start = (int) $rightmost['start'];
+            $coverChild = substr($selector, 0, $start)
+                . ':where(.wp-block-cover__inner-container)>:where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>'
+                . substr($selector, $start);
+            if ( $this->matchesEmittedMarkup($coverChild, $context->emittedMarkup) ) {
+                $arms[] = $coverChild;
+            }
+        }
         $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
         if ( null !== $carrierChild ) {
             $arms[] = $carrierChild;
@@ -940,13 +957,7 @@ final class AuthorSelectorProjector
         $supersededToggles = false;
         foreach ( $matches as $element ) {
             $path = $context->authorStyles->sourcePath($element);
-            // Native card boxes keep their class/id hooks. Do not turn a
-            // shared utility rule into a document-local semantic arm merely
-            // because one of its subjects used to be an anchor or span.
-            // Type subjects still need projection onto the new block tag.
-            if ( $context->selectorProjections->isRetainedSourcePath($path)
-                || ($context->selectorProjections->isNativeSourceBoxPath($path) && ! $typeSubject && $this->hasClassBoundSubject($parsed))
-                || $this->isPreservedCodeSyntaxElement($element) ) {
+            if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
                 $hasNonProjected = true;
             } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
                 $supersededToggles = true;

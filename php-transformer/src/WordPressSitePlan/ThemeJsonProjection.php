@@ -42,6 +42,9 @@ final class ThemeJsonProjection
      */
     private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'revert', 'revert-layer', 'unset');
 
+    /** Whether some document retires the author stylesheets, and with them their custom-property definitions. */
+    private bool $authorDefinitionsRetired = false;
+
     /**
      * Source CSS remains intact. Global element defaults project only when
      * their applicability and values agree across the document inventory;
@@ -55,10 +58,12 @@ final class ThemeJsonProjection
      * literals of the projected selector-gated declarations.
      *
      * @param list<string> $documentPaths All documents to which site-wide styles apply.
+     * @param list<string> $evidenceDocumentPaths Documents that retire author stylesheets.
      * @return array{assets:array<int,array<string,mixed>>,theme:array<string,mixed>,provenance:array<int,array<string,mixed>>,presets:array<string,array<string,string>>,responsive_breakpoints:array<string,mixed>|null}
      */
-    public function project(array $assets, array $documentPaths = array(), ?DesignSystem $system = null): array
+    public function project(array $assets, array $documentPaths = array(), ?DesignSystem $system = null, array $evidenceDocumentPaths = array()): array
     {
+        $this->authorDefinitionsRetired = array() !== $evidenceDocumentPaths;
         $deliveryAssets = $assets;
         // A selectable set owns its declarations for its entire lifetime.
         // Projecting the initially preferred set into permanent Global Styles
@@ -646,7 +651,10 @@ final class ThemeJsonProjection
         // Palette expressions must remain live in Global Styles, including
         // the editor canvas. Never resolve a scheme-dependent colour to the
         // reference viewport's literal.
-        if (in_array($property, array('color', 'background-color'), true) && preg_match('/^var\(\s*--[A-Za-z0-9_-]+\s*(?:,[^;{}]+)?\)$/', $value)) return true;
+        // An evidence route never receives the author stylesheet that defines
+        // the expression (ADR 0005, EvidenceRouteStylesheets): there it would be
+        // invalid and paint nothing, so the rendered root paint is projected.
+        if (in_array($property, array('color', 'background-color'), true) && preg_match('/^var\(\s*--[A-Za-z0-9_-]+\s*(?:,[^;{}]+)?\)$/', $value)) return !$this->authorDefinitionsRetired;
         if (str_contains($value, 'var(') || str_contains($value, 'calc(')) return false;
         if (in_array($property, array('color', 'background-color'), true)) {
             // The button element style reaches every button block's link, and
@@ -987,6 +995,19 @@ final class ThemeJsonProjection
         // and the editor gap control enabled.
         if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = false;
         $settings['spacing']['blockGap'] = true;
+        // Authored CSS also owns root padding that is not projected (a
+        // shorthand, a responsive override, a calc()). WordPress's own
+        // theme.json sets `styles.spacing.padding` to 0px on every side, and
+        // core prints it as `body{padding-top:0px;…}` in the global styles
+        // stylesheet, after the source stylesheet and at the same 0-0-1
+        // specificity as an authored `body` rule, so it silently replaces the
+        // source's padding. Root styles have no responsive states, so the
+        // source value cannot move into Global Styles faithfully. Empty sides
+        // override core's default in the theme.json merge, and core
+        // (WP_Theme_JSON::compute_style_properties()) and the editor's style
+        // engine skip empty values, so no root padding rule is printed and
+        // the source cascade stands.
+        if (!isset($styles['spacing']['padding'])) $styles['spacing']['padding'] = array('top' => '', 'right' => '', 'bottom' => '', 'left' => '');
         // The source's dominant responsive breakpoints ride alongside the other
         // projected settings. WordPress 7.1 turns them into the `@mobile` and
         // `@tablet` style-state media queries

@@ -198,8 +198,22 @@ final class LayoutShellBlockGenerator
             return Object.assign( {}, wrapper, { attributes: visible } );
         } );
     }
+    // The canvas renders a source link wrapper as a live anchor, and Gutenberg
+    // cancels link activation in its iframe only for a `#` link clicked
+    // directly. A click on a block inside the wrapper (an image the author is
+    // selecting to replace) followed the href and navigated the canvas away
+    // from the editor. Selection follows focus, not the click's default
+    // action, so cancel only the navigation; the saved link is unchanged.
+    function cancelNavigation( event ) { event.preventDefault(); }
+    function canvasWrappers( wrappers ) {
+        return wrappers.map( function( wrapper ) {
+            if ( 'a' !== String( wrapper.tagName || 'div' ).toLowerCase() ) { return wrapper; }
+            var attributes = Object.assign( {}, wrapper.attributes || {}, { onClick: cancelNavigation } );
+            return Object.assign( {}, wrapper, { attributes: attributes } );
+        } );
+    }
     function edit( props ) {
-        var wrappers = revealedWrappers( props.attributes.wrappers || [] );
+        var wrappers = canvasWrappers( revealedWrappers( props.attributes.wrappers || [] ) );
         // Both hooks run exactly once, in this order, regardless of chain length.
         var blockProps = useBlockProps();
         var outerProps = wrappers.length ? sourceBlockProps( wrapperProps( wrappers[ 0 ].attributes ), blockProps ) : blockProps;

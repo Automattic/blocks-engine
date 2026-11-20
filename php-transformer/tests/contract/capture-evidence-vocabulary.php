@@ -87,7 +87,9 @@ foreach ( $uses as $name => $count ) {
 
 foreach ( $constants as $name => $value ) {
     $isDigest = str_ends_with($name, '_SHA256');
-    if ( $isDigest ? 1 !== preg_match('/^[0-9a-f]{64}$/', $value) : 1 !== preg_match($namePattern, $value) ) {
+    $isEvidenceKey = str_ends_with($name, '_EVIDENCE_KEY');
+    $pattern = $isDigest ? '/^[0-9a-f]{64}$/' : ($isEvidenceKey ? '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/' : $namePattern);
+    if ( 1 !== preg_match($pattern, $value) ) {
         $failures[] = "CaptureEvidence::{$name} is outside the published namespace: {$value}";
     }
 }

@@ -500,6 +500,8 @@ $foldedBackgrounds = array(array('role' => 'root', 'color' => '#050b18', 'author
 $paletteWith = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#e5e7eb', 600)), $foldedBackgrounds)));
 $assert(array('#050b18', '#e5e7eb', '#0a1630') === array_column($paletteWith?->colors ?? array(), 'color'), 'the derived palette contains distinct colours, not the near shade (' . json_encode(array_column($paletteWith?->colors ?? array(), 'color')) . ')');
 $assert('base' === $paletteWith?->colorSlug('#050b18') && null === $paletteWith?->colorSlug('#08101f') && '#0a1630' === $paletteWith?->color((string) $paletteWith?->colorSlug('#0a1630')), 'distinct paint binds exactly and a near shade never binds to its representative');
+$assert('rgb(from var(--wp--preset--color--base) calc(r + 3) calc(g + 5) calc(b + 7))' === $paletteWith?->nearShadeColor('#08101f') && 'rgb(from var(--wp--preset--color--base) calc(r + 3) calc(g + 5) calc(b + 7) / 0.5)' === $paletteWith?->nearShadeColor('rgba(8,16,31,.5)') && null === $paletteWith?->nearShadeColor('#050b18') && null === $paletteWith?->nearShadeColor('#0a1630') && null === $paletteWith?->nearShadeColor('#09101f'), 'a near shade derives from its representative with exact channel offsets and its alpha; tokens and unpainted shades do not derive');
+$assert(array('#08101f' => '#050b18') === ($paletteWith?->report()['near_shades'] ?? null), 'the report names each near shade and its representative');
 $assert(array('#08101f') === ($paletteWith?->report()['literal_colors'] ?? null) && !array_key_exists('absorbs', $paletteWith?->report()['palette'][0] ?? array()) && 5.0 === ($paletteWith?->report()['tolerances']['color_consolidation_delta_e76'] ?? null), 'the report records the local shade and consolidation bound without absorbing paint');
 $assert((CssColor::distance('#08101f', '#050b18') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE && (CssColor::distance('#0a1630', '#050b18') ?? 0.0) > DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'the fixture shades sit on either side of the bound');
 
@@ -862,7 +864,7 @@ $assert(!str_contains($navyBind('section:hover{background-color:#000}'), '"backg
 $assert(str_contains($navyBind('a:hover{background-color:#000}'), '"backgroundColor":"' . $navy . '"'), 'a state rule for another tag does not block the section');
 $assert(array('breakpoint_variant' => 1) === $refusalsOf(array($plain), array(), array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48;#111111'))))) && array('breakpoint_variant' => 1) === $refusalsOf(array($plain), array(), array(array('classes' => 'text-rose', 'properties' => array('color' => array('!breakpoint'))))), 'a breakpoint that changes the token is refused as breakpoint_variant');
 $assert(array('state_variant' => 1, 'alpha' => 1, 'important' => 1) == $refusalsOf(array($plain, str_replace('text-rose', 'text-a', $plain), str_replace('text-rose', 'text-b', $plain)), array(), array(array('classes' => 'text-rose', 'properties' => array('color' => array('!state'))), array('classes' => 'text-a', 'properties' => array('color' => array('!alpha'))), array('classes' => 'text-b', 'properties' => array('color' => array('!important'))))), 'collector observations carry their refusal reason');
-$assert(array('unsupported_block' => 1) === $refusalsOf(array('<!-- wp:cover {"style":{"color":{"text":"#e11d48"}}} --><div class="wp-block-cover"></div><!-- /wp:cover -->')), 'a literal colour on a block binding does not rewrite is refused as unsupported_block');
+$assert(array('unsupported_block' => 1) === $refusalsOf(array('<!-- wp:image {"style":{"color":{"text":"#e11d48"}}} --><figure class="wp-block-image"></figure><!-- /wp:image -->')), 'a literal text colour on an unsupported image block is refused as unsupported_block');
 $assert(array() === $refusalsOf(array($inline('<a href="/x" style="color:#e11d48">b</a>'))), 'a link colour bound inline is not a refusal');
 $assert(array() === $refusalsOf(array($inlineBinding->bind($inline('<mark style="color:#e11d48">b</mark>')), $classBound)), 'bound values are not refusals');
 $displayMetrics = $displayPlan['theme']['design_system']['metrics'] ?? array();
@@ -888,6 +890,12 @@ $colorBindings = static function (array $plan, array $theme, array $sourceByClas
         $css = (string) ($asset['content'] ?? '');
         $offset = 0;
         while (false !== ($at = strpos($css, 'var(--wp--preset--color--', $offset))) {
+            // A near-shade derivation (`rgb(from var(--wp--preset--color--base)
+            // calc(r - 5) …)`) binds nothing: $nearShadePaint checks its paint.
+            if (str_ends_with(substr($css, 0, $at), 'rgb(from ')) {
+                $offset = $at + 1;
+                continue;
+            }
             $depth = 0;
             for ($end = $at; $end < strlen($css); $end++) {
                 if ('(' === $css[$end]) $depth++;
@@ -923,6 +931,22 @@ $colorBindings = static function (array $plan, array $theme, array $sourceByClas
     $walk($theme['styles'] ?? array(), '');
     return $bindings;
 };
+// Each near-shade derivation in the stylesheets, evaluated at the default
+// palette: `rgb(from var(--wp--preset--color--base) calc(r - 5) …)` => hex.
+$nearShadePaint = static function (array $plan, array $theme): array {
+    $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $css = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($plan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
+    preg_match_all('/rgb\(from var\(--wp--preset--color--([a-z0-9-]+)\)((?: (?:[rgb]|calc\([rgb] [+-] \d+\))){3})\)/', $css, $matches, PREG_SET_ORDER);
+    $paint = array();
+    foreach ($matches as [$derivation, $slug, $channels]) {
+        $base = CssColor::parse($palette[$slug] ?? '');
+        preg_match_all('/([rgb])|calc\(([rgb]) ([+-]) (\d+)\)/', $channels, $parts, PREG_SET_ORDER);
+        $rgb = array();
+        foreach ($parts as $i => $part) $rgb[] = (int) round($base[$i] ?? 0) + ('' === ($part[3] ?? '') ? 0 : ('+' === $part[3] ? 1 : -1) * (int) $part[4]);
+        $paint[$derivation] = vsprintf('#%02x%02x%02x', $rgb);
+    }
+    return $paint;
+};
 $repainted = static fn(array $bindings): array => array_values(array_filter($bindings, static fn(array $binding): bool => null === $binding['preset'] || $binding['preset'] !== $binding['source']));
 
 // (a) Distinct white binds; near-white surfaces keep exact local paint.
@@ -946,6 +970,11 @@ $surfaceBindings = $colorBindings($surfacePlan, $surfaceTheme, array('bg-surface
 $assert(array() !== $surfaceBindings && array() === $repainted($surfaceBindings), 'painted-surface-shades: every block and stylesheet colour binding reads a token equal to its source colour (' . json_encode($repainted($surfaceBindings)) . ')');
 $surfaceCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($surfacePlan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $assert(str_contains($surfaceCss, '.bg-surface{background-color:#f6f8fa;'), 'painted-surface-shades: the stylesheet preserves exact local near-white paint');
+// (b') The near-white rule follows base through a feature-queried
+// derivation that paints exactly #f6f8fa at the default palette.
+$surfacePaint = $nearShadePaint($surfacePlan, $surfaceTheme);
+$assert(str_contains($surfaceCss, '@supports (color:rgb(from red r g b)){.bg-surface{background-color:rgb(from var(--wp--preset--color--base) calc(r - 9) calc(g - 7) calc(b - 5))') && array('#f6f8fa') === array_values(array_unique($surfacePaint)), 'painted-surface-shades: the near-white surface derives from base and paints its exact source value (' . json_encode($surfacePaint) . ')');
+$assert(array('#f6f8fa' => '#ffffff') === ($surfacePlan['theme']['design_system']['near_shades'] ?? null), 'painted-surface-shades: the report names the near shade and its representative');
 $surfaceSystem = $surfacePlan['theme']['design_system'] ?? array();
 $surfaceMetrics = $surfaceSystem['metrics'] ?? array();
 $assert(array('#f6f8fa') === ($surfaceSystem['literal_colors'] ?? null) && 4 === ($surfaceMetrics['restyle_backgrounds'] ?? null) && 1 === ($surfaceMetrics['restyle_backgrounds_preset'] ?? null) && 3 === ($surfaceMetrics['literal_value_count'] ?? null), 'painted-surface-shades: only distinct white follows the palette; three near-white backgrounds stay local (' . json_encode($surfaceMetrics) . ')');
@@ -959,6 +988,9 @@ $anchorBindings = $colorBindings($anchorPlan, $anchorTheme, array(), $anchorStyl
 $anchorPalette = array_column($anchorTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
 $assert(count($anchorBindings) >= 10 && array() === $repainted($anchorBindings), 'navigation-anchor-subject: every bound colour equals its source value (' . json_encode($repainted($anchorBindings)) . ')');
 $assert(!in_array('#fafafa', $anchorPalette, true) && str_contains(implode('', array_column($anchorPlan['assets'] ?? array(), 'content')), 'header{padding:12px;background:#fafafa}'), 'navigation-anchor-subject: the near-white header retains exact local paint without a duplicate preset');
+$anchorCss = implode('', array_column($anchorPlan['assets'] ?? array(), 'content'));
+$anchorPaint = $nearShadePaint($anchorPlan, $anchorTheme);
+$assert(1 === preg_match('/header\{padding:12px;background:#fafafa\}@supports \(color:rgb\(from red r g b\)\)\{header\{background:(rgb\(from [^}]*\))\}\}/', $anchorCss, $anchorDerived) && '#fafafa' === ($anchorPaint[$anchorDerived[1]] ?? null), 'navigation-anchor-subject: the header derives #fafafa from its representative, exact at the default palette (' . json_encode($anchorPaint) . ')');
 
 fwrite(STDOUT, "Design system usage derivation: {$passes} passed, {$failures} failed\n");
 exit($failures ? 1 : 0);

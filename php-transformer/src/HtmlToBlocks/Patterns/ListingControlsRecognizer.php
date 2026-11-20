@@ -167,6 +167,11 @@ final class ListingControlsRecognizer
                 continue;
             }
             if ( 'input' === $tag && in_array(strtolower(SourceDom::attr($element, 'type')), array('radio', 'checkbox'), true) && '' !== SourceDom::attr($element, 'name') ) {
+                // Choices inside product cards select items, not facets of
+                // this listing, even in a differently shaped alternate view.
+                if ( $this->inProductCollectionCard($element) ) {
+                    continue;
+                }
                 $label = SourceDom::associatedLabel($element);
                 // Same-named inputs in separate responsive forms/fieldsets
                 // are candidates, not one document-wide option group.
@@ -202,6 +207,17 @@ final class ListingControlsRecognizer
         }
 
         return $groups;
+    }
+
+    private function inProductCollectionCard(DOMElement $element): bool
+    {
+        $commerce = new CommerceStructureRecognizer();
+        for ( $card = $element->parentNode; $card instanceof DOMElement && $card->parentNode instanceof DOMElement; $card = $card->parentNode ) {
+            if ( $commerce->isProductGridContainer($card->parentNode) && null !== $commerce->productCardData($card) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

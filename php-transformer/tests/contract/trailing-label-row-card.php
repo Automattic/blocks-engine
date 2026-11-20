@@ -91,10 +91,26 @@ $out = (new HtmlTransformer())->transform(
 $css = implode('', array_column(array_filter(
     $out['assets'], static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')
 ), 'content'));
-if (!str_contains($css, '.rounded{border-radius:16px}')
+if (!preg_match('/\.rounded[^{}]*\{border-radius:16px\}/', $css)
     || !str_contains($css, '.cue:not(.be-c-0){margin-left:auto}')
     || !str_contains($css, 'blocks-engine-subject-tag-a')
     || str_contains($out['serialized_blocks'], '/layout-shell')) {
     throw new RuntimeException('Native cards must preserve shared class rules and project anchor types: ' . $css);
+}
+// Shared utilities must retain a context-free semantic subject when old and
+// newly eligible cards coexist. A native-card bypass used to remove the new
+// card from the match set and bind the existing card to route-local markers.
+$out = (new HtmlTransformer())->transform(
+    '<style>.rounded{border-radius:16px}.row{display:flex}.cue{margin-left:auto}</style>'
+    . '<a class="rounded" href="/existing/"><h3>Existing</h3><p>Summary</p></a>'
+    . '<a class="rounded row" href="/new/"><div><h3>New</h3><p>Summary</p></div><span class="cue">→</span></a>'
+)->toArray();
+$css = implode('', array_column(array_filter(
+    $out['assets'], static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')
+), 'content'));
+if (preg_match('/blocks-engine-semantic-[0-9a-f]+-\d+/', $css)
+    || !str_contains($css, 'blocks-engine-role-semantic.blocks-engine-subject.blocks-engine-subject-class-')
+    || str_contains($out['serialized_blocks'], '/layout-shell')) {
+    throw new RuntimeException('Mixed cards must not rebind shared utility subjects to route-local markers: ' . $css);
 }
 echo "Trailing-label row card contract passed.\n";

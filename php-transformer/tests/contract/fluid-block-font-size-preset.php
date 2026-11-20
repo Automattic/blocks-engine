@@ -32,7 +32,7 @@ $sizes = array_column($theme['settings']['typography']['fontSizes'], 'size', 'sl
 $slug = array_search('clamp(42px,6.5vw,84px)', $sizes, true);
 $assert(is_string($slug), 'The fluid block font size must have an exact font-size preset: ' . json_encode($sizes));
 $assert(!str_contains($markup, '"fontSize":"clamp('), 'No heading may keep the fluid font size as a literal: ' . $markup);
-$assert(2 === substr_count($markup, '"fontSize":"var:preset|font-size|' . $slug . '"'), 'Both headings must bind the fluid preset: ' . $markup);
+$assert(2 === substr_count(str_replace('\\u002d', '-', $markup), '"fontSize":"var(--wp--preset--font-size--' . $slug . ')"'), 'Both headings must bind the fluid preset: ' . $markup);
 $assert(2 === substr_count($markup, 'font-size:var(--wp--preset--font-size--' . $slug . ')'), 'Both headings must render the preset variable inline: ' . $markup);
 $names = array_column($theme['settings']['typography']['fontSizes'], 'name', 'slug');
 $assert(1 === preg_match('/\(42-84px\)$/', (string) $names[$slug]), 'The fluid preset name must state its range: ' . $names[$slug]);
