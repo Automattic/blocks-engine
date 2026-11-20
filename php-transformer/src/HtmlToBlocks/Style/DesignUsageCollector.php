@@ -224,13 +224,12 @@ final class DesignUsageCollector
             'spacing' => self::rows($this->spacing),
             'widths' => self::rows($this->widths),
             'prose_width_px' => $this->proseWidth,
-            'prose_columns' => array_values($this->proseColumns),
             'class_styles' => $this->classStyleRows(),
             'heading_typography' => $this->headingTypography,
             'button_looks' => $this->buttonLooks,
             'total_mass' => max(1, $mass),
             'element_count' => $this->elements,
-        );
+        ) + (array() === $this->proseColumns ? array() : array('prose_columns' => array_values($this->proseColumns)));
     }
 
     /**

@@ -33,7 +33,7 @@ final class DeclarativeProseColumns
                 $pr = $length($s['padding-right'] ?? ($padding[1] ?? $padding[0])) ?? 0;
                 $left += $pl;
                 $width -= $pl + $pr;
-                if ($inGrid && 'p' === $tag && '' !== trim($element->textContent) && $width > ($best['width'] ?? 0) && $left >= 0 && $left + $width <= $viewport + 1) $best = array('viewport' => $viewport, 'left' => $left, 'width' => $width);
+                if ('p' === $tag && '' !== trim($element->textContent) && $width > ($best['width'] ?? 0) && $left >= 0 && $left + $width <= $viewport + 1) $best = array('viewport' => $viewport, 'left' => $left, 'width' => $width, 'grid' => $inGrid);
                 $tracks = null;
                 if ('grid' === ($s['display'] ?? '')) {
                     $tracks = preg_split('/\s+/', trim($s['grid-template-columns'] ?? ''));
@@ -53,7 +53,12 @@ final class DeclarativeProseColumns
                 }
             };
             $visit($body, 0, $viewport);
-            if (null !== $best) $columns[] = $best;
+            // A wider normal-flow prose column already has native constrained
+            // layout support. Do not replace it with a narrower grid panel.
+            if (null !== $best && $best['grid']) {
+                unset($best['grid']);
+                $columns[] = $best;
+            }
         }
         return $columns;
     }

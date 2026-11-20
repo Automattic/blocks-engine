@@ -109,6 +109,7 @@ final class SitePlanRun
         $retainedSources = array_fill_keys(array_column($documents, 'source_path'), true);
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || isset($retainedSources[$asset['compilation']['id'] ?? ''])));
         $assets = AssetPublications::apply($assets, $runtimeDeclarations);
+        ProductImages::diagnose($assets, $runtimeDeclarations, $this->unitFindings->record(...));
         // The design system comes from what every document renders, before
         // any document is projected: RouteLinks::markup() binds literal block values
         // to its tokens wherever block markup enters the plan.
