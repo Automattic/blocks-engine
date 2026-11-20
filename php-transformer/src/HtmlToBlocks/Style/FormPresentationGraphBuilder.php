@@ -864,7 +864,7 @@ final class FormPresentationGraphBuilder
         }
         $rowLayouts = array();
         foreach ($v3 ? $graph['control_rows'] : array() as $row) {
-            if ('stacked' === ($row['flow'] ?? null) || in_array($row['styles']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$row['index']] = true;
+            if (in_array($row['flow'] ?? null, array('stacked', 'inline'), true) || in_array($row['styles']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$row['index']] = true;
         }
         $containerVariants = array();
         foreach ( $graph['variants'] as $variant ) {
@@ -1132,7 +1132,7 @@ final class FormPresentationGraphBuilder
             // A shared ancestor is nearest only when controls occupy distinct children.
             $paths = array_map(static fn (DOMElement $item): string => $item->getNodePath(), $members);
             if (count(array_unique($paths)) < 2) continue;
-            // Candidates arrive innermost first; only the nearest ancestor of a control set can stack it.
+            // Candidates arrive innermost first; only the nearest ancestor records a control set's flow.
             $set = implode(',', array_keys($members));
             $isNearest = !isset($nearest[$set]);
             $nearest[$set] = true;
@@ -1148,12 +1148,12 @@ final class FormPresentationGraphBuilder
                 $layout = $layout || in_array($patch['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
             }
             // A <form>'s own flow is the default field stacking every consumer renders; wrappers make it a fact.
-            $stacked = !$layout && $isNearest && 'form' !== strtolower($element->tagName) && $this->stacksInBlockFlow($element, $members, $rules, $customRules);
-            if (!$layout && !$stacked) continue;
+            $flow = !$layout && $isNearest && 'form' !== strtolower($element->tagName) ? $this->blockFlow($element, $members, $rules, $customRules) : null;
+            if (!$layout && null === $flow) continue;
             if (count($rows) >= self::MAX_CONTROLS) { $this->truncated = true; $this->diagnostics[] = 'control_row_limit'; break; }
             $rowIndex = count($rows);
             $row = array('index' => $rowIndex) + $this->rowRole($element, self::ROW_PROPERTIES, 'control_row', $rowIndex, null, $rules, $customRules, $variants);
-            if ($stacked) $row['flow'] = 'stacked';
+            if (null !== $flow) $row['flow'] = $flow;
             $row['members'] = array();
             foreach ($members as $index => $item) {
                 $row['members'][] = array('index' => $index) + $this->rowRole($item, self::ROW_ITEM_PROPERTIES, 'control_row_item', $rowIndex, $index, $rules, $customRules, $variants);
@@ -1165,19 +1165,21 @@ final class FormPresentationGraphBuilder
 
     /**
      * A block container lays its children out line by line: one block-level
-     * member breaks the shared line, so the controls are stacked.
+     * member breaks the shared line, so the controls are stacked. Otherwise,
+     * inline-level members share a line in a plain block container.
      *
      * @param array<int, DOMElement> $members
      */
-    private function stacksInBlockFlow(DOMElement $element, array $members, array $rules, array $customRules): bool
+    private function blockFlow(DOMElement $element, array $members, array $rules, array $customRules): ?string
     {
         $own = $this->styles(array_intersect_key($this->matched($element, $rules, true)['base'], array('display' => true)), $element, null, $customRules)['display'] ?? null;
-        if (null !== $own && !in_array($own, array('block', 'flow-root', 'list-item'), true)) return false;
+        if (null !== $own && !in_array($own, array('block', 'flow-root', 'list-item'), true)) return null;
         foreach ($members as $item) {
             $display = $this->styles(array_intersect_key($this->matched($item, $rules, true)['base'], array('display' => true)), $item, null, $customRules)['display'] ?? null;
-            if (null === $display ? in_array(strtolower($item->tagName), self::BLOCK_FLOW_TAGS, true) : in_array($display, array('block', 'flex', 'grid', 'flow-root', 'list-item', 'table'), true)) return true;
+            if (null === $display ? in_array(strtolower($item->tagName), self::BLOCK_FLOW_TAGS, true) : in_array($display, array('block', 'flex', 'grid', 'flow-root', 'list-item', 'table'), true)) return 'stacked';
         }
-        return false;
+        // With no block-level member, a plain block container shares an inline line.
+        return null !== $own || in_array(strtolower($element->tagName), self::BLOCK_FLOW_TAGS, true) ? 'inline' : null;
     }
 
     private function rowRole(DOMElement $element, array $properties, string $role, int $rowIndex, ?int $memberIndex, array $rules, array $customRules, array &$variants): array
@@ -1219,9 +1221,9 @@ final class FormPresentationGraphBuilder
         if (!is_array($rows) || !array_is_list($rows) || !$rows || count($rows) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control rows are invalid.');
         $owners = array();
         foreach ($rows as $row) {
-            $stacked = is_array($row) && array_key_exists('flow', $row);
-            if ($stacked && 'stacked' !== $row['flow']) throw new InvalidArgumentException('Form control row flow is invalid.');
-            self::assertRowFact($row, array_merge(array('index', 'source_selector', 'styles', 'provenance', 'members'), $stacked ? array('flow') : array()), self::ROW_PROPERTIES);
+            $hasFlow = is_array($row) && array_key_exists('flow', $row);
+            if ($hasFlow && !in_array($row['flow'], array('stacked', 'inline'), true)) throw new InvalidArgumentException('Form control row flow is invalid.');
+            self::assertRowFact($row, array_merge(array('index', 'source_selector', 'styles', 'provenance', 'members'), $hasFlow ? array('flow') : array()), self::ROW_PROPERTIES);
             if (isset($owners[$row['index']]) || !is_array($row['members']) || !array_is_list($row['members']) || count($row['members']) < 2 || count($row['members']) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control row members are invalid.');
             $owners[$row['index']] = array();
             foreach ($row['members'] as $member) {
