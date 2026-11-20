@@ -74,16 +74,8 @@ final class BoxTreeClassifier
                 foreach (preg_split('/\s+/', trim($element->getAttribute($attribute)), -1, PREG_SPLIT_NO_EMPTY) as $target) $references[$target] = true;
             }
         }
-        $semanticReferences = $references;
-        // An id used by a stylesheet is not disposable either.
         foreach ($dom->getElementsByTagName('style') as $style) {
-            preg_match_all('/([^{};]+)\{/', CssSyntaxScanner::withoutComments((string) $style->textContent), $preludes);
-            foreach ($preludes[1] as $selector) {
-                foreach ($elements as $candidate) {
-                    $sourceId = $candidate->getAttribute('id');
-                    if ('' !== $sourceId && preg_match('/#' . preg_quote($sourceId, '/') . '(?![\\w-])/', $selector)) $semanticReferences[$sourceId] = true;
-                }
-            }
+            $references += CssRuleAnalyzer::referencedIds((string) $style->textContent);
         }
         $containing = array();
         foreach ($tree['viewports'] ?? array() as $viewport => $_) {
@@ -130,7 +122,7 @@ final class BoxTreeClassifier
                     && 'equal-child-geometry' === self::criterion($element, $node, $effective, $blockParent, isset($containing[$id]), $referenced, false, true)) $nodes[$id]['link_carrier'] = true;
             }
             $stateCompounds ??= self::stateCompounds($dom);
-            $handoff = self::semanticTarget($element, $node, $effective, $elements, $semanticReferences, $stateCompounds);
+            $handoff = self::semanticTarget($element, $node, $effective, $elements, $references, $stateCompounds);
             $semantic = true === $handoff;
             if ('load-bearing' === $disposition && (in_array($criterion, self::FOLDABLE, true) || $semantic)) {
                 // A state rule kept on the route can hang on any tag, not only custom elements.
@@ -324,7 +316,11 @@ final class BoxTreeClassifier
         // A link carrier's anchor semantics are its link, which conversion
         // moves onto the blocks it wraps ({@see self::isLinkCarrier()}).
         $generic = in_array(strtolower($element->tagName), array('div', 'span'), true) || self::isAutonomousCustomElement($element) || $linkCarried;
-        if ((!$semantic && (!$generic || $referenced)) || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
+        // An entrance fold transfers the id as well as the runtime handle,
+        // preserving CSS and anchor references. Target eligibility below still
+        // keeps the wrapper when that transfer cannot be made.
+        $entranceId = self::carriesOnlyViewportEntrance($element);
+        if ((!$semantic && (!$generic || ($referenced && !$entranceId))) || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
         foreach ($element->attributes as $attribute) {
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, $semantic ? array('contenteditable', 'draggable', 'hidden', 'inert') : array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
