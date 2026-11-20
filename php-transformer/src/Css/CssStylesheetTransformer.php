@@ -10,9 +10,13 @@ final class CssStylesheetTransformer
 {
     private CssRuleTreeCache $localTrees;
 
+    /** @var \WeakMap<CssRuleTree, array<int, list<array{start: int, boundary: int, end: int, prelude: string, body: string, kind: int}>>> */
+    private \WeakMap $renderScopes;
+
     public function __construct()
     {
         $this->localTrees = new CssRuleTreeCache();
+        $this->renderScopes = new \WeakMap();
     }
 
     private function tree(string $css): CssRuleTree
@@ -1876,26 +1880,47 @@ final class CssStylesheetTransformer
         return $this->renderTree($tree, -1, $transformSelectorPrelude, $transformStyleRule, $walkNested, $ancestors);
     }
 
+    /**
+     * Cache syntax only, never callback results: projection callbacks record
+     * bindings and depend on the current emitted markup and ancestor context.
+     *
+     * @return list<array{start: int, boundary: int, end: int, prelude: string, body: string, kind: int}>
+     */
+    private function renderScope(CssRuleTree $tree, int $scope): array
+    {
+        $scopes = $this->renderScopes[$tree] ?? array();
+        if (isset($scopes[$scope])) return $scopes[$scope];
+        $records = array();
+        foreach ($tree->rules($scope) as $rule) {
+            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
+            if (';' === $tree->source[$boundary] || $tree->hasInvalidPrelude($start)) continue;
+            $prelude = substr($tree->source, $start, $boundary - $start);
+            $body = substr($tree->source, $boundary + 1, $end - $boundary - 1);
+            $kind = $this->isAtRule($prelude) ? ($this->walksNestedRules($prelude) ? 2 : 0) : ($this->isStylePrelude($prelude) ? 1 : 0);
+            $records[] = array_merge($rule, array('prelude' => $prelude, 'body' => $body, 'kind' => $kind));
+        }
+        $scopes[$scope] = $records;
+        $this->renderScopes[$tree] = $scopes;
+        return $records;
+    }
+
     private function renderTree(CssRuleTree $tree, int $scope, callable $selector, ?callable $style, bool $walkNested, array $ancestors): string
     {
         $css = $tree->source;
         $offset = $scope + 1;
         $limit = -1 === $scope ? strlen($css) : $tree->blockEnd($scope);
         $output = '';
-        foreach ($tree->rules($scope) as $rule) {
-            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
-            if (';' === $css[$boundary] || $tree->hasInvalidPrelude($start)) continue;
-            $prelude = substr($css, $start, $boundary - $start);
-            $body = substr($css, $boundary + 1, $end - $boundary - 1);
+        foreach ($this->renderScope($tree, $scope) as $rule) {
+            ['start' => $start, 'boundary' => $boundary, 'end' => $end, 'prelude' => $prelude, 'body' => $body, 'kind' => $kind] = $rule;
             $replacement = null;
-            if ($this->isAtRule($prelude)) {
-                if ($walkNested && $this->walksNestedRules($prelude)) {
+            if (2 === $kind) {
+                if ($walkNested) {
                     $nested = $ancestors;
                     $nested[] = trim($prelude);
                     $changed = $this->renderTree($tree, $boundary, $selector, $style, true, $nested);
                     if ($changed !== $body) $replacement = $prelude . '{' . $changed . '}';
                 }
-            } elseif ($this->isStylePrelude($prelude)) {
+            } elseif (1 === $kind) {
                 if (null !== $style) $replacement = $style($prelude, $body, $ancestors);
                 else {
                     $changed = $selector($prelude, $body, $ancestors);

@@ -313,6 +313,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function recognizeNavigation(DOMElement $element, PatternContext $context, NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
+        // No destination or list means neither a menu nor a breadcrumb can
+        // be produced. Avoid cascade and toggle ownership reads for plain boxes.
+        if (0 === $element->getElementsByTagName('a')->length
+            && 0 === $element->getElementsByTagName('ul')->length
+            && 0 === $element->getElementsByTagName('ol')->length
+            && !in_array(strtolower($element->tagName), array('nav', 'ul', 'ol'), true)
+            && !$this->hasNavigationSignal($element)) {
+            return null;
+        }
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $this->createBlock->createBlock(...);
