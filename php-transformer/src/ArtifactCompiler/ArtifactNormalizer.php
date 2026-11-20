@@ -77,9 +77,11 @@ final class ArtifactNormalizer
 
     /**
      * @param array<string, mixed> $artifact
+     * @param bool $expandInlineFiles False only for internal partition envelopes
+     *                                whose source was already expanded and validated.
      * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
      */
-    public function normalize(array $artifact): array
+    public function normalize(array $artifact, bool $expandInlineFiles = true): array
     {
         $runtimeDeclarations = RuntimeDeclarations::normalize($artifact);
         $diagnostics = array();
@@ -111,11 +113,15 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
-        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
-        $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
-            $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
-            $limits['max_files']
-        );
+        // Partition envelopes already contain the canonical expansion. Reuse
+        // it rather than rescanning every source document for inline payloads.
+        if ($expandInlineFiles) {
+            $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
+            $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
+                $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
+                $limits['max_files']
+            );
+        }
         $rawFiles = array_values(self::reportsBeforeSidecars($rawFiles));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
