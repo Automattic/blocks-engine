@@ -20,8 +20,9 @@ final class BoxTreeReport
         foreach ($files as $file) {
             if (!BoxTree::isSidecarPath($file['path'])) continue;
             $content = $file['content'] ?? '';
-            $tree = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
-            $code = self::validate($tree, $sources);
+            $decoded = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
+            $tree = BoxTree::expandCompact($decoded);
+            $code = null === $tree && null !== $decoded ? 'box_tree_styles_invalid' : self::validate($tree, $sources);
             if (null === $code) {
                 $path = $tree['source_path'];
                 if (isset($seen[$path])) {
@@ -31,12 +32,165 @@ final class BoxTreeReport
                 $seen[$path] = true;
             }
             if (null !== $code) {
-                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($tree) && is_string($tree['source_path'] ?? null) ? $tree['source_path'] : null)));
+                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($decoded) && is_string($decoded['source_path'] ?? null) ? $decoded['source_path'] : null)));
                 continue;
             }
             $trees[$tree['source_path']] = $tree;
         }
-        return array('trees' => $trees, 'diagnostics' => $diagnostics);
+        return array('trees' => self::withSharedChromeViewports($trees, $sources), 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * A producer may sample extra viewports on some routes only (mobile HTML
+     * per template cluster). Chrome every route repeats is one part, so its
+     * identity cannot depend on that sampling: within the subtree of a
+     * shared chrome subtree, merge observations only when members agree on
+     * every viewport in common, and record those agreeing routes as chrome
+     * peers of the landmark root. Include leading chrome outside landmarks so
+     * its geometry cannot prevent the route from joining the shared header.
+     * Page-content observations remain route-local.
+     *
+     * @param array<string,array<string,mixed>> $trees @param array<string,array<string,mixed>> $sources
+     * @return array<string,array<string,mixed>>
+     */
+    private static function withSharedChromeViewports(array $trees, array $sources): array
+    {
+        if (count($trees) < 2) return $trees;
+        $groups = $current = $parents = array();
+        foreach ($trees as $path => $tree) {
+            $dom = HtmlSerialization::parseDocument((string) ($sources[$path]['content'] ?? ''));
+            $body = $dom->getElementsByTagName('body')->item(0);
+            if (!$body instanceof DOMElement) continue;
+            $walk = static function (DOMElement $parent) use (&$walk, &$groups, &$current, &$parents, $dom, $path): void {
+                foreach ($parent->childNodes as $child) {
+                    if (!$child instanceof DOMElement) continue;
+                    $tag = strtolower($child->tagName);
+                    if (in_array($tag, array('main', 'article', 'section', 'aside'), true)) continue;
+                    $area = \Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy::landmarkKind($tag, trim($child->getAttribute('role')));
+                    // Non-landmark lead-ins can travel with a shared header.
+                    // Never descend into page-content landmarks.
+                    if (!in_array($area, array('header', 'footer'), true)) {
+                        $walk($child);
+                        // Only standalone lead-ins before a sibling header,
+                        // not wrappers containing page content or landmarks.
+                        $hasHeaderAfter = false;
+                        for ($next = $child->nextSibling; null !== $next; $next = $next->nextSibling) {
+                            if ($next instanceof DOMElement && 'header' === \Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy::landmarkKind(strtolower($next->tagName), trim($next->getAttribute('role')))) $hasHeaderAfter = true;
+                        }
+                        if (!$hasHeaderAfter || $child->getElementsByTagName('main')->length || $child->getElementsByTagName('header')->length) continue;
+                    }
+                    $ids = array();
+                    foreach (array_merge(array($child), iterator_to_array($child->getElementsByTagName('*'))) as $node) {
+                        if (!$node instanceof DOMElement || !$node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
+                        $id = $node->getAttribute(BoxTree::NODE_ATTRIBUTE);
+                        $ids[] = $id;
+                        // Only navigation carries route-current state; a
+                        // current token elsewhere is the chrome's own design.
+                        $marked = $inNavigation = false;
+                        for ($ancestor = $node; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                            if ($ancestor->hasAttribute('aria-current') || array_filter(preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $marked = true;
+                            if ('nav' === strtolower($ancestor->tagName) || 'navigation' === strtolower($ancestor->getAttribute('role'))) $inNavigation = true;
+                            if ($ancestor === $child) break;
+                        }
+                        if ($marked && $inNavigation) $current[$path][$id] = true;
+                    }
+                    if (array() === $ids) continue;
+                    for ($ancestor = $child->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                        if ($ancestor->hasAttribute(BoxTree::NODE_ATTRIBUTE)) {
+                            $parents[$path][$ids[0]] = $ancestor->getAttribute(BoxTree::NODE_ATTRIBUTE);
+                            break;
+                        }
+                    }
+                    // Source classes can encode route-current state even on
+                    // peers. Observed styles below prove presentation equality;
+                    // class spelling alone must not split this evidence pool.
+                    $markup = preg_replace('/\sclass="[^"]*"/', '', SourceShells::identity((string) $dom->saveHTML($child)));
+                    $identity = hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup($markup));
+                    $groups[$area . ':' . $identity][$path][] = $ids;
+                }
+            };
+            $walk($body);
+        }
+        foreach ($groups as $members) {
+            if (count($members) < 2) continue;
+            $viewports = $observations = $comparisons = $currentIndexes = array();
+            foreach ($members as $path => $landmarks) foreach ($landmarks as $ids) foreach ($ids as $index => $id) if (isset($current[$path][$id])) $currentIndexes[$index] = true;
+            // Stable ordering keeps an overlapping, sparsely sampled member
+            // from choosing a cluster based on artifact file order.
+            ksort($members);
+            $compatible = array();
+            foreach ($members as $path => $landmarks) {
+                $candidateViewports = $viewports;
+                $candidateObservations = $observations;
+                $candidateComparisons = $comparisons;
+                foreach ($trees[$path]['viewports'] as $name => $viewport) {
+                    if (isset($candidateViewports[$name]) && $candidateViewports[$name] !== $viewport) continue 2;
+                    $candidateViewports[$name] = $viewport;
+                }
+                foreach ($landmarks as $ids) {
+                    foreach ($ids as $index => $id) {
+                        foreach ($trees[$path]['nodes'][$id]['viewports'] ?? array() as $name => $observation) {
+                            $comparison = $observation;
+                            // Current-link paint is route state, not a geometry
+                            // disagreement. Normalize its paint after grouping.
+                            if (isset($currentIndexes[$index])) {
+                                foreach (array_keys($comparison['used_styles']) as $property) if (str_starts_with($property, 'background-')) unset($comparison['used_styles'][$property]);
+                            }
+                            if (isset($candidateComparisons[$index][$name]) && $candidateComparisons[$index][$name] != $comparison) continue 4;
+                            $candidateComparisons[$index][$name] = $comparison;
+                            $candidateObservations[$index][$name] = $observation;
+                        }
+                    }
+                }
+                $viewports = $candidateViewports;
+                $observations = $candidateObservations;
+                $comparisons = $candidateComparisons;
+                $compatible[$path] = $landmarks;
+            }
+            $currentPaint = array();
+            // A route's current link paints its current state, which the
+            // shared chrome cannot pin on one item: the node keeps a peer's
+            // resting paint, and its current paint is kept as route state.
+            foreach ($compatible as $path => $landmarks) foreach ($landmarks as $ids) foreach ($ids as $index => $id) {
+                if (!isset($current[$path][$id])) continue;
+                $resting = null;
+                foreach ($compatible as $peer => $peerLandmarks) foreach ($peerLandmarks as $peerIds) {
+                    $peerId = $peerIds[$index] ?? null;
+                    if (null === $resting && $peer !== $path && null !== $peerId && !isset($current[$peer][$peerId])) $resting = $trees[$peer]['nodes'][$peerId]['viewports'] ?? null;
+                }
+                if (null === $resting) continue;
+                foreach ($trees[$path]['nodes'][$id]['viewports'] ?? array() as $name => $observation) {
+                    if (!isset($resting[$name]['used_styles'])) continue;
+                    foreach ($observation['used_styles'] as $property => $value) {
+                        if (!str_starts_with($property, 'background-') || !array_key_exists($property, $resting[$name]['used_styles']) || $resting[$name]['used_styles'][$property] === $value) continue;
+                        $currentPaint[$index][$name][$property] = $value;
+                        $trees[$path]['nodes'][$id]['viewports'][$name]['used_styles'][$property] = $resting[$name]['used_styles'][$property];
+                    }
+                }
+            }
+            // Every route's chrome serves each link as current on its own route.
+            foreach ($compatible as $path => $landmarks) foreach ($landmarks as $ids) foreach ($ids as $index => $id) {
+                if (isset($currentPaint[$index])) $trees[$path]['current_paint'][$id] = $currentPaint[$index];
+            }
+            $parentObservations = array();
+            foreach ($compatible as $path => $landmarks) foreach ($landmarks as $ids) {
+                $parent = $parents[$path][$ids[0]] ?? '';
+                $parentObservations += $trees[$path]['nodes'][$parent]['viewports'] ?? array();
+            }
+            foreach ($compatible as $path => $landmarks) {
+                $trees[$path]['viewports'] += $viewports;
+                foreach ($landmarks as $ids) {
+                    $trees[$path]['chrome_parent_viewports'][$ids[0]] = $parentObservations;
+                    // Routes whose observations agree render this chrome alike,
+                    // whatever stylesheet spelling each route loads.
+                    $trees[$path]['chrome_peers'][$ids[0]] = array_keys($compatible);
+                    foreach ($ids as $index => $id) {
+                        if (isset($trees[$path]['nodes'][$id])) $trees[$path]['nodes'][$id]['viewports'] += $observations[$index];
+                    }
+                }
+            }
+        }
+        return $trees;
     }
 
     private static function validate(mixed $tree, array $sources): ?string
@@ -122,11 +276,11 @@ final class BoxTreeReport
             if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || abs($value) > 100000000 || (in_array($axis, array('width', 'height'), true) && $value < 0)) return 'box_tree_geometry_invalid';
         }
         $styles = $observation['used_styles'] ?? null;
-        if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES))) return 'box_tree_styles_invalid';
+        if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES, BoxTree::PAINT_PROPERTIES))) return 'box_tree_styles_invalid';
         foreach (BoxTree::PROPERTIES as $property) {
             if (!is_string($styles[$property] ?? null) || '' === $styles[$property] || strlen($styles[$property]) > 4096) return 'box_tree_styles_invalid';
         }
-        foreach (BoxTree::MOTION_PROPERTIES as $property) {
+        foreach (array_merge(BoxTree::MOTION_PROPERTIES, BoxTree::PAINT_PROPERTIES) as $property) {
             if (array_key_exists($property, $styles) && (!is_string($styles[$property]) || '' === $styles[$property] || strlen($styles[$property]) > 4096)) return 'box_tree_styles_invalid';
         }
         return null;

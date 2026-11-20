@@ -16,10 +16,128 @@ final class EmptyStylesheets
         return 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' === trim($asset['content']) && !isset($asset['payload_reference']);
     }
 
-    /** @param array<int,array<string,mixed>> $assets */
-    public static function count(array $assets): int
+    /**
+     * Writing a sheet canonicalizes it and can still drop rules: a face whose
+     * local font source is missing goes, and a font sheet holding only such
+     * faces is written empty. A row whose write came out empty takes the
+     * written bytes, so its bytes and hashes describe what is written and
+     * isEmpty() judges the same thing the write delivers.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $writes Theme asset writes of $assets.
+     * @return array<int,array<string,mixed>>
+     */
+    public static function describingWrites(array $assets, array $writes): array
     {
-        return count(array_filter($assets, self::isEmpty(...)));
+        $written = self::writtenText($writes);
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || isset($asset['payload_reference']) || self::isEmpty($asset)) continue;
+            $text = $written[$asset['target_path'] ?? ''] ?? null;
+            if (is_string($text) && '' === trim($text)) $asset = CompiledAssets::withRewrittenTextContent($asset, $text);
+        }
+        unset($asset);
+        return $assets;
+    }
+
+    /**
+     * An `@import` of an empty sheet loads nothing, so it goes from the
+     * importer's written bytes, and the importer describes those bytes. An
+     * importer that held only such imports is empty in turn, so this runs to
+     * a fixed point: a sheet of `@import`s whose targets all emptied ends up
+     * with no consumers, and elide() can drop the whole chain. An import that
+     * declares a cascade layer still orders that layer, so it stays.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $writes Theme asset writes of $assets.
+     * @return array{assets:array<int,array<string,mixed>>,writes:array<int,array<string,mixed>>}
+     */
+    public static function withoutEmptyImports(array $assets, array $writes): array
+    {
+        $writeIndex = array();
+        foreach ($writes as $index => $write) if ('theme_asset' === ($write['kind'] ?? null) && 'utf8' === ($write['payload']['encoding'] ?? null) && is_string($write['target_path'] ?? null)) $writeIndex[$write['target_path']] = $index;
+        $delivering = self::delivering($assets);
+        do {
+            $empty = array();
+            foreach ($assets as $asset) if (self::isEmpty($asset) && is_string($asset['token'] ?? null) && !self::delivers($asset, $delivering)) $empty[$asset['token']] = true;
+            $changed = false;
+            foreach ($assets as &$asset) {
+                $index = $writeIndex[$asset['target_path'] ?? ''] ?? null;
+                if (array() === $empty || 'css' !== ($asset['kind'] ?? null) || null === $index || self::isEmpty($asset)) continue;
+                $text = $writes[$index]['payload']['data'];
+                $kept = self::withoutImports($text, $empty);
+                if ($kept === $text) continue;
+                $writes[$index] = PlanWrites::inline('theme_asset', $writes[$index]['target_path'], $kept, $writes[$index]['source_path'], 'utf8');
+                $asset = CompiledAssets::withRewrittenTextContent($asset, $kept);
+                $changed = true;
+            }
+            unset($asset);
+        } while ($changed);
+        return array('assets' => $assets, 'writes' => $writes);
+    }
+
+    /** @param array<string,true> $tokens @return string $css without its leading `@import`s of those tokens. */
+    private static function withoutImports(string $css, array $tokens): string
+    {
+        if (false === stripos($css, '@import')) return $css;
+        $output = '';
+        $offset = 0;
+        // Imports precede every rule but @charset and @layer statements. A
+        // statement's only braces are the plan's reference tokens.
+        while (preg_match('/\G(?:\s+|\/\*.*?\*\/|@(?:charset|layer|import)\s(?:[^;{]|\{\{[^{}]*\}\})*;)/As', $css, $match, 0, $offset)) {
+            $offset += strlen($match[0]);
+            $import = preg_match('/^@import\s+(?:url\(\s*)?(["\']?)' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '([^}]+)\}\}\1\s*\)?([^;]*);$/is', $match[0], $parts);
+            if (1 === $import && isset($tokens[$parts[2]]) && !preg_match('/\blayer\b/i', $parts[3])) continue;
+            $output .= $match[0];
+        }
+        $output .= substr($css, $offset);
+        return '' === trim($output) ? '' : $output;
+    }
+
+    /**
+     * Empty stylesheet writes: theme asset writes of a stylesheet asset whose
+     * written text holds nothing but whitespace.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $writes
+     */
+    public static function countWrites(array $assets, array $writes): int
+    {
+        $stylesheets = array_fill_keys(array_column(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'target_path'), true);
+        return count(array_filter(self::writtenText($writes), static fn(string $text, int|string $target): bool => isset($stylesheets[(string) $target]) && '' === trim($text), ARRAY_FILTER_USE_BOTH));
+    }
+
+    /** @param array<int,array<string,mixed>> $assets @return array<string,true> Sheets another asset delivers through. */
+    private static function delivering(array $assets): array
+    {
+        $delivering = array();
+        // Replays own delivery references just like top-level assets.
+        $owners = array_values($assets);
+        while (array() !== $owners) {
+            $asset = array_pop($owners);
+            if (is_string($asset['stylesheet_parent'] ?? null)) $delivering['source:' . $asset['stylesheet_parent']] = true;
+            foreach ($asset['stylesheet_parts'] ?? array() as $path) $delivering['target:' . $path] = true;
+            foreach ($asset['stylesheet_replays'] ?? array() as $replay) $owners[] = $replay;
+        }
+        return $delivering;
+    }
+
+    /** @param array<string,mixed> $asset @param array<string,true> $delivering */
+    private static function delivers(array $asset, array $delivering): bool
+    {
+        return isset($asset['stylesheet_parts']) || isset($asset['stylesheet_replays']) || isset($delivering['source:' . ($asset['source_path'] ?? '')]) || isset($delivering['target:' . ($asset['target_path'] ?? '')]);
+    }
+
+    /** @param array<int,array<string,mixed>> $writes @return array<string,string> Decoded text of each theme asset write, by target. */
+    private static function writtenText(array $writes): array
+    {
+        $text = array();
+        foreach ($writes as $write) {
+            if ('theme_asset' !== ($write['kind'] ?? null) || !is_string($write['target_path'] ?? null) || !is_string($write['payload']['data'] ?? null)) continue;
+            $encoding = $write['payload']['encoding'] ?? null;
+            $data = 'base64' === $encoding ? base64_decode($write['payload']['data'], true) : ('utf8' === $encoding ? $write['payload']['data'] : false);
+            if (is_string($data)) $text[$write['target_path']] = $data;
+        }
+        return $text;
     }
 
     /**
@@ -35,21 +153,22 @@ final class EmptyStylesheets
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $rootDocuments
      * @param string $consumers Serialized declarations outside the documents that may name an asset token.
+     * @param array<int,array<string,mixed>> $writes Theme asset writes of $assets.
      * @return array{assets:array<int,array<string,mixed>>,document_sets:array<string,list<array<string,mixed>>>,tokens:array<string,true>}
      */
-    public static function elide(array $assets, array $documentSets, array $pages, array $rootDocuments, string $consumers): array
+    public static function elide(array $assets, array $documentSets, array $pages, array $rootDocuments, string $consumers, array $writes = array()): array
     {
         $unchanged = array('assets' => $assets, 'document_sets' => $documentSets, 'tokens' => array());
-        $delivering = array();
-        foreach ($assets as $asset) {
-            if (is_string($asset['stylesheet_parent'] ?? null)) $delivering['source:' . $asset['stylesheet_parent']] = true;
-            foreach ($asset['stylesheet_parts'] ?? array() as $path) $delivering['target:' . $path] = true;
-        }
+        $delivering = self::delivering($assets);
+        $stylesheets = array();
+        foreach ($assets as $asset) if ('css' === ($asset['kind'] ?? null) && is_string($asset['source_path'] ?? null)) $stylesheets[$asset['source_path']] = true;
         $candidates = array();
         foreach ($assets as $index => $asset) {
-            // A source reference other than a link (an @import) resolves to the sheet when it is written.
-            $linkedOnly = array() === array_filter(is_array($asset['references'] ?? null) ? $asset['references'] : array(), static fn(mixed $reference): bool => !is_array($reference) || 'link' !== ($reference['element'] ?? null));
-            if (!self::isEmpty($asset) || !$linkedOnly || !is_string($asset['token'] ?? null) || isset($asset['stylesheet_parts']) || isset($asset['stylesheet_replays']) || isset($delivering['source:' . ($asset['source_path'] ?? '')]) || isset($delivering['target:' . ($asset['target_path'] ?? '')])) continue;
+            // Another source reference (an @import in a document) resolves to
+            // the sheet when that document is written. A stylesheet's own
+            // reference is counted below in its written bytes.
+            $countable = array() === array_filter(is_array($asset['references'] ?? null) ? $asset['references'] : array(), static fn(mixed $reference): bool => !is_array($reference) || ('link' !== ($reference['element'] ?? null) && !(in_array($reference['context'] ?? null, array('css-import', 'css-url'), true) && isset($stylesheets[$reference['source_path'] ?? '']))));
+            if (!self::isEmpty($asset) || !$countable || !is_string($asset['token'] ?? null) || self::delivers($asset, $delivering)) continue;
             $candidates[$index] = WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}';
         }
         if (array() === $candidates) return $unchanged;
@@ -59,7 +178,10 @@ final class EmptyStylesheets
         foreach ($documentSets as $documents) foreach ($documents as $document) foreach ($document['document_metadata']['links'] ?? array() as $link) {
             if (is_array($link) && isset($links[$link['asset_reference'] ?? ''])) ++$links[$link['asset_reference']];
         }
-        $haystack = $consumers . "\n" . json_encode($documentSets, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . "\n" . implode("\n", array_map(static fn(array $asset): string => is_string($asset['content'] ?? null) ? $asset['content'] : '', $assets));
+        // Writing resolves a sheet's source URLs to tokens: its written bytes
+        // name every sheet it imports.
+        $written = self::writtenText($writes);
+        $haystack = $consumers . "\n" . json_encode($documentSets, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . "\n" . implode("\n", array_map(static fn(array $asset): string => $written[$asset['target_path'] ?? ''] ?? (is_string($asset['content'] ?? null) ? $asset['content'] : ''), $assets));
         $candidates = array_filter($candidates, static fn(string $reference): bool => substr_count($haystack, $reference) === $links[$reference]);
         if (array() === $candidates) return $unchanged;
 

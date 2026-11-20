@@ -426,6 +426,40 @@ final class CssSelectorMatcher
     }
 
     /**
+     * The elements a parsed selector matches, in the given order.
+     *
+     * Equivalent to filtering with matches(), but a descendant combinator's
+     * ancestor walk is remembered per element for the call: candidates under
+     * the same container (thousands of form controls inside one section)
+     * answer `.section input` from their first shared ancestor instead of each
+     * rewalking the whole chain (Automattic/blocks-engine#6789).
+     *
+     * @param iterable<DOMElement> $elements
+     * @param array<string, mixed> $selector Result of parse().
+     * @return list<DOMElement>
+     */
+    public static function filterMatching(iterable $elements, array $selector, bool $accountForPseudoStateSuffix = false, ?CssSelectorMatchCache $cache = null): array
+    {
+        if ( ! ($selector['supported'] ?? false) ) {
+            return array();
+        }
+        if ( null !== ($selector['pseudo_state_suffix_span'] ?? null) && ! $accountForPseudoStateSuffix ) {
+            return array();
+        }
+        $compounds = $selector['compounds'];
+        $combinators = $selector['combinators'];
+        $last = count($compounds) - 1;
+        $memo = array();
+        $matches = array();
+        foreach ( $elements as $element ) {
+            if ( self::matchesAt($element, $compounds, $combinators, $last, $cache, $memo) ) {
+                $matches[] = $element;
+            }
+        }
+        return $matches;
+    }
+
+    /**
      * Whether a parsed selector's result depends only on the subject element's
      * own tag name and attributes.
      *
@@ -1016,7 +1050,13 @@ final class CssSelectorMatcher
     }
 
     /** @param list<array<string, mixed>> $compounds @param list<string> $combinators */
-    private static function matchesAt(DOMElement $element, array $compounds, array $combinators, int $index, ?CssSelectorMatchCache $cache): bool
+    /**
+     * @param array<string, array{bool, DOMElement}>|null $memo Ancestor-walk
+     *        results for one selector, keyed by compound index and element
+     *        id; each entry holds its element so the id stays unique. Null
+     *        disables it.
+     */
+    private static function matchesAt(DOMElement $element, array $compounds, array $combinators, int $index, ?CssSelectorMatchCache $cache, ?array &$memo = null): bool
     {
         if ( ! self::matchesCompound($element, $compounds[ $index ], $cache) ) {
             return false;
@@ -1027,27 +1067,53 @@ final class CssSelectorMatcher
 
         $combinator = $combinators[ $index - 1 ];
         if ( '>' === $combinator ) {
-            return $element->parentNode instanceof DOMElement && self::matchesAt($element->parentNode, $compounds, $combinators, $index - 1, $cache);
+            return $element->parentNode instanceof DOMElement && self::matchesAt($element->parentNode, $compounds, $combinators, $index - 1, $cache, $memo);
         }
         if ( '+' === $combinator ) {
             $previous = $element->previousElementSibling;
-            return null !== $previous && self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache);
+            return null !== $previous && self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache, $memo);
         }
         if ( '~' === $combinator ) {
             for ( $previous = $element->previousElementSibling; null !== $previous; $previous = $previous->previousElementSibling ) {
-                if ( self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache) ) {
+                if ( self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache, $memo) ) {
                     return true;
                 }
             }
             return false;
         }
 
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( self::matchesAt($parent, $compounds, $combinators, $index - 1, $cache) ) {
-                return true;
+        if ( null === $memo ) {
+            for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                if ( self::matchesAt($parent, $compounds, $combinators, $index - 1, $cache) ) {
+                    return true;
+                }
             }
+            return false;
         }
-        return false;
+        // Whether some ancestor of $element matches compounds[0..index-1]:
+        // walk up until an ancestor whose answer is already known, then record
+        // the answer for every ancestor visited on the way.
+        $visited = array();
+        $found = false;
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            $key = ($index - 1) . ':' . spl_object_id($parent);
+            if ( isset($memo[ $key ]) ) {
+                $found = $memo[ $key ][0];
+                break;
+            }
+            if ( self::matchesAt($parent, $compounds, $combinators, $index - 1, $cache, $memo) ) {
+                $found = true;
+                $memo[ $key ] = array( true, $parent );
+                break;
+            }
+            $visited[ $key ] = $parent;
+        }
+        // An ancestor above a visited one answers for it too: true when one
+        // matched, false when none did up to the root.
+        foreach ( $visited as $key => $node ) {
+            $memo[ $key ] = array( $found, $node );
+        }
+        return $found;
     }
 
     /** @param array<string, mixed> $compound */

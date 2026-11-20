@@ -106,8 +106,8 @@ $cases = array(
     'a rem clamp not reproducing a capture stays in pixels' => array(
         'h1{font-size:clamp(2.5rem,5vw,4.5rem)}', array('n6.font-size' => array('72px', '30px')), array('font-size:72px', 'font-size:30px'), array('clamp('),
     ),
-    'an invariant unitless line height stays in pixels' => array(
-        'h1{font-size:5.2vw;line-height:1.5}', array('n6.font-size' => array('20px', '20px'), 'n6.line-height' => array('30px', '30px')), array('30px'), array('line-height:1.5'),
+    'an invariant proven unitless line height retains its factor' => array(
+        'h1{font-size:5.2vw;line-height:1.5}', array('n6.font-size' => array('20px', '20px'), 'n6.line-height' => array('30px', '30px')), array('line-height:1.5'), array('line-height:30px'),
     ),
     'custom-property math lifts with every var() expanded' => array(
         ':root{--scale:100vw;--scrollbar:0px}h1{font-size:max(0.5px, 0.0410256 * (var(--scale) - var(--scrollbar)))}',
@@ -290,6 +290,35 @@ $cases = array(
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),
+    // A Wix link layer fills its card with `inline-size:100%`; the card's
+    // own width is a percentage, so the layer must follow it (#5870).
+    'a logical width under a fluid-width parent lifts' => array(
+        'main{width:80%}h1{inline-size:50%}',
+        array('n5.width' => array('1152px', '321.6px'), 'n6.width' => array('576px', '160.8px')),
+        array('h1 ;width:50%'), array('h1 ;width:576px', 'h1 ;width:160.8px'),
+    ),
+    'a logical width under a parent of undeclared width keeps its pixels' => array(
+        'h1{inline-size:50%}',
+        array('n5.width' => array('1440px', '402px'), 'n6.width' => array('720px', '201px')),
+        array(), array('h1 ;width:50%'),
+    ),
+    'a later width wins over an earlier logical width' => array(
+        'main{width:80%}h1{inline-size:50%}h1{width:300px}',
+        array('n5.width' => array('1152px', '321.6px'), 'n6.width' => array('300px', '300px')),
+        array('h1 ;width:300px'), array('h1 ;width:50%'),
+    ),
+    // A Wix image card sets `aspect-ratio:1/var(--aspect-ratio)` and switches
+    // the token at 1023px: the 768px copy must take the narrow ratio (#5870).
+    'an aspect ratio its author switches at a breakpoint lifts in that band' => array(
+        ':root{--r:1.1124283722087114}@media (max-width:1023px){:root{--r:0.9261990960401161}}h1{aspect-ratio:1/var(--r)}',
+        array('n6.aspect-ratio' => array('1 / 1.11243', '1 / 0.926199')),
+        array('@media (max-width:1023px){.be-inline-geometry-', 'aspect-ratio:1/0.9261990960401161'),
+        array('aspect-ratio:1 / 0.926199'),
+    ),
+    'an aspect ratio its author does not explain keeps per-capture output' => array(
+        'h1{aspect-ratio:1/2}', array('n6.aspect-ratio' => array('1 / 1.11243', '1 / 0.926199')),
+        array('aspect-ratio:1 / 0.926199'), array('aspect-ratio:1/2'),
+    ),
     'a flex shorthand basis keeps its pixels' => array(
         'main{display:flex}h1{flex:0 0 300px}',
         array('n5.display' => array('flex', 'flex'), 'n6.flex-basis' => array('300px', '300px')), array('h1 ;flex-basis:300px'), array('h1 ;flex-basis:auto'),
@@ -315,10 +344,11 @@ $cases = array(
         array('grid-template-rows:minmax(max(0.5px, 0.29 * (100vw - 0px)), auto) minmax(0px, auto)'),
         array('grid-template-rows:418.047px', 'grid-template-rows:300px', 'var(--scale)'),
     ),
-    'an absent grid-auto-rows restates the initial keyword' => array(
+    // The lifted initial keyword is not restated either (#6766).
+    'an absent grid-auto-rows falls back to its initial value' => array(
         'main{display:grid}',
         array('n5.display' => array('grid', 'grid'), 'n5.grid-auto-rows' => array('40px', '60px')),
-        array('grid-auto-rows:auto'), array('grid-auto-rows:40px', 'grid-auto-rows:60px'),
+        array('display:grid'), array('grid-auto-rows'),
     ),
     'an in-flow % height lifts as written' => array(
         'h1{height:100%}', array('n6.height' => array('703.516px', '615.875px')),
@@ -352,8 +382,8 @@ $cases = array(
             'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
             'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('110px', '60px'), 'n6.top' => array('25px', '15px'),
             'n6.right' => array('110px', '60px'), 'n6.bottom' => array('25px', '15px')),
-        // The four offsets fold into one inset shorthand, in top/right/bottom/left order.
-        array('h1 inset:50% auto auto 50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px'),
+        // The lifted initial `auto` offsets are not restated (#6766).
+        array('h1 ;top:50%', 'h1 ;left:50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px', 'h1 ;right:', 'h1 ;bottom:', 'h1 inset:'),
     ),
     'a calc(% - px) offset lifts through the inset shorthand' => array(
         'main{position:relative}h1{position:absolute;inset:0 auto auto calc(50% - 24px)}',

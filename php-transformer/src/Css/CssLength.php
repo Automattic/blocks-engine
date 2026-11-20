@@ -61,6 +61,12 @@ final class CssLength
         return null;
     }
 
+    /** Whether a value scales with the document root font size (`rem`). */
+    public static function rootRelative(string $value): bool
+    {
+        return 1 === preg_match('/\drem\b/i', $value);
+    }
+
     /** Compact pixel text for reports and deterministic keys. */
     public static function format(float $px): string
     {

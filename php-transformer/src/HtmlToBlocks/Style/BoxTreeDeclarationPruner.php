@@ -40,7 +40,8 @@ final class BoxTreeDeclarationPruner
      * WordPress core and user-agent base styles do not set on block wrappers
      * (or set only in the contexts protected below). Properties missing here
      * are always kept: display, box model, sizing and inherited typography are
-     * set by user-agent or WordPress base styles on too many blocks.
+     * set by user-agent or WordPress base styles on too many blocks (except
+     * the zero box sides of {@see self::ZERO_DEFAULT_BOX_SIDES}).
      */
     private const INITIAL_VALUES = array(
         'position' => array('static'),
@@ -147,6 +148,26 @@ final class BoxTreeDeclarationPruner
         'core/image' => array('vertical-align'),
     );
 
+    /**
+     * Box sides whose default is zero on these blocks' emitted elements in
+     * every context a box-tree carrier lands in (the author stylesheet is not
+     * shipped there). The user agent gives the elements no padding and no
+     * inline margins, and WordPress pads them only with `has-background`.
+     * Flow, flex and grid layouts give children no inline margins, and a
+     * constrained layout centres them with `!important`, which no block
+     * attribute or carrier rule overrides. Vertical margins stay (the user
+     * agent's `1em`), and so does a list's inline padding: one side is its
+     * marker indent, and the evidence does not record the writing direction
+     * that says which. Keys are block names, then the emitted tags they
+     * apply to.
+     */
+    private const ZERO_DEFAULT_BOX_SIDES = array(
+        'core/paragraph' => array('tags' => array('p'), 'sides' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-left', 'margin-right')),
+        'core/heading' => array('tags' => array('h1', 'h2', 'h3', 'h4', 'h5', 'h6'), 'sides' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-left', 'margin-right')),
+        'core/list' => array('tags' => array('ul', 'ol'), 'sides' => array('padding-top', 'padding-bottom', 'margin-left', 'margin-right')),
+        'core/list-item' => array('tags' => array('li'), 'sides' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-left', 'margin-right')),
+    );
+
     /** Inherited longhands theme.json `elements` (heading, link, button, caption) and core control styles may set. */
     private const ELEMENT_TYPOGRAPHY = array('color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
     private const CONTROL_TYPOGRAPHY = array('color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-indent', 'text-shadow', 'text-align', 'cursor');
@@ -170,7 +191,7 @@ final class BoxTreeDeclarationPruner
         'code' => self::MONOSPACE, 'kbd' => self::MONOSPACE, 'samp' => self::MONOSPACE, 'tt' => self::MONOSPACE,
         'pre' => array('font-family', 'font-size', 'white-space'),
         'em' => array('font-style'), 'i' => array('font-style'), 'cite' => array('font-style'), 'var' => array('font-style'), 'dfn' => array('font-style'), 'address' => array('font-style'),
-        'mark' => array('color'), 'center' => array('text-align'), 'summary' => array('cursor'),
+        'mark' => array('color'), 'center' => array('text-align'), 'summary' => array('cursor', 'list-style-type', 'list-style-position'),
         'ul' => self::LIST_MARKER, 'ol' => self::LIST_MARKER, 'menu' => self::LIST_MARKER,
     );
 
@@ -200,6 +221,86 @@ final class BoxTreeDeclarationPruner
     );
 
     /**
+     * Initial values of box-model and sizing longhands, as authors spell them.
+     * An observed used value never reads `auto` or `0%`, so these are only
+     * consulted for a lifted author value ({@see self::classifyLifted()}),
+     * where the author's winner restates the property's default.
+     */
+    private const LIFTED_INITIAL_VALUES = array(
+        'width' => array('auto'),
+        'height' => array('auto'),
+        'max-width' => array('none'),
+        'margin-right' => array('0', '0px', '0%'),
+        'margin-left' => array('0', '0px', '0%'),
+    );
+
+    /** A one-track grid template, which only a grid box can use. */
+    private const LIFTED_ONE_TRACK = array('1fr', 'minmax(0px,1fr)', 'minmax(0,1fr)');
+
+    /** Elements whose user-agent styles or presentational hints size them or give them margins. */
+    private const LIFTED_TAG_DEFAULTS = array(
+        'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'dl', 'dd', 'menu', 'blockquote', 'figure', 'pre', 'hr', 'fieldset', 'body',
+        'img', 'picture', 'svg', 'video', 'audio', 'iframe', 'embed', 'object', 'canvas', 'input', 'textarea', 'select', 'button', 'table',
+    );
+
+    /** Blocks whose WordPress core styles size their wrapper or emit an element with default margins. */
+    private const LIFTED_BLOCK_DEFAULTS = array(
+        'core/image', 'core/gallery', 'core/table', 'core/embed', 'core/video', 'core/audio', 'core/pullquote', 'core/quote', 'core/separator',
+        'core/site-logo', 'core/avatar', 'core/post-featured-image', 'core/cover', 'core/spacer', 'core/column', 'core/button', 'core/search',
+        'core/paragraph', 'core/heading', 'core/list', 'core/code', 'core/preformatted', 'core/verse', 'core/html',
+    );
+
+    /**
+     * Classify lifted author base values (BoxTreeFluidIntent) in the box's
+     * context, as {@see self::classify()} does observed ones. Beyond the
+     * observed initial values, an author `auto`, `none` or zero sizing or
+     * inline margin is initial where neither the element nor the block's
+     * base styles set the property, and a one-track grid template does not
+     * apply outside a grid box.
+     *
+     * @param array<string, string> $styles The box's used styles with the lifted values in place.
+     * @param list<string> $properties The lifted properties to classify.
+     * @return array<string, string> Property => one of the class constants.
+     */
+    public function classifyLifted(array $styles, ?array $parent, array $properties, string $blockName = '', string $tagName = ''): array
+    {
+        $status = array_intersect_key($this->classify($styles, $parent, $blockName, $tagName), array_flip($properties));
+        $tagName = strtolower($tagName);
+        $known = '' !== $blockName || '' !== $tagName;
+        $defaults = in_array($tagName, self::LIFTED_TAG_DEFAULTS, true) || in_array($blockName, self::LIFTED_BLOCK_DEFAULTS, true);
+        $protected = array_fill_keys(self::BLOCK_BASE_PROPERTIES[$blockName] ?? array(), true);
+        foreach ($status as $property => $reason) {
+            $value = strtolower(preg_replace('/\s+/', '', (string) $styles[$property]) ?? '');
+            // A CSS-wide keyword is an author instruction (inherit over a
+            // user-agent default), not an observed value to compare.
+            if (in_array($value, array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) {
+                $status[$property] = self::KEPT;
+                continue;
+            }
+            if (self::KEPT !== $reason || isset($protected[$property])) continue;
+            if (in_array($property, array('grid-template-columns', 'grid-template-rows'), true)) {
+                if (in_array($value, self::LIFTED_ONE_TRACK, true) && !self::isGrid(strtolower($styles['display'] ?? ''))) $status[$property] = self::NOT_APPLICABLE;
+                continue;
+            }
+            if ($known && !$defaults && in_array($value, self::LIFTED_INITIAL_VALUES[$property] ?? array(), true)) $status[$property] = self::INITIAL;
+        }
+        return $status;
+    }
+
+    /** A non-inherited property's canonical initial value, when known. */
+    public static function cascadeInitial(string $property): ?string
+    {
+        if (in_array($property, BoxTree::INHERITED_PROPERTIES, true) || in_array($property, self::EXTRA_INHERITED, true)) return null;
+        return self::INITIAL_VALUES[$property][0] ?? null;
+    }
+
+    /** Whether the user agent gives this element its own value for an inherited property ({@see self::TAG_INHERITED_DEFAULTS}). */
+    public static function ownsDefault(string $tagName, string $property): bool
+    {
+        return in_array($property, self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), true);
+    }
+
+    /**
      * @param array<string, string> $styles Observed used styles of one box.
      * @param array<string, string>|null $parent Observed used styles of the box it inherits from, if captured.
      * @param string $tagName The element the carrier lands on, when known.
@@ -214,11 +315,33 @@ final class BoxTreeDeclarationPruner
         $resolvedDisplay = null === $domParent ? $parentDisplay : strtolower($domParent['display'] ?? '');
         $protected = array_fill_keys(self::BLOCK_BASE_PROPERTIES[$blockName] ?? array(), true);
         $ownDefaults = array_fill_keys(array_merge(self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), self::BLOCK_INHERITED_DEFAULTS[$blockName] ?? array()), true);
+        $zeroDefault = self::zeroDefaultSides($styles, $blockName, $tagName);
         $result = array();
         foreach ($styles as $property => $value) {
             $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, $resolvedDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
+            if (self::KEPT === $result[$property] && isset($zeroDefault[$property]) && in_array(trim((string) $value), array('0', '0px'), true)) $result[$property] = self::INITIAL;
         }
         return $result;
+    }
+
+    /**
+     * {@see self::ZERO_DEFAULT_BOX_SIDES} for this box.
+     *
+     * @return array<string, true>
+     */
+    private static function zeroDefaultSides(array $styles, string $blockName, string $tagName): array
+    {
+        $entry = self::ZERO_DEFAULT_BOX_SIDES[$blockName] ?? null;
+        if (null === $entry || !in_array(strtolower($tagName), $entry['tags'], true)) return array();
+        // A background opts the block into WordPress's padded box.
+        $painted = !in_array($styles['background-color'] ?? 'rgba(0, 0, 0, 0)', self::INITIAL_VALUES['background-color'], true)
+            || 'none' !== ($styles['background-image'] ?? 'none');
+        $sides = array();
+        foreach ($entry['sides'] as $side) {
+            if ($painted && str_starts_with($side, 'padding-')) continue;
+            $sides[$side] = true;
+        }
+        return $sides;
     }
 
     private function classifyOne(string $property, string $value, array $styles, ?array $parent, string $display, ?string $parentDisplay, ?string $resolvedDisplay, bool $protected, bool $ownDefault): string
@@ -228,6 +351,7 @@ final class BoxTreeDeclarationPruner
         if (in_array($property, BoxTree::INHERITED_PROPERTIES, true) || in_array($property, self::EXTRA_INHERITED, true)) {
             // The element would compute its own default, not the parent's value.
             if ($ownDefault) return self::KEPT;
+            if ('pointer-events' === $property && self::passThroughLayer($value, $styles)) return self::KEPT;
             return null !== $parent && isset($parent[$property]) && self::inheritedValue($property, (string) $parent[$property]) === self::inheritedValue($property, $value) ? self::INHERITED : self::KEPT;
         }
         if ($protected) return self::KEPT;
@@ -288,6 +412,18 @@ final class BoxTreeDeclarationPruner
             return 'auto' === $value || ('0px' === $value && null !== $resolvedDisplay && ! self::isFlex($resolvedDisplay) && ! self::isGrid($resolvedDisplay));
         }
         return in_array($value, self::INITIAL_VALUES[$property] ?? array(), true);
+    }
+
+    /**
+     * An out-of-flow box that lets pointers through to the content it covers
+     * (a pinned header layer, an overlay) states that itself. The block editor
+     * gives every block wrapper `pointer-events: auto`, so the inherited
+     * `none` never reaches the block there, and the layer swallows clicks
+     * meant for the blocks beneath it.
+     */
+    private static function passThroughLayer(string $value, array $styles): bool
+    {
+        return 'none' === $value && in_array($styles['position'] ?? '', array('absolute', 'fixed'), true);
     }
 
     /** Inherited values compared by rendering: a fully transparent shadow paints nothing. */

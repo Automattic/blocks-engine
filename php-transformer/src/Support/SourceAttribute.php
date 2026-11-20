@@ -18,6 +18,17 @@ final class SourceAttribute
             || 1 === preg_match('/' . self::SELECTOR_PATTERN . '/', $name));
     }
 
+    /** Hooks transferred when a semantic wrapper folds onto a Group root.
+     * Builder-only data attributes are not part of the rendered runtime contract.
+     */
+    public static function isFoldRuntimeAttribute(string $name): bool
+    {
+        return 'tabindex' === $name
+            || str_starts_with($name, 'data-interact-')
+            || (str_starts_with($name, 'data-blocks-engine-')
+                && \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE !== $name);
+    }
+
     public static function isDeclaredEventAttribute(string $name): bool
     {
         return in_array(strtolower($name), self::DECLARED_EVENTS, true);

@@ -65,7 +65,15 @@ $rows = array(
         array('flex-direction', 'flex-grow', 'grid-auto-flow', 'border-top', 'outline', 'mask-mode', 'transition-property', 'animation-name', 'object-position', 'text-overflow', 'vertical-align', 'background-clip', 'clip-path', 'min-width', 'top:')),
     array('non-initial longhands are kept', array('opacity' => '0.5', 'border-top' => '1px solid rgb(255, 0, 0)', 'border-radius' => '4px'), array(), 'core/group', array('opacity:0.5', 'border-top:1px solid rgb(255, 0, 0)', 'border-radius:4px'), array()),
     array('a zero-width border paints nothing', array('border-left' => '0px solid rgba(0, 0, 0, 0)'), array(), 'core/group', array(), array('border-left')),
-    array('box model and sizing stay for user-agent and WordPress block spacing', array(), array(), 'core/paragraph', array('margin-top:0px', 'padding-left:0px', 'max-width:none'), array()),
+    array('box model and sizing stay for user-agent and WordPress block spacing', array(), array(), 'core/group', array('margin-top:0px', 'padding-left:0px', 'max-width:none'), array()),
+    // A paragraph, heading or list restates no zero side its element and core
+    // styles already leave at zero (#7099); vertical margins (the user agent's
+    // 1em) and a list's inline padding (its marker indent) stay.
+    array('a paragraph omits zero padding and inline margins', array('margin-bottom' => '18px'), array(), 'core/paragraph', array('margin-top:0px', 'margin-bottom:18px', 'max-width:none'), array('padding', 'margin-left', 'margin-right')),
+    array('a heading omits zero padding and inline margins', array(), array(), 'core/heading', array('margin-top:0px', 'margin-bottom:0px'), array('padding', 'margin-left', 'margin-right')),
+    array('a list keeps zero inline padding over its marker indent', array(), array(), 'core/list', array('margin-top:0px', 'padding-left:0px', 'padding-right:0px'), array('padding-top', 'padding-bottom', 'margin-left', 'margin-right')),
+    array('a painted paragraph keeps zero padding over the has-background box', array('background-color' => 'rgb(255, 0, 0)'), array(), 'core/paragraph', array('padding-top:0px', 'padding-left:0px'), array('margin-left', 'margin-right')),
+    array('a paragraph keeps non-zero padding and inline margins', array('padding-left' => '13px', 'margin-left' => '4px'), array(), 'core/paragraph', array('padding-left:13px', 'margin-left:4px'), array('padding-top', 'margin-right')),
     // Initial values WordPress base styles would set otherwise on the block.
     array('a separator keeps its absent border over core styles', array(), array(), 'core/separator', array('border-width:0px;border-style:none;border-color:rgb(0, 0, 0)'), array()),
     array('a cover keeps its observed minimum height over core styles', array('min-height' => '0px'), array(), 'core/cover', array('min-height:0px'), array()),
@@ -73,6 +81,10 @@ $rows = array(
     // Inherited properties against the observed parent.
     array('inherited values equal to the parent are omitted', array(), array(), 'core/group', array(), array('font-family', 'color:', 'pointer-events')),
     array('inherited values that differ from the parent are kept', array('pointer-events' => 'auto', 'font-family' => 'Inter'), array('pointer-events' => 'none'), 'core/group', array('pointer-events:auto'), array()),
+    // The block editor resets every block wrapper to pointer-events:auto, so an
+    // inherited none never reaches it there and the layer swallows clicks (#5920).
+    array('a fixed layer keeps the pointer pass-through equal to the parent', array('position' => 'fixed', 'pointer-events' => 'none'), array('pointer-events' => 'none'), 'core/group', array('pointer-events:none'), array()),
+    array('an in-flow box inherits the pointer pass-through equal to the parent', array('pointer-events' => 'none'), array('pointer-events' => 'none'), 'core/group', array(), array('pointer-events')),
     array('a paragraph inherits typography equal to the parent', array(), array(), 'core/paragraph', array(), array('font-size', 'font-weight', 'color:')),
     // An element with its own user-agent or theme.json default would not inherit the parent's value.
     array('a heading keeps typography equal to the parent over its heading defaults', array(), array(), 'core/heading', array('font-size:16px', 'font-weight:400', 'font-family', 'line-height', 'color:'), array('pointer-events', 'white-space')),

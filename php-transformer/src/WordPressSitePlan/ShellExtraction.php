@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
@@ -237,6 +238,44 @@ final class ShellExtraction
     }
 
     /** @return array<int,string> Visible text runs of block markup. */
+    /**
+     * The copy a landmark shows: its text runs and its navigation items'
+     * labels and destinations, which live in block attributes.
+     *
+     * @return list<string>
+     */
+    private static function chromeCopy(string $markup): array
+    {
+        $copy = self::textRuns($markup);
+        preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*\/?-->/s', $markup, $items);
+        foreach ($items[1] as $json) {
+            $attrs = json_decode($json, true);
+            // A label is rich text: compare the words it shows, not its
+            // generated classes, which carry the route's current-item state.
+            if (is_array($attrs)) $copy[] = implode(' ', self::textRuns((string) ($attrs['label'] ?? ''))) . "\0" . (string) ($attrs['url'] ?? '');
+        }
+        return $copy;
+    }
+
+    /**
+     * Authored classes on a landmark's menus, without generated ones: the
+     * menu's own presentation (a dark start-page bar), not item state.
+     *
+     * @return list<string>
+     */
+    private static function navigationClasses(string $markup): array
+    {
+        preg_match_all('/<!--\s*wp:navigation\s+(\{.*?\})\s*\/?-->/s', $markup, $menus);
+        $classes = array();
+        foreach ($menus[1] as $json) {
+            $tokens = preg_split('/\s+/', (string) (json_decode($json, true)['className'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+            $authored = array_values(array_filter($tokens, static fn(string $class): bool => !str_starts_with($class, 'blocks-engine-')));
+            sort($authored);
+            $classes[] = implode(' ', $authored);
+        }
+        return $classes;
+    }
+
     private static function textRuns(string $markup): array
     {
         $source = preg_replace(array('/<!--.*?-->/s', '#<(script|style|template)\b[^>]*>.*?</\1\s*>#is'), '', $markup) ?? '';
@@ -1989,7 +2028,7 @@ final class ShellExtraction
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
-        ['pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics] = $this->withRouteLocalHeaderVariants($pages, $parts, $diagnostics, $runtimeDeclarations, $stylesheetIds);
+        ['pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics] = $this->withRouteLocalShellVariants($pages, $parts, $diagnostics, $runtimeDeclarations, $stylesheetIds);
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
     }
@@ -2291,35 +2330,51 @@ final class ShellExtraction
      * whose header is the shared one plus menu items into its own sections
      * gets a variant too, and is no longer reported as an exclusion.
      *
+     * A route's own document-level header or footer (the page's banner or
+     * contentinfo landmark, outside any content region) is that route's site
+     * chrome even when its copy differs from the shared part's, such as a
+     * different call to action. Templates never bind a part over content
+     * that still carries such a landmark, so it moves to a route variant
+     * once it shares a destination, image or text with the shared part.
+     *
      * @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $diagnostics @param array<int,array<string,mixed>> $runtimeDeclarations @param array{ids:array<string,true>,patterns:list<array{0:string,1:string}>,classes?:array<string,true>} $stylesheetIds
      * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
      */
-    private function withRouteLocalHeaderVariants(array $pages, array $parts, array $diagnostics, array $runtimeDeclarations, array $stylesheetIds = array('ids' => array(), 'patterns' => array())): array
+    private function withRouteLocalShellVariants(array $pages, array $parts, array $diagnostics, array $runtimeDeclarations, array $stylesheetIds = array('ids' => array(), 'patterns' => array())): array
     {
         foreach ($parts as $part) {
-            if ('header' !== ($part['area'] ?? null)) continue;
+            $area = (string) ($part['area'] ?? '');
+            if (!in_array($area, array('header', 'footer'), true)) continue;
             $partIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($part['canonical_block_markup']);
             $anchors = array();
             $wrappers = array();
             foreach ($partIndex->tokens() as $token) {
                 if ($token['closing']) continue;
                 $attrs = json_decode($token['attributes'], true);
-                if ('header' !== ($attrs['tagName'] ?? null)) continue;
+                if ($area !== ($attrs['tagName'] ?? null)) continue;
                 $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
                 if (!empty($attrs['anchor'])) $anchors[$attrs['anchor']] = $wrapper;
                 elseif (!empty($attrs['className'])) $wrappers[] = $wrapper;
             }
-            if (array() === $anchors && array() === $wrappers) continue;
+            // A page-level footer has no enclosing wrapper, which the capture
+            // edge pass requires of footer candidates.
+            $captureEdges = 'header' === $area;
+            // Compare the landmark, not the part: a route-edge part can also
+            // carry chrome before it (a skip link) that the route row lacks.
+            $partRows = $this->nestedLandmarkCandidates($partIndex, (string) $part['source_path'], $area, $captureEdges);
+            $partLandmark = 1 === count($partRows) ? $partRows[0]['markup'] : $part['canonical_block_markup'];
+            $partCopy = self::chromeCopy($partLandmark);
+            $partNavigationClasses = self::navigationClasses($partLandmark);
             foreach ($pages as $index => $page) {
                 // Do not promote a second occurrence on a route that already
                 // contributed its shell, or one retained for unsafe placement.
                 if (isset($part['provenance']['sources'][$page['source_path']])) continue;
-                $excluded = array_filter($diagnostics, static fn(array $d): bool => 'header' === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)));
+                $excluded = array_filter($diagnostics, static fn(array $d): bool => $area === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)));
                 if (array() === $excluded) continue;
-                $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], 'header');
+                $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], $area, $captureEdges);
                 if (1 !== count($rows)) continue;
                 $row = $rows[0];
-                $anchorVariant = $this->addsOnlySameDocumentAnchorItems($page, $part, $pages, $stylesheetIds);
+                $anchorVariant = 'header' === $area && $this->addsOnlySameDocumentAnchorItems($page, $part, $pages, $stylesheetIds);
                 $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                 $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
                 $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
@@ -2328,26 +2383,32 @@ final class ShellExtraction
                 // through the same authored wrapper and copy. Keep its layout
                 // in a route-local part rather than freezing the donor's paint.
                 if (null === $sharedWrapper && empty($attrs['anchor']) && in_array($wrapper, $wrappers, true)) $sharedWrapper = $wrapper;
-                if (null === $sharedWrapper && !$anchorVariant) continue;
-                // Navigation-only exclusions remain route-owned unless layout
-                // differs. A bound control, however, must move with its shell
-                // into an editable part, even when block layout is identical.
-                if (!$anchorVariant && self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
+                // The shared header's copy proves this is the site chrome in a
+                // route-specific presentation (#6723), not an article header:
+                // it moves to its own variant part rather than staying content.
+                $copy = self::chromeCopy($row['markup']);
+                $pageChrome = !empty($row['document_level']) && $area === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? '')) && array() !== array_intersect(self::chromeReferences($row['markup']), self::chromeReferences($partLandmark));
+                if (!$anchorVariant && !$pageChrome && (array() === $copy || $copy !== $partCopy)) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked']) continue;
+                // Navigation-only exclusions (which item is current) remain
+                // route-owned unless layout or the menu's own presentation
+                // differs. A bound control, however, must move with its shell
+                // into an editable part, even when block layout is identical.
                 if (!$anchorVariant && (!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
+                    && self::navigationClasses($row['markup']) === $partNavigationClasses
                     && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
-                $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), 'header');
+                $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), $area);
                 if (array() !== $bindings['refs'] && null === $hoist) continue;
                 $edges = array($index => array($row + array('identity' => $row['identity_markup'], 'nested' => true)));
-                $slug = 'header-' . substr(hash('sha256', $page['source_path']), 0, 12);
-                $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#header';
+                $slug = $area . '-' . substr(hash('sha256', $page['source_path']), 0, 12);
+                $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#' . $area;
                 $variantDeclarations = null === $hoist ? $runtimeDeclarations : self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $partSourcePath);
-                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), 'header', array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
+                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), $area, array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
                 if (array() !== $variants['parts']) $runtimeDeclarations = $variantDeclarations;
-                if ($anchorVariant && array() !== $variants['parts']) {
+                if (($anchorVariant || $pageChrome) && array() !== $variants['parts']) {
                     foreach ($diagnostics as &$diagnostic) {
-                        if ('header' === ($diagnostic['area'] ?? null) && isset($diagnostic['exclusions'])) $diagnostic['exclusions'] = array_values(array_filter($diagnostic['exclusions'], static fn(array $exclusion): bool => $page['source_path'] !== ($exclusion['source_path'] ?? null)));
+                        if ($area === ($diagnostic['area'] ?? null) && isset($diagnostic['exclusions'])) $diagnostic['exclusions'] = array_values(array_filter($diagnostic['exclusions'], static fn(array $exclusion): bool => $page['source_path'] !== ($exclusion['source_path'] ?? null)));
                     }
                     unset($diagnostic);
                 }
@@ -2357,6 +2418,18 @@ final class ShellExtraction
             }
         }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * What a landmark shows and points to: its text runs, link destinations
+     * and image sources. Two renditions of one site's chrome share some.
+     *
+     * @return list<string>
+     */
+    private static function chromeReferences(string $markup): array
+    {
+        preg_match_all('/\s(?:href|src)="([^"#][^"]*)"/i', $markup, $urls);
+        return array_values(array_unique(array_merge(self::textRuns($markup), array_map(static fn(string $url): string => 'url:' . html_entity_decode($url, ENT_QUOTES | ENT_HTML5), $urls[1]))));
     }
 
     /**
@@ -2518,6 +2591,20 @@ final class ShellExtraction
             $edges = self::normalizeEdgeLinks($edges, $pages);
             $groups = self::edgeGroups($edges, $pages);
             $largestCluster = max(array_map('count', $clusters) ?: array(0));
+            // Once an area has shared chrome, route-unique landmarks belong
+            // to the same variant-part path, not to editable post content.
+            // Without a repeated edge, retain the existing route ownership.
+            if (array() !== $groups) {
+                $grouped = array_merge(...array_column($groups, 'indexes'));
+                foreach ($edges as $index => $edge) {
+                    if (in_array($index, $grouped, true) || 1 !== count($landmarks[$index] ?? array())) continue;
+                    $position = $this->edgeLandmarkIndex((string) $pages[$index]['canonical_block_markup'], $edge, (string) $landmarks[$index][0]['markup']);
+                    if (null === $position) continue;
+                    $sharedLandmark = $landmarks[$groups[0]['indexes'][0]][0] ?? null;
+                    if (null === $sharedLandmark || self::textRuns($landmarks[$index][0]['markup']) !== self::textRuns($sharedLandmark['markup'])) continue;
+                    $groups[] = array('indexes' => array($index), 'length' => $position + 1);
+                }
+            }
             // Variants are distinct designs: they differ from their first
             // block, so no chrome would be copied into two parts, and no
             // landmark repeats on more routes than any of them (that landmark
@@ -2611,7 +2698,7 @@ final class ShellExtraction
             $sourceMarkup = substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']);
             // A route-local landmark is already compiled in its resting page
             // context. Edge normalization would strip its authored paint.
-            $markup = null !== $routeSlug ? $sourceMarkup : self::landmarkPartMarkup(self::withoutEdgeCurrentState($sourceMarkup, $pages[$first]), $area);
+            $markup = null !== $routeSlug || 1 === count($group['indexes']) ? $sourceMarkup : self::landmarkPartMarkup(self::withoutEdgeCurrentState($sourceMarkup, $pages[$first]), $area);
             $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
             // Replace from the end of each page so earlier offsets stay valid.
             foreach ($group['indexes'] as $index) {
@@ -2996,6 +3083,7 @@ final class ShellExtraction
             unset($frame['route_footer']);
             $split[$index] = self::withSharedDialogId($frame, $parts);
         }
+        $split = self::withoutRouteListViewNames($split);
         // The generic page template carries the frame most inner pages share in
         // structure (compared without per-document marker seeds and dialog ids),
         // so a page made later in WordPress gets the site chrome. Its marker
@@ -3084,6 +3172,103 @@ final class ShellExtraction
     }
 
     /**
+     * Fold runtime-bound chrome that leads the shared header into the header
+     * part.
+     *
+     * A wrapper such as Squarespace's `#siteWrapper` holds, in order, a
+     * floating cart, the header, `main` and the footer. Everything before the
+     * header becomes the template frame opening, where no runtime binding can
+     * anchor, so a bound cart link there kept the whole frame (and both shell
+     * references) in page content. When every route that renders the inline
+     * header repeats the same leading run, and that run carries the bindings,
+     * the run joins the header part, as `foldFrameTrailingChrome()` does for
+     * the footer side, and its bindings re-anchor on the part. Sibling order
+     * is unchanged: the run still renders immediately before the header.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $assets
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>}
+     */
+    public function withLeadingBoundChromeInHeader(array $pages, array $parts, array $declarations, array $assets = array()): array
+    {
+        $unchanged = array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $declarations);
+        $headers = array_keys(array_filter($parts, static fn(array $part): bool => 'header' === ($part['area'] ?? null) && 'inline_shared_shell' === ($part['placement']['kind'] ?? null)));
+        if (1 !== count($headers)) return $unchanged;
+        $partIndex = $headers[0];
+        $partSource = (string) $parts[$partIndex]['source_path'];
+        $slug = preg_quote((string) $parts[$partIndex]['slug'], '/');
+        // Box-tree node ids are route-local capture observations; the same
+        // materialized icon on two routes differs only by them.
+        $assetKeys = array();
+        foreach ($assets as $asset) if (is_string($asset['token'] ?? null) && is_string($asset['content'] ?? null)) $assetKeys[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = 'asset:' . hash('sha256', (string) preg_replace('/\s' . preg_quote(BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $asset['content']));
+        $runs = array();
+        $bindings = array();
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic'])) continue;
+            $markup = (string) ($page['canonical_block_markup'] ?? '');
+            $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
+            $refs = array_keys(array_filter($nodes, static fn(array $node): bool => 'template-part' === $node['name'] && 1 === preg_match('/"slug":"' . $slug . '"/', $node['attributes'])));
+            if (array() === $refs) continue;
+            if (1 !== count($refs)) return $unchanged;
+            $parent = $nodes[$refs[0]]['parent'];
+            $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
+            if ($siblings[0] === $refs[0]) return $unchanged;
+            $start = $nodes[$siblings[0]]['offset'];
+            $length = $nodes[$refs[0]]['offset'] - $start;
+            $run = substr($markup, $start, $length);
+            if (str_contains($run, 'wp:template-part') || self::containsMainLandmark($run)) return $unchanged;
+            $found = $this->runtimeBindingsInRanges($declarations, $page, array(array('offset' => $start, 'length' => $length)));
+            if ($found['blocked'] || array() === $found['refs']) return $unchanged;
+            $runs[$index] = array('start' => $start, 'length' => $length, 'run' => $run, 'identity' => strtr(ChromeIdentity::markup($run), $assetKeys));
+            $bindings[$index] = $found['refs'];
+        }
+        if (count($runs) < 2 || 1 !== count(array_unique(array_column($runs, 'identity')))) return $unchanged;
+        $canonical = array_key_first($runs);
+        $leading = $runs[$canonical]['run'];
+        $partMarkup = $leading . $parts[$partIndex]['canonical_block_markup'];
+        $hoist = $this->sharedShellBindingHoist($declarations, $pages, array_keys($runs), $bindings, array('source_path' => $pages[$canonical]['source_path'], 'template_part_markup' => $partMarkup), 'header');
+        if (null === $hoist) return $unchanged;
+        // Bindings already on the part, and page bindings after each run, keep
+        // their anchors across the moved blocks.
+        $leadingBlocks = count((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($leading))->ranges());
+        $sourceRuns = array();
+        foreach ($runs as $index => $run) $sourceRuns[(string) $pages[$index]['source_path']] = $run + array('blocks' => count((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($run['run']))->ranges()));
+        foreach ($declarations as &$declaration) {
+            if (!is_array($declaration['payload']['entities'] ?? null)) continue;
+            foreach ($declaration['payload']['entities'] as &$entity) {
+                if (!is_array($entity['bindings'] ?? null)) continue;
+                foreach ($entity['bindings'] as &$binding) {
+                    if (!is_array($binding['position'] ?? null)) continue;
+                    $source = (string) ($binding['source_path'] ?? '');
+                    if ($partSource === $source) {
+                        $binding['position']['block_index'] += $leadingBlocks;
+                        $binding['position']['offset'] += strlen($leading);
+                        if (is_string($binding['search_block_markup'] ?? null) && '' !== $binding['search_block_markup']) $binding['occurrence'] = (int) ($binding['occurrence'] ?? 1) + substr_count($leading, $binding['search_block_markup']);
+                    } elseif (isset($sourceRuns[$source]) && $binding['position']['offset'] >= $sourceRuns[$source]['start'] + $sourceRuns[$source]['length']) {
+                        $binding['position']['block_index'] -= $sourceRuns[$source]['blocks'];
+                        $binding['position']['offset'] -= $sourceRuns[$source]['length'];
+                    }
+                }
+                unset($binding);
+            }
+            unset($entity);
+        }
+        unset($declaration);
+        $declarations = self::applySharedShellBindingHoist($declarations, $hoist, $partSource);
+        foreach ($declarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+        unset($declaration);
+        foreach ($runs as $index => $run) {
+            $pages[$index]['canonical_block_markup'] = substr_replace((string) $pages[$index]['canonical_block_markup'], '', $run['start'], $run['length']);
+            $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
+        }
+        $parts[$partIndex]['canonical_block_markup'] = $partMarkup;
+        $parts[$partIndex]['content_hash'] = WordPressSitePlan::contentHash($partMarkup);
+        return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => RuntimeDeclarations::normalizeForComposition($declarations));
+    }
+
+    /**
      * Fold the chrome that follows the content slot in every template frame
      * into the footer part.
      *
@@ -3169,6 +3354,38 @@ final class ShellExtraction
         return $frame;
     }
 
+    /**
+     * A frame container's List View label (`metadata.name`) is derived from
+     * the heading it held, so each route's article frame is named after that
+     * route's own title once the heading moves into post content. The label
+     * is comment-only and never rendered: frames that differ only by it are
+     * one layout, and the label is dropped from them rather than naming a
+     * shared template after one of its routes.
+     *
+     * @param array<int,array{opening:string,closing:string,content:string}> $frames
+     * @return array<int,array{opening:string,closing:string,content:string}>
+     */
+    private static function withoutRouteListViewNames(array $frames): array
+    {
+        $unnamed = static fn(string $markup): string => preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs) || !isset($attrs['metadata']['name'])) return $match[0];
+            unset($attrs['metadata']['name']);
+            if (array() === $attrs['metadata']) unset($attrs['metadata']);
+            return '<!-- wp:' . $match[1] . (array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs)) . $match[3] . '-->';
+        }, $markup) ?? $markup;
+        $layouts = array();
+        foreach ($frames as $index => $frame) {
+            $plain = array('opening' => $unnamed($frame['opening']), 'closing' => $unnamed($frame['closing']));
+            $layouts[self::frameIdentity($plain)][$index] = $plain;
+        }
+        foreach ($layouts as $members) {
+            if (1 === count(array_unique(array_map(static fn(int $index): string => self::frameIdentity($frames[$index]), array_keys($members))))) continue;
+            foreach ($members as $index => $plain) $frames[$index] = $plain + $frames[$index];
+        }
+        return $frames;
+    }
+
     /** @param array{opening:string,closing:string} $frame */
     private static function frameIdentity(array $frame): string
     {
@@ -3243,10 +3460,11 @@ final class ShellExtraction
         $closing = substr($markup, $end);
         $content = substr($markup, $start, $end - $start);
         if ('' === trim($content) || str_contains($content, 'wp:template-part')) return null;
-        // A document-wide main may own the masthead as its first child.
-        // Hoist that complete frame rather than detaching chrome from its
-        // stacking/selector context. A main within the content gap stays put.
-        if (preg_match('/"tagName":"main"/', $opening . $closing) && (!isset($refs['header']) || !self::leadsMainDocument(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $nodes[$refs['header']]['offset']))) return null;
+        // A main that encloses the content gap is the page frame: a masthead
+        // as its first child or a page-final footer as its last stays in that
+        // main, which moves with them into the template. A main beside the
+        // gap would leave the content outside its own landmark.
+        foreach ($nodes as $node) if ('group' === $node['name'] && 1 === preg_match('/"tagName":"main"/', $node['attributes']) && ($node['end'] <= $start || $node['offset'] >= $end)) return null;
         // A frame belongs to one captured device document. When the shells sit
         // in one of several device documents, the others are page content, not
         // chrome around it.

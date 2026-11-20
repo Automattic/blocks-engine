@@ -559,10 +559,10 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
      */
     public function runtimeAttributesCarriedBy(DOMElement $element, string $blockName): array
     {
+        $attributes = $this->authorSelectorAttributesCarriedBy($element);
         if (! ('core/navigation' === $blockName && 'nav' === strtolower($element->tagName))
-            && ! ('core/paragraph' === $blockName && $this->retainsRuntimeParagraph($element))) return array();
-        if (! $this->isRuntimeDomTarget($element)) return array();
-        $attributes = array();
+            && ! ('core/paragraph' === $blockName && $this->retainsRuntimeParagraph($element))) return $attributes;
+        if (! $this->isRuntimeDomTarget($element)) return $attributes;
         foreach ($element->attributes ?? array() as $attribute) {
             $name = strtolower($attribute->nodeName);
             if (str_starts_with($name, 'data-blocks-engine-') || ! preg_match('/^(?:data-[a-z0-9_.:-]+|aria-(?!label$)[a-z]+|role)$/', $name)) continue;
@@ -572,6 +572,33 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
         ksort($attributes);
 
+        return $attributes;
+    }
+
+    /**
+     * Source data predicates without a marker must remain live on their carrier.
+     * Use the existing render-attribute transport rather than freeze dynamic
+     * pseudo states or retain every presentation-only source attribute.
+     *
+     * @return array<string, string>
+     */
+    private function authorSelectorAttributesCarriedBy(DOMElement $element): array
+    {
+        $attributes = array();
+        $sourceAttributes = \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::staticAttributes(SourceDom::htmlAttributes($element));
+        if (array() === array_filter(array_keys($sourceAttributes), static fn (string $name): bool => str_starts_with($name, 'data-'))) return array();
+        $author = $this->session->authorStyleAnalysis();
+        foreach ($author->dataAttributeSelectorCompounds() as $selector) {
+            $carried = array_intersect_key($sourceAttributes, array_flip($selector['names']));
+            if (array() === $carried) continue;
+            $parsed = $selector['parsed'];
+            if (!($parsed['supported'] ?? false) || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $parsed)['matches']) continue;
+            $marker = $this->session->authorSelectorProjectionState()->attributeMarker($element->getNodePath() ?? '', $selector['selector']);
+            if ('' !== $marker) continue;
+            foreach ($carried as $name => $value) {
+                $attributes[$name] = $value;
+            }
+        }
         return $attributes;
     }
 

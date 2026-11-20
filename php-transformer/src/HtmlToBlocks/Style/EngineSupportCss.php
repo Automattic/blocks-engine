@@ -107,7 +107,7 @@ final class EngineSupportCss
             // A lowered block-level source wrapper keeps its block box.
             $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
-                . "\n" . ':where(p.blocks-engine-inline-anchor-carrier){display:inline}'
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS . '){display:inline}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.
@@ -157,9 +157,9 @@ final class EngineSupportCss
             // `max-width:100%` that core and the base support rule put on
             // a core/image <img> is not the source's: its percentage zeroes the
             // replaced element's min-content contribution and lets the flex
-            // item shrink below its own width. A max-width the author states
-            // for the image still reaches it through its projected rule.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ').wp-block-image>img{max-width:none}';
+            // item shrink below its own width. Do not reset an authored
+            // max-width: a projected type selector cannot outrank this rule.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ':not(.' . SourceBlockAttributeProjector::AUTHOR_MAX_WIDTH_IMAGE_CLASS . ')).wp-block-image>img{max-width:none}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS) ) {
             // The source image fills both axes of its parent. Its core/image
@@ -182,6 +182,14 @@ final class EngineSupportCss
                 // whose percentages size from it, so the fill collapses. Let
                 // the anchor fill the figure so the image resolves against it.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.blocks-engine-linked-image-figure)>a{display:block;width:100%;height:100%}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS) ) {
+            // The converse of a layer fill image: a later positioned layer
+            // paints over the whole fill image. Put that layer in editor flow
+            // after the image, so a click on the image reaches the image block.
+            // Other positioned siblings (a centered frame, a corner badge)
+            // cover only part of the image and keep their geometry.
+            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block.' . SourceBlockAttributeProjector::IMAGE_COVERING_LAYER_CLASS . '{position:static!important;inset:auto!important}';
         }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line
@@ -423,6 +431,15 @@ final class EngineSupportCss
             // margins (notably p's 1em). Author CSS follows and remains in
             // control; synthesized boxes get their own zero-margin resets.
             $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
+            // Native flex groups also have Core's physical margin:0 reset.
+            // Beat Core's (0,1,1) inline reset. marginSelectorPrelude gives
+            // authored margins on these items the same two-class baseline,
+            // after this support sheet, preserving even universal author rules.
+            // Emit only for markup using this contract, keeping unrelated
+            // CSS-owned flow documents' stylesheets unchanged.
+            if ( preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . self::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $serializedBlocks) ) {
+                $parts[] = ':root:root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox() . '){margin:revert}';
+            }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
@@ -604,6 +621,24 @@ final class EngineSupportCss
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-7>.wp-block-image{width:calc((100% - 6 * ' . $gap . ') / 7) !important}'
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-8>.wp-block-image{width:calc((100% - 7 * ' . $gap . ') / 8) !important}'
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.is-cropped>.wp-block-image img{aspect-ratio:1;height:auto;object-fit:cover;width:100%}';
+        }
+        if ( str_contains($serializedBlocks, LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS) ) {
+            // A lowered table root stays a block formatting context, as the
+            // source table was: it moves below a float it cannot fit beside
+            // instead of squeezing its columns into the space next to it.
+            // Zero specificity: Core layout displays and author CSS still win.
+            $parts[] = ':where(.wp-block-group.' . LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS . '){display:flow-root}';
+        }
+        if ( str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern::FLOAT_WIDTHS_CLASS) ) {
+            // An auto basis reads the author's width at *each* breakpoint,
+            // including calc() and variables, rather than freezing desktop
+            // pixels into an inline width attribute. No equal-grow default.
+            $row = '.wp-block-columns.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern::FLOAT_WIDTHS_CLASS;
+            $parts[] = ':root ' . $row . '{flex-wrap:wrap!important;gap:0}'
+                . "\n" . ':root ' . $row . '>.wp-block-column{flex-basis:auto;flex-grow:0;flex-shrink:0}'
+                // A normal-flow auto-width block fills the row. Zero
+                // specificity lets every authored width override the fallback.
+                . "\n" . ':where(' . $row . '>.wp-block-column){width:100%}';
         }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
             $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . ':not(:where(.blocks-engine-layout-table-table,.blocks-engine-layout-table-row)){display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
@@ -906,10 +941,19 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
             $parts[] = ':root .wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '{background-image:none!important}';
         }
+        if ( str_contains($serializedBlocks, CoverPattern::SOURCE_SIZED_CLASS) ) {
+            // The authored aspect-ratio/height sizes the hero, not core's 430px floor.
+            $parts[] = ':root .wp-block-cover.' . CoverPattern::SOURCE_SIZED_CLASS . '{min-height:0}';
+        }
         if ( str_contains($serializedBlocks, CoverPattern::FILL_CLASS) ) {
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';
             $parts[] = $fill . '{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}';
             $parts[] = $fill . '>.wp-block-group{flex-grow:1}';
+        }
+        if ( str_contains($serializedBlocks, CoverPattern::GAP_CLASS) ) {
+            $gap = ':root .wp-block-cover.' . CoverPattern::GAP_CLASS . '>.wp-block-cover__inner-container';
+            $parts[] = $gap . '{gap:inherit}';
+            $parts[] = $gap . '>.wp-block-group{gap:inherit}';
         }
         if ( preg_match_all('/(?<![\w-])' . preg_quote(CoverPattern::STACK_CLASS_PREFIX, '/') . '(\d+)(?![\w-])/', $serializedBlocks, $stackMatches) ) {
             foreach ( array_unique($stackMatches[1]) as $stackOrder ) {

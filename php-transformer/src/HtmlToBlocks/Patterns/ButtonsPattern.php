@@ -328,8 +328,13 @@ final class ButtonsPattern
         // becomes the link surface even when its label retains an icon.
         // Presentational wrappers that remain inside the link are descendants,
         // not the control surface: in that case the anchor still owns it.
+        // A split control (the anchor paints, its label pads) whose label the
+        // saved RichText still renders keeps that padded label box inside the
+        // link: the anchor alone is the link surface, as in the source.
+        $splitLabel = $this->splitControlLabel($anchor, $buttons);
+        $keptLabel = null !== $splitLabel && $buttons->labelRendersDescendant($splitLabel, $text) ? $splitLabel : null;
         $presentationElement ??= $this->staticAnchorButtonSurface($anchor)
-            ?? ($retainsDescendants || $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+            ?? ($retainsDescendants || null !== $keptLabel || $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
                 ? $anchor
                 : ($this->buttonSurfaceElement($anchor) ?? $anchor));
         if ( $retainsDescendants ) {
@@ -345,7 +350,7 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $labelAttrs = $this->buttonLabelPresentationAttributes($anchor, $buttons, ! $retainsDescendants);
+        $labelAttrs = $this->buttonLabelPresentationAttributes($anchor, $buttons, ! $retainsDescendants, $keptLabel);
         // A whole-label box can supply a missing fill, but must not replace the
         // control's paint. Conditional background families stay on projected
         // author selectors rather than native attrs, so check the cascade too.
@@ -378,10 +383,11 @@ final class ButtonsPattern
     /**
      * Whole-label boxes can own paint as well as text. When their markup is
      * absorbed into the control, carry their native supports too; otherwise
-     * their author selectors no longer have a subject. Retained descendants
-     * still own separate boxes and must not paint the enclosing link.
+     * their author selectors no longer have a subject. Retained descendants,
+     * and a split control's label the link still renders ($keptLabel), own
+     * separate boxes and must not paint or pad the enclosing link.
      */
-    private function buttonLabelPresentationAttributes(DOMElement $anchor, ButtonPatternContext $buttons, bool $absorbsBoxes): array
+    private function buttonLabelPresentationAttributes(DOMElement $anchor, ButtonPatternContext $buttons, bool $absorbsBoxes, ?DOMElement $keptLabel = null): array
     {
         $text = $this->plainText(SourceDom::innerHtml($anchor));
         $style = array();
@@ -390,7 +396,7 @@ final class ButtonsPattern
             $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
             // 100% on a label inherits the control's winning size.
             if ('100%' === ($native['typography']['fontSize'] ?? '')) unset($native['typography']['fontSize']);
-            if ($absorbsBoxes) {
+            if ($absorbsBoxes && $label !== $keptLabel) {
                 $native = $this->withoutNonPresentationalValues($native);
                 $style = array_replace_recursive($style, $native);
                 continue;
@@ -528,7 +534,9 @@ final class ButtonsPattern
             return $html;
         }
 
-        return '';
+        // Core omits buttons with empty RichText. A zero-width character keeps
+        // the authored control box without inventing a visible or accessible name.
+        return '' !== $this->buttonAccessibleTitle($element) ? '' : '&#8203;';
     }
 
     /** Keep an icon's authored layout boxes in the inline-only button label. */
@@ -1266,6 +1274,9 @@ final class ButtonsPattern
         if ( null !== $surface && $this->signalClassifier->hasStyleSignal($surface, $buttons->resolvedStyle($surface)) ) {
             return true;
         }
+        if ( null !== $this->splitControlLabel($anchor, $buttons) ) {
+            return true;
+        }
 
         // Wix-style controls commonly put the visual surface on a nested label
         // span and add a sibling decorative SVG. The single-child surface rule
@@ -1280,6 +1291,25 @@ final class ButtonsPattern
         }
 
         return false;
+    }
+
+    /**
+     * The sole phrasing label of an anchor whose control box is drawn by both:
+     * the anchor paints it and the label pads it (`a{background:…;padding:0}`
+     * around `span{padding:15px 32px}`). That is one authored control, not a
+     * bare link, even when it points at a file. A label that paints a control
+     * surface of its own is that surface, recognized as one already.
+     */
+    private function splitControlLabel(DOMElement $anchor, ButtonPatternContext $buttons): ?DOMElement
+    {
+        $label = $this->buttonSurfaceElement($anchor);
+        if ( null === $label || 'span' !== strtolower($label->tagName) || ! $this->hasPhrasingContentOnly($label) ) {
+            return null;
+        }
+        $labelStyle = $buttons->resolvedStyle($label);
+
+        return ! $this->signalClassifier->hasStyleSignal($label, $labelStyle)
+            && $this->signalClassifier->hasSplitSurfaceSignal($buttons->resolvedStyle($anchor), $labelStyle) ? $label : null;
     }
 
     private function hasNestedLabelAndSvg(DOMElement $anchor): bool

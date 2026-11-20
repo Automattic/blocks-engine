@@ -55,7 +55,10 @@ final class AuthorSelectorSemanticPreparer
         }
         $combinedAuthorCss = array() === $stylesheetAssets
             ? $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss)
-            : implode("\n\n", array_column(array_filter($stylesheetAssets, static fn(array $asset): bool => StylesheetActivation::active($asset)), 'content'));
+            : implode("\n\n", array_map(
+                \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::closedAtEnd(...),
+                array_column(array_filter($stylesheetAssets, static fn(array $asset): bool => StylesheetActivation::active($asset)), 'content')
+            ));
         $authorStyles = new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody);
         $this->runtimeScriptSources = array_values(array_filter(
             array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),
@@ -73,7 +76,8 @@ final class AuthorSelectorSemanticPreparer
         }
 
         $authorAnalysis = $this->stylesheetAnalysisComposer->composedAuthorSelectorAnalysis(
-            $this->stylesheetAnalysisComposer->authorStylesheetPayloads($html, $staticCss, $authorStyles)
+            $this->stylesheetAnalysisComposer->authorStylesheetPayloads($html, $staticCss, $authorStyles),
+            $authorStyles->siteSelectorPruner
         );
         $authorStyleRules = $authorAnalysis['rules'];
         $authorSelectors = array_merge(...array_column($authorStyleRules, 'selectors'));
@@ -120,12 +124,7 @@ final class AuthorSelectorSemanticPreparer
         if ( ! $authorStyles->selectorCanMatch($parsed) ) {
             return $authorStyles->rememberSelectorMatches($selector, array());
         }
-        $matches = array();
-        foreach ( $authorStyles->selectorCandidates($parsed) as $element ) {
-            if ( CssSelectorMatcher::matches($element, $parsed, true, $authorStyles->selectorMatchCache())['matches'] ) {
-                $matches[] = $element;
-            }
-        }
+        $matches = CssSelectorMatcher::filterMatching($authorStyles->selectorCandidates($parsed), $parsed, true, $authorStyles->selectorMatchCache());
         return $authorStyles->rememberSelectorMatches($selector, $matches);
     }
 
@@ -202,8 +201,12 @@ final class AuthorSelectorSemanticPreparer
                 // Empty icon spans retain their source element rather than
                 // becoming a RichText mark; no new carrier is needed for them.
                 if (null !== $host && !$element->hasChildNodes()) continue;
-                $path = $element->getNodePath() ?? '';
                 $inlineTag = strtolower($element->tagName);
+                // Only inline content gets a semantic path; skip the rest first.
+                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) ) {
+                    continue;
+                }
+                $path = $element->getNodePath() ?? '';
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element);
                 // Format tags lose their class hooks in RichText too. Contextual
@@ -249,12 +252,19 @@ final class AuthorSelectorSemanticPreparer
     /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
     private function discoverInlineLayoutCarrierPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
     {
+        // The decision reads only the element and state this pass does not
+        // write, so an element many selectors match is decided once.
+        $decided = array();
         foreach ( $authorSelectors as $authorSelector ) {
             if ( ! $authorSelector['parsed']['supported'] ) {
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $authorSelector['parsed']) as $element ) {
                 $path = $element->getNodePath() ?? '';
+                if ( isset($decided[$path]) ) {
+                    continue;
+                }
+                $decided[$path] = true;
                 $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
                 if ( '' !== $path
                     && $this->context->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element)
@@ -553,7 +563,7 @@ final class AuthorSelectorSemanticPreparer
     }
 
     /**
-     * Attribute conditions on grouped-container ancestors or subjects are
+     * Attribute conditions on canonical-block ancestors or subjects are
      * dropped when their source elements become blocks that serialize only
      * supported wrapper attributes. Record a stable class on each converted
      * holder and let the stylesheet projector derive a selector arm with the
@@ -644,7 +654,7 @@ final class AuthorSelectorSemanticPreparer
             foreach ( $subjects as $subject ) {
                 if ( $condition['subject'] ) {
                     $path = $subject->getNodePath() ?? '';
-                    if ( '' !== $path && in_array(strtolower($subject->tagName), self::GROUPED_CONTAINER_TAGS, true)
+                    if ( '' !== $path && in_array(strtolower($subject->tagName), self::BLOCK_ATTRIBUTE_HOLDER_TAGS, true)
                         && $projections->visitAttributeStateProjectionPath($holderKey, $path)
                     ) {
                         $projections->addAttributeStateProjectionMarker($path, $marker, $holderKey);
@@ -658,7 +668,7 @@ final class AuthorSelectorSemanticPreparer
                     if ( '' === $path || ! $projections->visitAttributeStateProjectionPath($holderKey, $path) ) {
                         break;
                     }
-                    if ( ! in_array(strtolower($element->tagName), self::GROUPED_CONTAINER_TAGS, true)
+                    if ( ! in_array(strtolower($element->tagName), self::BLOCK_ATTRIBUTE_HOLDER_TAGS, true)
                         || ! CssSelectorMatcher::matches($element, $condition['compound'], true, $authorStyles->selectorMatchCache())['matches']
                     ) {
                         continue;
@@ -670,7 +680,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( $condition['subject'] ) {
                     continue; // The subject keeps this attribute; leave its authored predicate live.
                 }
-                return; // No grouped ancestor holder is emitted in this document.
+                return; // No canonical ancestor holder is emitted in this document.
             }
             $installed[$condition['text']] = $marker;
         }
@@ -678,12 +688,16 @@ final class AuthorSelectorSemanticPreparer
     }
 
     /**
-     * Generic containers that convert to blocks serializing only id, class
-     * and style. Other holders (custom elements and `details` kept as layout
-     * shells, inline anchors) retain their attributes and the original
-     * selector keeps matching them.
+     * Source elements whose canonical blocks serialize supported attributes
+     * rather than arbitrary source attributes. This includes native rich-text
+     * blocks, not just lowered containers. Other holders (custom elements and
+     * `details` kept as layout shells, inline anchors) retain their attributes
+     * and the original selector keeps matching them.
      */
-    private const GROUPED_CONTAINER_TAGS = array( 'div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'nav', 'figure', 'form', 'ul', 'ol', 'li' );
+    private const BLOCK_ATTRIBUTE_HOLDER_TAGS = array(
+        'div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'nav', 'figure', 'form', 'ul', 'ol', 'li',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'pre', 'blockquote', 'hr', 'img', 'table', 'label',
+    );
 
     /**
      * Attributes a runtime or the page toggles (`details[open]`,
@@ -908,8 +922,14 @@ final class AuthorSelectorSemanticPreparer
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
-                $layoutTable = 'table' === strtolower($element->tagName) ? $element : SourceDom::ancestorElement($element, 'table');
-                if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
+                $tag = strtolower($element->tagName);
+                // Only table parts take a table path; skip the ancestor walk
+                // for every other matched element.
+                if ( ! in_array($tag, array( 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true) ) {
+                    continue;
+                }
+                $layoutTable = 'table' === $tag ? $element : SourceDom::ancestorElement($element, 'table');
+                if (in_array($tag, array('table', 'tr', 'td'), true)
                     && $layoutTable instanceof DOMElement
                     && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($layoutTable)
                 ) {

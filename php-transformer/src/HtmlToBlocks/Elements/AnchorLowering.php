@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
@@ -376,6 +377,12 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 if ( $visual instanceof DOMElement && 'picture' === strtolower($visual->tagName) ) {
                     $visual = $visual->parentNode;
                 }
+                // A span that holds only the image (an aspect or hover-scale
+                // frame) is part of the same visual region, not phrasing.
+                if ( $visual instanceof DOMElement && 'span' === strtolower($visual->tagName)
+                    && $this->wrapsOnlyMedia($visual) ) {
+                    $visual = $visual->parentNode;
+                }
                 if ( ! $visual instanceof DOMElement || $visual === $anchor
                     || 'div' !== strtolower($visual->tagName) ) {
                     return false;
@@ -416,6 +423,26 @@ final class AnchorLowering implements ButtonLinkLeftovers
         return $hasSummary && ($hasHeading || $hasImage
             || (null !== SourceDom::firstChildElement($anchor, 'div')
                 && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * Whether a phrasing frame contains nothing but one image or picture.
+     */
+    private function wrapsOnlyMedia(DOMElement $frame): bool
+    {
+        $media = null;
+        foreach ( $frame->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $media || ! in_array(strtolower($child->tagName), array('img', 'picture'), true) ) {
+                    return false;
+                }
+                $media = $child;
+            } elseif ( '' !== trim($child->textContent) ) {
+                return false;
+            }
+        }
+
+        return null !== $media;
     }
 
     /**
@@ -475,8 +502,18 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
             return $this->layoutShells->blockForElements(array($anchor), $children, $anchor);
         }
-        if ( ! $stretched && array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
-            $this->recordDroppedLinkWrapper($anchor);
+        $propagated = false;
+        if ( ! $stretched && array() !== $linkAttrs ) {
+            $propagated = $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
+            if ( ! $propagated ) {
+                $this->recordDroppedLinkWrapper($anchor);
+            }
+        }
+        // ADR 0005: an anchor whose box the capture proved neutral apart from
+        // its link emits no block once that link has moved onto its content.
+        if ( $propagated && 1 === count($children) && $this->session->isLinkCarrierBox($anchor) ) {
+            $this->session->collapseBoxTreeNodes(array( $anchor->getAttribute(BoxTree::NODE_ATTRIBUTE) ));
+            return $children[0];
         }
         // The link now lives on the children, so the group is the anchor's box.
         // An author rule that selects the anchor (a card link laid out as a

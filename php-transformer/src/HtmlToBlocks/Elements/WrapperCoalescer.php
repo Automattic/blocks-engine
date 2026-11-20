@@ -531,7 +531,8 @@ final class WrapperCoalescer
     {
         if ( $this->boxTreeClassifierOwnsWrappers()
             || ($this->preservesScriptStateWrapper)($element)
-            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes']) ) {
+            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes'])
+            || $this->isLayoutGeometryCorrectiveTarget($element) ) {
             return null;
         }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
@@ -1225,9 +1226,48 @@ final class WrapperCoalescer
             // canonical structural selector, not a reusable author class.
             if (!is_array($proof) || SourceDom::elementSelector($element) !== ($proof['wrapper_selector'] ?? null)) continue;
             $child = ($this->soleElementChild)($element);
-            if ($child instanceof DOMElement && SourceDom::elementSelector($child) === ($proof['target_selector'] ?? null)) return $proof;
+            if ($child instanceof DOMElement && SourceDom::elementSelector($child) === ($proof['target_selector'] ?? null)) {
+                return $this->definesConsumedCustomProperties($element) ? null : $proof;
+            }
         }
         return null;
+    }
+
+    /** @var array<string, bool> */
+    private array $consumedCustomPropertyDefinitions = array();
+
+    /**
+     * A layout-geometry proof compares boxes with and without the wrapper; it
+     * says nothing about inherited state. Reduction drops the wrapper's
+     * classes, so custom properties its rules define stop reaching the
+     * descendants that read them (an icon `fill:rgb(var(--icon))` falls back
+     * to its default paint). Such a wrapper is not covered by the proof.
+     */
+    private function definesConsumedCustomProperties(DOMElement $element): bool
+    {
+        $key = (string) $element->getNodePath();
+        if (isset($this->consumedCustomPropertyDefinitions[$key])) return $this->consumedCustomPropertyDefinitions[$key];
+        $defined = array();
+        foreach (array_keys($this->matchingAuthorDeclarations($element)) as $name) {
+            if (str_starts_with((string) $name, '--')) $defined[(string) $name] = true;
+        }
+        $consumed = false;
+        if (array() !== $defined) {
+            $pending = array($element);
+            while (!$consumed && null !== ($node = array_pop($pending))) {
+                foreach ($node->childNodes as $child) {
+                    if (!$child instanceof DOMElement) continue;
+                    $pending[] = $child;
+                    foreach ($this->matchingAuthorDeclarations($child) as $value) {
+                        if (!str_contains((string) $value, 'var(') || !preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', (string) $value, $matches)) continue;
+                        foreach ($matches[1] as $name) {
+                            if (isset($defined[$name])) { $consumed = true; break 3; }
+                        }
+                    }
+                }
+            }
+        }
+        return $this->consumedCustomPropertyDefinitions[$key] = $consumed;
     }
 
     /**
@@ -1243,7 +1283,7 @@ final class WrapperCoalescer
     {
         if ($this->boxTreeClassifierOwnsWrappers()) return null;
         $proof = $this->layoutGeometryProofFor($element);
-        if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
+        if (null === $proof || $this->isLayoutGeometryCorrectiveTarget($element) || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         $children = $this->tree->children($element, $fallbacks, true);
         if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
         $sourceChild = ($this->soleElementChild)($element);
@@ -1253,6 +1293,22 @@ final class WrapperCoalescer
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
         $this->session->layoutGeometryState()->recordProof($proof);
         return $this->createBlock->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /**
+     * A proof's corrective CSS was measured on the target's own box. When the
+     * parent wrapper reduces into this element with a non-empty corrective,
+     * the element keeps its box: coalescing it with its child would put the
+     * carrier on the child's box and override that box's own values (for
+     * example `display:block` over an authored `display:table`).
+     */
+    private function isLayoutGeometryCorrectiveTarget(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if (!$parent instanceof DOMElement) return false;
+        $proof = $this->layoutGeometryProofFor($parent);
+        $declarations = $proof['corrective_css']['declarations'] ?? array();
+        return is_array($declarations) && array() !== $declarations;
     }
 
     /**

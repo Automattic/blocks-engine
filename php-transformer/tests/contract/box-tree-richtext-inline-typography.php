@@ -46,4 +46,7 @@ $assert(1 === preg_match('/<a class="text-sm (be-inline-geometry-[0-9a-f]+)" hre
 $assert(1 === preg_match('/\.' . $carrier[1] . '\.' . $carrier[1] . '\{([^}]*)\}/', $css, $rule), 'The inline carrier rule is delivered.');
 $assert(str_contains($rule[1], 'font-size:14px') && str_contains($rule[1], 'line-height:20px'), 'The carrier restates the captured inline typography.');
 $assert(!str_contains($rule[1], 'display') && !str_contains($rule[1], 'width'), 'The inline carrier holds typography only, never box geometry.');
-$assert(str_contains($markup, '<a href="/menu">Menu</a>'), 'A link inheriting every observed value from its block stays bare.');
+// A link does not inherit its block's colour (#6928): the inherited text
+// colour is its only declaration, at single-class specificity.
+$assert(1 === preg_match('/<a href="\/menu" class="(be-inline-geometry-[0-9a-f]+)">Menu<\/a>/', $markup, $menu), 'A link inheriting every observed typography value from its block gets a carrier for its colour only.');
+$assert(false === strpos($css, '.' . $menu[1] . '.' . $menu[1]) && str_contains($css, '.' . $menu[1] . '{color:rgb(0, 0, 0)}'), 'That carrier restates only the observed colour, at single-class specificity.');

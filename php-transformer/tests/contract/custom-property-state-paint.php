@@ -17,7 +17,8 @@ foreach (array(false, true) as $chain) {
     $plan = $result['source_reports']['wordpress_site_plan'];
     $projected = implode("\n", array_column(array_filter($plan['assets'], static fn (array $asset): bool => 'css' === $asset['kind']), 'content'));
     foreach ($chain ? array('hover', 'focus', 'active') : array('hover') as $state) {
-        if (!preg_match('/wp-block-button__link[^{}]*:not\(:disabled\):' . $state . '\{--bg:var\(--btn-bg-hover\)\}/', $projected)) {
+        // Identical state blocks may share one selector list.
+        if (!preg_match('/wp-block-button__link[^{},]*:not\(:disabled\):' . $state . '(?:,[^{}]*)?\{--bg:var\(--btn-bg-hover\)\}/', $projected)) {
             throw new RuntimeException('State-only custom property rule must reach the lowered link: ' . $state);
         }
     }

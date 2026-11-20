@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityShimCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
@@ -108,6 +109,7 @@ final class SitePlanRun
         $retainedSources = array_fill_keys(array_column($documents, 'source_path'), true);
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || isset($retainedSources[$asset['compilation']['id'] ?? ''])));
         $assets = AssetPublications::apply($assets, $runtimeDeclarations);
+        ProductImages::diagnose($assets, $runtimeDeclarations, $this->unitFindings->record(...));
         // The design system comes from what every document renders, before
         // any document is projected: RouteLinks::markup() binds literal block values
         // to its tokens wherever block markup enters the plan.
@@ -116,8 +118,10 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups)->withBlockColors($markups);
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
+        // A box-tree carrier on a button's link owns that button's look.
+        $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents), array_values(array_column(array_filter($documents, static fn(array $document): bool => !empty($document['document_metadata']['engine_owned_styles'])), 'source_path')));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $this->surfaces = TemplateSurfaces::select($documents);
@@ -253,7 +257,7 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem, array_column(array_filter($pages, static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles'])), 'source_path'));
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
@@ -268,6 +272,13 @@ final class SitePlanRun
         $compiledParts = is_array($this->compiled['template_parts'] ?? null) ? array_values(array_filter($this->compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $this->timer?->start('compose.site_plan.shell_extraction');
         ['pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'shell_frames' => $shellFrames, 'document_chrome' => $documentChrome, 'runtime_declarations' => $shellDeclarations, 'runtime_entity_records' => $runtimeEntityRecords, 'diagnostics' => $shellDiagnostics] = $this->extractedShells($pages, $compiledParts, $tokens, $runtimeDeclarations, $runtimeEntityRecords, $assets);
+        if (null !== $this->presetBinding) foreach ($parts as &$part) {
+            $bound = $this->presetBinding->bindSiteTitles((string) ($part['canonical_block_markup'] ?? ''));
+            if ($bound === ($part['canonical_block_markup'] ?? '')) continue;
+            $part['canonical_block_markup'] = $bound;
+            if (isset($part['content_hash'])) $part['content_hash'] = WordPressSitePlan::contentHash($bound);
+        }
+        unset($part);
         $assetTargetCollisions = array();
         // Element markers some emitted markup still carries. A rule naming
         // any other marker names an element extraction replaced (one route's
@@ -328,7 +339,7 @@ final class SitePlanRun
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates']);
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array());
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);
@@ -364,12 +375,32 @@ final class SitePlanRun
         // never becomes matches nothing on any route. Menus keep their markup
         // in `block_markup`: their figures are emitted too.
         $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
+        // Carriers are final: a marker list naming most of a kind's carriers
+        // is written through that kind's role class instead.
+        $assets = CompleteMarkerLists::compact($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Readers are final: an author property no shipped sheet, markup,
+        // record, theme.json or script names computes nothing.
+        $assets = UnreadCustomProperties::prune($assets, array($navigationMarkup, implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme'], $rootDocuments, array_column($pages, 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)));
+        // Bytes are final: arms only the editor canvas can match move from
+        // each sheet visitors load into an editor-only extract after it.
+        $known = array_column($assets, 'target_path');
+        $assets = EditorCanvasStylesheets::split($assets);
+        $tokens = array_merge($tokens, $this->tokens(array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['target_path'] ?? null, $known, true)))));
+        // Writing canonicalizes references and can still drop rules (a missing
+        // font source drops its face). Emptiness is judged on the written bytes,
+        // and a row whose write came out empty describes those bytes.
+        $themeAssetWrites = new ThemeAssetWrites();
+        $assetWrites = $themeAssetWrites->writes($assets, $this->references);
+        $assets = EmptyStylesheets::describingWrites($assets, $assetWrites);
+        ['assets' => $assets, 'writes' => $assetWrites] = EmptyStylesheets::withoutEmptyImports($assets, $assetWrites);
         // Bytes and delivery are final: a sheet left empty is neither written
         // nor enqueued, unless it still carries route selection or a reference.
-        $emptyStylesheets = EmptyStylesheets::elide($assets, array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus), $pages, $rootDocuments, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme']), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        $emptyStylesheets = EmptyStylesheets::elide($assets, array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus), $pages, $rootDocuments, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme']), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE), $assetWrites);
         ['assets' => $assets, 'document_sets' => ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus]] = $emptyStylesheets;
         $tokens = array_values(array_filter($tokens, static fn(array $token): bool => !isset($emptyStylesheets['tokens'][$token['token']])));
+        $keptTargets = array_fill_keys(array_column($assets, 'target_path'), true);
+        $assetWrites = array_values(array_filter($assetWrites, static fn(array $write): bool => isset($keptTargets[$write['target_path']])));
         // Layout findings name the engine classes of the part they occurred in.
         $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
         // Stylesheets are final: a selector hook that no stylesheet or script
@@ -380,8 +411,6 @@ final class SitePlanRun
         if (null !== $pruned) {
             ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'synced_patterns' => $syncedPatterns, 'menus' => $menus, 'entities' => $taxonomyProjection['entities'], 'declarations' => $runtimeDeclarations, 'records' => $runtimeEntityRecords] = $pruned;
         }
-        $themeAssetWrites = new ThemeAssetWrites();
-        $assetWrites = $themeAssetWrites->writes($assets, $this->references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
         $placeholderAssets = CompiledAssets::rows($this->missingMedia->assets(), $this->unitFindings->record(...));
         if (array() !== $placeholderAssets) {
@@ -440,14 +469,14 @@ final class SitePlanRun
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $this->input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge($this->runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'bootstrap_units' => $bootstrap['units'], 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $this->input->fontMaterialization ? array() : array('font_materialization' => $this->input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($this->compiled['source_css_bytes'] ?? 0))))),
+            'theme' => array_merge($this->runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'bootstrap_units' => $bootstrap['units'], 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $this->input->fontMaterialization ? array() : array('font_materialization' => $this->input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('literal_preset_colors' => $this->designSystem->literalPresetColors(self::markupsByDocument($pages, $templates, $parts)), 'metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($this->compiled['source_css_bytes'] ?? 0))))),
             'visual_repair' => $this->compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
-            'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)) + array('empty_asset_count' => EmptyStylesheets::count($assets)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
+            'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)) + array('empty_asset_count' => EmptyStylesheets::countWrites($assets, $assetWrites)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
             'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
@@ -534,7 +563,7 @@ final class SitePlanRun
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
-            $content = $this->presetBinding->bindStylesheet($asset['content']);
+            $content = $this->presetBinding->bindStylesheet($asset['content'], array_values(array_unique(array_map('strval', array_column($asset['stylesheet_instances'] ?? array(), 'source_path')))));
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
@@ -554,7 +583,9 @@ final class SitePlanRun
             // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
             // that spelling, so it is written once at its smallest form.
             $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
-            if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Inline source sheets are projected like linked ones: a motion
+            // or state rule restated per subject ships its block once.
+            if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Fold independent support carriers, not structural roots or native
             // descendants whose standalone rules are consumed by other stages.
             if ('engine-support' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted, false, true);
@@ -566,6 +597,10 @@ final class SitePlanRun
             }
             // A restated arm folded beside the arm it restricts adds nothing.
             $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
+            // Projection pays each arm's specificity one shim at a time
+            // (`:not(.be-c-0):not(.be-c-0)`, `:where(.x):not(.be-c-0)`); every
+            // arm ships that weight at its smallest spelling.
+            $compacted = CssSpecificityShimCompactor::stylesheet($compacted);
             // Projection writes combinators and selector lists spaced out;
             // the selector whitespace that separates no tokens ships once
             // per arm. Declaration values are left byte for byte.
@@ -589,11 +624,7 @@ final class SitePlanRun
      */
     private static function withoutUnreferencedEngineClasses(array $units, ?string $references, array $declarations, array $records): ?array
     {
-        $markups = array();
-        foreach ($units as $group => $rows) foreach ($rows as $index => $row) {
-            foreach (array('canonical_block_markup', 'block_markup') as $field) if (is_string($row[$field] ?? null)) $markups[$group . "\0" . $index . "\0" . $field] = $row[$field];
-            if (is_string($row['archive']['presentation_markup'] ?? null)) $markups[$group . "\0" . $index . "\0archive"] = $row['archive']['presentation_markup'];
-        }
+        $markups = UnreferencedEngineClasses::markups($units);
         $dropped = UnreferencedEngineClasses::unreferenced($markups, $references);
         if (array() === $dropped) return null;
         $before = array();
@@ -661,14 +692,14 @@ final class SitePlanRun
     {
         $documentsBySource = array_column($documents, null, 'source_path');
         foreach ($pages as &$page) {
-            $bound = $this->presetBinding?->bind($page['canonical_block_markup']);
+            $bound = $this->presetBinding?->bind($page['canonical_block_markup'], $page['source_path']);
             if (null === $bound || $bound === $page['canonical_block_markup']) continue;
             $page['canonical_block_markup'] = $bound;
             $page['content_hash'] = WordPressSitePlan::contentHash($bound);
             $document = $documentsBySource[$page['source_path']] ?? null;
             if (!is_array($document) || !isset($page['shell_candidates'])) continue;
             foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
-                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
+                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup'], $page['source_path']);
             }
             $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $bound);
         }
@@ -741,7 +772,10 @@ final class SitePlanRun
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
-        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
+        $leadingChrome = $this->shellExtraction->withLeadingBoundChromeInHeader($documentChrome['pages'], $parts, $shells['runtime_declarations'], $assets);
+        $parts = $leadingChrome['parts'];
+        $shells['runtime_declarations'] = $leadingChrome['runtime_declarations'];
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($leadingChrome['pages'], $parts, $shells['runtime_declarations']);
         $pages = $shellFrames['pages'];
         $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
         $shellFrames['frames'] = $folded['frames'];
@@ -830,6 +864,8 @@ final class SitePlanRun
                 if (is_string($document['modified_timestamp'] ?? null)) $row['modified_timestamp'] = $document['modified_timestamp'];
                 if (is_string($document['author_name'] ?? null)) $row['author_name'] = $document['author_name'];
             }
+            // A proven empty source body keeps its empty content; the contract admits it only with this proof.
+            if ( ! $part && '' === trim($canonical) && DocumentIdentity::hasEmptySourceBody($document) ) $row['empty_source_body'] = true;
             if ( ! $part ) $row['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $canonical);
             $rows[] = $row;
         }
@@ -845,6 +881,19 @@ final class SitePlanRun
      * @param array<int,array<string,mixed>> $documents
      * @return list<string>
      */
+    /**
+     * @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $templates @param array<int,array<string,mixed>> $parts
+     * @return array<string,string> Canonical block markup by document identity (`page:<source path>`, `template:<slug>`, `part:<slug>`).
+     */
+    private static function markupsByDocument(array $pages, array $templates, array $parts): array
+    {
+        $markups = array();
+        foreach (array('page' => array($pages, 'source_path'), 'template' => array($templates, 'slug'), 'part' => array($parts, 'slug')) as $kind => [$documents, $key]) {
+            foreach ($documents as $document) if (is_string($document['canonical_block_markup'] ?? null)) $markups[$kind . ':' . (string) ($document[$key] ?? '')] = $document['canonical_block_markup'];
+        }
+        return $markups;
+    }
+
     private static function markups(array $documents): array
     {
         return array_values(array_filter(array_column($documents, 'canonical_block_markup'), 'is_string'));

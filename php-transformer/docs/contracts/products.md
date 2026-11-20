@@ -47,6 +47,26 @@ shop imports. Rows retain `name`, `slug`, `regular_price` and existing optional
 metadata. Prices are decimal strings. Existing card fields win when JSON-LD
 supplies evidence for the same slug; missing commerce fields are filled in.
 
+Caller catalogs declared as `entity_collection:products` with schema
+`generic/products/v1` merge with detected products by `slug`. Caller rows own
+`name`, `regular_price`, `sale_price`, `description`, `sku`, `image`, `images`, `tags`,
+`variants`, `stock_status`, and `category` when supplied; detection retains
+bindings, compiled detail-page `source_path`/`url`, `whole_page_candidate`,
+controls, and presentation graphs. Detected-only rows remain in the collection;
+catalog-only rows without compiled evidence stay bindingless. Grids, listings,
+carts, and the shop dependency continue to use the merged collection, under the
+same runtime entity budgets.
+
+Artifact-relative images named by a products collection's `image`,
+`images[].src`, or `variants[].image` are declaration references, even when no
+compiled HTML or CSS references them. The WordPress site plan reuses the existing
+asset and reference token and retains a `theme_asset` write (including when a
+rendered block also consumes the image). Product rows keep their original paths
+for provider resolution; remote URLs are unchanged. Missing, unsafe, non-image,
+or otherwise unmaterializable local images produce a
+`wordpress_site_plan_product_image_unavailable` diagnostic rather than failing
+composition. No asset is invented for an unavailable image.
+
 Schema.org `Product` and `ProductGroup` evidence can additionally supply:
 
 - `translations`: up to eight document-language entries from deduped schema

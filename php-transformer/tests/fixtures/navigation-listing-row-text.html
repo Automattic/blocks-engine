@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Row list</title>
+<style>
+body { margin: 0; padding: 4em 2em; background: #f2f2f2; color: #111; font-family: monospace; }
+main { max-width: 66ch; margin: 0 auto; }
+main a { color: inherit; text-decoration: none; }
+main a i { font-style: normal; border-bottom: 1px dotted; }
+.list .row { display: flex; gap: 0.9em; white-space: nowrap; }
+.list .n { color: #8a8a8a; flex: none; }
+.list .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.list .y { color: #8a8a8a; flex: none; }
+.list .row.q .t { color: #6b6b6b; }
+.list .row.q .t i { font-style: italic; }
+</style>
+</head>
+<body>
+<main>
+  <p>Intro with a <a href="/about/"><i>styled link</i></a> inside.</p>
+  <nav class="list">
+    <div class="row">
+      <span class="n">1.</span>
+      <a class="t" href="/first/"><i>First entry title</i></a>
+      <span class="y">2026</span>
+    </div>
+    <div class="row q">
+      <span class="n">2.</span>
+      <a class="t" href="/second/"><span>“</span><i>Second entry, a quote</i></a>
+      <span class="y">2024</span>
+    </div>
+    <div class="row">
+      <span class="n">3.</span>
+      <a class="t" href="/third/"><i>Third entry with a much longer title that should be truncated with an ellipsis at narrow widths</i></a>
+      <span class="y">2022</span>
+    </div>
+  </nav>
+</main>
+</body>
+</html>

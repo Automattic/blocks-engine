@@ -107,12 +107,28 @@ final class EmptyElementFootprint
         return false;
     }
 
+    /**
+     * Whether an element that renders nothing still takes a share of its
+     * parent's layout: a sized table cell, or a sized or growing flex item.
+     * Reads the element's cascaded declarations (every matching rule in
+     * cascade order, then inline style), so a slot assembled from separate
+     * rules counts the same as one declared in a single rule.
+     */
+    public function reservesLayoutSlot(DOMElement $element): bool
+    {
+        return $this->isEmptyLayoutItemSpacer($element);
+    }
+
     private function isEmptyLayoutItemSpacer(DOMElement $element): bool
     {
         $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement || 0 !== SourceDom::childElementCount($element) ) {
+        if ( ! $parent instanceof DOMElement ) {
             return false;
         }
+        // Callers ask only once the subtree has rendered nothing. A table
+        // cell's own width holds even when it wraps empty descendants (#6768);
+        // flex sizing evidence still requires a childless box.
+        $tableCellOnly = 0 !== SourceDom::childElementCount($element);
         $parentProperties = array( 'display', 'flex-direction' );
         $properties = array( 'position', 'display', 'width', 'min-width', 'height', 'min-height', 'flex-basis', 'flex-grow', 'flex' );
         $parentDeclared = $declared = array();
@@ -141,29 +157,38 @@ final class EmptyElementFootprint
                 }
                 return array_merge($base, $inline);
             };
-            if ($this->emptyFlexItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline))) {
+            if ($this->emptyLayoutItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline), $tableCellOnly)) {
                 return true;
             }
         }
         return false;
     }
 
-    private function emptyFlexItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations): bool
+    private function emptyLayoutItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations, bool $tableCellOnly = false): bool
     {
-        $display = CssValueInspector::declared($parentDeclarations, 'display');
-        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
-            return false;
-        }
         if ( $this->isOutOfFlow($declarations)
             || in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
         ) {
             return false;
         }
+        $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
+            || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
+        // A table cell takes its declared width out of the table's row even
+        // when it is empty; dropping it hands that width to its siblings.
+        if ( 'table-cell' === CssValueInspector::declared($declarations, 'display') ) {
+            foreach ( array( 'width', 'min-width' ) as $property ) {
+                if ( $hasSize($this->styleResolver->customProperties->resolve((string) ($declarations[$property] ?? ''), $element)) ) {
+                    return true;
+                }
+            }
+        }
+        $display = CssValueInspector::declared($parentDeclarations, 'display');
+        if ( $tableCellOnly || ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
+            return false;
+        }
 
         $column = in_array(CssValueInspector::declared($parentDeclarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
         $properties = $column ? array( 'height', 'min-height', 'flex-basis' ) : array( 'width', 'min-width', 'flex-basis' );
-        $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
-            || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
         foreach ( $properties as $property ) {
             $value = $this->styleResolver->customProperties->resolve((string) ($declarations[$property] ?? ''), $element);
             if ( $hasSize($value) ) {

@@ -27,10 +27,12 @@ $assets = array();
 foreach ($plan['assets'] as $asset) {
     if ('css' === ($asset['kind'] ?? null)) $assets[$asset['target_path']] = (string) $asset['content'];
 }
-// One stylesheet serves both contexts; the override is reachable only
-// through the editor canvas scope.
-$editor = $assets['assets/site.css'] ?? '';
+// The override is reachable only through the editor canvas scope. Editor-only
+// arms may move to an editor extract enqueued after the sheet; it is never a
+// copy of the sheet.
+$editor = ($assets['assets/site.css'] ?? '') . ($assets['assets/site.editor-canvas.css'] ?? '');
 $assert(! isset($assets['assets/site.editor.css']), 'No editor copy of the stylesheet is emitted.');
+$assert(! str_contains($assets['assets/site.editor-canvas.css'] ?? '', 'grid-template-columns'), 'An editor extract carries no frontend rule.');
 $frontend = '';
 (new CssStylesheetTransformer())->visitStyleRules($editor, static function (string $selector, string $body) use (&$frontend): void {
     if (! str_contains($selector, 'editor-styles-wrapper')) $frontend .= $selector . '{' . $body . '}';

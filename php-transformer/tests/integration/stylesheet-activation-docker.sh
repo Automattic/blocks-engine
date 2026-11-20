@@ -51,4 +51,6 @@ wp eval 'putenv("SCOPED_DROPDOWN_TEST=1"); require "/engine/tests/integration/na
 DROPDOWN_TEST_URL="$url" node "$root/tests/integration/scoped-mixed-dropdown-browser.mjs"
 wp eval 'require "/engine/tests/integration/global-styles-readability.php";'
 READABILITY_TEST_URL="$url" node "$root/tests/integration/global-styles-readability-browser.mjs"
+wp eval 'require "/engine/tests/integration/cover-flex-margins.php";'
+COVER_MARGINS_TEST_URL="$url" node "$root/tests/integration/cover-flex-margins-browser.mjs"
 exit "$runtime_status"

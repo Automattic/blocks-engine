@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -19,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
+use WeakMap;
 
 /**
  * Projects authored source selectors onto the canonical block markup the
@@ -46,10 +48,35 @@ final class AuthorSelectorProjector
 
     private bool $loweredAnchorCarrier = false;
 
+    /**
+     * Arms already projected per projection context, keyed by selector and
+     * arm flags. Rule, margin and image-placement passes project the same
+     * authored selectors repeatedly against one context (#6789).
+     *
+     * @var WeakMap<AuthorStylesheetProjectionContext, array<string, array<int, string>>>
+     */
+    private WeakMap $projectedArms;
+
+    private int $selectorArmProjections = 0;
+
+    private int $selectorArmProjectionHits = 0;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer
     ) {
+        $this->projectedArms = new WeakMap();
+    }
+
+    /**
+     * How many authored selectors were projected to arms, and how many
+     * repeated projections reused them.
+     *
+     * @return array{projections: int, hits: int}
+     */
+    public function selectorArmProjectionCounts(): array
+    {
+        return array( 'projections' => $this->selectorArmProjections, 'hits' => $this->selectorArmProjectionHits );
     }
 
     /**
@@ -80,6 +107,8 @@ final class AuthorSelectorProjector
     /**
      * The figure selector for an `img.x` / `img#x` subject whose image became a
      * core/image block, or null when the subject can still reach an <img>.
+     * An `svg.x` / `svg#x` subject materialized as a standalone core/image
+     * follows the same rule: nothing named `svg` remains in the output.
      *
      * A subject naming the image by class or id follows that identity. A
      * type-only positioned image also needs its figure to own the source box:
@@ -100,7 +129,8 @@ final class AuthorSelectorProjector
 
     private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context, bool $namesOnlyPositionedImages): ?string
     {
-        if ( 'img' !== strtolower($element->tagName) ) {
+        $tagName = strtolower($element->tagName);
+        if ( 'img' !== $tagName && 'svg' !== $tagName ) {
             return null;
         }
         $leafMarker = $context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '';
@@ -116,7 +146,7 @@ final class AuthorSelectorProjector
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
             && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
-        if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
+        if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
             || array() !== ($subject['attributes'] ?? array())
@@ -256,7 +286,7 @@ final class AuthorSelectorProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            array_push($rewritten, ...$this->projectSelectorArms($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+            array_push($rewritten, ...$this->rememberedSelectorArms($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
         }
         $projected = implode(',', array_values(array_unique($rewritten)));
         if ( $projected !== $prelude && EngineMarker::matchesAny($projected) ) {
@@ -264,6 +294,34 @@ final class AuthorSelectorProjector
         }
 
         return $projected;
+    }
+
+    /**
+     * {@see projectSelectorArms()}, once per context, selector and flags. The
+     * projection reads only the context's settled source analysis, so a
+     * repeat yields the same arms. One that recorded a conversion diagnostic
+     * is not reused: its repeat records the diagnostic again.
+     *
+     * @return array<int, string>
+     */
+    private function rememberedSelectorArms(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): array
+    {
+        $key = ($controlWrapper ? '1' : '0') . ($subjectArms ? '1' : '0') . ($semanticSubjectArms ? '1' : '0') . $selector;
+        $remembered = $this->projectedArms[$context] ?? array();
+        if ( isset($remembered[$key]) ) {
+            ++$this->selectorArmProjectionHits;
+            return $remembered[$key];
+        }
+        ++$this->selectorArmProjections;
+        $diagnostics = count($context->evidence->conversionDiagnostics());
+        $arms = $this->projectSelectorArms($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+        if ( count($context->evidence->conversionDiagnostics()) === $diagnostics ) {
+            $remembered = $this->projectedArms[$context] ?? array();
+            $remembered[$key] = $arms;
+            $this->projectedArms[$context] = $remembered;
+        }
+
+        return $arms;
     }
 
     /**
@@ -351,6 +409,20 @@ final class AuthorSelectorProjector
         // The emitted tree is authoritative: add a zero-specificity hop
         // only when that topology actually exists, keeping the source arm
         // for matches that were not wrapped.
+        // A column cover inserts two neutral layout boxes between the
+        // source panel and its items. Keep a child selector's source weight
+        // while following that emitted edge (not arbitrary descendants).
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        if ( is_array($rightmost) && '>' === end($combinators) ) {
+            $start = (int) $rightmost['start'];
+            $coverChild = substr($selector, 0, $start)
+                . ':where(.wp-block-cover__inner-container)>:where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>'
+                . substr($selector, $start);
+            if ( $this->matchesEmittedMarkup($coverChild, $context->emittedMarkup) ) {
+                $arms[] = $coverChild;
+            }
+        }
         $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
         if ( null !== $carrierChild ) {
             $arms[] = $carrierChild;
@@ -582,10 +654,12 @@ final class AuthorSelectorProjector
     {
         $otherSubjects = array();
         $navigationSubjects = array();
+        // The subject and structural predicates belong to the selector, not
+        // to one match, so they are read once per rule.
+        $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
+        $structural = array_filter($parsed['compounds'], static fn(array $compound): bool => ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_of_type'] ?? null));
         foreach ($matches as $element) {
-            $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
-            $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
-            $structural = array_filter($parsed['compounds'], static fn(array $compound): bool => ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_of_type'] ?? null));
+            $target = $context->selectorProjections->navigationSubject($context->authorStyles->sourcePath($element));
             if ('a' === strtolower($element->tagName) && array() !== $structural) {
                 // Core still renders this anchor in its source item. Keep
                 // existing structural predicates live rather than binding
@@ -621,7 +695,22 @@ final class AuthorSelectorProjector
             elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
             // Many source items share one recorded marker target. Emit
             // that subject once per source rule, not once per matching item.
-            $navigationProjection = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+            $itemCondition = '';
+            if ('li' === strtolower($element->tagName) && (
+                ($subject['first_child'] ?? false) || ($subject['last_child'] ?? false)
+                || null !== ($subject['nth_child'] ?? null) || null !== ($subject['nth_of_type'] ?? null)
+                || array() !== ($subject['not'] ?? array()) || array() !== ($subject['any'] ?? array())
+                || 0 !== ($subject['resting_state_negations'] ?? 0)
+            )) {
+                // A container target is shared by siblings, not an identity
+                // for this match. Keep the live item predicate, including
+                // negations, without counting its specificity twice: the
+                // shims below already carry the complete source weight.
+                $span = $parsed['rightmost_compound_span'];
+                $end = $parsed['pseudo_state_suffix_span']['start'] ?? $span['end'];
+                $itemCondition = ':where(' . substr($selector, $span['start'], $end - $span['start']) . ')';
+            }
+            $navigationProjection = ':root ' . $target . $itemCondition . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             $navigationSubjects[$navigationProjection] = true;
         }
         return array(array_keys($navigationSubjects), $otherSubjects);
@@ -642,7 +731,7 @@ final class AuthorSelectorProjector
         $innerArms = array();
         $remainingSubjects = array();
         foreach ( $matches as $element ) {
-            $inner = $context->selectorProjections->innerSubject($element->getNodePath() ?? '');
+            $inner = $context->selectorProjections->innerSubject($context->authorStyles->sourcePath($element));
             if ( null === $inner ) {
                 $remainingSubjects[] = $element;
                 continue;
@@ -822,7 +911,36 @@ final class AuthorSelectorProjector
                 return $hostSelector;
             }
         }
+        // Every match is a submenu list (`.sf-menu ul{position:absolute;
+        // top:-99999em}`). Core repeats the menu's classes on its top-level
+        // `ul.wp-block-navigation__container`, a descendant of the `<nav>`
+        // carrying them, so the authored rule would also move the whole
+        // menu. Keep it on the submenus the source matched.
+        if ( $this->matchesOnlyNavigationSubmenuLists($matches, $parsed, $context) ) {
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context, ':where(:not(.wp-block-navigation__container))');
+        }
         return null;
+    }
+
+    /**
+     * @param list<DOMElement> $matches
+     * @param array<string, mixed> $parsed
+     */
+    private function matchesOnlyNavigationSubmenuLists(array $matches, array $parsed, AuthorStylesheetProjectionContext $context): bool
+    {
+        $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
+        if ( array() === $matches || 2 > count($parsed['compounds'])
+            || ! in_array(strtolower((string) ($subject['type'] ?? '')), array( 'ul', 'ol' ), true)
+            || ! str_contains($context->emittedMarkup, 'wp:navigation ') ) {
+            return false;
+        }
+        foreach ( $matches as $element ) {
+            if ( ! $context->selectorProjections->isNavigationSubmenuListSource($element) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -853,7 +971,7 @@ final class AuthorSelectorProjector
         $typeSubject = null !== (CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null);
         $supersededToggles = false;
         foreach ( $matches as $element ) {
-            $path = $element->getNodePath() ?? '';
+            $path = $context->authorStyles->sourcePath($element);
             if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
                 $hasNonProjected = true;
             } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
@@ -930,8 +1048,8 @@ final class AuthorSelectorProjector
         $groupCarrier = false;
         if ( $inlineLayoutCarriers ) {
             $subject = substr($selector, (int) $parsed['rightmost_compound_span']['start']);
-            $groupCarrier = $this->matchesEmittedMarkup(CssSelectorMatcher::parse($subject . ':where(.wp-block-group)'), $context->emittedMarkup);
-            if ( $groupCarrier || $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
+            $groupCarrier = $this->matchesEmittedMarkup($subject . ':where(.wp-block-group)', $context->emittedMarkup);
+            if ( $groupCarrier || $this->matchesEmittedMarkup($selector, $context->emittedMarkup) ) {
                 $hasNonProjected = true;
             }
         }
@@ -1019,22 +1137,24 @@ final class AuthorSelectorProjector
     }
 
     /** @param array<string, mixed> $parsed */
-    private function matchesEmittedMarkup(array $parsed, string $markup): bool
+    private function matchesEmittedMarkup(string $selector, string $markup): bool
     {
-        // Reuse one DOM across rules, retaining only the current output.
+        // Reuse one DOM, match memo and subject index across rules,
+        // retaining only the current output. A selector is matched only
+        // against the emitted elements carrying its rightmost compound's key.
         static $cachedMarkup = null;
-        static $document = null;
-        if ( $cachedMarkup !== $markup ) {
+        static $cache = null;
+        static $index = null;
+        if ( $cachedMarkup !== $markup || null === $cache || null === $index ) {
             $cachedMarkup = $markup;
-            $document = HtmlSerialization::parseDocument($markup);
-        }
-        foreach ( $document->getElementsByTagName('*') as $element ) {
-            $match = CssSelectorMatcher::matches($element, $parsed);
-            if ( $match['supported'] && $match['matches'] ) {
-                return true;
+            $elements = array();
+            foreach ( HtmlSerialization::parseDocument($markup)->getElementsByTagName('*') as $element ) {
+                $elements[] = $element;
             }
+            $cache = new CssSelectorMatchCache();
+            $index = $cache->subjectElementIndex($elements);
         }
-        return false;
+        return $cache->anySubjectMatches($index, $selector, CssSelectorMatcher::parse($selector), false);
     }
 
     /**
@@ -1140,7 +1260,7 @@ final class AuthorSelectorProjector
         $markers = array();
         $hasNonProjected = false;
         foreach ( $this->matchingSourceElements($leafSelector, $leafParsed, $context) as $element ) {
-            $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
+            $marker = $context->selectorProjections->controlMarker($context->authorStyles->sourcePath($element));
             if ( '' !== $marker ) {
                 $markers[] = $marker;
             } else {
@@ -1898,7 +2018,7 @@ final class AuthorSelectorProjector
             $prefix = substr($selector, 0, $start);
             $subject = substr($selector, $start);
             $projected = $prefix . $carrier . '>' . $subject;
-            if ( ! $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ) continue;
+            if ( ! $this->matchesEmittedMarkup($projected, $context->emittedMarkup) ) continue;
             // The same subject predicate guards the item slot: unrelated
             // synthetic paragraphs must not receive this item's placement.
             $arms[] = $itemSlot ? $prefix . $carrier . ':has(>' . $subject . ')' : $projected;
@@ -1917,7 +2037,7 @@ final class AuthorSelectorProjector
             $start = (int) $span['start'];
             $target = substr($selector, 0, $start) . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>' . substr($selector, $start);
             $target = $this->rewriteSourceTagTypes($target, CssSelectorMatcher::parse($target), $context);
-            if ($this->matchesEmittedMarkup(CssSelectorMatcher::parse($target), $context->emittedMarkup)) $arms[] = $target;
+            if ($this->matchesEmittedMarkup($target, $context->emittedMarkup)) $arms[] = $target;
         }
         return array() === $arms ? null : implode(',', $arms);
     }
@@ -1950,8 +2070,13 @@ final class AuthorSelectorProjector
     /** @param array<string, mixed> $parsed */
     private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
     {
-        $table = 'table' === strtolower($element->tagName) ? $element : SourceDom::ancestorElement($element, 'table');
-        if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
+        $tag = strtolower($element->tagName);
+        // Only a table part can project here; skip the ancestor walk for the rest.
+        if ( ! in_array($tag, array( 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true) ) {
+            return null;
+        }
+        $table = 'table' === $tag ? $element : SourceDom::ancestorElement($element, 'table');
+        if (in_array($tag, array('table', 'tr', 'td'), true)
             && $table instanceof DOMElement
             && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($table)
         ) {

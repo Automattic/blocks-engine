@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\ChromeJournalStore;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\MemoryChromeJournalStore;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -180,15 +182,14 @@ trait StagedTransport
         return $this->compilePreparedPage($sharedPlan, $pagePlan, $payloadReader);
     }
 
-    /** Compile one serialized page plan without receiving the source artifact. */
-    public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
+    /**
+     * Compile one serialized page plan without receiving the source artifact.
+     * Workers of one import that share a journal store convert the subtrees
+     * pages repeat once; without one, pages share within this call.
+     */
+    public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null, ?ChromeJournalStore $chromeJournals = null): array
     {
-        return $this->cssRuleTrees->run(fn () => $this->compilePreparedPageWithCssRuleTrees($sharedPlan, $pagePlan, $payloadReader));
-    }
-
-    private function compilePreparedPageWithCssRuleTrees(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
-    {
-        return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
+        return $this->cssRuleTrees->run(fn () => $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler($chromeJournals), $payloadReader));
     }
 
     /**
@@ -199,15 +200,15 @@ trait StagedTransport
      * @param array<int|string,array<string,mixed>> $pagePlans
      * @return array<string,array<string,mixed>>
      */
-    public function compilePreparedPages(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): array
+    public function compilePreparedPages(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null, ?ChromeJournalStore $chromeJournals = null): array
     {
-        return $this->cssRuleTrees->run(fn () => $this->compilePreparedPagesWithCssRuleTrees($sharedPlan, $pagePlans, $payloadReader));
+        return $this->cssRuleTrees->run(fn () => $this->compilePreparedPagesWithCssRuleTrees($sharedPlan, $pagePlans, $payloadReader, $chromeJournals));
     }
 
-    private function compilePreparedPagesWithCssRuleTrees(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): array
+    private function compilePreparedPagesWithCssRuleTrees(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader, ?ChromeJournalStore $chromeJournals): array
     {
         $this->assertSharedPlan($sharedPlan);
-        $stageCompiler = $this->preparedPageCompiler();
+        $stageCompiler = $this->preparedPageCompiler($chromeJournals);
         $receipts = array();
         foreach ($pagePlans as $pagePlan) {
             if (!is_array($pagePlan) || !is_string($pagePlan['page_id'] ?? null) || isset($receipts[$pagePlan['page_id']])) {
@@ -228,9 +229,10 @@ trait StagedTransport
         }
     }
 
-    private function preparedPageCompiler(): self
+    private function preparedPageCompiler(?ChromeJournalStore $chromeJournals = null): self
     {
         $compiler = new self(beforeDocumentTransform: $this->beforeDocumentTransform);
+        $compiler->chromeJournals = $chromeJournals ?? new MemoryChromeJournalStore();
         $compiler->cssRuleTrees = $this->cssRuleTrees;
         $compiler->htmlTransformerAnalysisCache = $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache();
         $compiler->glyphColorByHash = &$this->glyphColorByHash;
@@ -265,6 +267,7 @@ trait StagedTransport
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
         $stageCompiler->siteSelectorEvidence = $sharedPlan['analysis']['site_selector_evidence'] ?? null;
+        $stageCompiler->repeatedSubtrees = ArrayField::array($sharedPlan['analysis'], 'repeated_subtrees');
 
         $compiledDocuments = array();
         $stepTimings = array();
@@ -648,27 +651,9 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $sourceCssBytes = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
-        $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
-        $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
-        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files'], $collectionsProjection['consumed_selectable_bindings'] ?? array());
-        $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
-        $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
-        $capturedDialogs = array(
-            'diagnostics' => CapturedInteractionReport::mergeDiagnostics($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
-            'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
-            'native_runtime_replacements' => array_merge(
-                $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
-                $selectableSetsProjection['native_runtime_replacements'] ?? array(),
-                $collectionsProjection['superseded_runtime_scripts'] ?? array()
-            ),
-        );
-        if (0 < $selectableSetsProjection['projected_count']) {
-            $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
-        }
-        if (0 < $choiceGroupsProjection['projected_count']) {
-            $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
-        }
-        $rawFiles = (new RouteStateProjector())->project($scrollStatesProjection['files'])['files'];
+        $projection = (new CaptureProjection())->project($normalized['files']);
+        $capturedDialogs = $projection['captured_dialogs'];
+        $rawFiles = $projection['files'];
         // Box-tree identity is proven against the captured source bytes, which
         // the projections above rewrite; keep what this normalization accepted.
         $canonicalBoxTrees = array();
@@ -743,11 +728,7 @@ trait StagedTransport
             'canonical_box_trees' => $canonicalBoxTrees,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
-            'captured_dialogs' => array(
-                'diagnostics' => $capturedDialogs['diagnostics'],
-                'projected_count' => $capturedDialogs['projected_count'],
-                'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
-            ),
+            'captured_dialogs' => $capturedDialogs,
         );
     }
 
@@ -1223,6 +1204,7 @@ trait StagedTransport
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
             'source_paths' => $partition['source_paths'],
+            'repeated_subtrees' => RepeatedSubtrees::selectors(array_merge(...array_values($partition['pages']))),
             // Preserve whole-artifact semantics before synthetic stylesheet
             // occurrence records are introduced by page workers.
             'canonical_source_hash' => $partition['canonical_source_hash'],

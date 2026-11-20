@@ -96,6 +96,10 @@ final class DesignUsageCollector
     private array $spacing = array();
     /** @var array<string,array<string,mixed>> */
     private array $widths = array();
+
+    private ?float $proseWidth = null;
+    /** @var array<string,array{viewport:int,left:float,width:float}> */
+    private array $proseColumns = array();
     /** @var array<string,array<string,array<string,true>>> Class list => property => observations. */
     private array $classStyles = array();
     /** @var list<array<string,mixed>> One observation per rendered heading, never inherited from a text descendant. */
@@ -120,12 +124,35 @@ final class DesignUsageCollector
      * @param list<DOMElement> $buttonElements Controls owned by emitted core/button blocks.
      * @return array<string,mixed>
      */
-    public function collect(DOMElement $body, array $buttonElements = array()): array
+    public function collect(DOMElement $body, array $buttonElements = array(), ?\Closure $boxEvidence = null, array $viewports = array()): array
     {
         $this->buttonElements = new \SplObjectStorage();
         foreach ($buttonElements as $element) $this->buttonElements->offsetSet($element);
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
+        $this->proseWidth = null;
+        $this->proseColumns = array();
+        // Browser boxes prove columns that max-width alone cannot describe,
+        // including prose in a grid. Keep the widest body paragraph per viewport.
+        if (null !== $boxEvidence) {
+            foreach ($body->getElementsByTagName('p') as $paragraph) {
+                if ('' === trim($paragraph->textContent)) continue;
+                for ($ancestor = $paragraph->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                    if (in_array(strtolower($ancestor->tagName), array('header', 'footer', 'aside', 'nav', 'form'), true)) continue 2;
+                }
+                foreach ($boxEvidence($paragraph) as $name => $observation) {
+                    $styles = $observation['used_styles'] ?? array();
+                    if ('none' === ($styles['display'] ?? '') || in_array($styles['visibility'] ?? '', array('hidden', 'collapse'), true)) continue;
+                    $box = $observation['border_box'] ?? array();
+                    $width = (float) ($box['width'] ?? 0);
+                    $left = (float) ($box['x'] ?? 0);
+                    $viewport = (int) ($viewports[$name]['width'] ?? 0);
+                    if ($width <= 0 || $left < 0 || $left + $width > $viewport + 1 || $width <= ($this->proseColumns[$name]['width'] ?? 0)) continue;
+                    $this->proseColumns[$name] = array('viewport' => $viewport, 'left' => $left, 'width' => $width);
+                }
+            }
+        }
+        if (array() === $viewports) $this->proseColumns = DeclarativeProseColumns::collect($body, $this->resolver);
         $this->headingTypography = $this->buttonLooks = $this->schemeColors = array();
         $resolvedRootPx = $this->resolver->documentRootFontSize($body);
         $this->rootPx = $resolvedRootPx ?? 16.0;
@@ -172,10 +199,11 @@ final class DesignUsageCollector
             )),
         );
 
-        $rootColorTokens = array();
+        $rootColorTokens = $rootDesignTokens = array();
         // Root-declared tokens only: resolving them needs no per-element cascade.
         foreach ($this->resolver->customProperties->root() as $name => $_value) {
             $value = $this->resolver->customProperties->resolve('var(' . $name . ')');
+            $rootDesignTokens[$name] = $value;
             // Channel tuples become colours only in their consuming function.
             foreach (array($value, 'hsl(' . $value . ')') as $candidate) {
                 if (!CssColor::opaque($candidate)) continue;
@@ -190,16 +218,18 @@ final class DesignUsageCollector
             'root_font_size_authored' => $this->resolver->hasAuthoredHtmlFontSize($body),
             'root' => $root,
             'root_color_tokens' => $rootColorTokens,
+            'root_design_tokens' => $rootDesignTokens,
             'text' => self::rows($this->text),
             'backgrounds' => self::rows($this->backgrounds),
             'spacing' => self::rows($this->spacing),
             'widths' => self::rows($this->widths),
+            'prose_width_px' => $this->proseWidth,
             'class_styles' => $this->classStyleRows(),
             'heading_typography' => $this->headingTypography,
             'button_looks' => $this->buttonLooks,
             'total_mass' => max(1, $mass),
             'element_count' => $this->elements,
-        );
+        ) + (array() === $this->proseColumns ? array() : array('prose_columns' => array_values($this->proseColumns)));
     }
 
     /**
@@ -270,6 +300,16 @@ final class DesignUsageCollector
     {
         ++$this->elements;
         $context = $this->inherit($parent, $element, $declarations);
+        // Track a prose column independently of the most frequent site container
+        // (which may be a wide grid or navigation wrapper).
+        $context['prose_excluded'] = !empty($parent['prose_excluded']) || in_array($tag, array('header', 'footer', 'aside', 'form'), true);
+        $context['prose_grid'] = !empty($parent['prose_grid']) || in_array(self::clean($declarations['display'] ?? ''), array('grid', 'inline-grid', 'flex', 'inline-flex'), true);
+        $maximum = CssLength::toPx(self::clean($declarations['max-width'] ?? ''), $this->rootPx, $context['size']);
+        $context['prose_width'] = $parent['prose_width'] ?? null;
+        if (null !== $maximum && $maximum > 0) $context['prose_width'] = null === $context['prose_width'] ? $maximum : min($maximum, $context['prose_width']);
+        if ('p' === $tag && !$context['prose_excluded'] && !$context['prose_grid'] && '' !== trim($element->textContent) && null !== $context['prose_width']) {
+            $this->proseWidth = max($this->proseWidth ?? 0, $context['prose_width']);
+        }
         $background = $this->backgroundColor($declarations);
         $opaque = null !== $background && CssColor::opaque($background);
         $control = in_array($tag, array('button', 'a'), true) || 'button' === strtolower($element->getAttribute('role'));
@@ -599,6 +639,7 @@ final class DesignUsageCollector
      * the reason when the value cannot be bound: `!important`, `!transparent` (paints nothing), `!state` (a `:hover`/`:focus` style changes it),
      * `!breakpoint` (a media condition changes it in a way an observation
      * cannot record, or it reads a custom property one redefines) or
+     * `!context` (the winning selector is not an element-local class recipe),
      * `!value` (not a plain colour, absolute length or family stack). A
      * font size relative to the parent's (`inherit`, `unset`, `em`, `%`,
      * `smaller`, `larger`) carries the parent's `!breakpoint` when a media
@@ -618,7 +659,14 @@ final class DesignUsageCollector
             'font-size' => isset($declarations['font-size']) ? $this->fontSizeObservation($declarations['font-size'], $parentPx) : '',
             'font-family' => isset($declarations['font-family']) ? self::familyObservation($declarations['font-family']) : '',
         ) + $this->paddingObservations($declarations, $fontPx);
+        $origins = $this->resolver->classRecipeOrigins($element);
+        $paddingOrigins = $this->paddingObservations($origins, $fontPx);
         foreach ($resting as $property => $observation) {
+            $origin = match ($property) {
+                'background-color' => $origins['background-color'] ?? $origins['background'] ?? '!context',
+                default => $paddingOrigins[$property] ?? $origins[$property] ?? '!context',
+            };
+            if ('' !== $observation && '!context' === $origin) $observation = '!context';
             if ('' !== $observation && !str_starts_with($observation, '!')) $observation = $this->withVariants($element, $property, $observation, $parentPx);
             if ('' !== $observation && !str_starts_with($observation, '!') && $this->readsConditionalVariable($element, $property)) $observation = '!breakpoint';
             if ('font-size' === $property && $parentSizeConditional && '' !== $observation && !str_starts_with($observation, '!') && self::parentRelativeFontSize($declarations['font-size'])) $observation = '!breakpoint';
@@ -784,7 +832,7 @@ final class DesignUsageCollector
             $important = 1 === preg_match('/!\s*important\s*$/i', $value);
             foreach ($physical as $index => $side) {
                 $px = $important || !isset($values[$index]) ? null : CssLength::toPx((string) $values[$index], $this->rootPx, $fontPx);
-                $sides[$side] = match (true) { $important => '!important', null === $px => '!value', default => CssLength::format($px) };
+                $sides[$side] = match (true) { $important => '!important', '!context' === $value => '!context', null === $px => '!value', default => CssLength::format($px) };
             }
         }
         $observations = array();

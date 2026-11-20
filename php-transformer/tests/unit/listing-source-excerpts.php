@@ -51,7 +51,7 @@ $scoped = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
 )))->toArray();
 $scopedCss = implode("\n", array_column(array_filter((new WordPressSitePlan())->fromCompilerResult($scoped)['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
 $assert(1 === preg_match('/(:where\(:root:not\(\.be-r-[0-9a-f]+\)\)) \.cards>\*\{width:33%\}/', $scopedCss, $gate), 'the fixture route-scopes the shared child rule');
-$assert(str_contains($scopedCss, $gate[1] . ' .cards>:where(.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li)>:where(article){width:33%}'), 'a route-scoped source child rule replays across native transport wrappers with its route scope');
+$assert(1 === preg_match('/(?:^|[},])' . preg_quote($gate[1] . ' .cards>:where(.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li)>:where(article)', '/') . '(?:,[^{}]*)?\{width:33%\}/m', $scopedCss), 'a route-scoped source child rule replays across native transport wrappers with its route scope');
 $body = static fn(string $name): string => '<p>Full ' . $name . ' article body with <a href="https://example.test/reference">an external reference</a> and substantial independent text.</p>';
 $full = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => '<main><section>' . str_replace('</article>', $body('first') . '</article>', $card('first', 'First', 'Jan 2, 2026', $first, 'Topic')) . str_replace('</article>', $body('second') . '</article>', $card('second', 'Second', 'Jan 1, 2026', $second, 'Topic')) . '</section></main>',

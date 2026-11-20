@@ -38,6 +38,34 @@ final class FormControlMetadataBuilder
 
     private ?FormPresentationGraphBuilder $formPresentationGraph = null;
 
+    private static int $formMetadataBuilds = 0;
+
+    /**
+     * Full form metadata builds ({@see self::form()}) since process start;
+     * observable for tests. Each walks every control's context, typography
+     * and hidden state, so callers that need only where a form submits read
+     * {@see self::submission()} instead (#6731).
+     */
+    public static function formMetadataBuilds(): int
+    {
+        return self::$formMetadataBuilds;
+    }
+
+    /**
+     * Where and how a form submits: its authored action and lower-cased
+     * method, '' when absent. Shared with {@see self::form()} so both read
+     * the same values.
+     *
+     * @return array{action: string, method: string}
+     */
+    public static function submission(DOMElement $form): array
+    {
+        return array(
+            'action' => SourceDom::attr($form, 'action'),
+            'method' => strtolower(SourceDom::attr($form, 'method')),
+        );
+    }
+
     /**
      * @param HtmlTransformerSession|null $session Source stylesheets for the form presentation graph's
      *     typography, paint and hidden-state cascade; without one those facts are not resolved.
@@ -61,6 +89,36 @@ final class FormControlMetadataBuilder
      * @return array<int, array<string, mixed>>
      */
     public function controls(DOMElement $form, array $additionalControls = array(), ?array $manifestControls = null, ?array &$emittedElements = null): array
+    {
+        if ( array() !== $additionalControls ) {
+            return $this->buildControls($form, $additionalControls, $manifestControls, $emittedElements);
+        }
+        // The control inventory, the fallback finding and the runtime island
+        // of one form dispatch read the same rows (#6789).
+        [ $controls, $emittedElements ] = FormBuildScope::remember(
+            $form,
+            // One entry per inventory, so a manifest build does not evict
+            // the form's own inventory between its readers.
+            'control_metadata:' . spl_object_id($this) . ':' . (null === $manifestControls ? 'form' : implode(',', array_map(spl_object_id(...), $manifestControls))),
+            array( $this, $manifestControls ),
+            function () use ($form, $manifestControls): array {
+                $emitted = array();
+                $controls = $this->buildControls($form, array(), $manifestControls, $emitted);
+
+                return array( $controls, $emitted );
+            }
+        );
+
+        return $controls;
+    }
+
+    /**
+     * @param list<DOMElement> $additionalControls
+     * @param list<DOMElement>|null $manifestControls
+     * @param list<DOMElement>|null $emittedElements
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildControls(DOMElement $form, array $additionalControls, ?array $manifestControls, ?array &$emittedElements): array
     {
         $controls = array();
         $emittedElements = array();
@@ -123,13 +181,22 @@ final class FormControlMetadataBuilder
     /** @return array<string, mixed> */
     public function form(DOMElement $form): array
     {
+        // A dispatch's fallback finding and runtime island describe the same form (#6789).
+        return FormBuildScope::remember($form, 'form_metadata:' . spl_object_id($this), array( $this ), fn (): array => $this->buildForm($form));
+    }
+
+    /** @return array<string, mixed> */
+    private function buildForm(DOMElement $form): array
+    {
+        ++self::$formMetadataBuilds;
+        $submission = self::submission($form);
         $metadata = array_filter(array(
             'id'           => SourceDom::attr($form, 'id'),
             'name'         => SourceDom::attr($form, 'name'),
             'class'        => SourceDom::attr($form, 'class'),
             'aria_label'   => SourceDom::attr($form, 'aria-label'),
-            'action'       => SourceDom::attr($form, 'action'),
-            'method'       => strtolower(SourceDom::attr($form, 'method')),
+            'action'       => $submission['action'],
+            'method'       => $submission['method'],
             'enctype'      => SourceDom::attr($form, 'enctype'),
             'target'       => SourceDom::attr($form, 'target'),
             'autocomplete' => SourceDom::attr($form, 'autocomplete'),
@@ -237,6 +304,10 @@ final class FormControlMetadataBuilder
         }
 
         $recorded = array();
+        // Every node asks whether claimed copy contains it, so index the
+        // claims once instead of scanning all of them per node.
+        $claimedLabels = self::elementSet($claimedLabels);
+        $claimedTexts = array_fill_keys($claimedTexts, true);
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;
@@ -249,14 +320,16 @@ final class FormControlMetadataBuilder
                 continue;
             }
 
-            $item = $this->inFormContextItem($node, $form);
+            $item = $this->inFormContextCopy($node);
             if ( null === $item ) {
                 continue;
             }
+            // Copy a control owns is withheld, so its presentation is not resolved.
             if ( $this->isControlOwnedCopy($node, $item['text'], $claimedLabels, $claimedTexts)
                 || $this->isRecordedCopy($node, $recorded) ) {
                 continue;
             }
+            $item = $this->inFormContextItem($node, $form, $item);
             $recorded[] = $node;
             if ( 0 === $seenControls ) {
                 $before[] = $item;
@@ -281,8 +354,13 @@ final class FormControlMetadataBuilder
         );
     }
 
-    /** @return array<string, mixed>|null */
-    private function inFormContextItem(DOMElement $node, DOMElement $form): ?array
+    /**
+     * The copy an in-form element contributes as context, before its
+     * presentation is resolved: its type and text, or null for no context.
+     *
+     * @return array{type: string, text: string, level?: int}|null
+     */
+    private function inFormContextCopy(DOMElement $node): ?array
     {
         if ( $this->isValidationFeedbackCopy($node) ) {
             return null;
@@ -310,6 +388,15 @@ final class FormControlMetadataBuilder
             return null;
         }
 
+        return $item;
+    }
+
+    /**
+     * @param array{type: string, text: string, level?: int} $item The element's {@see inFormContextCopy()}.
+     * @return array<string, mixed>
+     */
+    private function inFormContextItem(DOMElement $node, DOMElement $form, array $item): array
+    {
         $item['source_selector'] = SourceDom::elementSelector($node);
 
         // Author rules address the element itself, so a consumer reproducing
@@ -367,7 +454,7 @@ final class FormControlMetadataBuilder
     private function formStylesheets(): array
     {
         return array(
-            $this->session->authorStyleAnalysis()->stylesheetAssets(),
+            $this->session->authorStyleAnalysis()->stylesheetAssets(true),
             $this->session->sourceStyleResolutionState()->formLayoutCss(),
         );
     }
@@ -397,13 +484,13 @@ final class FormControlMetadataBuilder
      * the element that labels the control, or it is the text the builder
      * resolved as the control's own field description.
      *
-     * @param array<int, DOMElement> $claimedLabels
-     * @param array<int, string>     $claimedTexts
+     * @param array<int, DOMElement> $claimedLabels {@see self::elementSet()}
+     * @param array<string, true>    $claimedTexts  Claimed texts as keys.
      */
     private function isControlOwnedCopy(DOMElement $node, string $text, array $claimedLabels, array $claimedTexts): bool
     {
-        foreach ( $claimedLabels as $label ) {
-            if ( SourceDom::elementContains($label, $node) ) {
+        for ( $ancestor = $node; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( self::inElementSet($claimedLabels, $ancestor) ) {
                 return true;
             }
         }
@@ -411,13 +498,36 @@ final class FormControlMetadataBuilder
         // A field's own wrapper (`<p><label for="e">Email</label><input id="e"></p>`,
         // `<p><button>Join</button></p>`) has no text of its own: everything it
         // reads is a claimed label or a control it contains.
-        return in_array($text, $claimedTexts, true) || '' === $this->unclaimedText($node, $claimedLabels);
+        return isset($claimedTexts[$text]) || '' === $this->unclaimedText($node, $claimedLabels);
+    }
+
+    /**
+     * Elements keyed by object id for O(1) membership. The set holds each
+     * element, so no other live wrapper can share its id.
+     *
+     * @param array<int, DOMElement> $elements
+     * @return array<int, DOMElement>
+     */
+    private static function elementSet(array $elements): array
+    {
+        $set = array();
+        foreach ( $elements as $element ) {
+            $set[spl_object_id($element)] = $element;
+        }
+
+        return $set;
+    }
+
+    /** @param array<int, DOMElement> $set {@see self::elementSet()} */
+    private static function inElementSet(array $set, DOMElement $element): bool
+    {
+        return isset($set[spl_object_id($element)]) && $set[spl_object_id($element)]->isSameNode($element);
     }
 
     /**
      * Text of an element outside the claimed labels and the controls it contains.
      *
-     * @param array<int, DOMElement> $claimedLabels
+     * @param array<int, DOMElement> $claimedLabels {@see self::elementSet()}
      */
     private function unclaimedText(DOMElement $element, array $claimedLabels): string
     {
@@ -430,10 +540,8 @@ final class FormControlMetadataBuilder
             if ( ! $child instanceof DOMElement || FormControlClassifier::isControlElement($child) ) {
                 continue;
             }
-            foreach ( $claimedLabels as $label ) {
-                if ( $label->isSameNode($child) ) {
-                    continue 2;
-                }
+            if ( self::inElementSet($claimedLabels, $child) ) {
+                continue;
             }
             $text .= $this->unclaimedText($child, $claimedLabels);
         }
@@ -583,6 +691,15 @@ final class FormControlMetadataBuilder
         $marker = $this->requiredMarker($control);
         if ( $marker instanceof DOMElement ) {
             $metadata['required_text'] = trim($marker->textContent ?? '');
+            // A visible asterisk marker is read into the label text. It now
+            // travels as the required text, so the label keeps only its own
+            // words and the separator, as it does beside a decorative marker.
+            if ( ! SourceDom::isAriaHidden($marker) && isset($metadata['label']) && is_string($metadata['label'])
+                && 1 === preg_match('/^\*{1,4}$/D', $metadata['required_text'])
+                && 1 === preg_match('/^(.*?\S)(\s*)' . preg_quote($metadata['required_text'], '/') . '\s*$/u', $metadata['label'], $markedLabel)
+            ) {
+                $metadata['label'] = $markedLabel[1] . ( '' !== $markedLabel[2] ? ' ' : '' );
+            }
         }
         if ( $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
             $metadata['required'] = true;
@@ -852,9 +969,13 @@ final class FormControlMetadataBuilder
         if ( ! $label instanceof DOMElement ) {
             return null;
         }
+        // A visible asterisk element marks a field only when the control is
+        // required; a decorative (aria-hidden) one marks it either way.
+        $required = $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required')));
         foreach ( $label->getElementsByTagName('*') as $marker ) {
             $text = trim($marker->textContent ?? '');
             if ( ( 'span' === strtolower($marker->tagName) && 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden')) && preg_match('/^\*{1,4}$/D', $text) )
+                || ( $required && ! FormControlClassifier::isControlElement($marker) && 1 === preg_match('/^\*{1,4}$/D', $text) )
                 || 1 === preg_match('/^\(\s*required\s*\)$/iu', $text)
             ) {
                 return $marker;
@@ -874,8 +995,52 @@ final class FormControlMetadataBuilder
                 return $this->contentStartsWith($label, $control);
             }
         }
+        $follows = self::followsOutsideAncestry($label, $control);
+        if ( null !== $follows ) {
+            return $follows;
+        }
         $xpath = new \DOMXPath($control->ownerDocument);
         return (int) $xpath->evaluate('count(preceding::*)', $label) > (int) $xpath->evaluate('count(preceding::*)', $control);
+    }
+
+    /**
+     * Whether `$later` comes after `$earlier` in document order, read from
+     * their nearest common ancestor's children instead of counting every
+     * preceding element of the document twice per control (#6752). When
+     * neither contains the other, that is exactly whether `$later` has more
+     * preceding elements. Null when one contains the other or they share no
+     * ancestor, which the count answers.
+     */
+    private static function followsOutsideAncestry(DOMElement $later, DOMElement $earlier): ?bool
+    {
+        $laterChain = array();
+        for ( $node = $later; null !== $node; $node = $node->parentNode ) {
+            $laterChain[] = $node;
+        }
+        $branches = array();
+        foreach ( $laterChain as $position => $node ) {
+            $branches[spl_object_id($node)] = $position;
+        }
+        $earlierBranch = null;
+        for ( $node = $earlier; null !== $node; $node = $node->parentNode ) {
+            $position = $branches[spl_object_id($node)] ?? null;
+            if ( null !== $position && $laterChain[$position]->isSameNode($node) ) {
+                if ( 0 === $position || null === $earlierBranch ) {
+                    return null;
+                }
+                $laterBranch = $laterChain[$position - 1];
+                for ( $sibling = $earlierBranch->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+                    if ( $sibling->isSameNode($laterBranch) ) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            $earlierBranch = $node;
+        }
+
+        return null;
     }
 
     private function contentStartsWith(DOMElement $container, DOMElement $control): bool
@@ -965,11 +1130,11 @@ final class FormControlMetadataBuilder
     {
         $candidates = array();
         $listbox = $this->ownedListboxPanel($control);
-        $honeypotCopy = FormControlClassifier::honeypotCopyElements($wrapper);
+        $honeypotCopy = self::elementSet(FormControlClassifier::honeypotCopyElements($wrapper));
         $labels = SourceDom::associatedLabels($control);
         // Preserve the single wrapping label's leading-name/trailing-helper
         // convention, but never read another associated label as helper copy.
-        $excludedLabels = array_filter($labels, static fn (DOMElement $label): bool => 1 < count($labels) || ! $labelElement instanceof DOMElement || ! $label->isSameNode($labelElement));
+        $excludedLabels = self::elementSet(array_filter($labels, static fn (DOMElement $label): bool => 1 < count($labels) || ! $labelElement instanceof DOMElement || ! $label->isSameNode($labelElement)));
         foreach ( $wrapper->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;

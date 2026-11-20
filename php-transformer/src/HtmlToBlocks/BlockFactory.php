@@ -585,14 +585,29 @@ final class BlockFactory
             );
         }
 
+        $hasParallax = true === ($attrs['hasParallax'] ?? false);
         $position = (string) ($attrs['contentPosition'] ?? '');
+        $wrapperClasses = $hasParallax ? array( 'has-parallax' ) : array();
         if ( '' !== $position && 'center center' !== $position ) {
-            $wrapperAttrs['className'] = trim('has-custom-content-position is-position-' . str_replace(' ', '-', $position) . ' ' . (string) ($wrapperAttrs['className'] ?? ''));
+            $wrapperClasses[] = 'has-custom-content-position is-position-' . str_replace(' ', '-', $position);
+        }
+        if ( array() !== $wrapperClasses ) {
+            $wrapperAttrs['className'] = trim(implode(' ', $wrapperClasses) . ' ' . (string) ($wrapperAttrs['className'] ?? ''));
         }
 
         $imageHtml = '';
         $url = (string) ($attrs['url'] ?? '');
-        if ( '' !== $url ) {
+        if ( '' !== $url && $hasParallax ) {
+            // core/cover save(): a parallax image is a fixed background layer.
+            $focal = is_array($attrs['focalPoint'] ?? null) ? $attrs['focalPoint'] : array();
+            $imageHtml = '<div' . HtmlSerialization::attributes(array(
+                'role'       => '' !== (string) ($attrs['alt'] ?? '') ? 'img' : '',
+                'aria-label' => (string) ($attrs['alt'] ?? ''),
+                'class'      => 'wp-block-cover__image-background has-parallax',
+                'style'      => 'background-position:' . (string) (int) round((float) ($focal['x'] ?? 0.5) * 100) . '% '
+                    . (string) (int) round((float) ($focal['y'] ?? 0.5) * 100) . '%;background-image:url(' . $url . ')',
+            )) . '></div>';
+        } elseif ( '' !== $url ) {
             $imageAttrs = array(
                 'class'                => 'wp-block-cover__image-background',
                 'alt'                  => (string) ($attrs['alt'] ?? ''),
