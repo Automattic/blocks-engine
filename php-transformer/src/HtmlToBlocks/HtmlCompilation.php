@@ -1538,7 +1538,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $conversionSelectorCache = clone $selectorCache;
         $timer->start('transform.validation.design_usage');
         $designUsageCollector = new DesignUsageCollector($this->styleResolver);
-        $designUsage = $designUsageCollector->collect($body, $buttonElements);
+        $designUsage = $designUsageCollector->collect($body, $buttonElements, $this->session->boxTreeEvidence(...), $this->session->boxTreeViewports());
         foreach ( $designUsageCollector->schemeColorFindings() as $finding ) {
             $diagnostics[] = ConversionFindingContract::withClassification($finding + array('source' => HtmlTransformer::class));
         }
