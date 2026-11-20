@@ -1456,6 +1456,16 @@ final class NavigationPatternContext
         return $result;
     }
 
+    /**
+     * Core's item box stands for the source item once the anchor renders
+     * inside it with its own carrier: observed on the anchor, the item would
+     * restate the anchor's padding, display and cursor on the `<li>` too.
+     */
+    public function observeItemBoxOn(DOMElement $anchor, DOMElement $item): void
+    {
+        $this->session->substituteBoxTreeBlockBox($anchor, $item);
+    }
+
     /** An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}). */
     public function boxTreeElementCarrier(DOMElement $element): string
     {
