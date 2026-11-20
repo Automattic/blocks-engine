@@ -302,6 +302,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private array $foldedInto = array();
 
+    /**
+     * A folded box's receiving child's own captured observations, keyed by the
+     * child's node id: what the child is restyled with again when its box
+     * keeps its block after all.
+     *
+     * @var array<string, array<string, array<string, mixed>>>
+     */
+    private array $foldChildObservations = array();
+
     /** @var array<string, array<string, list<array{0: float|null, 1: string}>>> Lifted author bands by node id. */
     private array $foldFluid = array();
 
@@ -1212,7 +1221,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->session->installTransformOptions($options);
-        $this->foldedInto = $this->foldFluid = $this->foldsCarried = $this->boxTreeCarriers = array();
+        $this->foldedInto = $this->foldChildObservations = $this->foldFluid = $this->foldsCarried = $this->boxTreeCarriers = array();
         $this->neutralBoxChildren = $this->neutralBoxChildren($html, $options);
         $this->documentAuthorCss = '';
         $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
@@ -1958,6 +1967,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // ADR 0005 slice 5: a folded box's declarations now belong to its child.
         foreach ( $classification['folds'] as $id => $fold ) {
             $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box']);
+            $this->foldChildObservations[(string) $fold['child']] = $tree['nodes'][$fold['child']]['viewports'] ?? array();
         }
         $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => !empty($node['link_carrier'])))));
         $this->session->recordBoxTreeFolds($classification['folds']);
@@ -2295,6 +2305,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
             $fallbacks = $before;
             unset($this->neutralBoxChildren[$boxId], $this->foldedInto[$childId]);
+            // The box renders its own declarations again, so the child no
+            // longer receives them: it converts with its own observations,
+            // inside the box's block, or both would render the placement.
+            $this->session->restoreFoldedBoxTreeNode($boxId, $childId, $this->foldChildObservations[$childId] ?? array());
         }
         $tagName = strtolower($element->tagName);
 
