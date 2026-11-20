@@ -59,14 +59,28 @@ final class PostBlocks
     }
 
     /**
+     * A byline's `rel="author"` link renders the post's author. Any label,
+     * icon or punctuation around it stays authored copy beside the block.
+     */
+    public static function author(string $slice): string
+    {
+        $document = self::document($slice);
+        $links = array();
+        foreach ($document->getElementsByTagName('a') as $link) if (in_array('author', preg_split('/\s+/', strtolower($link->getAttribute('rel'))) ?: array(), true) && '' !== trim($link->textContent)) $links[] = $link;
+        $block = static fn(\DOMElement $link): string => '<!-- wp:post-author-name ' . BlockAttributes::encode(array_filter(array('isLink' => true, 'className' => trim($link->getAttribute('class')) ?: null), static fn($value): bool => null !== $value)) . ' /-->';
+        if (1 !== count($links)) return $slice;
+        if (ListingExcerptProjection::text($slice) === trim($links[0]->textContent)) return $block($links[0]);
+        return self::splitAround($slice, $document, $links[0], $block($links[0]));
+    }
+
+    /**
      * Keep inline ancestors balanced on either side of the dynamic date. The
      * outer paragraph becomes a row, so post-date is never nested in RichText.
      */
     private static function labelledDate(string $slice): ?string
     {
         if (!preg_match('/<time\b[^>]*datetime=/i', $slice)) return null;
-        $document = new \DOMDocument();
-        @$document->loadHTML('<?xml encoding="UTF-8">' . $slice, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $document = self::document($slice);
         $times = $document->getElementsByTagName('time');
         if (1 !== $times->length) return null;
         $time = $times->item(0);
@@ -75,14 +89,42 @@ final class PostBlocks
         $target = $time;
         if ($time->parentNode instanceof \DOMElement && 'a' === $time->parentNode->tagName
             && trim($time->parentNode->textContent) === trim($time->textContent)) $target = $time->parentNode;
-        $root = $target;
-        while ($root->parentNode instanceof \DOMElement) $root = $root->parentNode;
+        $dateClasses = array();
+        foreach (array($target, $time) as $element) {
+            if ($element->hasAttribute('class')) $dateClasses[] = $element->getAttribute('class');
+        }
+        $dateSource = array('className' => implode(' ', array_unique($dateClasses)), 'isLink' => 'a' === $target->tagName);
+        $date = self::date('<!-- wp:paragraph ' . BlockAttributes::encode($dateSource) . ' -->' . self::serializer($slice, $document)($target) . '<!-- /wp:paragraph -->');
+        return self::splitAround($slice, $document, $target, $date);
+    }
+
+    private static function document(string $slice): \DOMDocument
+    {
+        $document = new \DOMDocument();
+        @$document->loadHTML('<?xml encoding="UTF-8">' . $slice, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        return $document;
+    }
+
+    /** @return callable(\DOMNode):string */
+    private static function serializer(string $slice, \DOMDocument $document): callable
+    {
         // libxml < 2.14 URL-encodes braces in URI attributes on saveHTML().
         // Restore only plan tokens present in the input, never arbitrary URLs.
         preg_match_all('/\{\{wordpress-site-plan:asset:[^}]+\}\}/', $slice, $tokens);
         $restore = array();
         foreach ($tokens[0] as $token) $restore[str_replace(array('{', '}'), array('%7B', '%7D'), $token)] = $token;
-        $serialize = static fn(\DOMNode $node): string => strtr($document->saveHTML($node) ?: '', $restore);
+        return static fn(\DOMNode $node): string => strtr($document->saveHTML($node) ?: '', $restore);
+    }
+
+    /**
+     * The leaf as a wrapping row: its copy before the target, the dynamic
+     * block, then its copy after, each side keeping its inline ancestors.
+     */
+    private static function splitAround(string $slice, \DOMDocument $document, \DOMElement $target, string $dynamic): string
+    {
+        $root = $target;
+        while ($root->parentNode instanceof \DOMElement) $root = $root->parentNode;
+        $serialize = self::serializer($slice, $document);
         $seen = false;
         $split = static function (\DOMNode $node) use (&$split, &$seen, $target, $serialize): array {
             if ($node === $target) {
@@ -117,13 +159,7 @@ final class PostBlocks
         if (null !== $classes) $attrs['className'] = $classes;
         $attrs['layout'] = array('type' => 'flex', 'flexWrap' => 'wrap');
         $paragraph = static fn(string $html): string => '' === trim($html) ? '' : '<!-- wp:paragraph --><p>' . $html . '</p><!-- /wp:paragraph -->';
-        $dateClasses = array();
-        foreach (array($target, $time) as $element) {
-            if ($element->hasAttribute('class')) $dateClasses[] = $element->getAttribute('class');
-        }
-        $dateSource = array('className' => implode(' ', array_unique($dateClasses)), 'isLink' => 'a' === $target->tagName);
-        $date = self::date('<!-- wp:paragraph ' . BlockAttributes::encode($dateSource) . ' -->' . $serialize($target) . '<!-- /wp:paragraph -->');
-        return '<!-- wp:group ' . BlockAttributes::encode($attrs) . ' --><div class="wp-block-group' . (null === $classes ? '' : ' ' . htmlspecialchars($classes, ENT_QUOTES, 'UTF-8')) . '">' . $paragraph($parts[0]) . $date . $paragraph($parts[1]) . '</div><!-- /wp:group -->';
+        return '<!-- wp:group ' . BlockAttributes::encode($attrs) . ' --><div class="wp-block-group' . (null === $classes ? '' : ' ' . htmlspecialchars($classes, ENT_QUOTES, 'UTF-8')) . '">' . $paragraph($parts[0]) . $dynamic . $paragraph($parts[1]) . '</div><!-- /wp:group -->';
     }
 
     /**

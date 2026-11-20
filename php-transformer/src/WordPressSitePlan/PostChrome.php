@@ -1032,6 +1032,10 @@ final class PostChrome
                     }
                 }
             }
+            if ('author' === $this->classifyBlock($slice, $post, $route, $index)) {
+                $slots[$leaf['offset']] = PostBlocks::author($slice);
+                continue;
+            }
             // A date linked to its own post (Blogger's timestamp permalink)
             // varies only by that post's URL and date: post-date renders both.
             if ('date' === $this->classifyBlock($slice, $post, $route, $index) && $this->listings->linksOnlyToRoute($slice, $route)) {
@@ -1298,6 +1302,12 @@ final class PostChrome
             $empty['template'] = PostBlocks::featuredImage($slice);
             return $empty;
         }
+        // A byline is shared by every post of one author, yet renders each
+        // post's own author.
+        if (array() === $index->children($range) && $this->bylineNamesAuthor($slice, $post)) {
+            $empty['template'] = PostBlocks::author($slice);
+            return $empty;
+        }
         $attrs = PostBlocks::sourceAttributes($slice);
         $className = (string) ($attrs['className'] ?? '');
         $anchor = (string) ($attrs['anchor'] ?? '');
@@ -1390,8 +1400,22 @@ final class PostChrome
         if (self::isCommentFormChrome($slice)) {
             return 'comments';
         }
+        if ($this->bylineNamesAuthor($slice, $post)) {
+            return 'author';
+        }
         $kind = $this->listings->classifyCardBlock($slice, $post, $route, $postIndex);
         return 'skip' === $kind ? 'share' : $kind;
+    }
+
+    /** A leaf whose one `rel="author"` link names the post's proven author. */
+    private function bylineNamesAuthor(string $slice, array $post): bool
+    {
+        if (!preg_match('/\brel="[^"]*\bauthor\b/i', $slice)) return false;
+        foreach ($this->taxonomyEntities as $entity) {
+            if ('author' !== ($entity['kind'] ?? null) || !in_array($post['source_path'] ?? null, $entity['membership_source_paths'] ?? array(), true)) continue;
+            return PostBlocks::author($slice) !== $slice && str_contains(ListingExcerptProjection::text($slice), (string) $entity['name']);
+        }
+        return false;
     }
 
     /** @param array<string,mixed> $post */
