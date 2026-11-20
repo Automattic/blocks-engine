@@ -2888,14 +2888,18 @@ final class ArtifactCompiler
                 [$styleMembers, $members] = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
                 if (count($members) < 2 || array() === $styleMembers) continue;
                 $sourcePath = isset($styleMembers[$entryPath]) ? $entryPath : (string) array_key_first($styleMembers);
-                // Identity excludes capture-only entrance state, but the emitted
-                // part must retain it. Prefer a member that observed entrances,
-                // even when the entry route was too short to trigger them.
+                // Evidence routes retire author CSS, so their shared shell must
+                // be compiled from an accepted box tree when a member has one.
+                // Within that tier prefer observed entrance state, even when
+                // the entry route was too short to trigger it.
                 $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
                 $evidenceSourcePath = $sourcePath;
                 foreach ($styleMembers as $memberPath => $member) {
                     $candidate = $member['rows'][$area][$variant]['markup'];
-                    if (SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource)) {
+                    $candidateHasTree = array() !== $this->boxTreeForSource($files, $memberPath);
+                    $canonicalHasTree = array() !== $this->boxTreeForSource($files, $evidenceSourcePath);
+                    if (($candidateHasTree && !$canonicalHasTree)
+                        || ($candidateHasTree === $canonicalHasTree && SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource))) {
                         $canonicalSource = $candidate;
                         $evidenceSourcePath = $memberPath;
                     }
