@@ -2527,7 +2527,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $attrs = $this->projectBoxTreeCarrier($name, $attrs, $sourceElement);
+            $attrs = $this->projectBoxTreeCarrier($name, $attrs, $this->session->boxTreeBlockBox($sourceElement));
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
