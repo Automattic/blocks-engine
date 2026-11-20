@@ -40,7 +40,6 @@ foreach ($cases as $name => [$direction, $align, $sibling, $width, $grow, $crite
     }
     $result = BoxTreeClassifier::classify($html, $tree);
     $expected = array('disposition' => 'own-sizing' === $criterion ? 'load-bearing' : 'neutral', 'criterion' => $criterion);
-    if ('own-sizing' === $criterion) $expected['fold_refusal'] = 'reparenting-shrinks';
     if ($expected !== $result['nodes']['wrapper']) throw new RuntimeException($name . ': ' . json_encode($result['nodes']['wrapper']));
     if ('own-sizing' === $criterion) {
         // Exercise fold's guard independently: paint takes precedence over
@@ -48,7 +47,7 @@ foreach ($cases as $name => [$direction, $align, $sibling, $width, $grow, $crite
         foreach ($tree['nodes']['wrapper']['viewports'] as &$observation) $observation['used_styles']['background-color'] = 'rgb(255, 0, 0)';
         unset($observation);
         $painted = BoxTreeClassifier::classify($html, $tree);
-        if (array('disposition' => 'load-bearing', 'criterion' => 'paints', 'fold_refusal' => 'reparenting-shrinks') !== $painted['nodes']['wrapper']) {
+        if (array('disposition' => 'load-bearing', 'criterion' => 'paints') !== $painted['nodes']['wrapper']) {
             throw new RuntimeException($name . ': painted wrapper must not fold');
         }
     }

@@ -126,11 +126,6 @@ final class PseudoFormAnalyzer
         $hasContainerAction = '' !== trim(SourceDom::attr($element, 'action')) || '' !== trim(SourceDom::attr($element, 'method')) || '' !== trim(SourceDom::attr($element, 'data-action'));
 
         foreach ( FormControlClassifier::controlElements($element) as $control ) {
-            // A `form=` control submits with the real form it names, which
-            // owns the binding; it never makes its wrapper a second form (#7204).
-            if ( self::submitsWithNamedForm($control) ) {
-                continue;
-            }
             if ( FormControlClassifier::isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
                 $hasDataEntry = true;
                 $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlMetadataBuilder->label($control)) || '' !== trim(SourceDom::attr($control, 'aria-label')) || '' !== trim(SourceDom::attr($control, 'name'));
@@ -145,14 +140,6 @@ final class PseudoFormAnalyzer
         }
 
         return false;
-    }
-
-    private static function submitsWithNamedForm(DOMElement $control): bool
-    {
-        $id = trim(SourceDom::attr($control, 'form'));
-        $form = '' !== $id ? $control->ownerDocument?->getElementById($id) : null;
-
-        return $form instanceof DOMElement && 'form' === strtolower($form->tagName);
     }
 
     /**

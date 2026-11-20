@@ -72,17 +72,13 @@ foreach (array('role="region"', 'aria-label="Region"', 'name="region"', 'onclick
 }
 // Builder test hooks are resolved during conversion, not live root attributes.
 $result = $compile('unused', '', '', 'section', 'data-block-level-container="section"', 'data-testid="internal-container-root" data-block-level-container="child"');
-$node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];
-$assert('folded' === $node['disposition'], 'conflicting builder data attributes still fold');
-$assert(!isset($node['fold_refusal']), 'dropped builder attributes do not produce a refusal');
+$assert('folded' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], 'conflicting builder data attributes still fold');
 $assert(!str_contains($result['serialized_blocks'], 'data-testid') && !str_contains($result['serialized_blocks'], 'data-block-level-container'), 'dropped builder attributes are not promoted to runtime metadata');
 
 foreach (array('tabindex', 'data-interact-enter', 'data-blocks-engine-runtime-hook') as $attribute) {
     $extra = 'tabindex' === $attribute ? '' : $attribute . '="section"';
     $result = $compile('', '', '', 'section', $extra, $attribute . '="child"');
-    $node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];
-    $assert('load-bearing' === $node['disposition'], "$attribute: conflicting runtime hooks keep both boxes");
-    $assert('hook-conflict:' . $attribute === $node['fold_refusal'], "$attribute: names the carried hook conflict");
+    $assert('load-bearing' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], "$attribute: conflicting runtime hooks keep both boxes");
 }
 $result = $compile('', '', '', 'section', 'data-interact-enter="fade" data-blocks-engine-runtime-hook="section"');
 $assert('folded' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], 'nonconflicting runtime hooks fold');
@@ -90,6 +86,5 @@ $assert(str_contains($result['serialized_blocks'], '"data-interact-enter":"fade"
 
 $result = $compile('target', '', '<style>#target { color: red }</style>');
 $assert('load-bearing' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], 'a stylesheet-referenced child id keeps both boxes');
-$assert('referenced-id' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['fold_refusal'], 'names the referenced child id refusal');
 $result = $compile('target', '', '<link href="#target">');
 $assert('load-bearing' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box']['disposition'], 'a fragment-referenced child id keeps both boxes');

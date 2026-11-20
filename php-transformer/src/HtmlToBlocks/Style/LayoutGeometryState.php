@@ -57,17 +57,6 @@ final class LayoutGeometryState
         return str_starts_with($this->carrierSignatures[$className] ?? '', 'box-tree:');
     }
 
-    /**
-     * The properties a carrier's registered rule declares, at any width.
-     *
-     * @return array<string, true>
-     */
-    public function carriedProperties(string $className): array
-    {
-        preg_match_all('/[{;]\s*(-?[a-z][a-z0-9-]*)\s*:/i', $this->rules[$className] ?? '', $matches);
-        return array_fill_keys(array_map('strtolower', $matches[1]), true);
-    }
-
     public function registerRule(string $className, string $rule): void
     {
         $this->rules[$className] = $rule;

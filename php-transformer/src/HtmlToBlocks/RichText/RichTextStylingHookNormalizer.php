@@ -342,37 +342,12 @@ final class RichTextStylingHookNormalizer
             return false;
         }
 
-        // A box-tree carrier restyles the element it was captured on. On a
-        // format tag (`small`, `strong`) that element keeps its own box, so
-        // it keeps the carrier: on the nested mark, the format tag's own
-        // inline box would take the parent's font and line height.
-        $ownCarriers = array();
-        if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
-            $ownCarriers = $this->boxTreeCarriers($element);
-        }
-
         if ( '' !== $marker ) {
             // Marker-backed content was resolved against its attached source.
             // Do not refill responsive properties from this detached fragment.
             if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
                 $declarations = $existingDeclarations;
             }
-        }
-        if ( array() !== $ownCarriers ) {
-            // The kept tag's carrier states its observed typography (or
-            // leaves it to inheritance where it matches the parent) at every
-            // width, and its box declarations belong to the tag's box. A
-            // base value restated inline on the nested mark would outrank
-            // the carrier's responsive rules and freeze one breakpoint.
-            $declarations = $this->withoutCarrierOwnedDeclarations($declarations, $ownCarriers);
-            if ( '' === $marker && array() === $declarations && array() === array_diff(SourceDom::tokens(SourceDom::attr($element, 'class')), $ownCarriers)
-                && array() === array_diff_key($this->richTextSafeIdentityAttributes($element), array( 'class' => true )) ) {
-                $element->setAttribute('class', implode(' ', $ownCarriers));
-                $element->removeAttribute('style');
-                return true;
-            }
-        }
-        if ( '' !== $marker ) {
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
@@ -390,6 +365,14 @@ final class RichTextStylingHookNormalizer
             return false;
         }
 
+        // A box-tree carrier restyles the element it was captured on. On a
+        // format tag (`small`, `strong`) that element keeps its own box, so
+        // it keeps the carrier: on the nested mark, the format tag's own
+        // inline box would take the parent's font and line height.
+        $ownCarriers = array();
+        if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
+            $ownCarriers = array_values(array_filter(SourceDom::tokens(SourceDom::attr($element, 'class')), fn(string $class): bool => $this->session->layoutGeometryState()->isBoxTreeCarrier($class)));
+        }
         $mark = $document->createElement('mark');
         foreach ( $sourceIsLink ? array() : $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
             if ( 'class' === $name && array() !== $ownCarriers ) {
@@ -451,41 +434,6 @@ final class RichTextStylingHookNormalizer
             && '' !== trim((string) (SourceDeclarations::inline($element)['--blocks-engine-richtext-marker'] ?? ''));
     }
 
-    /** @return list<string> The element's box-tree carrier classes. */
-    private function boxTreeCarriers(DOMElement $element): array
-    {
-        return array_values(array_filter(SourceDom::tokens(SourceDom::attr($element, 'class')), fn(string $class): bool => $this->session->layoutGeometryState()->isBoxTreeCarrier($class)));
-    }
-
-    /**
-     * Declarations a descendant run of an element with box-tree carriers
-     * must not restate: inherited text styling, which the carriers state or
-     * deliberately leave to inheritance, and anything a carrier declares.
-     *
-     * @param array<string, string> $declarations
-     * @param list<string> $carriers
-     * @return array<string, string>
-     */
-    private function withoutCarrierOwnedDeclarations(array $declarations, array $carriers): array
-    {
-        $carried = array();
-        foreach ( $carriers as $carrier ) {
-            $carried += $this->session->layoutGeometryState()->carriedProperties($carrier);
-        }
-        foreach ( array_keys($declarations) as $property ) {
-            $property = (string) $property;
-            $name = strtolower($property);
-            $shorthand = strstr($name, '-', true);
-            if ( $this->descendantInheritsLinkDeclaration($name) || isset($carried[$name])
-                || ( false !== $shorthand && isset($carried[$shorthand]) )
-                || array() !== array_filter(array_keys($carried), static fn(string $longhand): bool => str_starts_with($longhand, $name . '-')) ) {
-                unset($declarations[$property]);
-            }
-        }
-
-        return $declarations;
-    }
-
     /**
      * Keep element children as layout items and respect their own text styles.
      *
@@ -497,15 +445,6 @@ final class RichTextStylingHookNormalizer
             if ( $child instanceof DOMElement ) {
                 $owned = $this->richTextMaterializer->inlineVisualDeclarations($child);
                 $inherited = array_diff_key($declarations, $owned);
-                $childCarriers = $this->boxTreeCarriers($child);
-                if ( array() !== $childCarriers ) {
-                    // The child's carrier already restyles it at every width.
-                    $inherited = $this->withoutCarrierOwnedDeclarations($inherited, $childCarriers);
-                    // The mark's own user-agent reset alone needs no mark.
-                    if ( 'transparent' === strtolower(trim((string) ($inherited['background-color'] ?? ''))) ) {
-                        unset($inherited['background-color']);
-                    }
-                }
                 $this->wrapRichTextLinkTextRuns($child, $carrier, $inherited);
             } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent) && array() !== $declarations ) {
                 $mark = $carrier->cloneNode(false);
