@@ -276,11 +276,11 @@ final class BoxTreeReport
             if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || abs($value) > 100000000 || (in_array($axis, array('width', 'height'), true) && $value < 0)) return 'box_tree_geometry_invalid';
         }
         $styles = $observation['used_styles'] ?? null;
-        if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES))) return 'box_tree_styles_invalid';
+        if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES, BoxTree::PAINT_PROPERTIES))) return 'box_tree_styles_invalid';
         foreach (BoxTree::PROPERTIES as $property) {
             if (!is_string($styles[$property] ?? null) || '' === $styles[$property] || strlen($styles[$property]) > 4096) return 'box_tree_styles_invalid';
         }
-        foreach (BoxTree::MOTION_PROPERTIES as $property) {
+        foreach (array_merge(BoxTree::MOTION_PROPERTIES, BoxTree::PAINT_PROPERTIES) as $property) {
             if (array_key_exists($property, $styles) && (!is_string($styles[$property]) || '' === $styles[$property] || strlen($styles[$property]) > 4096)) return 'box_tree_styles_invalid';
         }
         return null;
