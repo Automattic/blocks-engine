@@ -213,7 +213,7 @@ final class BoxTreeStyleProjector
             $attrs['className'] = implode(' ', array_filter(preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
             if ('' === $attrs['className']) unset($attrs['className']);
         }
-        $split = $synthetic ? $this->outerBoxSplit($blockName, $keys, $declarations, $bands, $observations, $parents, $selector) : null;
+        $split = $synthetic ? $this->outerBoxSplit($blockName, $keys, $declarations, $bands, $observations, $parents, $selector, $attrs) : null;
         $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid, $selector, $split);
         // An inline anchor carrier keeps the inline box EngineSupportCss gives
         // it: a boxless paragraph is a RichText root the editor cannot focus,
@@ -260,10 +260,19 @@ final class BoxTreeStyleProjector
      * declarations are reset. A core/button whose core/buttons has its own
      * source box owns `div.wp-block-button` as its outer box.
      *
+     * A synthesized core/buttons wrapper (layout-neutral, flattened to
+     * `display:contents`) generates no box, so it cannot own the outer box:
+     * declarations placed on it would vanish, and resetting its core/button
+     * child to `display:contents` would also drop the child carrier's outer
+     * box, leaving a link that grows to its content. Its core/button
+     * child carries the same evidence on the retained `div.wp-block-button`,
+     * so this carrier only styles the link.
+     *
      * @param list<string> $keys Viewport keys, widest first.
+     * @param array<string, mixed> $attrs
      * @return (\Closure(array<string, string>): string)|null
      */
-    private function outerBoxSplit(string $blockName, array $keys, array $declarations, array $bands, array $observations, array $parents, string $selector): ?\Closure
+    private function outerBoxSplit(string $blockName, array $keys, array $declarations, array $bands, array $observations, array $parents, string $selector, array $attrs = array()): ?\Closure
     {
         if (!in_array($blockName, array('core/buttons', 'core/button'), true)) return null;
         $baseKey = $keys[0];
@@ -282,6 +291,9 @@ final class BoxTreeStyleProjector
             }
         }
         if (array() === $placed) return null;
+        if ('core/buttons' === $blockName && in_array(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true)) {
+            return fn(array $declared): string => $this->rule($selector, array_diff_key($declared, $outer));
+        }
         $observed = $observations[$baseKey]['used_styles'];
         // The link's border box fills the outer box: a content-box width
         // grows by the link's own horizontal padding and border.
