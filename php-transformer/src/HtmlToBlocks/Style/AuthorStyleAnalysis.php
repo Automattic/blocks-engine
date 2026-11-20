@@ -43,6 +43,8 @@ final class AuthorStyleAnalysis
     private ?CssSelectorMatchCache $selectorMatchCache;
     /** @var list<array<string, mixed>> */
     private array $styleRules = array();
+    /** @var list<array{selector: string, parsed: array<string, mixed>, names: list<string>}>|null */
+    private ?array $dataAttributeSelectorCompounds = null;
     /** @var array<string, mixed>|null */
     private ?array $styleRuleCandidateIndex = null;
     /** @var array<string, mixed>|null */
@@ -187,6 +189,7 @@ final class AuthorStyleAnalysis
     public function installStyleRules(array $rules): void
     {
         $this->styleRules = $rules;
+        $this->dataAttributeSelectorCompounds = null;
         $this->styleRuleCandidateIndex = null;
         $this->subjectRuleCandidateIndex = null;
         $this->subjectRuleCandidateCollection = null;
@@ -200,6 +203,31 @@ final class AuthorStyleAnalysis
     public function styleRules(): array
     {
         return $this->styleRules;
+    }
+
+    /**
+     * Data predicates in rule, selector and compound order, derived once per installation.
+     *
+     * @return list<array{selector: string, parsed: array<string, mixed>, names: list<string>}>
+     */
+    public function dataAttributeSelectorCompounds(): array
+    {
+        if ( null !== $this->dataAttributeSelectorCompounds ) return $this->dataAttributeSelectorCompounds;
+        $entries = array();
+        foreach ( $this->styleRules as $rule ) {
+            foreach ( $rule['selectors'] as $selector ) {
+                foreach ( $selector['parsed']['compounds'] ?? array() as $compound ) {
+                    $names = CssSelectorCompoundInspector::dataAttributeNames($compound);
+                    if ( array() === $names ) continue;
+                    $entries[] = array(
+                        'selector' => $selector['selector'],
+                        'parsed' => array_replace($selector['parsed'], array('compounds' => array($compound), 'combinators' => array(), 'pseudo_state_suffix_span' => null)),
+                        'names' => $names,
+                    );
+                }
+            }
+        }
+        return $this->dataAttributeSelectorCompounds = $entries;
     }
 
     /**

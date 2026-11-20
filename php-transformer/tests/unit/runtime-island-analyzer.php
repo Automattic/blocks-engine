@@ -13,6 +13,11 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
@@ -176,6 +181,49 @@ foreach ( array(
     $assert(! $ordinary->isSafeTransparentCustomElement($elementFrom($unsafe), false, true), 'non-neutral-flow-is-unsafe', $unsafe);
 }
 $assert(! $makeAnalyzer(array('#runtime-header'))->isSafeTransparentCustomElement($elementFrom('<size-watcher><header id="runtime-header">Logo</header></size-watcher>'), false, true), 'captured-runtime-target-is-unsafe');
+
+// Cached data compounds must preserve the original full-scan result and order.
+$dataElement = $elementFrom('<div data-match="yes" data-miss="no" data-owned="yes" data-x="yes" data-is="yes" data-unused="yes"></div>');
+$author = new AuthorStyleAnalysis('', '', array(), $dataElement->ownerDocument->getElementsByTagName('body')->item(0));
+$dataSession = new HtmlTransformerSession(new Runtime(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription(new SourceElementClassifier(), new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer()));
+$dataSession->installAuthorStyleAnalysis($author);
+$dataAnalyzer = $makeAnalyzer(array(), array(), array('session' => $dataSession));
+$rules = array(array('selectors' => array_map(
+    static fn (string $selector): array => array('selector' => $selector, 'parsed' => CssSelectorMatcher::parse($selector)),
+    array('[data-match="yes"] > span', '[data-miss="yes"]', '[data-owned]', ':not([data-x])', ':is([data-is], [data-absent])', ':not([data-absent])', '.no-data')
+)));
+$author->installStyleRules($rules);
+$dataSession->authorSelectorProjectionState()->ensureAttributeMarker($dataElement->getNodePath(), '[data-owned]');
+$fullScan = static function () use ($author, $dataSession, $dataElement): array {
+    $attributes = array();
+    $sourceAttributes = SourceAttribute::staticAttributes(SourceDom::htmlAttributes($dataElement));
+    foreach ($author->styleRules() as $rule) {
+        foreach ($rule['selectors'] as $selector) {
+            foreach ($selector['parsed']['compounds'] ?? array() as $compound) {
+                $names = CssSelectorCompoundInspector::dataAttributeNames($compound);
+                if (array() === $names) continue;
+                $parsed = array_replace($selector['parsed'], array('compounds' => array($compound), 'combinators' => array(), 'pseudo_state_suffix_span' => null));
+                if (!($parsed['supported'] ?? false) || !CssSelectorMatcher::matches($dataElement, $parsed)['matches']) continue;
+                $marker = $dataSession->authorSelectorProjectionState()->attributeMarker($dataElement->getNodePath() ?? '', $selector['selector']);
+                if ('' !== $marker) continue;
+                foreach (array_intersect_key($sourceAttributes, array_flip($names)) as $name => $value) {
+                    $attributes[$name] = $value;
+                }
+            }
+        }
+    }
+    return $attributes;
+};
+$expected = $fullScan();
+$assert(array('data-match' => 'yes', 'data-is' => 'yes') === $expected, 'full-scan-data-selector-fixture');
+$assert($expected === $dataAnalyzer->runtimeAttributesCarriedBy($dataElement, 'core/group'), 'cached-data-compounds-equal-full-scan');
+$assert(6 === count($author->dataAttributeSelectorCompounds()), 'only-data-compounds-are-cached');
+$assert($expected === $dataAnalyzer->runtimeAttributesCarriedBy($dataElement, 'core/group'), 'cached-data-compounds-reused');
+$author->installStyleRules(array(array('selectors' => array(array('selector' => '[data-unused]', 'parsed' => CssSelectorMatcher::parse('[data-unused]'))))));
+$assert(array('data-unused' => 'yes') === $dataAnalyzer->runtimeAttributesCarriedBy($dataElement, 'core/group'), 'reinstall-invalidates-data-compounds');
+$assert($fullScan() === $dataAnalyzer->runtimeAttributesCarriedBy($dataElement, 'core/group'), 'reinstalled-data-compounds-equal-full-scan');
+$author->installStyleRules(array());
+$assert(array() === $author->dataAttributeSelectorCompounds() && array() === $dataAnalyzer->runtimeAttributesCarriedBy($dataElement, 'core/group'), 'empty-install-clears-data-compounds');
 
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
