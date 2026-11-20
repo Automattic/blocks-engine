@@ -161,8 +161,6 @@ final class AuthoredFormControlBlockConverter
             'selectedSummary' => $this->selectedOptionSummary($options),
             'label' => $labelElement instanceof DOMElement ? $this->metadataBuilder->labelText($labelElement) : '',
             'labelMarkup' => $labelElement instanceof DOMElement ? ($this->richTextLabelContent)($labelElement) : '',
-            'labelFor' => null !== $state && $labelElement instanceof DOMElement && FormControlClassifier::isExternalAssociatedLabel($labelElement) ? SourceDom::attr($labelElement, 'for') : '',
-            'labelAfterControl' => null !== $state && $labelElement instanceof DOMElement && $this->inputBeforeCaption($select, $labelElement) ? true : '',
             'labelClassName' => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'class') : '',
             'labelStyle' => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'style') : '',
             'required' => $select->hasAttribute('required'),
@@ -320,7 +318,6 @@ final class AuthoredFormControlBlockConverter
             'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
             'labelId' => $label instanceof DOMElement ? SourceDom::attr($label, 'id') : '',
             'labelAfterControl' => $label instanceof DOMElement && $this->inputBeforeCaption($input, $label),
-            'labelFor' => null !== $state && $label instanceof DOMElement && FormControlClassifier::isExternalAssociatedLabel($label) ? SourceDom::attr($label, 'for') : '',
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
@@ -328,10 +325,21 @@ final class AuthoredFormControlBlockConverter
         // A captured text-entry field whose default is its current state has an
         // editable core text surface, like captured selects: the theme renders it native.
         if (null !== $state && !$indicator) {
+            if ($label instanceof DOMElement && FormControlClassifier::isExternalAssociatedLabel($label)) {
+                $attrs['labelFor'] = SourceDom::attr($label, 'for');
+                $attrs['labelAfterControl'] = $this->inputBeforeCaption($input, $label, true);
+            }
             $native = $this->nativeTextInput($attrs, $input);
             if (null !== $native) {
                 return $native;
             }
+        }
+        // Association metadata belongs to the core runtime, not to generated
+        // controls (including captured inputs requiring property replay).
+        unset($attrs['labelFor']);
+        if ($label instanceof DOMElement) {
+            $attrs['labelAfterControl'] = $this->inputBeforeCaption($input, $label);
+            if (!$attrs['labelAfterControl']) unset($attrs['labelAfterControl']);
         }
         $generator = new AuthoredInputBlockGenerator();
         $registry = $this->session->requireGeneratedBlockRegistry();
@@ -382,12 +390,10 @@ final class AuthoredFormControlBlockConverter
         ), static fn (mixed $value): bool => '' !== $value), array(), $input);
     }
 
-    private function inputBeforeCaption(DOMElement $input, DOMElement $label): bool
+    private function inputBeforeCaption(DOMElement $input, DOMElement $label, bool $external = false): bool
     {
         if (!$input->parentNode?->isSameNode($label)) {
-            // Only capture-backed core controls use the sibling-label runtime.
-            // Generated authored controls retain their existing label contract.
-            if (null === NativeControlState::attributes($input)) return false;
+            if (!$external) return false;
             for ($sibling = $input->nextElementSibling; $sibling instanceof DOMElement; $sibling = $sibling->nextElementSibling) {
                 if ($sibling->isSameNode($label)) return true;
             }
@@ -436,8 +442,6 @@ final class AuthoredFormControlBlockConverter
             'readOnly' => $textarea->hasAttribute('readonly'),
             'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
             'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
-            'labelFor' => null !== $state && $label instanceof DOMElement && FormControlClassifier::isExternalAssociatedLabel($label) ? SourceDom::attr($label, 'for') : '',
-            'labelAfterControl' => null !== $state && $label instanceof DOMElement && $this->inputBeforeCaption($textarea, $label),
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));

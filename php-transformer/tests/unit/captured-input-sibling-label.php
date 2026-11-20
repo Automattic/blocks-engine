@@ -55,4 +55,20 @@ foreach ($flatten($result['blocks']) as $block) {
         throw new RuntimeException('Capture-only label attributes leaked into ordinary control output');
     }
 }
+// Property replay uses the generated input, not the core runtime. A trailing
+// external caption must not acquire runtime-only attributes or be reordered.
+$dirtyState = htmlspecialchars(json_encode(array('version' => 1, 'kind' => 'input', 'type' => 'text', 'value' => 'typed', 'defaultValue' => '', 'checked' => false, 'defaultChecked' => false, 'indeterminate' => false)), ENT_QUOTES);
+$result = (new HtmlTransformer())->transform('<form><div>'
+    . '<input id="dirty" data-blocks-engine-capture-native-control-state="' . $dirtyState . '">'
+    . '<label for="dirty">Name</label></div><button type="submit">Send</button></form>')->toArray();
+$foundDirty = false;
+foreach ($flatten($result['blocks']) as $block) {
+    if ('dirty' !== ($block['attrs']['id'] ?? null)) continue;
+    $foundDirty = true;
+    if (!str_ends_with($block['blockName'], '/authored-input')
+        || isset($block['attrs']['labelFor']) || !empty($block['attrs']['labelAfterControl'])) {
+        throw new RuntimeException('Core sibling-label metadata changed a replay-backed input');
+    }
+}
+if (!$foundDirty) throw new RuntimeException('Expected the replay-backed input');
 echo "Captured input sibling label regression passed\n";
