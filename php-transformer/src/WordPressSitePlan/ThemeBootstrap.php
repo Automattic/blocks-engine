@@ -594,16 +594,6 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
-        // Only the generated fallback is conditional. Imported pages retain
-        // their exact captured heading (or intentional absence of one), while
-        // newly authored pages use Core's context-aware title renderer.
-        if (self::markupContains($templates, 'blocksEngineUncapturedTitle')) {
-            $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block, WP_Block \$instance ): string {";
-            $lines[] = "    if ( empty( \$block['attrs']['metadata']['blocksEngineUncapturedTitle'] ) ) return \$content;";
-            $lines[] = "    \$post_id = (int) ( \$instance->context['postId'] ?? 0 );";
-            $lines[] = "    return \$post_id && '' !== (string) get_post_meta( \$post_id, '_blocks_engine_reconciliation_identity', true ) ? '' : \$content;";
-            $lines[] = "}, 10, 3 );";
-        }
         self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
@@ -788,6 +778,20 @@ PHP;
         // at block edges and between inner blocks; text inside blocks is untouched.
         self::serve($lines, $served, $units, 'navigation_anchor');
         $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
+        // Supply a title only for uncaptured pages using the generated default
+        // lifecycle. Leave the saved slot (and all captured frame markup) intact.
+        $pageTemplate = array_column($templates, null, 'slug')['page']['canonical_block_markup'] ?? '';
+        if (str_contains($pageTemplate, '<!-- wp:post-content') && !str_contains($pageTemplate, '<!-- wp:post-title')) {
+            $capturedPaths = array();
+            foreach ($pages as $page) if ('page' === ($page['post_type'] ?? null)) $capturedPaths[] = trim((string) ($page['route']['path'] ?? ''), '/');
+            $lines[] = "    if ( 'core/post-content' === ( \$block['blockName'] ?? null ) && empty( \$block['attrs']['metadata']['blocksEngineTitleResolved'] ) && is_page() ) {";
+            $lines[] = "        \$id = get_queried_object_id(); \$post = get_post( \$id );";
+            $lines[] = "        if ( \$post && '' === (string) get_post_meta( \$id, '_blocks_engine_reconciliation_identity', true ) && ! in_array( trim( (string) get_page_uri( \$id ), '/' ), " . var_export(array_values(array_unique($capturedPaths)), true) . ", true ) && ! get_page_template_slug( \$id ) && ! preg_match( '/<h1\\b/i', \$post->post_content ) ) {";
+            $lines[] = "            \$block['attrs']['metadata']['blocksEngineTitleResolved'] = true;";
+            $lines[] = "            return array( 'blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array( array( 'blockName' => 'core/post-title', 'attrs' => array( 'level' => 1 ), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array() ), \$block ), 'innerHTML' => '', 'innerContent' => array( null, null ) );";
+            $lines[] = "        }";
+            $lines[] = "    }";
+        }
         $lines[] = "    \$content = \$block['innerContent'] ?? null; if ( ! is_array( \$content ) ) return \$block;";
         $lines[] = "    if ( null === ( \$block['blockName'] ?? null ) ) { if ( '' === trim( (string) ( \$block['innerHTML'] ?? '' ) ) ) { \$block['innerHTML'] = ''; \$block['innerContent'] = array(); } return \$block; }";
         $lines[] = "    \$last = count( \$content ) - 1;";
