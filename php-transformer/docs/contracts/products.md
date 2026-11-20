@@ -49,7 +49,7 @@ supplies evidence for the same slug; missing commerce fields are filled in.
 
 Caller catalogs declared as `entity_collection:products` with schema
 `generic/products/v1` merge with detected products by `slug`. Caller rows own
-`name`, `regular_price`, `sale_price`, `description`, `sku`, `images`, `tags`,
+`name`, `regular_price`, `sale_price`, `description`, `sku`, `image`, `images`, `tags`,
 `variants`, `stock_status`, and `category` when supplied; detection retains
 bindings, compiled detail-page `source_path`/`url`, `whole_page_candidate`,
 controls, and presentation graphs. Detected-only rows remain in the collection;

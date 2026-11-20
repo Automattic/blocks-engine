@@ -11,7 +11,7 @@ $assert = static function (bool $condition, string $message): void {
 };
 $catalog = array();
 foreach (array('a', 'b', 'c') as $slug) {
-    $catalog[] = array('slug' => $slug, 'name' => 'Catalog ' . strtoupper($slug), 'regular_price' => '99.00', 'sale_price' => '89.00', 'sku' => 'CAT-' . $slug, 'description' => 'Catalog description', 'images' => array(array('src' => 'https://example.test/catalog.jpg', 'alt' => 'Catalog')), 'tags' => array('catalog'), 'category' => 'Catalog category', 'stock_status' => 'outofstock', 'variants' => array());
+    $catalog[] = array('slug' => $slug, 'name' => 'Catalog ' . strtoupper($slug), 'regular_price' => '99.00', 'sale_price' => '89.00', 'sku' => 'CAT-' . $slug, 'image' => 'https://example.test/catalog.jpg', 'description' => 'Catalog description', 'images' => array(array('src' => 'https://example.test/catalog.jpg', 'alt' => 'Catalog')), 'tags' => array('catalog'), 'category' => 'Catalog category', 'stock_status' => 'outofstock', 'variants' => array());
 }
 $card = static fn (string $slug): string => '<article><a href="/products/' . $slug . '.html"><img src="https://example.test/' . $slug . '.jpg" alt="Product ' . $slug . '"><h2>Product ' . $slug . '</h2></a><p>$10.00</p><button type="button">Add to cart</button></article>';
 $ld = array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Detected A', 'url' => 'https://example.test/products/a.html', 'sku' => 'DETECTED', 'description' => 'Detected description', 'offers' => array('@type' => 'Offer', 'price' => '12.00', 'priceCurrency' => 'USD'));

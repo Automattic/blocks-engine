@@ -110,7 +110,7 @@ final class RuntimeDeclarationPromotion
             $slug = $row['slug'];
             if (isset($products[$slug])) {
                 $product = $products[$slug];
-                foreach (array('name', 'regular_price', 'sale_price', 'description', 'sku', 'images', 'tags', 'variants', 'stock_status', 'category') as $field) {
+                foreach (array('name', 'regular_price', 'sale_price', 'description', 'sku', 'image', 'images', 'tags', 'variants', 'stock_status', 'category') as $field) {
                     if (array_key_exists($field, $row)) $product[$field] = $row[$field];
                 }
                 $merged[] = $product;
