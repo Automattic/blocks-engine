@@ -360,6 +360,20 @@ final class AuthoredFormControlBlockConverter
         if (!in_array($attrs['type'] ?? '', self::NATIVE_TEXT_INPUT_TYPES, true) || array_key_exists('initialValue', $attrs) || array_key_exists('initialChecked', $attrs) || !empty($attrs['indeterminate'])) {
             return null;
         }
+        // An associated caption is not necessarily a wrapping label. Keep
+        // external labels beside the control so sibling selectors and inline
+        // line boxes still describe the source field.
+        $sourceLabel = $this->metadataBuilder->labelElement($input);
+        // The runtime replaces core's rendered wrapper entirely. Its native
+        // nodes must carry the evidence CSS themselves, not just the block's
+        // projected className/style supports (which that replacement discards).
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->presentation->boxTreeElementCarrier($input, true));
+        if ($sourceLabel instanceof DOMElement) {
+            $attrs['labelClassName'] = SourceDom::mergeClassNames((string) ($attrs['labelClassName'] ?? ''), $this->presentation->boxTreeElementCarrier($sourceLabel));
+            if (!SourceDom::elementContains($sourceLabel, $input)) {
+                $attrs['labelFor'] = SourceDom::attr($sourceLabel, 'for');
+            }
+        }
         $placeholder = (string) ($attrs['placeholder'] ?? '');
         $label = (string) ($attrs['labelMarkup'] ?? '');
         $label = '' !== $label ? $label : $this->runtime->escapeHtml((string) ($attrs['label'] ?? ''));

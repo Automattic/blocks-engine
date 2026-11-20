@@ -35,4 +35,12 @@ $assert('<form>x</form>' === $render('<form>x</form>', array('blockName' => 'cor
 // A field whose current value differs from its default keeps the state-replaying companion.
 $dirty = (new HtmlTransformer())->transform('<main><input class="field" placeholder="Name" value="" data-blocks-engine-capture-native-control-state="' . $state('typed', '') . '"></main>')->toArray();
 $assert(str_contains($dirty['serialized_blocks'], 'authored-input'), 'Captured current state stays replayable');
+// External captions must stay siblings: wrapping them around the input loses
+// author child/sibling spacing and changes the label's line box.
+$external = (new HtmlTransformer())->transform('<form><div class="space-y"><label for="guest" class="caption">Guest</label><input id="guest" data-blocks-engine-capture-native-control-state="' . $state('', '') . '"></div><button>Send</button></form>')->toArray();
+$externalFields = array_values(array_filter($flatten($external['blocks']), static fn (array $block): bool => isset($block['attrs']['metadata']['blocksEngineInput'])));
+$assert(1 === count($externalFields), 'External label field remains core editable');
+$externalHtml = $render('', $externalFields[0]);
+$assert(str_contains($externalHtml, '<label for="guest" class="caption">Guest</label><input'), 'External label retains association and sibling topology: ' . $externalHtml);
+$assert(!str_contains($html, 'for='), 'Wrapping labels keep their original topology');
 echo "Core native text input regression passed\n";

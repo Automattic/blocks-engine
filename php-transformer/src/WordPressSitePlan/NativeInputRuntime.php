@@ -30,6 +30,9 @@ add_filter( 'render_block_core/search', static function ( string $content, array
     $html .= '>';
     if ( '' === $label ) return $html;
     $label = wp_kses_post( $label );
+    if ( ! empty( $attrs['labelFor'] ) ) {
+        return '<label for="' . esc_attr( $attrs['labelFor'] ) . '"' . ( ! empty( $attrs['labelId'] ) ? ' id="' . esc_attr( $attrs['labelId'] ) . '"' : '' ) . ( ! empty( $attrs['labelClassName'] ) ? ' class="' . esc_attr( $attrs['labelClassName'] ) . '"' : '' ) . ( ! empty( $attrs['labelStyle'] ) ? ' style="' . esc_attr( $attrs['labelStyle'] ) . '"' : '' ) . '>' . $label . '</label>' . $html;
+    }
     return '<label' . ( ! empty( $attrs['labelId'] ) ? ' id="' . esc_attr( $attrs['labelId'] ) . '"' : '' ) . ( ! empty( $attrs['labelClassName'] ) ? ' class="' . esc_attr( $attrs['labelClassName'] ) . '"' : '' ) . ( ! empty( $attrs['labelStyle'] ) ? ' style="' . esc_attr( $attrs['labelStyle'] ) . '"' : '' ) . '>' . ( ! empty( $attrs['labelAfterControl'] ) ? $html . $label : $label . $html ) . '</label>';
 }, 10, 2 );
 PHP;
