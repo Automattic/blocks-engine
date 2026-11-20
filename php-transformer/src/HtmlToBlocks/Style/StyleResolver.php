@@ -5805,6 +5805,21 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array(), bool $skipForeignConditions = false): array
     {
+        return $this->session->sourceStyleResolutionState()->authoredInheritedDeclarations(
+            $element,
+            $navigationEditor,
+            $conditions,
+            $skipForeignConditions,
+            fn (DOMElement $element): array => $this->computeAuthoredInheritedDeclarations($element, $navigationEditor, $conditions, $skipForeignConditions)
+        );
+    }
+
+    /**
+     * @param list<string> $conditions
+     * @return array<string, string>
+     */
+    private function computeAuthoredInheritedDeclarations(DOMElement $element, bool $navigationEditor, array $conditions, bool $skipForeignConditions): array
+    {
         $cascade = array();
         $sequence = 0;
         $apply = function (array $declarations, ?string $font, array $following, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence, $element, $navigationEditor): void {
