@@ -313,7 +313,13 @@ add_action( 'init', static function (): void {
 } );
 PHP;
         self::serve($lines, $served, $units, 'button_variations');
-        $rootContext = DocumentRootContext::bootstrap(array_merge($pages, $rootDocuments));
+        $rootPages = array_merge($pages, $rootDocuments);
+        // Prune only against the complete published CSS.
+        $css = array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null));
+        if (array() === array_filter($css, static fn(array $asset): bool => !is_string($asset['content'] ?? null))) {
+            $rootPages = DocumentRootContext::withoutUnreferencedRouteClasses($rootPages, array_merge(array_column($css, 'content'), array_map(static fn(array $document): string => (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), array_merge($templates, $parts, $pages))));
+        }
+        $rootContext = DocumentRootContext::bootstrap($rootPages);
         if ('' !== $rootContext) $lines[] = $rootContext;
         self::serve($lines, $served, $units, 'document_attributes');
         $fields = ListingFieldProjection::bootstrap($pages);
@@ -355,12 +361,30 @@ PHP;
         $importLoaded = self::importLoadedStylesheets($assets);
         $stylesheetAttributes = array();
         $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages, $rootDocuments);
+        // A shared sheet names many pages and post designs. Number them once
+        // per request, so each sheet's condition lists numbers rather than
+        // restating every page's identity and every design's template test.
+        $lookup = self::scopeLookup($stylesheetEnqueues);
+        if (array() !== $lookup['identities']) $lines[] = '    $blocks_engine_page_scope = 0 === $blocks_engine_page_id ? -1 : ( \'\' !== $blocks_engine_page_identity ? ( ' . BootstrapData::literal($lookup['identities']) . '[ $blocks_engine_page_identity ] ?? -1 ) : ( null === $blocks_engine_page_uri ? -1 : ( ' . BootstrapData::literal($lookup['paths']) . '[ $blocks_engine_page_uri ] ?? -1 ) ) );';
+        if (array() !== $lookup['templates']) $lines[] = "    \$blocks_engine_design_scope = is_singular( 'post' ) && is_string( \$blocks_engine_design_template = get_page_template_slug( get_queried_object_id() ) ) ? ( " . BootstrapData::literal($lookup['templates']) . '[ $blocks_engine_design_template ] ?? -1 ) : -1;';
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
         $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
         if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
-        $routeRows = array();
-        foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
+        // A post replays its design's sequence (see stylesheetEnqueues()), so
+        // the posts of one design share one route row, selected by template,
+        // instead of one identity-tested row per imported post.
+        $routeRows = $routeKeys = array();
+        foreach ($evidencePages as $page) {
+            $scope = PageStylesheets::documentScope($page);
+            $key = $page['source_path'];
+            if ('post' === $scope['kind']) {
+                $scope = array('kind' => 'post_template', 'template' => $page['route_template'] ?? 'single', 'source_path' => $page['source_path']);
+                $key = "post_template\0" . $scope['template'];
+            }
+            $routeKeys[$page['source_path']] = $key;
+            $routeRows[$key] ??= array('condition' => self::bootstrapScopeCondition($scope, true), 'styles' => array(), 'handles' => array());
+        }
         // The route table sits where the first route instance falls in the
         // stylesheet order, so sheets ordered ahead of the author CSS (the
         // engine reset sheets that also declare the cascade layer order) keep
@@ -383,15 +407,16 @@ PHP;
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
             if (isset($enqueue['route'])) {
                 if (null === $routePosition) $routePosition = count($lines);
-                $routeRows[$enqueue['route']]['condition'] = $enqueue['condition'];
-                $routeRows[$enqueue['route']]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
-                $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
+                $key = $routeKeys[$enqueue['route']] ?? $enqueue['route'];
+                $routeRows[$key]['condition'] = $enqueue['condition'];
+                $routeRows[$key]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
+                $routeRows[$key]['handles'][] = $enqueue['handle'];
                 continue;
             }
             // A fallback reads the flag the route table sets: the table goes first.
             if (!empty($enqueue['fallback']) && null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
             if (!empty($enqueue['fallback']) && null === $fallbackPosition) $fallbackPosition = count($lines);
-            $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
+            $condition = empty($enqueue['fallback']) ? (count($enqueue['scopes'] ?? array()) > 1 ? self::indexedStylesheetCondition($enqueue['scopes'], $lookup) : $enqueue['condition']) : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
         if (null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
@@ -501,6 +526,14 @@ PHP;
                     if ($entry[$field] !== $default) break;
                     array_pop($entry);
                 }
+                // A run of entries that differ only by scope (one resource
+                // delivered to many designs and pages in a row) is one entry
+                // with a scope list; the replay loop expands it in place.
+                $last = array_key_last($replay);
+                if (null !== $last && array_slice($replay[$last], 2) === array_slice($entry, 2) && $replay[$last][0] === $entry[0]) {
+                    $replay[$last][1] = array_merge((array) $replay[$last][1], array($scopeIndex));
+                    continue;
+                }
                 $replay[] = $entry;
             }
             foreach ($files as &$file) $file['scopes'] = array_values($file['scopes']);
@@ -509,7 +542,7 @@ PHP;
             $lines[] = BootstrapData::table('blocks_engine_presentation_styles', $files);
             $lines[] = '$blocks_engine_presentation_replay = ' . BootstrapData::literal($replay) . ';';
             $lines[] = '$blocks_engine_presentation_sequence = array();';
-            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $entry[1] ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3] ?? \'\'; $style[\'fallback\'] = $entry[4] ?? false; $style[\'template_part_slugs\'] = $entry[5] ?? array(); $blocks_engine_presentation_sequence[] = $style; }';
+            $lines[] = 'foreach ( $blocks_engine_presentation_replay as $entry ) foreach ( (array) $entry[1] as $scope ) { $style = $blocks_engine_presentation_styles[ $entry[0] ]; $style[\'scopes\'] = array( $blocks_engine_presentation_scopes[ $scope ] ); $style[\'handle\'] = $entry[2]; $style[\'media\'] = $entry[3] ?? \'\'; $style[\'fallback\'] = $entry[4] ?? false; $style[\'template_part_slugs\'] = $entry[5] ?? array(); $blocks_engine_presentation_sequence[] = $style; }';
             $lines[] = "\$blocks_engine_presentation_matches = static function ( array \$style, ?WP_Post \$post, bool \$site_editor ): bool {";
             $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
@@ -1048,6 +1081,55 @@ PHP;
         if (!str_starts_with($url, '/') || str_starts_with($url, '//')) return $sourcePath === ArtifactPath::resolveRelativePath($url, $importer);
         $relative = ArtifactPath::resolveRelativePath(ltrim($url, '/'));
         return '' !== $relative && ($sourcePath === $relative || str_ends_with($sourcePath, '/' . $relative));
+    }
+
+    /**
+     * Numbers for the pages and post designs that multi-scope sheets name:
+     * page identities and URIs (for pages without one) share a page's number,
+     * and a design's template slug (`''` for the default) its design number.
+     *
+     * @param list<array<string,mixed>> $enqueues
+     * @return array{identities:array<string,int>,paths:array<string,int>,templates:array<string,int>}
+     */
+    private static function scopeLookup(array $enqueues): array
+    {
+        $lookup = array('identities' => array(), 'paths' => array(), 'templates' => array());
+        $pages = 0;
+        foreach ($enqueues as $enqueue) {
+            if (!empty($enqueue['fallback']) || count($enqueue['scopes'] ?? array()) < 2) continue;
+            foreach ($enqueue['scopes'] as $scope) {
+                if ('page' === $scope['kind'] && empty($scope['front_page']) && !isset($lookup['identities'][$scope['reconciliation_identity']])) {
+                    $lookup['identities'][$scope['reconciliation_identity']] = $pages;
+                    $lookup['paths'][$scope['route_path']] ??= $pages;
+                    ++$pages;
+                } elseif ('post_template' === $scope['kind']) {
+                    $slug = 'single' === $scope['template'] ? '' : (string) $scope['template'];
+                    $lookup['templates'][$slug] ??= count($lookup['templates']);
+                }
+            }
+        }
+        return $lookup;
+    }
+
+    /**
+     * The condition of a sheet with several scopes, read from the request's
+     * page and design numbers.
+     *
+     * @param list<array<string,mixed>> $scopes
+     * @param array{identities:array<string,int>,paths:array<string,int>,templates:array<string,int>} $lookup
+     */
+    private static function indexedStylesheetCondition(array $scopes, array $lookup): string
+    {
+        $conditions = $pages = $designs = array();
+        foreach ($scopes as $scope) {
+            if ('page' === $scope['kind'] && empty($scope['front_page'])) $pages[$lookup['identities'][$scope['reconciliation_identity']]] = true;
+            elseif ('post_template' === $scope['kind']) $designs[$lookup['templates']['single' === $scope['template'] ? '' : (string) $scope['template']]] = true;
+            else $conditions[] = '(' . self::bootstrapScopeCondition($scope, true) . ')';
+        }
+        $conditions = array_values(array_unique($conditions));
+        if (array() !== $designs) $conditions[] = 'in_array( $blocks_engine_design_scope, ' . BootstrapData::literal(array_keys($designs)) . ', true )';
+        if (array() !== $pages) $conditions[] = 'in_array( $blocks_engine_page_scope, ' . BootstrapData::literal(array_keys($pages)) . ', true )';
+        return implode(' || ', $conditions);
     }
 
     /** @param list<array<string,mixed>> $scopes */

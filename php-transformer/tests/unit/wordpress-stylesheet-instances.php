@@ -93,7 +93,7 @@ foreach ($devicePlan['assets'] as $asset) if ('plain.css' === $asset['source_pat
 $importPage = static fn(string $head): string => '<html><head><link rel="stylesheet" href="/site.css">' . $head . '</head><body><main><p>Text <strong>bold</strong></p></main></body></html>';
 $importPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
     'website/site.css' => '.c{color:#2460a0}',
-    'website/en.css' => 'mark{padding:.2em}',
+    'website/en.css' => 'strong{padding:.2em}',
     'website/index.html' => $importPage(''),
     'website/en/index.html' => $importPage('<style media="all">@import url("/en.css") (max-width:767px);</style>'),
 )))->toArray()['source_reports']['wordpress_site_plan'];

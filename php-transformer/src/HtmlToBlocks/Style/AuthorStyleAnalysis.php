@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
@@ -739,8 +740,20 @@ final class AuthorStyleAnalysis
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
     public function selectorCandidates(array $parsed): array
     {
-        $compounds = $parsed['compounds'] ?? array();
-        $rightmost = CssSelectorCompoundInspector::rightmost($compounds);
+        return $this->compoundCandidates(CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array())) ?? $this->sourceElements;
+    }
+
+    /**
+     * Elements that can match a subject compound, read from its smallest
+     * keyed index. A subject keyed only inside an `:is()`/`:where()` group
+     * matches through one of the group's alternatives, so it unions their
+     * candidates. Null when the compound has no key.
+     *
+     * @param array<string, mixed> $rightmost
+     * @return list<DOMElement>|null
+     */
+    private function compoundCandidates(array $rightmost): ?array
+    {
         $candidates = array();
         foreach ( $rightmost['ids'] ?? array() as $id ) {
             // A projected captured dialog stands in for the id's holder through
@@ -759,11 +772,27 @@ final class AuthorStyleAnalysis
                 $candidates[] = $this->sourceElementsByAttribute($name);
             }
         }
-        if ( array() === $candidates ) {
-            return $this->sourceElements;
+        if ( array() !== $candidates ) {
+            usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
+            return $candidates[0];
         }
-        usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
-        return $candidates[0];
+        foreach ( $rightmost['any'] ?? array() as $group ) {
+            $union = array();
+            foreach ( $group['alternatives'] ?? array() as $alternative ) {
+                $compounds = $alternative['compounds'] ?? array();
+                $keyed = array() === $compounds ? null : $this->compoundCandidates(CssSelectorCompoundInspector::rightmost($compounds));
+                if ( null === $keyed ) {
+                    continue 2;
+                }
+                foreach ( $keyed as $element ) {
+                    $union[spl_object_id($element)] = $element;
+                }
+            }
+            if ( array() !== ($group['alternatives'] ?? array()) ) {
+                return array_values($union);
+            }
+        }
+        return null;
     }
 
     /** @return list<DOMElement> */
@@ -843,7 +872,7 @@ final class AuthorStyleAnalysis
     private static function rendersOnScreen(array $conditions): bool
     {
         foreach ( $conditions as $condition ) {
-            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! MediaCondition::targetsScreen($media[1]) ) {
                 return false;
             }
         }
