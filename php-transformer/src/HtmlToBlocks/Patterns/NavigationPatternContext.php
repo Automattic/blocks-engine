@@ -1475,7 +1475,7 @@ final class NavigationPatternContext
     private function navigationSubjectMarker(DOMElement $element, string $kind): string
     {
         $rules = array();
-        foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
+        foreach ($this->session->authorStyleAnalysis()->subjectRuleCandidates($element) as $rule) {
             foreach ($rule['selectors'] as $selector) {
                 $text = (string) ($selector['selector'] ?? '');
                 // Route state is not item identity: the same item on every route
