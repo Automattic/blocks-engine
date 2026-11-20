@@ -169,8 +169,14 @@ final class InlineContentElementConverter implements ElementConverter
                     $declarations['display'] = self::BLOCKIFIED_DISPLAY[$participation->sourceDisplay];
                 }
                 $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
+                // Generated content the projected pseudo rules read through
+                // attr() needs its source attribute on the carrier.
+                $generatedContentAttributes = '';
+                foreach ( $this->styleResolver->generatedContentDataAttributes($element) as $name ) {
+                    $generatedContentAttributes .= ' ' . $name . '="' . htmlspecialchars($element->getAttribute($name), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
                 $attrs = array(
-                    'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
+                    'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $generatedContentAttributes . '>' . $content . '</mark>',
                 );
                 if ( 'none' === CssValueInspector::declared($declarations, 'display') ) {
                     $attrs['className'] = SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS;
