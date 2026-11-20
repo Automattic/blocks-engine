@@ -300,8 +300,18 @@ PHP;
         $registered = '';
         foreach ($hooks as $hook => $source) if ($needs[$hook]) $registered .= "if ( ! isset( \$blocks_engine_document_hooks['{$hook}'] ) ) {\n\$blocks_engine_document_hooks['{$hook}'] = true;\n" . rtrim($source, "\n") . "\n}\n";
         $fallback = array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes')));
+        // Class tokens every route shares are emitted once, not in each
+        // route's attribute body: source roots repeat long class lists that
+        // differ by a token or two.
+        $shared = array();
+        foreach (array('attributes', 'body_attributes') as $field) $shared[] = preg_split('/\s+/', trim($fallback[$field]['class'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
         $bodies = $indices = array();
-        foreach ($rows as &$row) foreach (array('attributes', 'body_attributes') as $field) {
+        foreach ($rows as &$row) foreach (array('attributes', 'body_attributes') as $position => $field) {
+            if (count($rows) > 1 && array() !== $shared[$position] && isset($row[$field]['class'])) {
+                $own = array_values(array_diff(preg_split('/\s+/', trim($row[$field]['class']), -1, PREG_SPLIT_NO_EMPTY) ?: array(), $shared[$position]));
+                if (array() === $own) unset($row[$field]['class']);
+                else $row[$field]['class'] = implode(' ', $own);
+            }
             $key = serialize($row[$field]);
             if (!isset($indices[$key])) { $indices[$key] = count($bodies); $bodies[] = $row[$field]; }
             $row[$field] = $indices[$key];
@@ -311,8 +321,11 @@ PHP;
             . BootstrapData::table('blocks_engine_document_attribute_bodies', $bodies) . "\n"
             // One positional row per route; the loop restores the keyed rows.
             . '$blocks_engine_document_rows = array();' . "\n"
-            . 'foreach ( ' . BootstrapData::literal(array_map(static fn(array $row): array => array($row['identity'], $row['path'], $row['front_page'] ? 1 : 0, $row['attributes'], $row['body_attributes']), $rows)) . ' as [$identity, $path, $front_page, $attributes, $body_attributes] ) $blocks_engine_document_rows[] = array( \'identity\' => $identity, \'path\' => $path, \'front_page\' => 1 === $front_page, \'attributes\' => $blocks_engine_document_attribute_bodies[ $attributes ], \'body_attributes\' => $blocks_engine_document_attribute_bodies[ $body_attributes ] );' . "\n"
+            // Each batch reads its own shared classes before a later batch replaces the fallback.
             . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"
+            . '$blocks_engine_document_shared_classes = ' . (count($rows) > 1 ? 'array( $blocks_engine_document_fallback[\'attributes\'][\'class\'] ?? \'\', $blocks_engine_document_fallback[\'body_attributes\'][\'class\'] ?? \'\' )' : "array( '', '' )") . ";\n"
+            . '$blocks_engine_document_with_classes = static fn( array $attributes, string $shared ): array => \'\' === $shared ? $attributes : array_replace( $attributes, array( \'class\' => trim( $shared . \' \' . ( $attributes[\'class\'] ?? \'\' ) ) ) );' . "\n"
+            . 'foreach ( ' . BootstrapData::literal(array_map(static fn(array $row): array => array($row['identity'], $row['path'], $row['front_page'] ? 1 : 0, $row['attributes'], $row['body_attributes']), $rows)) . ' as [$identity, $path, $front_page, $attributes, $body_attributes] ) $blocks_engine_document_rows[] = array( \'identity\' => $identity, \'path\' => $path, \'front_page\' => 1 === $front_page, \'attributes\' => $blocks_engine_document_with_classes( $blocks_engine_document_attribute_bodies[ $attributes ], $blocks_engine_document_shared_classes[0] ), \'body_attributes\' => $blocks_engine_document_with_classes( $blocks_engine_document_attribute_bodies[ $body_attributes ], $blocks_engine_document_shared_classes[1] ) );' . "\n"
             . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( $blocks_engine_document_rows, null, \'identity\' ) );' . "\n"
             . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n" . $registered . $links;
     }
