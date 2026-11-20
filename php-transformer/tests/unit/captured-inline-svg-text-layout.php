@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // Captured author CSS is retired. A rich-text replacement for an observed
 // flex box must still own that box, rather than becoming an inline carrier.
 $source = '<html><body><main><div><span class="ret"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M0 0H24V24Z"/></svg><small>Audiobook</small></span><span class="inline-token"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M0 0H24V24Z"/></svg><small>Inline label</small></span></div></main></body></html>';
+$source = str_replace('</div></main>', '<span class="icon-only"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M0 0H24V24Z"/></svg><span class="sr-only">Accessible icon label</span></span></div></main>', $source);
 $dom = new DOMDocument();
 $dom->loadHTML($source);
 $template = json_decode(file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true)['nodes']['n7']['viewports']['desktop']['used_styles'];
@@ -19,7 +20,7 @@ foreach ($dom->getElementsByTagName('*') as $element) {
     foreach ($element->childNodes as $child) {
         if ($child instanceof DOMElement) $children[] = $child->getAttribute('data-blocks-engine-node-id');
     }
-    $display = 'span' === $element->tagName ? ('ret' === $element->getAttribute('class') ? 'flex' : 'inline') : 'block';
+    $display = 'span' === $element->tagName ? (in_array($element->getAttribute('class'), array('ret', 'icon-only'), true) ? 'flex' : 'inline') : 'block';
     $nodes[$element->getAttribute('data-blocks-engine-node-id')] = array('children' => $children, 'viewports' => array('desktop' => array(
         'border_box' => array('x' => 0, 'y' => 0, 'width' => 100, 'height' => 60),
         'used_styles' => array_replace($template, array('display' => $display, 'flex-direction' => 'column', 'width' => '100px', 'height' => '60px')),
@@ -40,6 +41,12 @@ $check = static function (array $blocks) use (&$check, &$found): void {
             }
             $found['inline'] = true;
         }
+        if ('core/paragraph' === ($block['blockName'] ?? '') && str_contains($block['attrs']['className'] ?? '', 'icon-only')) {
+            if (str_contains($block['attrs']['className'], 'blocks-engine-source-box-paragraph')) {
+                throw new RuntimeException('An icon with only a screen-reader label acquired a layout paragraph');
+            }
+            $found['icon'] = true;
+        }
         if ('core/paragraph' === ($block['blockName'] ?? '') && str_contains($block['attrs']['className'] ?? '', 'ret')) {
             if (!str_contains($block['attrs']['className'], 'blocks-engine-source-box-paragraph')) {
                 throw new RuntimeException('Captured SVG/text flex wrapper lost its source box identity');
@@ -50,5 +57,5 @@ $check = static function (array $blocks) use (&$check, &$found): void {
     }
 };
 $check($result['blocks']);
-if (count($found) !== 2) throw new RuntimeException('Expected native layout and inline paragraphs');
+if (count($found) !== 3) throw new RuntimeException('Expected native layout and inline paragraphs');
 echo "Captured SVG/text layout: passed\n";

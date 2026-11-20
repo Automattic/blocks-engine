@@ -116,10 +116,16 @@ final class InlineSvgTextGroupLowering
         // Captured routes retire author CSS before lowering. Their observed
         // display still belongs to this replacement box, at every breakpoint;
         // the box-tree projector supplies the actual responsive declarations.
-        foreach ($this->session->boxTreeEvidence($element) as $box) {
-            if (in_array($box['used_styles']['display'] ?? '', $layoutDisplays, true)) {
-                $ownsLayoutBox = true;
-                break;
+        // Icon-only tokens (including accessible, visually hidden labels)
+        // already use the inline image's box. Blockifying their carrier adds a
+        // line box the source never had. Only a visible text run needs this
+        // replacement to retain the observed icon/text layout.
+        if ('' !== $this->sourceElementClassifier->visibleTextContent($element)) {
+            foreach ($this->session->boxTreeEvidence($element) as $box) {
+                if (in_array($box['used_styles']['display'] ?? '', $layoutDisplays, true)) {
+                    $ownsLayoutBox = true;
+                    break;
+                }
             }
         }
         if ($ownsLayoutBox) {

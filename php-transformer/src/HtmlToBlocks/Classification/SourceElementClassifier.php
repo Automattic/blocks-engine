@@ -905,7 +905,8 @@ final class SourceElementClassifier
         return strtolower(trim(preg_replace('/\s+/', ' ', $text) ?? ''));
     }
 
-    private function visibleTextContent(DOMElement $element): string
+    /** Text participating in the visible label, excluding accessibility-only children. */
+    public function visibleTextContent(DOMElement $element): string
     {
         $text = '';
         foreach ( $element->childNodes as $child ) {
