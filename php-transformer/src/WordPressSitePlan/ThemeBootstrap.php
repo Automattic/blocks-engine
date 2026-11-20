@@ -594,15 +594,10 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
-        self::serve($lines, $served, $units, 'template_frame');
-        if (self::markupContains($templates, 'blocksEngineAuthoredPageTitle')) {
-            $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block, WP_Block \$instance ): string {";
-            $lines[] = "    if ( empty( \$block['attrs']['metadata']['blocksEngineAuthoredPageTitle'] ) ) return \$content;";
-            $lines[] = "    \$id = (int) ( \$instance->context['postId'] ?? 0 );";
-            $lines[] = "    return \$id && '' !== get_post_meta( \$id, '_blocks_engine_reconciliation_identity', true ) ? '' : \$content;";
-            $lines[] = "}, 10, 3 );";
+        if (array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null))) {
+            $lines[] = AuthoredPageRuntime::source($pages);
         }
-        self::serve($lines, $served, $units, 'authored_page_title');
+        self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
         }
