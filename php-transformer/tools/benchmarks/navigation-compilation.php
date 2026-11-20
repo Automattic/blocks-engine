@@ -38,7 +38,7 @@ if (null !== $profiler) {
 $output = array('serialized_blocks' => $result['serialized_blocks'], 'site_plan' => $result['site_plan'] ?? $result['source_reports']['wordpress_site_plan'] ?? null);
 $hash = hash('sha256', serialize($output));
 if ('--contract' === ($argv[1] ?? '')) {
-    if ('289917657a7db5c722648293c277e0fe41a08600d2e5cc81011d936e1910a2a2' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
+    if ('79db6097b5c5f40d3a2292ac3b0dc6bdb5b1c6ad93b98cff07d0ff0c86de191e' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
 } elseif (isset($argv[1])) {
     $encoded = json_encode($output, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     if (is_file($argv[1]) && file_get_contents($argv[1]) !== $encoded) throw new RuntimeException('Compile output differs from baseline');

@@ -330,6 +330,8 @@ final class SitePlanRun
          $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
          $pages = $syncedPatterns['pages'];
          $syncedPatterns = $syncedPatterns['patterns'];
+         // Imported page sections lock their structure so owners edit content, not wrappers.
+         $pages = ContentOnlySectionProjection::project($pages, $runtimeDeclarations, $runtimeEntityRecords);
          // Query Loop projection can shorten page markup after shell extraction,
          // and synced patterns take shared panel content (and its bindings) out
          // of the page. Rebase retained runtime anchors on the final documents.
