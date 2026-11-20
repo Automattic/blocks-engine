@@ -624,12 +624,6 @@ final class ArtifactCompiler
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
         }
         $editorScripts = self::responsiveEditorScripts($sourceReports['responsive_counterpart_contracts']['editor_module'] ?? null);
-        foreach (array_merge(array($entryBlocks), array_values($compiledHtmlDocuments)) as $document) {
-            if (str_contains((string) ($document['serialized_blocks'] ?? ''), \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS)) {
-                $editorScripts[] = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HiddenMarkerEditorModule())->module();
-                break;
-            }
-        }
         if ($this->hasUnreproducedSourceMotion($normalized['files'])) {
             $namespace = $companionPluginPayloadBuilder->blockNamespace($artifact);
             if ('' !== $namespace) {
