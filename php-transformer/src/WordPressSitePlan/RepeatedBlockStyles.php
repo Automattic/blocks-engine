@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
@@ -14,7 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
  * drops it from those blocks' inline style (#7120).
  *
  * A captured route keeps the vertical margins of its paragraphs, headings,
- * list items, images and groups even when they are zero, since the user agent
+ * list items, images, details and groups even when zero, since the user agent
  * and WordPress would otherwise set them (#7099). Under a global reset every
  * such block carries the same `margin-top:0px;margin-bottom:0px`. WordPress
  * prints the block-type style as `:root :where(<selector>){…}` in the global
@@ -31,9 +32,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
  *   zero). A block with a different value keeps it inline, which still wins.
  * - Blocks lose the value only on engine-owned routes, whose stylesheets the
  *   engine writes, and only where nothing else competes for the side: no
- *   delivered rule names the block's or its parent's classes with that
- *   margin, its parent has no block gap (core's per-container gap rule is
- *   printed after global styles), it is not aligned, no device runtime
+ *   matching delivered class rule sets a different margin, its parent has
+ *   no nonzero block gap (core's per-container gap rule is printed after
+ *   global styles), alignment does not float the box, no device runtime
  *   rewrites its style, and no runtime binding anchors on its markup.
  * - At least two blocks lose it: a value one block carries is not repeated.
  *
@@ -52,6 +53,7 @@ final class RepeatedBlockStyles
         'core/list-item' => array('tag' => 'li'),
         'core/image' => array('class' => 'wp-block-image'),
         'core/group' => array('class' => 'wp-block-group'),
+        'core/details' => array('class' => 'wp-block-details'),
     );
 
     /** Dynamic blocks whose server render is a bare `<p>` the paragraph style would reach. */
@@ -102,7 +104,7 @@ final class RepeatedBlockStyles
             if (($exposure[$type] ?? 0) > $statics) continue;
             foreach (array_keys(self::SIDE_PROPERTIES) as $side) {
                 $value = self::dominant($typed, $side);
-                if (null === $value || !self::everyCarries($typed, $side, $value)) continue;
+                if (null === $value || !self::everyCarries($typed, $side, $value, $classRules)) continue;
                 $stripped = array();
                 foreach ($typed as $block) {
                     if ($block['name'] !== $type || $value !== ($block['margin'][$side] ?? null) || !$block['strippable']) continue;
@@ -158,10 +160,22 @@ final class RepeatedBlockStyles
                 'tag' => $tag,
                 'member' => null !== $tag && self::isMember($name, $tag),
                 'margin' => $margin,
-                'parent_gap' => null !== $parent && null !== ($parent['attributes']->style->spacing->blockGap ?? null),
-                'parent_classes' => null === $parent || null === $parent['tag'] ? array() : self::classes($parent['tag']['html']),
+                'parent_gap' => null === $parent ? null : ($parent['attributes']->style->spacing->blockGap ?? null),
             );
             if (!$selfClosing) $stack[] = count($blocks) - 1;
+        }
+        // Match delivered selectors against the actual tree, not against every
+        // class mentioned anywhere in a selector (including :not() and ancestors).
+        $html = $markup;
+        foreach (array_reverse($blocks, true) as $index => $block) {
+            if (null === $block['tag']) continue;
+            $at = $block['tag']['offset'] + strlen($block['tag']['name']) + 1;
+            $html = substr_replace($html, ' data-be-hoist="' . $index . '"', $at, 0);
+        }
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<!doctype html><html><body>' . $html . '</body></html>');
+        foreach ((new \DOMXPath($dom))->query('//*[@data-be-hoist]') as $element) {
+            $blocks[(int) $element->getAttribute('data-be-hoist')]['element'] = $element;
         }
         return $blocks;
     }
@@ -205,11 +219,12 @@ final class RepeatedBlockStyles
      * as it renders now: each carries its own value, or has no margin on that
      * side for the user agent to set and the value is zero.
      */
-    private static function everyCarries(array $blocks, string $side, string $value): bool
+    private static function everyCarries(array $blocks, string $side, string $value, array $rules): bool
     {
         $zero = 1 === preg_match('/^0(?:\.0+)?(?:px|em|rem|%)?$/', $value);
         foreach ($blocks as $block) {
             if (isset($block['margin'][$side])) continue;
+            if (self::deliveredValue($block, $side, $value, $rules)) continue;
             if ($zero && 'core/list-item' === $block['name']) continue;
             if ($zero && 'core/group' === $block['name'] && in_array(strtolower((string) ($block['attributes']->tagName ?? 'div')), self::MARGINLESS_GROUP_TAGS, true)) continue;
             return false;
@@ -221,18 +236,22 @@ final class RepeatedBlockStyles
      * Whether the block-type style alone renders this block's side as its
      * inline value does.
      *
-     * @param array<string,array<string,true>> $classRules
+     * @param list<array<string,mixed>> $classRules
      * @param list<array{0:int,1:int}> $protected
      */
     private static function strippable(array $block, string $side, array $classRules, array $protected): bool
     {
         $attributes = $block['attributes'];
-        if (!$attributes instanceof \stdClass || null === $block['tag'] || !$block['member'] || $block['parent_gap']) return false;
+        if (!$attributes instanceof \stdClass || null === $block['tag'] || !$block['member']) return false;
+        if (null !== $block['parent_gap'] && (!in_array($side, array('top', 'bottom'), true) || !is_string($block['parent_gap']) || !self::sameValue($block['parent_gap'], '0px') || !self::sameValue($block['margin'][$side], '0px'))) return false;
         if (BlockAttributes::encode($attributes) !== $block['json']) return false;
-        if (isset($attributes->align) || isset($attributes->metadata->blocksEngineRuntimeAttributes)) return false;
+        if (isset($attributes->align) && (!in_array($side, array('top', 'bottom'), true) || !in_array($attributes->align, array('center', 'wide', 'full'), true))) return false;
+        if (isset($attributes->metadata->blocksEngineRuntimeAttributes)) return false;
         foreach ($protected as [$start, $end]) if ($block['offset'] >= $start && $block['offset'] < $end) return false;
-        foreach (array_merge(self::classes($block['tag']['html']), $block['parent_classes']) as $class) {
-            foreach (self::SIDE_PROPERTIES[$side] as $property) if (isset($classRules[$class][$property])) return false;
+        foreach ($classRules as $rule) {
+            if (!in_array($rule['property'], self::SIDE_PROPERTIES[$side], true)) continue;
+            if (self::sameValue($rule['value'], $block['margin'][$side])) continue;
+            if (self::ruleReaches($block, $rule)) return false;
         }
         $declarations = CssRuleAnalyzer::declarationList(HtmlTagScanner::attribute($block['tag']['html'], 'style'));
         $expected = self::declaration($side, $block['margin'][$side]);
@@ -247,11 +266,7 @@ final class RepeatedBlockStyles
         return array('margin-' . $side, $css);
     }
 
-    /**
-     * Class => margin properties some delivered rule naming the class declares.
-     *
-     * @return array<string,array<string,true>>
-     */
+    /** Delivered margin rules, retaining selectors and values for conservative matching. */
     private static function classRules(array $assets): array
     {
         $margins = array_fill_keys(array_merge(...array_values(self::SIDE_PROPERTIES)), true);
@@ -259,14 +274,51 @@ final class RepeatedBlockStyles
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || !str_contains($asset['content'], 'margin')) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body) use (&$rules, $margins): void {
-                $properties = array();
-                foreach (CssRuleAnalyzer::declarationList($body) as $declaration) if (isset($margins[$declaration['name']])) $properties[$declaration['name']] = true;
-                if (array() === $properties || !preg_match_all('/\.(-?[_a-zA-Z][\w-]*)/', $prelude, $classes)) return;
-                foreach ($classes[1] as $class) $rules[$class] = ($rules[$class] ?? array()) + $properties;
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$rules, $margins): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+                    // Type/universal resets were already resolved by the capture.
+                    // Only class rules can compete with the block-type style.
+                    if (!str_contains($selector, '.')) continue;
+                    foreach (CssRuleAnalyzer::declarationList($body) as $declaration) {
+                        if (!isset($margins[$declaration['name']])) continue;
+                        $rules[] = array('selector' => $selector, 'parsed' => CssSelectorMatcher::parse($selector), 'property' => $declaration['name'], 'value' => $declaration['value'], 'unconditional' => array() === $ancestors);
+                    }
+                }
             });
         }
         return $rules;
+    }
+
+    /** Equivalent zero units are safe even for a shorthand with several sides. */
+    private static function sameValue(string $css, string $value): bool
+    {
+        $css = trim((string) preg_replace('/\s*!important\s*$/i', '', $css));
+        if ($css === $value) return true;
+        return 1 === preg_match('/^0(?:\.0+)?(?:px|em|rem|%)?$/', $value)
+            && 1 === preg_match('/^0(?:\.0+)?(?:px|em|rem|%)?(?:\s+0(?:\.0+)?(?:px|em|rem|%)?){0,3}$/', $css);
+    }
+
+    private static function ruleReaches(array $block, array $rule): bool
+    {
+        if (!isset($block['element'])) return true;
+        $match = CssSelectorMatcher::matches($block['element'], $rule['parsed']);
+        return !$match['supported'] || $match['matches'];
+    }
+
+    /**
+     * Only an unconditional, direct engine reset proves a marginless block
+     * carries zero. Conditional rules and ancestor-dependent selectors cannot
+     * establish a value across viewport/state changes.
+     */
+    private static function deliveredValue(array $block, string $side, string $value, array $rules): bool
+    {
+        $found = false;
+        foreach ($rules as $rule) {
+            if (!in_array($rule['property'], self::SIDE_PROPERTIES[$side], true) || !self::ruleReaches($block, $rule)) continue;
+            if (!self::sameValue($rule['value'], $value)) return false;
+            if ($rule['unconditional'] && in_array($rule['selector'], array(':root :where(.blocks-engine-synthetic-paragraph)', '.blocks-engine-synthetic-image-figure'), true)) $found = true;
+        }
+        return $found;
     }
 
     /**

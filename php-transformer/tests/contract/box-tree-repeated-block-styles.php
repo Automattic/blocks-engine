@@ -120,9 +120,49 @@ foreach (array('core/paragraph', 'core/list-item', 'core/heading') as $type) {
     $assert('0px' === ($sides['top'] ?? null) && null !== ($sides['bottom'] ?? null), "theme.json styles.blocks.$type holds the block type's vertical margins.", json_encode($blockStyles));
 }
 
+// Table-driven regressions for the real-import blockers. These exercise the
+// site-wide planner with emitted shell markup, not a permissive CSS reset.
+$cases = array(
+    'paragraph with delivered shell reset' => array('paragraph', 'p', 'blocks-engine-synthetic-paragraph', ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}', '', false),
+    'group with excluded descendant reset' => array('group', 'div', 'wp-block-group', ':root :where(.wp-block-group.flow)>:not(.zero){margin-block-start:revert;margin-block-end:revert}', 'zero', false),
+    'group under zero parent gap' => array('group', 'div', 'wp-block-group', '', '', true),
+    'center aligned image with same-value reset' => array('image', 'figure', 'wp-block-image', '.wp-block-image{margin:0}', '', false),
+    'details with sound block selector' => array('details', 'details', 'wp-block-details', '', '', false),
+);
+$caseBoxes = array();
+foreach ($cases as $label => [$name, $tag, $class, $rule, $extra, $zeroGap]) {
+    $attrs = array('style' => array('spacing' => array('margin' => array('top' => '0px', 'bottom' => '0px'))));
+    if ('image' === $name) $attrs['align'] = 'center';
+    $block = '<!-- wp:' . $name . ' ' . Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes::encode($attrs) . ' --><' . $tag . ' class="' . $class . ' ' . $extra . '" style="margin-top:0px;margin-bottom:0px">' . ('details' === $name ? '<summary>Question</summary>' : 'Text') . '</' . $tag . '><!-- /wp:' . $name . ' -->';
+    $before = $block . $block;
+    if ('paragraph' === $name) $before .= '<!-- wp:paragraph {"className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Shell</p><!-- /wp:paragraph -->';
+    if ($zeroGap) $before = '<!-- wp:group {"style":{"spacing":{"blockGap":"0px"}}} --><div class="wp-block-group" style="margin-top:0px;margin-bottom:0px">' . $before . '</div><!-- /wp:group -->';
+    $result = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RepeatedBlockStyles::hoist(array('page' => array('markup' => $before, 'strippable' => true)), array(), array(array('kind' => 'css', 'content' => $rule)));
+    $assert(array('top' => '0px', 'bottom' => '0px') === ($result['blocks']['core/' . $name]['spacing']['margin'] ?? null), "$label hoists both vertical sides.", json_encode($result));
+    $strippedMarkup = $zeroGap ? substr($result['markup']['page'], strpos($result['markup']['page'], '<!-- wp:group ', 1)) : $result['markup']['page'];
+    $assert(!str_contains($strippedMarkup, 'margin-top:') && !str_contains($strippedMarkup, 'margin-bottom:'), "$label emits no inline vertical margins.");
+    $caseBoxes[$label] = array($before, $result['markup']['page'], $rule, $tag, $name);
+}
+$blocked = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RepeatedBlockStyles::hoist(array('page' => array('markup' => str_replace('"blockGap":"0px"', '"blockGap":"24px"', $caseBoxes['group under zero parent gap'][0]), 'strippable' => true)), array(), array());
+$assert(empty($blocked['blocks']), 'A nonzero parent gap still protects inline zero margins.');
+// Real conflicts, conditional resets, raw selector exposure, floats and
+// runtime anchors must not be mistaken for the newly safe situations.
+foreach (array(
+    'conditional reset' => array($caseBoxes['paragraph with delivered shell reset'][0], '@media(min-width:900px){:root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}}', array()),
+    'different class margin' => array($caseBoxes['center aligned image with same-value reset'][0], '.wp-block-image{margin-top:12px;margin-bottom:12px}', array()),
+    'floating image' => array(str_replace('"align":"center"', '"align":"left"', $caseBoxes['center aligned image with same-value reset'][0]), '', array()),
+    'raw details exposure' => array($caseBoxes['details with sound block selector'][0] . '<details class="wp-block-details"><summary>Raw</summary></details>', '', array()),
+    'runtime anchor' => array($caseBoxes['details with sound block selector'][0], '', array($caseBoxes['details with sound block selector'][0])),
+) as $label => [$before, $rule, $anchors]) {
+    $result = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RepeatedBlockStyles::hoist(array('page' => array('markup' => $before, 'strippable' => true)), array(), array(array('kind' => 'css', 'content' => $rule)), $anchors);
+    $assert(empty($result['blocks']), "$label still blocks hoisting.");
+}
+$index = array_column($plan['templates'], 'canonical_block_markup', 'slug')['index'];
+$assert(str_contains($index, 'margin-top:1em;margin-bottom:1em'), 'The live index no-results paragraph preserves its own UA margins.');
+
 // The global styles WordPress prints: the root layout gap of a theme with a
 // global block gap, then each block-type style at the same 0-1-0 weight.
-$selectors = array('core/paragraph' => 'p', 'core/heading' => '.wp-block-heading', 'core/list-item' => '.wp-block-list > li', 'core/image' => '.wp-block-image', 'core/group' => '.wp-block-group');
+$selectors = array('core/paragraph' => 'p', 'core/heading' => '.wp-block-heading', 'core/list-item' => '.wp-block-list > li', 'core/image' => '.wp-block-image', 'core/group' => '.wp-block-group', 'core/details' => '.wp-block-details');
 $globalStyles = ':root :where(.is-layout-flow) > *,:root :where(.is-layout-constrained) > *{margin-block-start:24px;margin-block-end:0}'
     . ':root :where(.is-layout-flow) > :first-child,:root :where(.is-layout-constrained) > :first-child{margin-block-start:0}';
 foreach ($blockStyles as $type => $style) {
@@ -153,6 +193,22 @@ try {
             . escapeshellarg('file://' . $directory . '/' . $document . '.html') . ' 2>/dev/null');
         if (1 !== preg_match('/data-boxes="([^"\n]+)"/', $output, $match)) throw new RuntimeException("Missing $document browser boxes: $output");
         $boxes[$document] = json_decode(html_entity_decode($match[1], ENT_QUOTES), true, 32, JSON_THROW_ON_ERROR);
+    }
+    // The same zero defaults are delivered to the editor canvas. Assert
+    // both the frontend and canvas cascade for every newly hoisted situation.
+    foreach ($caseBoxes as $label => [$before, $after, $rule, $tag, $name]) {
+        $measurements = array();
+        foreach (array('before', 'frontend', 'canvas') as $mode) {
+            $style = 'body{margin:0} :root :where(.is-layout-flow)>*{margin-block-start:24px;margin-block-end:0}';
+            if ('before' !== $mode) $style .= ':root :where(' . $selectors['core/' . $name] . '){margin-top:0px;margin-bottom:0px}';
+            $style .= $rule;
+            $probeCase = '<script>document.body.dataset.boxes=JSON.stringify([...document.querySelectorAll("' . $tag . '")].map(e=>{const b=e.getBoundingClientRect();const s=getComputedStyle(e);return [b.x,b.y,b.width,b.height,s.marginTop,s.marginBottom]}));</script>';
+            file_put_contents($directory . '/case.html', '<!doctype html><html><head><style>' . $style . '</style></head><body class="' . ('canvas' === $mode ? 'editor-styles-wrapper' : '') . '"><div class="is-layout-flow">' . ('before' === $mode ? $before : $after) . '</div>' . $probeCase . '</body></html>');
+            $output = (string) shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($directory . '/profile') . ' --dump-dom ' . escapeshellarg('file://' . $directory . '/case.html') . ' 2>/dev/null');
+            if (1 !== preg_match('/data-boxes="([^"\n]+)"/', $output, $match)) throw new RuntimeException('Missing case geometry: ' . $label);
+            $measurements[$mode] = html_entity_decode($match[1], ENT_QUOTES);
+        }
+        $assert($measurements['before'] === $measurements['frontend'] && $measurements['before'] === $measurements['canvas'], "$label preserves frontend and canvas geometry.", json_encode($measurements));
     }
     $assert(count($blocks) + 1 === count($boxes['source']), 'The source renders every text block.', json_encode($boxes['source']));
     $assert($boxes['source'] === $boxes['compiled'], 'At 768px every heading, paragraph and list item keeps its source box in the compiled frontend.', json_encode($boxes, JSON_PRETTY_PRINT));
