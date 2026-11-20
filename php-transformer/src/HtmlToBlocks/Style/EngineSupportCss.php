@@ -629,6 +629,17 @@ final class EngineSupportCss
             // Zero specificity: Core layout displays and author CSS still win.
             $parts[] = ':where(.wp-block-group.' . LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS . '){display:flow-root}';
         }
+        if ( str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern::FLOAT_WIDTHS_CLASS) ) {
+            // An auto basis reads the author's width at *each* breakpoint,
+            // including calc() and variables, rather than freezing desktop
+            // pixels into an inline width attribute. No equal-grow default.
+            $row = '.wp-block-columns.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern::FLOAT_WIDTHS_CLASS;
+            $parts[] = ':root ' . $row . '{flex-wrap:wrap!important;gap:0}'
+                . "\n" . ':root ' . $row . '>.wp-block-column{flex-basis:auto;flex-grow:0;flex-shrink:0}'
+                // A normal-flow auto-width block fills the row. Zero
+                // specificity lets every authored width override the fallback.
+                . "\n" . ':where(' . $row . '>.wp-block-column){width:100%}';
+        }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
             $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . ':not(:where(.blocks-engine-layout-table-table,.blocks-engine-layout-table-row)){display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
                 . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column:not(:where(.blocks-engine-layout-table-cell)){box-sizing:border-box;min-width:0}'
