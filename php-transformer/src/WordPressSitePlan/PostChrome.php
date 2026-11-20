@@ -57,6 +57,8 @@ final class PostChrome
     private bool $uniformTemplate = false;
     /** Whether post content is the inner children of a hoisted template frame. */
     private bool $framedContent = false;
+    /** The post type whose articles are being factored: posts, or pages that share an article layout. */
+    private string $articleType = 'post';
 
     /** @var list<array<string,mixed>> Original site posts, across layout groups. */
     private array $allPosts = array();
@@ -257,22 +259,38 @@ final class PostChrome
         $this->relatedTermScopes = array();
         $this->uniformTemplate = null === $templates;
         $this->framedContent = false;
+        $this->articleType = 'post';
         if (null === $templates) {
             $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
             foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
             return $result;
         }
         $bySlug = array_column($templates, null, 'slug');
+        // A page is an article like a post when a byline names its author.
+        $bylined = array();
+        foreach ($this->taxonomyEntities as $entity) {
+            if ('author' === ($entity['kind'] ?? null)) $bylined += array_fill_keys($entity['membership_source_paths'] ?? array(), true);
+        }
         $bound = array();
+        $users = array();
         foreach ($pages as $index => $page) {
-            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) continue;
-            $slug = $page['route_template'] ?? 'single';
+            if (in_array($page['post_type'] ?? null, array('post', 'page'), true)) {
+                $used = $page['route_template'] ?? ('post' === $page['post_type'] ? 'single' : 'page');
+                $users[$used] = ($users[$used] ?? 0) + 1;
+            }
+            if (!('post' === ($page['post_type'] ?? null) || ('page' === ($page['post_type'] ?? null) && isset($bylined[$page['source_path'] ?? '']))) || !empty($page['synthetic']) || !empty($page['entrypoint'])) continue;
+            $slug = $page['route_template'] ?? ('post' === $page['post_type'] ? 'single' : 'page');
             if (!isset($bySlug[$slug]) || isset($bySlug[$slug]['source_path']) || str_contains($bySlug[$slug]['canonical_block_markup'], '<!-- wp:post-title')) continue;
             $bound[$slug][$index] = $page;
         }
-        $canonical = null;
-        $canonicalSize = 0;
+        // Per article type, the largest factored design owns the hierarchy
+        // slot, so a post or page authored in WordPress renders like it.
+        $canonical = array();
+        $canonicalSize = array();
         foreach ($bound as $slug => $posts) {
+            // One template's articles share a post type: posts, or pages.
+            if (1 !== count(array_unique(array_column($posts, 'post_type')))) continue;
+            $this->articleType = (string) reset($posts)['post_type'];
             $baseTemplate = $bySlug[$slug];
             $this->framedContent = str_contains($baseTemplate['canonical_block_markup'], WordPressSitePlan::FRAME_CONTENT_CLASS);
             // Peers establish article boundaries even when optional chrome
@@ -354,7 +372,8 @@ final class PostChrome
                 $factored = $layout['factored'];
                 // A partial group cannot change the template used by the other
                 // layouts (or by posts whose complete article must be retained).
-                $target = '' === $layout['scope'] && count($layout['members']) === count($posts) ? $slug : 'single-post-article-' . substr(hash('sha256', $slug . "\0" . $identity . ('' === $layout['scope'] ? '' : "\0" . $layout['scope'])), 0, 12);
+                // Documents outside the factored layouts keep the template.
+                $target = '' === $layout['scope'] && count($layout['members']) === ($users[$slug] ?? 0) ? $slug : ('post' === $this->articleType ? 'single-post-article-' : 'page-article-') . substr(hash('sha256', $slug . "\0" . $identity . ('' === $layout['scope'] ? '' : "\0" . $layout['scope'])), 0, 12);
                 $template = $baseTemplate;
                 $template['slug'] = $target;
                 $template['target_path'] = 'templates/' . $target . '.html';
@@ -366,9 +385,9 @@ final class PostChrome
                 $bySlug[$target] = $template;
                 // The largest factored post design owns the hierarchy slot.
                 // Stable traversal breaks ties without depending on post IDs.
-                if (count($layout['members']) > $canonicalSize) {
-                    $canonical = $target;
-                    $canonicalSize = count($layout['members']);
+                if (count($layout['members']) > ($canonicalSize[$this->articleType] ?? 0)) {
+                    $canonical[$this->articleType] = $target;
+                    $canonicalSize[$this->articleType] = count($layout['members']);
                 }
                 foreach ($factored['pages'] as $index => $page) {
                     $pages[$index] = $page;
@@ -386,18 +405,19 @@ final class PostChrome
                 unset($part);
             }
         }
-        if (null !== $canonical) {
-            $remap = array($canonical => 'single');
-            if ('single' !== $canonical) {
+        foreach ($canonical as $type => $design) {
+            $hierarchy = 'post' === $type ? 'single' : 'page';
+            $remap = array($design => $hierarchy);
+            if ($hierarchy !== $design) {
                 // Unfactored articles still need their original frame; do not
                 // put the canonical chrome around their retained full article.
-                $fallback = 'single-post-article-' . substr(hash('sha256', $bySlug['single']['canonical_block_markup']), 0, 12);
-                $remap['single'] = $fallback;
-                $original = $bySlug['single'];
-                $bySlug['single'] = $bySlug[$canonical];
-                unset($bySlug[$canonical]);
-                if (array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && 'single' === ($page['route_template'] ?? 'single'))) $bySlug[$fallback] = $original;
-                foreach (array('single', $fallback) as $target) {
+                $fallback = ('post' === $type ? 'single-post-article-' : 'page-article-') . substr(hash('sha256', $bySlug[$hierarchy]['canonical_block_markup']), 0, 12);
+                $remap[$hierarchy] = $fallback;
+                $original = $bySlug[$hierarchy];
+                $bySlug[$hierarchy] = $bySlug[$design];
+                unset($bySlug[$design]);
+                if (array_filter($pages, static fn(array $page): bool => $type === ($page['post_type'] ?? null) && $hierarchy === ($page['route_template'] ?? $hierarchy))) $bySlug[$fallback] = $original;
+                foreach (array($hierarchy, $fallback) as $target) {
                     if (!isset($bySlug[$target])) continue;
                     $bySlug[$target]['slug'] = $target;
                     $bySlug[$target]['target_path'] = 'templates/' . $target . '.html';
@@ -408,10 +428,10 @@ final class PostChrome
                         if (isset($part['placement'][$field])) $part['placement'][$field] = array_values(array_unique(array_map(static fn(string $value): string => $remap[$value] ?? $value, $part['placement'][$field])));
                     }
                     if (in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)) {
-                        $field = str_contains($bySlug['single']['canonical_block_markup'], '"slug":"' . $part['slug'] . '"') ? 'template_slugs' : 'excluded_template_slugs';
+                        $field = str_contains($bySlug[$hierarchy]['canonical_block_markup'], '"slug":"' . $part['slug'] . '"') ? 'template_slugs' : 'excluded_template_slugs';
                         $other = 'template_slugs' === $field ? 'excluded_template_slugs' : 'template_slugs';
-                        $part['placement'][$field][] = 'single';
-                        $part['placement'][$other] = array_values(array_diff($part['placement'][$other] ?? array(), array('single')));
+                        $part['placement'][$field][] = $hierarchy;
+                        $part['placement'][$other] = array_values(array_diff($part['placement'][$other] ?? array(), array($hierarchy)));
                     }
                     $wrappers = $part['placement']['template_wrappers'] ?? array();
                     if ($wrappers) {
@@ -422,10 +442,10 @@ final class PostChrome
                 unset($part);
             }
             foreach ($pages as &$page) {
-                if ('post' !== ($page['post_type'] ?? null)) continue;
-                $target = $remap[$page['route_template'] ?? 'single'] ?? ($page['route_template'] ?? 'single');
+                if ($type !== ($page['post_type'] ?? null)) continue;
+                $target = $remap[$page['route_template'] ?? $hierarchy] ?? ($page['route_template'] ?? $hierarchy);
                 $page['route_template'] = $target;
-                if ('single' === $target) unset($page['metadata']['post_meta']['_wp_page_template']);
+                if ($hierarchy === $target) unset($page['metadata']['post_meta']['_wp_page_template']);
                 else $page['metadata']['post_meta']['_wp_page_template'] = $target;
             }
             unset($page);
@@ -474,7 +494,7 @@ final class PostChrome
             usort($section, static fn(array $a, array $b): int => count($b['members']) <=> count($a['members']));
             // One layout merges too when its members' own templates differ
             // (a per-post hero image), so each post keeps its own values.
-            $design = count($section) > 1 || count(array_unique($section[0]['factored']['post_templates'] ?? array())) > 1 ? self::mergeDesign($section) : null;
+            $design = count($section) > 1 || count(array_unique(array_map(self::markerNeutral(...), $section[0]['factored']['post_templates'] ?? array()))) > 1 ? self::mergeDesign($section) : null;
             foreach (null === $design ? $section : array($design) as $layout) {
                 if ($layout['merge_only']) continue;
                 $key = $layout['factored']['single'];
@@ -487,6 +507,16 @@ final class PostChrome
             }
         }
         return array_merge(array_values($merged), $result);
+    }
+
+    /**
+     * The same chrome in documents with different author CSS carries a
+     * different richtext marker in each. Compare it with the marker hashes
+     * zeroed: the length is unchanged, so offsets still address the original.
+     */
+    private static function markerNeutral(string $template): string
+    {
+        return preg_replace_callback('/(?<=blocks-engine-richtext-)[a-f0-9]+(?=-\d)/', static fn(array $match): string => str_repeat('0', strlen($match[0])), $template) ?? $template;
     }
 
     /**
@@ -518,8 +548,8 @@ final class PostChrome
         $prefix = min(array_column($slots, 'offset'));
         $suffix = min(array_map(static fn(string $template, array $slot): int => strlen($template) - $slot['end'], $templates, $slots));
         foreach ($templates as $template) {
-            $prefix = min($prefix, strspn($template ^ $first, "\0"));
-            $suffix = min($suffix, strspn(strrev($template) ^ strrev($first), "\0"));
+            $prefix = min($prefix, strspn(self::markerNeutral($template) ^ self::markerNeutral($first), "\0"));
+            $suffix = min($suffix, strspn(strrev(self::markerNeutral($template)) ^ strrev(self::markerNeutral($first)), "\0"));
         }
         // A middle is a balanced sequence of sibling blocks: it starts at a
         // block opener and ends after a block closer in every template. Query
@@ -536,7 +566,8 @@ final class PostChrome
             return 0 === $depth;
         };
         // Prefer the most shared leading chrome, then the most trailing chrome.
-        preg_match_all('/<!-- wp:/', substr($first, 0, $prefix + 1), $openers, PREG_OFFSET_CAPTURE);
+        // An opener may start exactly at the shared prefix, as the slot does.
+        preg_match_all('/<!-- wp:/', substr($first, 0, $prefix + strlen('<!-- wp:')), $openers, PREG_OFFSET_CAPTURE);
         preg_match_all('/-->/', substr($first, -max(1, $suffix) - 3), $closers, PREG_OFFSET_CAPTURE);
         $tail = strlen($first) - max(1, $suffix) - 3;
         $cuts = array_values(array_filter(array_map(static fn(array $closer): int => strlen($first) - ($tail + $closer[1] + 3), $closers[0]), static fn(int $cut): bool => $cut >= 0 && $cut <= $suffix));
@@ -621,7 +652,7 @@ final class PostChrome
         $posts = array();
         $indexes = array();
         foreach ($pages as $index => $page) {
-            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['canonical_block_markup'] ?? null) || '' === trim($page['canonical_block_markup'])) {
+            if ($this->articleType !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['canonical_block_markup'] ?? null) || '' === trim($page['canonical_block_markup'])) {
                 continue;
             }
             $posts[] = $page;
@@ -689,7 +720,7 @@ final class PostChrome
             if ($promoteLead) {
                 $transformed = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset'], $posts);
             }
-            if ((!$transformed['title'] && !$this->hasDeclaredEmptyTitle($post)) || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
+            if ((!$transformed['title'] && !$this->hasDeclaredEmptyTitle($post)) || ('post' === $this->articleType && !$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
             }
             // A runtime entity binding anchors one exact block of the document
@@ -1032,6 +1063,10 @@ final class PostChrome
                     }
                 }
             }
+            if ('author' === $this->classifyBlock($slice, $post, $route, $index)) {
+                $slots[$leaf['offset']] = PostBlocks::author($slice);
+                continue;
+            }
             // A date linked to its own post (Blogger's timestamp permalink)
             // varies only by that post's URL and date: post-date renders both.
             if ('date' === $this->classifyBlock($slice, $post, $route, $index) && $this->listings->linksOnlyToRoute($slice, $route)) {
@@ -1298,6 +1333,12 @@ final class PostChrome
             $empty['template'] = PostBlocks::featuredImage($slice);
             return $empty;
         }
+        // A byline is shared by every post of one author, yet renders each
+        // post's own author.
+        if (array() === $index->children($range) && $this->bylineNamesAuthor($slice, $post)) {
+            $empty['template'] = PostBlocks::author($slice);
+            return $empty;
+        }
         $attrs = PostBlocks::sourceAttributes($slice);
         $className = (string) ($attrs['className'] ?? '');
         $anchor = (string) ($attrs['anchor'] ?? '');
@@ -1311,7 +1352,8 @@ final class PostChrome
         // post may render the same image. A shared section that also carries
         // its own text or controls is chrome, media included.
         $mediaOnly = preg_match('/<(?:img|video|picture|audio)\b/i', str_replace('\\u003c', '<', $slice)) && '' === ListingExcerptProjection::text($slice);
-        if ('' !== $identity && isset($shared[$identity]) && !$mediaOnly) {
+        // Shared chrome that holds a byline still renders each post's author.
+        if ('' !== $identity && isset($shared[$identity]) && !$mediaOnly && !$this->holdsAuthorByline($index, $range, $post)) {
             return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false, 'retained' => array());
         }
         // A closed dialog opens on demand, so it can neither host the post
@@ -1390,8 +1432,33 @@ final class PostChrome
         if (self::isCommentFormChrome($slice)) {
             return 'comments';
         }
+        if ($this->bylineNamesAuthor($slice, $post)) {
+            return 'author';
+        }
         $kind = $this->listings->classifyCardBlock($slice, $post, $route, $postIndex);
         return 'skip' === $kind ? 'share' : $kind;
+    }
+
+    /** A leaf whose one `rel="author"` link names the post's proven author. */
+    /** @param array{offset:int,length:int} $range */
+    private function holdsAuthorByline(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $range, array $post): bool
+    {
+        if (!preg_match('/\brel="[^"]*\bauthor\b/i', substr($index->markup, $range['offset'], $range['length']))) return false;
+        foreach ($index->ranges() as $leaf) {
+            if ($leaf['offset'] < $range['offset'] || $leaf['offset'] + $leaf['length'] > $range['offset'] + $range['length'] || array() !== $index->children($leaf)) continue;
+            if ($this->bylineNamesAuthor(substr($index->markup, $leaf['offset'], $leaf['length']), $post)) return true;
+        }
+        return false;
+    }
+
+    private function bylineNamesAuthor(string $slice, array $post): bool
+    {
+        if (!preg_match('/\brel="[^"]*\bauthor\b/i', $slice)) return false;
+        foreach ($this->taxonomyEntities as $entity) {
+            if ('author' !== ($entity['kind'] ?? null) || !in_array($post['source_path'] ?? null, $entity['membership_source_paths'] ?? array(), true)) continue;
+            return PostBlocks::author($slice) !== $slice && str_contains(ListingExcerptProjection::text($slice), (string) $entity['name']);
+        }
+        return false;
     }
 
     /** @param array<string,mixed> $post */

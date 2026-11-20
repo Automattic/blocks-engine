@@ -1492,7 +1492,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan author membership must name a canonical post.')": {
+      "InvalidArgumentException('WordPress site plan author membership must name a canonical post or page.')": {
         "class": "integrity",
         "count": 1
       },
