@@ -30,8 +30,8 @@ use DOMElement;
  *   width (the user-agent 16px when undeclared), so the carrier does not
  *   depend on the destination's root font size.
  * - A unitless `line-height` scales with the element's font size: it is
- *   lifted when the observed line height differs between captures and
- *   equals that factor times the observed font size at every capture.
+ *   lifted when it equals that factor times the observed font size at every
+ *   capture, including invariant values whose line-box rounding pixels lose.
  * - A `display` or `visibility` keyword winner (`none`, reached directly
  *   or through `var()`) that equals the observed value at every capture and
  *   differs between captures is lifted, so a box the author hides below a
@@ -342,8 +342,6 @@ final class BoxTreeFluidIntent
                 && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
             $proven[$key] = $value;
         }
-        if ('line-height' === $property && count(array_unique(array_column(array_column($observations, 'used_styles'), $property))) < 2
-            && count(array_filter($proven, static fn(string $value): bool => 1 === preg_match('/^\d*\.?\d+$/', $value))) === count($proven)) return null;
         return $this->bands($widths, $samples, $proven, $winner, false);
     }
 
@@ -355,16 +353,11 @@ final class BoxTreeFluidIntent
     private function liftedExpression(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
     {
         $proven = array();
-        $observed = array();
         foreach ($widths as $key => $width) {
             $value = $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents);
             if (null === $value) return null;
             $proven[$key] = $value;
-            $observed[(string) ($observations[$key]['used_styles'][$property] ?? '')] = true;
         }
-        // A unitless line height already equals its pixels at every capture
-        // when they agree: only a varying one carries intent pixels lose.
-        if ('line-height' === $property && count($observed) < 2 && preg_match('/^\d*\.?\d+$/', (string) reset($proven))) return null;
         return $this->bands($widths, $samples, $proven, function (float $width) use ($property): ?string {
             $value = $this->declared($property, $width);
             return '' === $value ? null : $value;

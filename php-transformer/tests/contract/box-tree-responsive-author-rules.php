@@ -53,6 +53,8 @@ $author = '.nav{display:flex;justify-content:space-between}.links{display:flex;g
     // its own indicator after the label.
     . '.faq summary{list-style:none;cursor:pointer}.faq summary::-webkit-details-marker{display:none}.faq summary::after{content:"+";float:right}'
     . '.legal{font-size:10px;line-height:17px}@media (max-width:1000px){.legal{line-height:1.7}}'
+    // #7109: invariant factors must retain the browser's line-box rounding.
+    . '.bodycopy{font-size:14px;line-height:2.05;margin:0}'
     . '.hero{height:min(880px,100svh);min-height:680px}'
     . '@media (max-width:520px){.hero{min-height:650px}}'
     . '.story figure{margin:0}.story img{display:block;width:100%;max-height:650px;object-fit:cover}'
@@ -69,6 +71,7 @@ $author = '.nav{display:flex;justify-content:space-between}.links{display:flex;g
     . '@media (max-width:520px){.pic:nth-child(n){grid-column:span 12;height:280px}}';
 $markup = '<!doctype html><html><head><meta charset="utf-8"><title>Responsive</title><style>' . $author . '</style></head><body>'
     . '<header class="nav"><a class="brand" href="/">Studio</a><button class="menu" onclick="document.querySelector(\'.links\').classList.toggle(\'show\')">☰</button><nav class="links"><a href="/one">One</a><a href="/two">Two</a><a href="/three">Three</a><a href="/four">Four</a><a href="/five">Five</a></nav></header><main>'
+    . '<section class="rounding"><p class="bodycopy">First line<br>Second line<br>Third line</p><div class="following">Following element</div></section>'
     . '<section class="placement-probe"><p>Panel placement evidence</p></section>'
     . '<section class="hero"><h1>Hero</h1></section>'
     . '<section class="story"><figure><img src="https://example.com/story.jpg" alt="Story"></figure></section>'
@@ -111,6 +114,7 @@ $package = static fn(string $mobileHeight): array => array(
 $summaryStyles = array('display' => 'list-item', 'list-style-type' => 'none', 'list-style-position' => 'inside', 'cursor' => 'pointer', 'height' => '18px');
 $captionStyles = array('display' => 'block', 'font-family' => '"Playfair Display"', 'font-size' => '18px', 'font-style' => 'italic', 'color' => 'rgb(185, 155, 98)', 'margin-top' => '18px', 'margin-bottom' => '18px');
 $observed = array(
+    '//p[@class="bodycopy"]' => array_fill_keys(array('desktop', 'mobile'), array('display' => 'block', 'font-size' => '14px', 'line-height' => '28.7px', 'margin-top' => '0px', 'margin-bottom' => '0px')),
     '//section[@class="placement-probe"]' => array(
         'desktop' => array('display' => 'block', 'position' => 'static', 'top' => 'auto', 'left' => 'auto', 'right' => 'auto'),
         'mobile' => array('display' => 'none', 'position' => 'absolute', 'top' => '65px', 'left' => '0px', 'right' => '0px'),
@@ -603,6 +607,10 @@ $expectHeight($hero, 'hero', array(
 $expectHeight($storyImage, 'story image', array(array(1440, 700, 650), array(768, 600, 650), array(402, 844, 603)));
 $expectHeight($introImage, 'intro image', array(array(1440, 900, 650), array(768, 1024, 650), array(402, 844, 603), array(343, 700, 514.5)));
 
+$bodycopy = $compiledPath->query('//p[contains(@class,"bodycopy")]')->item(0);
+$assert($bodycopy instanceof DOMElement, 'The body copy remains a paragraph.');
+$assert('2.05' === $cascaded($bodycopy, 'line-height', 768), 'The proven invariant author line-height is emitted as 2.05.', (string) $cascaded($bodycopy, 'line-height', 768));
+
 // Compare actual browser boxes, including the line box around inline text.
 $chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v chromium || command -v google-chrome'));
 if ('' === $chrome) throw new RuntimeException('Browser required for source-node box contract.');
@@ -615,7 +623,7 @@ try {
         'compiled' => '[document.querySelector("a[href=\"/contact\"]"),document.querySelector("footer p"),document.querySelector("a[href=\"/buy\"]").closest(".wp-block-buttons"),document.querySelector(".plan"),document.querySelector("small"),document.querySelector("footer")]',
     );
     $probe = static fn(string $document): string => '<script>document.body.dataset.boxes=JSON.stringify(' . $probes[$document]
-        . '.map(e=>{const b=e.getBoundingClientRect();return [b.width,b.height]}));</script>';
+        . '.map(e=>{const b=e.getBoundingClientRect();return [b.width,b.height]}));document.body.dataset.following=JSON.stringify(document.querySelector(".following").getBoundingClientRect().y);</script>';
     $baseline = '<style>body{font-family:Arial;font-size:16px}a{box-sizing:border-box}</style>';
     file_put_contents($directory . '/source.html', $markup . $baseline . $probe('source'));
     $rendered = preg_replace('/<!-- wp:navigation .*?<!-- \/wp:navigation -->/s', $compiled->saveHTML($navigationHost), $result['serialized_blocks']);
@@ -624,6 +632,7 @@ try {
     file_put_contents($directory . '/compiled.html', '<!doctype html><style>' . $coreNavigationCss . $css . '</style>' . $baseline . $rendered . $probe('compiled') . $navigationProbe);
     foreach (array(1440, 768, 402, 390) as $width) {
         $boxes = array();
+        $following = array();
         foreach (array('source', 'compiled') as $document) {
             $output = shell_exec(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome)
                 . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($directory . '/profile')
@@ -635,8 +644,11 @@ try {
                 $navigationBox = json_decode(html_entity_decode($navigationMatch[1], ENT_QUOTES), true, 32, JSON_THROW_ON_ERROR);
                 $assert('none' !== $navigationBox['toggle'] && 'none' === $navigationBox['links'] && abs($navigationBox['right'] - $navigationBox['edge']) < 1, "H: at {$width}px Core's toggle is at the right edge and its links are hidden.", json_encode($navigationBox));
             }
+            if (!preg_match('/data-following="([^"\n]+)"/', (string) $output, $followingMatch)) throw new RuntimeException('Missing following-element probe.');
+            $following[$document] = json_decode(html_entity_decode($followingMatch[1], ENT_QUOTES), true, 32, JSON_THROW_ON_ERROR);
             $boxes[$document] = json_decode(html_entity_decode($match[1], ENT_QUOTES), true, 32, JSON_THROW_ON_ERROR);
         }
+        if (768 === $width) $assert($following['source'] === $following['compiled'], 'At 768px the following element has exactly its source y.', json_encode($following));
         if (390 === $width) continue; // H also checks the uncaptured phone width.
         $compared = array(
             0 => array('button', array(0, 1)),
