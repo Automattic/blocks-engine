@@ -507,7 +507,7 @@ final class PresetBinding
      * as `textColor`/`backgroundColor` where the `!important` preset class
      * would not change the cascade (safe()), otherwise as the preset
      * reference, which core renders as the same inline declaration now
-     * following the token. Only exact palette values bind. Shell extraction
+     * following the token (so state rules cascade over it as over the literal). Only exact palette values bind. Shell extraction
      * promotes shared wordmarks after page binding, so header parts call this
      * directly.
      */
@@ -520,6 +520,7 @@ final class PresetBinding
             if (!$color instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1]) return $match[0];
             $classes = 'wp-block-site-title ' . (is_string($attributes->className ?? null) ? $attributes->className : '');
             $changed = false;
+            $reason = null;
             foreach (array('text' => array('textColor', 'color', 'has-text-color', 'has-%s-color'), 'background' => array('backgroundColor', 'background-color', 'has-background', 'has-%s-background-color')) as $key => [$preset, $property, $marker, $class]) {
                 $literal = $color->$key ?? null;
                 if (isset($attributes->$preset) || !is_string($literal) || str_starts_with($literal, 'var')) continue;
@@ -529,7 +530,7 @@ final class PresetBinding
                 if ($this->safe($property, $tokens, array($marker, sprintf($class, $slug)))) {
                     unset($color->$key);
                     $attributes->$preset = $slug;
-                } elseif ($this->safe($property, $tokens, array(), true)) {
+                } elseif ($this->safe($property, $tokens, array(), true, false, $reason, true)) {
                     $color->$key = 'var:preset|color|' . $slug;
                 } else {
                     continue;
