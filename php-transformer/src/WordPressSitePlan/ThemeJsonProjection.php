@@ -185,7 +185,7 @@ final class ThemeJsonProjection
         }
         $selected = $this->sharedDefaults(array_values($selected), $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
-        $theme = $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport'], $system);
+        $theme = $this->theme($selected, $presets, $this->fontFaces($assets, $documentPaths), $responsiveBreakpoints['viewport'], $system);
         if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, array_replace($this->authoredElementProperties($deliveryAssets, $variables), $contestedProperties));
         $deliveryAssets = $this->withoutRegisteredFontFaces($deliveryAssets, $assets, $theme);
         $theme = self::withCollapsedFontFaceWeights($theme);
@@ -389,12 +389,38 @@ final class ThemeJsonProjection
      * authored-CSS owned because theme.json cannot carry their payload.
      *
      * @param array<int,array<string,mixed>> $assets
+     * @param list<string> $documentPaths
      * @return array<int,array<string,mixed>>
      */
-    private function fontFaces(array $assets): array
+    private function fontFaces(array $assets, array $documentPaths): array
     {
+        $rules = $this->fontFaceRules($assets);
+        // Resource inventory order is not cascade order (notably A,B,A).
+        // Global registration follows the first document's source sequence;
+        // assets without instances retain their inventory slots.
+        foreach ($documentPaths as $source) {
+            $positions = array();
+            foreach ($assets as $index => $asset) foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                if ($source === $instance['source_path']) $positions[$index] = max($positions[$index] ?? -1, $instance['order']);
+            }
+            if (array() === $positions) continue;
+            $slots = array();
+            $ordered = array();
+            foreach ($rules as $index => $rule) if (isset($positions[$rule['asset']])) {
+                $slots[] = $index;
+                $ordered[] = $rule;
+            }
+            usort($ordered, static fn(array $left, array $right): int => $positions[$left['asset']] <=> $positions[$right['asset']] ?: $left['start'] <=> $right['start']);
+            foreach ($slots as $index => $slot) $rules[$slot] = $ordered[$index];
+            break;
+        }
         $faces = array();
-        foreach ($this->fontFaceRules($assets) as $rule) $faces[self::fontFaceKey($rule['face'])] ??= $rule['face'];
+        foreach ($rules as $rule) {
+            $key = self::fontFaceKey($rule['face']);
+            // An exact repeated face must keep its last, not first, position.
+            unset($faces[$key]);
+            $faces[$key] = $rule['face'];
+        }
         return array_values($faces);
     }
 
