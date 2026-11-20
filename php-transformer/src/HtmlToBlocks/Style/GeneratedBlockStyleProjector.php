@@ -1068,7 +1068,7 @@ final class GeneratedBlockStyleProjector
             return '';
         }
         for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $declarations = $this->styleResolver->structuralPresentationDeclarations($ancestor);
             $width = CssValueInspector::declared($declarations, 'width');
             if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
                 return $width;
