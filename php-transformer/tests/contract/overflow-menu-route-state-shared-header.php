@@ -28,7 +28,8 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 // breakpoint it measured on that route, so the names differ by route. One
 // alias the stylesheet does name (the More item's spacing) reads the same on
 // every route.
-// The three routes share one header design, so they share one header part.
+// The three routes share one header design, so they share one header part;
+// the front page's own header is its own variant part.
 $widthAlias = static fn (string $route, string $href): string => 'data-blocks-engine-capture-width-class-' . substr(hash('sha256', $route . "\n" . $href), 0, 12);
 $link = static fn (string $href, string $label, string $route, string $copy): string => '<li' . ('bar' === $copy ? ' class="nav-item ' . $widthAlias($route, $href) . '"' : '') . '><a href="' . $href . '" class="' . ($href === $route ? "{$copy}-on" : "{$copy}-off") . ('bar' === $copy ? ($href === $route ? ' x-a x-u' : ' x-a x-r') : '') . '">' . $label . '</a></li>';
 $modal = static function (string $route, int $number) use ($link): string {
@@ -82,8 +83,10 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
 )))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
 
-$headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null) && array('index.html') !== ($part['placement']['source_paths'] ?? null)));
 $assert(1 === count($headers), 'Routes sharing one header design share one header part, got ' . count($headers));
+$homeHeaders = array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null) && array('index.html') === ($part['placement']['source_paths'] ?? null));
+$assert(1 === count($homeHeaders), 'The front page header of its own design is its own variant part.');
 $adopted = $headers[0]['placement']['source_paths'] ?? array_keys($headers[0]['provenance']['sources'] ?? array());
 sort($adopted);
 $assert(array('a/index.html', 'b/index.html', 'c/index.html') === $adopted, 'The header part serves the routes of its design: ' . json_encode($adopted));
