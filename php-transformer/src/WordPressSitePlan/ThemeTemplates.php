@@ -178,12 +178,28 @@ final class ThemeTemplates
         // an imported heading. Captured pages keep their content-owned titles.
         $liveTemplates = array_fill_keys(array_column($templates, 'slug'), true);
         $hasGenericPage = (bool) array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && ('page' === TemplateSlugs::forPage($page) || !isset($liveTemplates[TemplateSlugs::forPage($page)])));
-        if (!$hasGenericPage) foreach ($templates as &$template) {
+        if (!$hasGenericPage) foreach ($templates as $index => $template) {
             if ('page' !== $template['slug'] || isset($template['source_path']) || str_contains($template['canonical_block_markup'], '<!-- wp:post-title')) continue;
-            $template['canonical_block_markup'] = preg_replace('/(?=<!-- wp:post-content(?:\s|\/))/', '<!-- wp:post-title {"level":1} /-->' . "\n", $template['canonical_block_markup'], 1) ?? $template['canonical_block_markup'];
-            $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
+            // withoutRedundant() may have collapsed the captured front page
+            // onto page.html. Preserve that exact rendering before completing
+            // the otherwise unused authoring lifecycle.
+            if (!isset($liveTemplates['front-page']) && array_filter($pages, static fn(array $page): bool => !empty($page['entrypoint']))) {
+                $front = $template;
+                $front['slug'] = 'front-page';
+                $front['target_path'] = 'templates/front-page.html';
+                $front['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $front['target_path'], $front['target_path']);
+                $templates[] = $front;
+            }
+            // Constrain the slot's children, not the transport wrapper: new
+            // content should use the theme's contentSize just like native pages.
+            $native = preg_replace_callback('/<!-- wp:post-content(?:\s+(\{.*?\}))?\s*\/-->/', static function (array $match): string {
+                $attrs = isset($match[1]) ? json_decode($match[1], true) : array();
+                $attrs['layout'] ??= array('type' => 'constrained');
+                return '<!-- wp:post-title {"level":1} /-->' . "\n" . '<!-- wp:post-content ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' /-->';
+            }, $template['canonical_block_markup'], 1);
+            $templates[$index]['canonical_block_markup'] = $native ?? $template['canonical_block_markup'];
+            $templates[$index]['content_hash'] = WordPressSitePlan::contentHash($templates[$index]['canonical_block_markup']);
         }
-        unset($template);
         return $titles;
     }
 

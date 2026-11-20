@@ -26,4 +26,25 @@ foreach ($captured as $template) if ('page' !== $template['slug']) {
 // Reconciliation is idempotent.
 ThemeTemplates::shareOverrides($pages, $parts, $templates);
 $assert($markup === array_column($templates, 'canonical_block_markup', 'slug'), 'Repeated reconciliation does not duplicate titles.');
+$assert(str_contains($markup['page'], '"layout":{"type":"constrained"}'), 'New body paragraphs use the theme content column.');
+
+// A captured entry route can have lost its byte-identical front-page override
+// during build(). It must not inherit the new authoring title or column.
+$pages[] = array('post_type' => 'page', 'slug' => 'home', 'entrypoint' => true);
+$templates = $captured;
+$originalPage = array_column($templates, 'canonical_block_markup', 'slug')['page'];
+ThemeTemplates::shareOverrides($pages, $parts, $templates);
+$rendered = ThemeTemplates::rendered(array('templates' => $templates));
+$assert($originalPage === $rendered['front-page'], 'Collapsed front-page fallback keeps its captured markup.');
+$assert(str_contains($rendered['page'], 'wp:post-title'), 'New pages still receive a title.');
+$assert(str_contains($rendered['page'], '"layout":{"type":"constrained"}'), 'New pages still receive the content column.');
+$before = $templates;
+ThemeTemplates::shareOverrides($pages, $parts, $templates);
+$assert($before === $templates, 'Preserving the front-page fallback is idempotent.');
+
+// A captured inner page still using page.html owns its title and geometry.
+$pages[] = array('post_type' => 'page', 'slug' => 'plain', 'route_template' => 'page');
+$templates = $captured;
+ThemeTemplates::shareOverrides($pages, $parts, $templates);
+$assert($originalPage === array_column($templates, 'canonical_block_markup', 'slug')['page'], 'A live captured page fallback is not restyled.');
 echo "new page native title: ok\n";
