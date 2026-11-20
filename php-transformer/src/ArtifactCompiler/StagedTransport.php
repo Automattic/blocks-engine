@@ -651,27 +651,9 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $sourceCssBytes = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
-        $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
-        $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
-        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files'], $collectionsProjection['consumed_selectable_bindings'] ?? array());
-        $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
-        $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
-        $capturedDialogs = array(
-            'diagnostics' => CapturedInteractionReport::mergeDiagnostics($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
-            'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
-            'native_runtime_replacements' => array_merge(
-                $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
-                $selectableSetsProjection['native_runtime_replacements'] ?? array(),
-                $collectionsProjection['superseded_runtime_scripts'] ?? array()
-            ),
-        );
-        if (0 < $selectableSetsProjection['projected_count']) {
-            $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
-        }
-        if (0 < $choiceGroupsProjection['projected_count']) {
-            $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
-        }
-        $rawFiles = (new RouteStateProjector())->project($scrollStatesProjection['files'])['files'];
+        $projection = (new CaptureProjection())->project($normalized['files']);
+        $capturedDialogs = $projection['captured_dialogs'];
+        $rawFiles = $projection['files'];
         // Box-tree identity is proven against the captured source bytes, which
         // the projections above rewrite; keep what this normalization accepted.
         $canonicalBoxTrees = array();
@@ -746,11 +728,7 @@ trait StagedTransport
             'canonical_box_trees' => $canonicalBoxTrees,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
-            'captured_dialogs' => array(
-                'diagnostics' => $capturedDialogs['diagnostics'],
-                'projected_count' => $capturedDialogs['projected_count'],
-                'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
-            ),
+            'captured_dialogs' => $capturedDialogs,
         );
     }
 

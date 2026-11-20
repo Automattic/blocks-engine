@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
@@ -107,7 +108,7 @@ final class PresetBinding
     private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
 
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
-    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
+    private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'cover', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');
@@ -248,19 +249,44 @@ final class PresetBinding
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
     private array $uniformVariables = array();
+    /** @var array<string,?float> The root font size each document renders (DesignSystem::renderedRoots()). */
+    private array $documentRoots = array();
+    /** The root every document renders, or null when they differ or one is unknown. */
+    private ?float $siteRootPx = null;
+    /**
+     * The root that renders the markup or stylesheet being bound, which rem
+     * values are measured against; null when its documents render different
+     * or unknown roots, so a rem value names no token.
+     */
+    private ?float $rootPx = null;
+
+    /** Whether author class rules are retired for the document being bound. */
+    private bool $engineOwnedStyles = false;
+
+    /** Bodies of unconditional-state rules that style core button links. @var list<string> */
+    private array $buttonLinkBodies = array();
+
+    /** Button-link properties some rule sets to a value other than the element's. @var array<string,true>|null */
+    private ?array $buttonLinkCompetitors = null;
 
     /**
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
+     * @param list<string> $engineOwnedSources Documents whose author stylesheets retire to engine carriers.
      */
-    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array())
+    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array(), private readonly array $engineOwnedSources = array())
     {
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
-                $this->indexRule($prelude, $body);
+            $printOnly = $conditional && !MediaCondition::targetsScreen((string) $asset['media']);
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $printOnly, $asset): void {
+                // A rule that never renders on screen (print or speech
+                // media) cannot override a screen preset, so it does not
+                // block binding.
+                if (!$printOnly && !self::offScreen($ancestors)) $this->indexRule($prelude, $body);
+                if (!$printOnly && !self::offScreen($ancestors) && str_contains($prelude, '.wp-block-button__link') && !preg_match('/:(?:hover|focus|active|disabled)/i', $prelude)) $this->buttonLinkBodies[] = $body;
                 $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -306,6 +332,25 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
+        $this->documentRoots = DesignSystem::renderedRoots($usageBySource);
+        $this->siteRootPx = $this->rootPx = array() === $this->documentRoots ? $this->system->rootPx : $this->rootOf(array_map('strval', array_keys($this->documentRoots)));
+    }
+
+    /**
+     * The root the given documents render: theirs when they all render one,
+     * the site's when none is named, otherwise null.
+     *
+     * @param list<string> $sources
+     */
+    private function rootOf(array $sources): ?float
+    {
+        $roots = array();
+        foreach ($sources as $source) {
+            $root = array_key_exists($source, $this->documentRoots) ? $this->documentRoots[$source] : $this->siteRootPx;
+            $roots[null === $root ? '' : CssLength::format($root)] = $root;
+        }
+        if (array() === $roots) return $this->siteRootPx;
+        return 1 === count($roots) ? reset($roots) : null;
     }
 
     /**
@@ -376,10 +421,24 @@ final class PresetBinding
         return $refusals;
     }
 
-    public function bind(string $markup): string
+    /** Bind the block markup of the document at `$source` (rem lengths resolve at its root). */
+    public function bind(string $markup, ?string $source = null): string
     {
         if (!str_contains($markup, '<!-- wp:')) return $markup;
+        $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
+        $this->engineOwnedStyles = in_array($source, $this->engineOwnedSources, true);
+        try {
+            return $this->bindMarkup($markup);
+        } finally {
+            $this->rootPx = $this->siteRootPx;
+            $this->engineOwnedStyles = false;
+        }
+    }
+
+    private function bindMarkup(string $markup): string
+    {
         $markup = $this->bindNavigations($markup);
+        $markup = $this->bindSiteTitles($markup);
         $pattern = '/<!-- wp:(' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS))) . ') (\{.*?\}) (\/)?-->/s';
         $result = '';
         $offset = 0;
@@ -426,6 +485,8 @@ final class PresetBinding
         if (!str_contains($markup, '<!-- wp:navigation ')) return $markup;
         $markup = (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) (\/?-->)/s', function (array $match): string {
             $attributes = $this->navigationFontSize($match[1]);
+            $json = null === $attributes ? $match[1] : BlockAttributes::encode($attributes);
+            $attributes = $this->navigationOverlayColors($json) ?? $attributes;
             return null === $attributes ? $match[0] : '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' ' . $match[2];
         }, $markup);
         return (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) -->(.*?)<!-- \/wp:navigation -->/s', function (array $match): string {
@@ -438,6 +499,70 @@ final class PresetBinding
             ++$this->bound;
             return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
         }, $markup);
+    }
+
+    /**
+     * Core renders a site title from its attributes alone (the block is
+     * self-closing), so a palette colour carried as a literal binds there:
+     * as `textColor`/`backgroundColor` where the `!important` preset class
+     * would not change the cascade (safe()), otherwise as the preset
+     * reference, which core renders as the same inline declaration now
+     * following the token. Only exact palette values bind. Shell extraction
+     * promotes shared wordmarks after page binding, so header parts call this
+     * directly.
+     */
+    public function bindSiteTitles(string $markup): string
+    {
+        if (!str_contains($markup, '<!-- wp:site-title ')) return $markup;
+        return (string) preg_replace_callback('/<!-- wp:site-title (\{(?:(?!-->).)*\}) \/-->/s', function (array $match): string {
+            $attributes = json_decode($match[1], false);
+            $color = $attributes instanceof \stdClass ? ($attributes->style->color ?? null) : null;
+            if (!$color instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1]) return $match[0];
+            $classes = 'wp-block-site-title ' . (is_string($attributes->className ?? null) ? $attributes->className : '');
+            $changed = false;
+            foreach (array('text' => array('textColor', 'color', 'has-text-color', 'has-%s-color'), 'background' => array('backgroundColor', 'background-color', 'has-background', 'has-%s-background-color')) as $key => [$preset, $property, $marker, $class]) {
+                $literal = $color->$key ?? null;
+                if (isset($attributes->$preset) || !is_string($literal) || str_starts_with($literal, 'var')) continue;
+                $slug = $this->slug('color', $literal);
+                if (null === $slug) continue;
+                $tokens = $this->tagTokens('<p>', $classes);
+                if ($this->safe($property, $tokens, array($marker, sprintf($class, $slug)))) {
+                    unset($color->$key);
+                    $attributes->$preset = $slug;
+                } elseif ($this->safe($property, $tokens, array(), true)) {
+                    $color->$key = 'var:preset|color|' . $slug;
+                } else {
+                    continue;
+                }
+                ++$this->bound;
+                $changed = true;
+            }
+            if (!$changed) return $match[0];
+            self::prune($attributes);
+            return '<!-- wp:site-title ' . BlockAttributes::encode($attributes) . ' /-->';
+        }, $markup);
+    }
+
+    /**
+     * Core renders overlay paint from attributes, including on ref navigations;
+     * there is no saved wrapper or inline style to rewrite. Bind only exact
+     * palette values, never a nearest shade, and leave existing presets alone.
+     */
+    private function navigationOverlayColors(string $json): ?\stdClass
+    {
+        $attributes = json_decode($json, false);
+        if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json) return null;
+        $changed = false;
+        foreach (array('customOverlayBackgroundColor' => 'overlayBackgroundColor', 'customOverlayTextColor' => 'overlayTextColor') as $custom => $preset) {
+            if (isset($attributes->$preset) || !is_string($attributes->$custom ?? null)) continue;
+            $slug = $this->system->colorSlug($attributes->$custom);
+            if (null === $slug) continue;
+            unset($attributes->$custom);
+            $attributes->$preset = $slug;
+            ++$this->bound;
+            $changed = true;
+        }
+        return $changed ? $attributes : null;
     }
 
     /**
@@ -989,6 +1114,19 @@ final class PresetBinding
                 ++$d->bound;
                 continue;
             }
+            if (!$safe && 'important' === $reason && $d->isLink && isset($tokens['class:blocks-engine-role-control']) && null !== $slug && is_string($literal)) {
+                // Projected native controls can carry competing base and variant
+                // paints. Neither class alone proves the rendered colour, and a
+                // preset class would change which projected rules yield. Bind the
+                // inline value in place instead: important and interaction rules
+                // still outrank it, in precisely the same cascade slot. Style-text
+                // observers must still be checked before changing the value.
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
+                    ++$d->bound;
+                    continue;
+                }
+                $reason ??= 'inconsistent_source';
+            }
             if (!$safe) {
                 $this->refuse($reason);
                 continue;
@@ -1255,8 +1393,23 @@ final class PresetBinding
      *   or rounding changes what renders. Font-shorthand custom properties
      *   bind only an exactly matching complete stack, in place, leaving the
      *   rest of the shorthand literal.
+     * - A rem length is measured at the root of the documents that load the
+     *   sheet (`$sources`), and names no token when they render different
+     *   roots.
+     *
+     * @param list<string> $sources Source paths of the documents that load the stylesheet.
      */
-    public function bindStylesheet(string $css): string
+    public function bindStylesheet(string $css, array $sources = array()): string
+    {
+        $this->rootPx = $this->rootOf($sources);
+        try {
+            return $this->bindStylesheetRules($css);
+        } finally {
+            $this->rootPx = $this->siteRootPx;
+        }
+    }
+
+    private function bindStylesheetRules(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
         // Yield unconditional body paint to matching emitted defaults.
@@ -1276,7 +1429,9 @@ final class PresetBinding
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
                 $tag = strtolower($selector);
-                if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
+                // Captured-body box materialization uses :root body. It is
+                // still the document body, not a component font override.
+                if (1 === preg_match('/^(?::root\s+)?body(?:\.editor-styles-wrapper)?$/', $tag)) $tag = 'body';
                 $kept = $body;
                 // A matching body paint belongs to Global Styles just like its
                 // font. Preset binding alone would keep the author declaration
@@ -1364,6 +1519,21 @@ final class PresetBinding
      *
      * @return array{list<string>, list<string>}
      */
+    private function competesWithButtonElement(string $property): bool
+    {
+        if (null === $this->buttonLinkCompetitors) {
+            $this->buttonLinkCompetitors = array();
+            foreach ($this->buttonLinkBodies as $body) {
+                foreach (self::declarations($body) as [$name, $value]) {
+                    if (str_starts_with($name, '--') || $this->matchesButtonElement($name, $value)) continue;
+                    $this->buttonLinkCompetitors[$name] = true;
+                    if ('font' === $name) $this->buttonLinkCompetitors['font-size'] = $this->buttonLinkCompetitors['font-weight'] = $this->buttonLinkCompetitors['font-family'] = true;
+                }
+            }
+        }
+        return isset($this->buttonLinkCompetitors[$property]);
+    }
+
     private function partitionButtonDeclarations(string $body): array
     {
         $declarations = CssValueSplitter::splitTopLevel($body, array(';'));
@@ -1378,7 +1548,9 @@ final class PresetBinding
                 default => $family,
             };
             $families[$index] = $family;
-            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1]));
+            // Another button-link rule that sets this property differently
+            // outranks the element style, so yielding would hand it the paint.
+            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1])) && !$this->competesWithButtonElement($property);
             if (!$matches[$index]) $retained[$family] = true;
         }
         $shared = $kept = array();
@@ -1501,14 +1673,14 @@ final class PresetBinding
             if (null !== $expected && str_starts_with($expected, 'var:preset|spacing|')) {
                 $slug = substr($expected, strlen('var:preset|spacing|'));
                 return $value === $expected || $value === 'var(--wp--preset--spacing--' . $slug . ')'
-                    || $this->system->spacingSlug($this->resolve($value)) === $slug;
+                    || $this->spacingSlug($this->resolve($value)) === $slug;
             }
         }
         if (null === $expected || '' === $value) return false;
         $value = $this->resolve($value);
         if (in_array($property, array('color', 'background', 'background-color'), true)) return null !== CssColor::hex($value) && CssColor::hex($value) === CssColor::hex($expected);
         if ($value === $expected) return true;
-        $a = CssLength::toPx($value, $this->system->rootPx);
+        $a = $this->lengthPx($value);
         $b = CssLength::toPx($expected, $this->system->rootPx);
         return null !== $a && null !== $b && abs($a - $b) < 0.001;
     }
@@ -1787,10 +1959,29 @@ final class PresetBinding
 
     private function exactFontSizeSlug(string $value): ?string
     {
-        $px = CssLength::toPx($value, $this->system->rootPx);
+        $px = $this->lengthPx($value);
         if (null === $px) return null;
-        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
+        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->fontSizeSlug($value)) return $size['slug'];
         return null;
+    }
+
+    /** A length in px at the root being bound; null when it is a rem length and that root is unknown. */
+    private function lengthPx(string $value): ?float
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return CssLength::toPx($value, $this->rootPx ?? $this->system->rootPx);
+    }
+
+    private function fontSizeSlug(string $value): ?string
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return $this->system->fontSizeSlug($value, $this->rootPx);
+    }
+
+    private function spacingSlug(string $value): ?string
+    {
+        if (null === $this->rootPx && CssLength::rootRelative($value)) return null;
+        return $this->system->spacingSlug($value, $this->rootPx);
     }
 
     private function exactFontFamilySlug(string $value): ?string
@@ -1881,9 +2072,9 @@ final class PresetBinding
         if (!$this->comparable($kind, $value)) return null;
         return match ($kind) {
             'color' => $this->system->colorSlug($value),
-            'font-size' => $this->system->fontSizeSlug($value),
+            'font-size' => $this->fontSizeSlug($value),
             'font-family' => $this->system->fontFamilySlug($value),
-            default => $this->system->spacingSlug($value),
+            default => $this->spacingSlug($value),
         };
     }
 
@@ -1949,6 +2140,10 @@ final class PresetBinding
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
+                // A compound subject (`.a.b`) applies only where every one of
+                // its classes stands; sharing one class is not enough.
+                $classes = array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'class:'));
+                if (array() !== array_diff_key(array_flip($classes), $finalClasses)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
                     foreach ($rule['attributes'] as [$name, $value]) {
@@ -2112,6 +2307,9 @@ final class PresetBinding
      */
     private function rendersThroughClass(string $name, string $property, string $literal, array $tokens, string $classes = ''): bool
     {
+        // Source classes remain analysis evidence, but their ordinary rules
+        // are not delivered on captured routes. They cannot replace inline paint.
+        if ($this->engineOwnedStyles) return false;
         $button = 'button' === $name;
         if (!$button && (!in_array($name, self::CLASS_RENDERED_BLOCKS, true) || !in_array($property, array('color', 'border-color'), true))) return false;
         $color = CssColor::parse($this->resolve($literal));
@@ -2176,6 +2374,15 @@ final class PresetBinding
                 else $this->rootVariables[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
             } else $this->scopedVariables[$name][$value] = true;
         }
+    }
+
+    /** Whether a rule's at-rule ancestors include a media list no screen matches. */
+    private static function offScreen(array $ancestors): bool
+    {
+        foreach ($ancestors as $ancestor) {
+            if (1 === preg_match('/^@media\s+(.+)$/is', $ancestor, $match) && !MediaCondition::targetsScreen($match[1])) return true;
+        }
+        return false;
     }
 
     private function indexRule(string $prelude, string $body): void
@@ -2616,7 +2823,8 @@ final class PresetBinding
      * preset variable (`var:preset|color|primary`, which core serializes as
      * `var(--wp--preset--color--primary)`). Unlike a preset class this adds
      * no `!important` and keeps the declaration where it was, so it renders
-     * exactly as before until the token changes in Global Styles.
+     * exactly as before until the token changes in Global Styles. Font sizes
+     * use the CSS variable form in attributes too, for core's editor hook.
      *
      * @param list<array{0:string,1:string}> $declarations
      */
@@ -2625,7 +2833,9 @@ final class PresetBinding
         if ('color' === $kind && null === CssColor::parse($this->resolve($literal))) return false;
         $type = 'color' === $kind ? 'color' : $kind;
         if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
-        $group->{$key} = 'var:preset|' . $type . '|' . $slug;
+        // Core's editor passes custom font sizes straight to inline CSS;
+        // its internal preset syntax is only resolved by frontend serialization.
+        $group->{$key} = 'font-size' === $kind ? 'var(--wp--preset--font-size--' . $slug . ')' : 'var:preset|' . $type . '|' . $slug;
         return true;
     }
 

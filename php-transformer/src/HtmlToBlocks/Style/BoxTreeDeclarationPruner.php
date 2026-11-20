@@ -40,7 +40,8 @@ final class BoxTreeDeclarationPruner
      * WordPress core and user-agent base styles do not set on block wrappers
      * (or set only in the contexts protected below). Properties missing here
      * are always kept: display, box model, sizing and inherited typography are
-     * set by user-agent or WordPress base styles on too many blocks.
+     * set by user-agent or WordPress base styles on too many blocks (except
+     * the zero box sides of {@see self::ZERO_DEFAULT_BOX_SIDES}).
      */
     private const INITIAL_VALUES = array(
         'position' => array('static'),
@@ -145,6 +146,26 @@ final class BoxTreeDeclarationPruner
         'core/media-text' => array('grid-template-columns', 'grid-template-rows'),
         'core/button' => array('border-radius', 'flex-basis'),
         'core/image' => array('vertical-align'),
+    );
+
+    /**
+     * Box sides whose default is zero on these blocks' emitted elements in
+     * every context a box-tree carrier lands in (the author stylesheet is not
+     * shipped there). The user agent gives the elements no padding and no
+     * inline margins, and WordPress pads them only with `has-background`.
+     * Flow, flex and grid layouts give children no inline margins, and a
+     * constrained layout centres them with `!important`, which no block
+     * attribute or carrier rule overrides. Vertical margins stay (the user
+     * agent's `1em`), and so does a list's inline padding: one side is its
+     * marker indent, and the evidence does not record the writing direction
+     * that says which. Keys are block names, then the emitted tags they
+     * apply to.
+     */
+    private const ZERO_DEFAULT_BOX_SIDES = array(
+        'core/paragraph' => array('tags' => array('p'), 'sides' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-left', 'margin-right')),
+        'core/heading' => array('tags' => array('h1', 'h2', 'h3', 'h4', 'h5', 'h6'), 'sides' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-left', 'margin-right')),
+        'core/list' => array('tags' => array('ul', 'ol'), 'sides' => array('padding-top', 'padding-bottom', 'margin-left', 'margin-right')),
+        'core/list-item' => array('tags' => array('li'), 'sides' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-left', 'margin-right')),
     );
 
     /** Inherited longhands theme.json `elements` (heading, link, button, caption) and core control styles may set. */
@@ -266,6 +287,19 @@ final class BoxTreeDeclarationPruner
         return $status;
     }
 
+    /** A non-inherited property's canonical initial value, when known. */
+    public static function cascadeInitial(string $property): ?string
+    {
+        if (in_array($property, BoxTree::INHERITED_PROPERTIES, true) || in_array($property, self::EXTRA_INHERITED, true)) return null;
+        return self::INITIAL_VALUES[$property][0] ?? null;
+    }
+
+    /** Whether the user agent gives this element its own value for an inherited property ({@see self::TAG_INHERITED_DEFAULTS}). */
+    public static function ownsDefault(string $tagName, string $property): bool
+    {
+        return in_array($property, self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), true);
+    }
+
     /**
      * @param array<string, string> $styles Observed used styles of one box.
      * @param array<string, string>|null $parent Observed used styles of the box it inherits from, if captured.
@@ -278,11 +312,33 @@ final class BoxTreeDeclarationPruner
         $parentDisplay = null === $parent ? null : strtolower($parent['display'] ?? '');
         $protected = array_fill_keys(self::BLOCK_BASE_PROPERTIES[$blockName] ?? array(), true);
         $ownDefaults = array_fill_keys(array_merge(self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), self::BLOCK_INHERITED_DEFAULTS[$blockName] ?? array()), true);
+        $zeroDefault = self::zeroDefaultSides($styles, $blockName, $tagName);
         $result = array();
         foreach ($styles as $property => $value) {
             $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
+            if (self::KEPT === $result[$property] && isset($zeroDefault[$property]) && in_array(trim((string) $value), array('0', '0px'), true)) $result[$property] = self::INITIAL;
         }
         return $result;
+    }
+
+    /**
+     * {@see self::ZERO_DEFAULT_BOX_SIDES} for this box.
+     *
+     * @return array<string, true>
+     */
+    private static function zeroDefaultSides(array $styles, string $blockName, string $tagName): array
+    {
+        $entry = self::ZERO_DEFAULT_BOX_SIDES[$blockName] ?? null;
+        if (null === $entry || !in_array(strtolower($tagName), $entry['tags'], true)) return array();
+        // A background opts the block into WordPress's padded box.
+        $painted = !in_array($styles['background-color'] ?? 'rgba(0, 0, 0, 0)', self::INITIAL_VALUES['background-color'], true)
+            || 'none' !== ($styles['background-image'] ?? 'none');
+        $sides = array();
+        foreach ($entry['sides'] as $side) {
+            if ($painted && str_starts_with($side, 'padding-')) continue;
+            $sides[$side] = true;
+        }
+        return $sides;
     }
 
     private function classifyOne(string $property, string $value, array $styles, ?array $parent, string $display, ?string $parentDisplay, bool $protected, bool $ownDefault): string
