@@ -2387,7 +2387,14 @@ final class ShellExtraction
                 // route-specific presentation (#6723), not an article header:
                 // it moves to its own variant part rather than staying content.
                 $copy = self::chromeCopy($row['markup']);
-                $pageChrome = !empty($row['document_level']) && $area === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? '')) && array() !== array_intersect(self::chromeReferences($row['markup']), self::chromeReferences($partLandmark));
+                // A landmark nested in a wrapper whose identity changes from
+                // route to route (a page root such as `#q8ys8` on one route and
+                // `#brago` on another) stays that route's content. Its template
+                // would have to carry that wrapper around the part, so every
+                // such route would fork a template of its own.
+                $routeFramed = self::insideRouteVaryingWrapper($pages, $index, (int) $row['offset']);
+                if ('footer' === $area && $routeFramed) continue;
+                $pageChrome = !$routeFramed && !empty($row['document_level']) && $area === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? '')) && array() !== array_intersect(self::chromeReferences($row['markup']), self::chromeReferences($partLandmark));
                 if (!$anchorVariant && !$pageChrome && (array() === $copy || $copy !== $partCopy)) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked']) continue;
@@ -2443,6 +2450,44 @@ final class ShellExtraction
             if ('route_variant' === ($part['provenance']['reason'] ?? null) && $variant['area'] === ($part['area'] ?? null) && $variant['canonical_block_markup'] === ($part['canonical_block_markup'] ?? null)) return $key;
         }
         return null;
+    }
+
+    /**
+     * Whether a block at this offset sits inside an anchored wrapper that not
+     * every captured route carries, such as a page root named after its page.
+     * Wrappers every route shares (`#site`, `#main`) belong to the site frame.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function insideRouteVaryingWrapper(array $pages, int $index, int $offset): bool
+    {
+        $ancestors = array();
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($pages[$index]['canonical_block_markup'] ?? '')))->tokens() as $token) {
+            if ($token['offset'] >= $offset) break;
+            if ($token['closing']) { array_pop($ancestors); continue; }
+            if ($token['self_closing']) continue;
+            $attrs = '' === $token['attributes'] ? array() : json_decode($token['attributes'], true);
+            $ancestors[] = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+        }
+        $anchors = array_fill_keys(array_filter($ancestors, static fn(string $anchor): bool => '' !== $anchor), true);
+        if (array() === $anchors) return false;
+        foreach ($pages as $other => $page) {
+            if ($other === $index || !empty($page['synthetic'])) continue;
+            if (array() !== array_diff_key($anchors, self::blockAnchors((string) ($page['canonical_block_markup'] ?? '')))) return true;
+        }
+        return false;
+    }
+
+    /** @return array<string,true> Every block anchor in the markup. */
+    private static function blockAnchors(string $markup): array
+    {
+        $anchors = array();
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->tokens() as $token) {
+            if ($token['closing'] || !str_contains($token['attributes'], '"anchor"')) continue;
+            $attrs = json_decode($token['attributes'], true);
+            if (is_array($attrs) && is_string($attrs['anchor'] ?? null)) $anchors[$attrs['anchor']] = true;
+        }
+        return $anchors;
     }
 
     /**
