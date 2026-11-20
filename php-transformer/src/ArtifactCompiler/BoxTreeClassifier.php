@@ -29,12 +29,12 @@ final class BoxTreeClassifier
     private const FOLDABLE = array('paints', 'clips', 'containing-block', 'own-sizing', 'own-placement', 'viewport-entrance');
 
     /**
-     * Text blocks a viewport entrance can move to: each always emits its own
+     * Block roots a viewport entrance can move to: each emits its own
      * block, and that block's root renders both an anchor and runtime
      * attributes, so the entrance and the id its state rules key on land on
      * the element the box's border box became.
      */
-    private const ENTRANCE_TARGETS = array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6');
+    private const ENTRANCE_TARGETS = array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'figure');
 
     /** Report-safe classification: dispositions, criteria, fold rules, counts and projection. */
     public static function report(string $html, array $tree): array
@@ -302,7 +302,7 @@ final class BoxTreeClassifier
     }
 
     /**
-     * The sole child a box's viewport entrance and id can move to: a text
+     * The sole child a box's viewport entrance and id can move to: a block
      * block with no id, capture marker or inline motion properties of its own,
      * under a box with only transferable --motion-* inline declarations, so its state rules
      * (keyed on the box's id) and the replayed entrance stay on one element.
@@ -419,6 +419,7 @@ final class BoxTreeClassifier
         // A border-box child measures a moved constraint on its border box.
         $childBorderBox = true;
         $constrained = false;
+        $bindingSizing = array();
         $paints = false;
         $relative = false;
         $absolute = null;
@@ -548,6 +549,27 @@ final class BoxTreeClassifier
                 if ($initial !== $c[$property] && !self::fillsSoleGridCell($b, $property, $c[$property])) return null;
                 $moves[$property] = $property;
             }
+            if ('viewport-entrance' === $behavior) {
+                // Equal captured pixels alone do not prove neutrality between
+                // captures. Keep the box's binding sizing on its replacement.
+                $binding = array();
+                if ('auto' !== ($b['aspect-ratio'] ?? 'auto')) $binding[] = 'aspect-ratio';
+                $min = self::pixels($b['min-height']);
+                $max = self::pixels($b['max-height']);
+                if (null !== $min && $min >= $box['height']) $binding[] = 'min-height';
+                if (null !== $max && $max <= $box['height']) $binding[] = 'max-height';
+                if (($b['width'] ?? 'auto') !== ($c['width'] ?? 'auto')) $binding[] = 'width';
+                if ($binding) {
+                    // An absolute inset-zero frame derives its height from
+                    // the box. An independently sized child cannot take over
+                    // a ratio or a binding height constraint.
+                    if (!$replaces && 'auto' !== ($c['height'] ?? null)) return null;
+                    foreach ($binding as $property) {
+                        if ('aspect-ratio' === $property && 'auto' !== ($c[$property] ?? 'auto') && $b[$property] !== $c[$property]) return null;
+                        $bindingSizing[$property] = $property;
+                    }
+                }
+            }
             $childBorderBox = $childBorderBox && 'border-box' === ($c['box-sizing'] ?? null);
             foreach (self::CONSTRAINT_INITIAL as $property => $initial) {
                 if (in_array($b[$property], $initial, true)) continue;
@@ -598,11 +620,12 @@ final class BoxTreeClassifier
         // With an equal box the box has no padding or border, so its
         // constraint bounds the border box the child shares: the child holds
         // it as is when it has no box either, or sizes its border box.
-        if ($constrained && !($equalBox && ($boxless || $childBorderBox))) return null;
+        if (($constrained || $bindingSizing) && !($equalBox && ($boxless || $childBorderBox))) return null;
+        $moves += $bindingSizing;
         foreach ($source as $side => $from) {
             if (null !== $from) $moves['margin-' . $side] = $from . '-' . $side;
         }
-        if (in_array('padding', $source, true) || $constrained) $rules[] = 'own-sizing';
+        if (in_array('padding', $source, true) || $constrained || $bindingSizing) $rules[] = 'own-sizing';
         if ($constrained) {
             foreach (self::CONSTRAINT_INITIAL as $property => $_) $moves[$property] = $property;
         }

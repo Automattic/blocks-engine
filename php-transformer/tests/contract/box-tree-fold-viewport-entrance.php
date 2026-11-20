@@ -34,12 +34,13 @@ $assert = static function (bool $ok, string $message): void {
 };
 
 $entrance = '{"attributes":{"data-interact-enter":{"before":null,"after":"done"}},"rootMargin":"0px 0px 0px 0px","threshold":[0.15],"repeat":false}';
-$compile = static function (string $childId, string $boxStyle = '', string $childStyle = '', string $tag = 'p') use ($base, $initial, $entrance): array {
+$compile = static function (string $childId, string $boxStyle = '', string $childStyle = '', string $tag = 'p', array $boxSizing = array(), array $childSizing = array()) use ($base, $initial, $entrance): array {
     $html = '<!doctype html><html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head"><title data-blocks-engine-node-id="title">Entrance</title>'
-        . '<style>#rich-text:not([data-interact-enter]){visibility:hidden}</style></head>'
+        . '<style>#rich-text:not([data-interact-enter]){visibility:hidden}'
+        . ($boxSizing ? '#rich-text{aspect-ratio:4/1}@media(max-width:1023px){#rich-text{aspect-ratio:1/1.32304}}' : '') . '</style></head>'
         . '<body data-blocks-engine-node-id="body"><main class="fold-parent" data-blocks-engine-node-id="parent">'
         . '<div id="rich-text" class="rich-text-box" style="' . htmlspecialchars($boxStyle, ENT_QUOTES) . '" data-interact-enter="done" data-blocks-engine-capture-viewport-entrance="' . htmlspecialchars($entrance, ENT_QUOTES) . '" data-blocks-engine-node-id="box">'
-        . '<' . $tag . ('' !== $childId ? ' id="' . $childId . '"' : '') . ' style="' . htmlspecialchars($childStyle, ENT_QUOTES) . '" data-blocks-engine-node-id="child">Revealed text</' . $tag . '></div>'
+        . '<' . $tag . ('' !== $childId ? ' id="' . $childId . '"' : '') . ' style="' . htmlspecialchars($childStyle, ENT_QUOTES) . '" data-blocks-engine-node-id="child">' . ('figure' === $tag ? '<img src="card.jpg" alt="Card">' : 'Revealed text') . '</' . $tag . '></div>'
         . '<p data-blocks-engine-node-id="sibling">Sibling</p></main></body></html>';
     $tree = $base;
     $tree['source_hash'] = hash('sha256', $html);
@@ -51,7 +52,8 @@ $compile = static function (string $childId, string $boxStyle = '', string $chil
         foreach ($base['nodes']['n1']['viewports'] as $viewport => $observation) {
             $observation['used_styles'] = array_replace($observation['used_styles'], $initial, match ($id) {
                 'parent' => array('display' => 'grid', 'grid-template-columns' => '400px'),
-                'box' => array('grid-row-start' => '1', 'grid-row-end' => '2', 'grid-column-start' => '1', 'grid-column-end' => '2', 'justify-self' => 'start'),
+                'box' => array_replace(array('grid-row-start' => '1', 'grid-row-end' => '2', 'grid-column-start' => '1', 'grid-column-end' => '2', 'justify-self' => 'start'), $boxSizing),
+                'child' => $childSizing,
                 default => array(),
             });
             $observation['border_box'] = 'sibling' === $id
@@ -104,6 +106,28 @@ foreach (array(
         $assert(1 === preg_match('/\\.([\\w-]+)\\{[^}]*' . preg_quote($declaration['name'], '/') . ':' . preg_quote($declaration['value'], '/') . '(?:[;!} ]|$)/', $css, $carrier)
             && in_array($carrier[1], explode(' ', $attrs['className'] ?? ''), true), "$label: text block carries " . $declaration['name']);
     }
+}
+
+// Non-text block roots take the same handoff, including author sizing bands.
+foreach (array(
+    'ratio frame' => array('div', array('position' => 'relative', 'aspect-ratio' => '4 / 1', 'height' => 'auto'), array('position' => 'absolute', 'height' => '100px'), true),
+    'image root' => array('figure', array('aspect-ratio' => '4 / 1', 'height' => 'auto'), array('height' => 'auto'), true),
+    'auto-height group' => array('div', array('aspect-ratio' => '4 / 1', 'height' => 'auto'), array('height' => 'auto'), true),
+    'independent height' => array('div', array('aspect-ratio' => '4 / 1', 'height' => 'auto'), array('height' => '100px'), false),
+) as $label => [$tag, $boxSizing, $childSizing, $folds]) {
+    $result = $compile('', $motion, '', $tag, $boxSizing, $childSizing);
+    $node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];
+    $markup = $result['serialized_blocks'];
+    $assert(($folds ? 'folded' : 'load-bearing') === $node['disposition'], "$label: expected disposition.");
+    if (!$folds) {
+        $assert(str_contains($markup, 'rich-text-box'), "$label: keeps its Group.");
+        continue;
+    }
+    $assert(!str_contains($markup, 'rich-text-box') && str_contains($markup, 'id="rich-text"'), "$label: child takes the id without the wrapper.");
+    $assert(str_contains($markup, 'data-blocks-engine-capture-viewport-entrance'), "$label: child carries the entrance.");
+    $css = implode("\n", array_column($result['assets'], 'content'));
+    $assert(str_contains($css, 'aspect-ratio:1/1.32304'), "$label: child keeps the uncaptured-width ratio band.");
+    $assert(str_contains($css, '--motion-origin-x:0%'), "$label: child keeps the motion properties.");
 }
 
 $result = $compile('own-id');

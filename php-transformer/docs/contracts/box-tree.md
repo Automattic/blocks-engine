@@ -210,6 +210,15 @@ node keeps its deciding `criterion` and lists the applied rules in `fold`;
   factors, `float`/`clear` and margins move when the child's own values are
   initial and its margin box then equals the box's margin box.
 
+- `viewport-entrance`: the entrance marker, id and inline `--motion-*`
+  properties can move to a sole text, group (`div`) or image (`figure`) root
+  with equal border boxes at every capture and no conflicting id, marker or
+  motion properties. Binding aspect ratio, height constraints and a width the
+  child does not repeat move through the sizing declaration/author-band path.
+  A child with independent pixel height refuses this sizing handoff; an
+  absolute fill frame derives its sizing from the box instead. Conversion
+  retains the wrapper if the replacement cannot carry the moved declarations.
+
 Inherited values move with every fold. When the box's inherited value
 (`color`, `font-*`, `line-height`, `letter-spacing`, `word-spacing`, `text-*`,
 `white-space`, word breaking, list style, `visibility`, `cursor`) differs from
