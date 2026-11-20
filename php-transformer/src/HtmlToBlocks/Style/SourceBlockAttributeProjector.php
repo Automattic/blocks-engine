@@ -33,6 +33,7 @@ final class SourceBlockAttributeProjector
     public const PROPAGATED_LINK_COLOR_CLASS = 'blocks-engine-propagated-link-color';
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
+    public const AUTHOR_MAX_WIDTH_IMAGE_CLASS = 'blocks-engine-author-max-width-image';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     /**
      * A transparent figure that only keeps an ordinary inline image's line-box
@@ -96,6 +97,7 @@ final class SourceBlockAttributeProjector
         'core/image'     => array(
             self::SYNTHETIC_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
+            self::AUTHOR_MAX_WIDTH_IMAGE_CLASS,
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
@@ -221,6 +223,11 @@ final class SourceBlockAttributeProjector
                 // A figure box would put it on a line instead, adding the strut
                 // below an inline-level link that a blockified item never had.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS);
+            }
+            if ( str_contains((string) $attrs['className'], self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS)
+                && (isset($this->styleResolver->imageShapeDeclarations($sourceElement)['max-width'])
+                    || $this->styleResolver->imageAxisVariesByViewport($sourceElement, 'max-width')) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], self::AUTHOR_MAX_WIDTH_IMAGE_CLASS);
             }
             // The source image was inline content that its parent aligned. A
             // synthesized figure is a block box that fills the line instead,
