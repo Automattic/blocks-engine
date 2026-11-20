@@ -462,6 +462,19 @@ final class HtmlTransformerSession
         }
     }
 
+    /**
+     * Undo a fold conversion could not carry (ADR 0005 slice 5): the box keeps
+     * its own block, so it is an output box again, and its child is restyled
+     * with its own observations instead of the declarations it received.
+     *
+     * @param array<string, array<string, mixed>> $childViewports The child's own viewport observations.
+     */
+    public function restoreFoldedBoxTreeNode(string $box, string $child, array $childViewports): void
+    {
+        unset($this->collapsedBoxTreeNodes[$box]);
+        if (array() !== $childViewports && isset($this->boxTree['nodes'][$child])) $this->boxTree['nodes'][$child]['viewports'] = $childViewports;
+    }
+
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
