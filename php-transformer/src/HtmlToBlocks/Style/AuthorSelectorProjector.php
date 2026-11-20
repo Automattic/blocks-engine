@@ -1698,7 +1698,8 @@ final class AuthorSelectorProjector
     {
         $typeSpans = $parsed['type_spans'];
         $bridgeAnchors = $this->hasLoweredAnchorCarrier($context->emittedMarkup);
-        if ($bridgeAnchors && ! $parsed['supported']) {
+        $bridgeSpans = str_contains($context->emittedMarkup, EngineMarker::subjectTagClass('span'));
+        if (($bridgeAnchors || $bridgeSpans) && ! $parsed['supported']) {
             // Ancestor states are outside the matcher's static subset, but
             // tokenization still identifies each compound's leading type.
             $tokens = CssSelectorTokenizer::tokenize($selector);
@@ -1706,7 +1707,7 @@ final class AuthorSelectorProjector
                 $resting = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound) ?? $compound;
                 $compoundParsed = CssSelectorMatcher::parse($resting);
                 foreach ($compoundParsed['type_spans'] as $span) {
-                    if (0 !== $span['start'] || 'a' !== strtolower($span['name'])) continue;
+                    if (0 !== $span['start'] || ! in_array(strtolower($span['name']), array('a', 'span'), true)) continue;
                     $start = $tokens['compound_spans'][$index]['start'];
                     $typeSpans[] = array('start' => $start, 'end' => $start + $span['end'], 'name' => $span['name']);
                 }
@@ -1759,7 +1760,14 @@ final class AuthorSelectorProjector
                 // Keep real source spans addressable, without adding weight.
                 // A span carrier for another source tag (a lowered `<p>`)
                 // matches only that tag's rules, never those for real spans.
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))' );
+                $span = 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))';
+                // RichText can replace source spans with marks. The native
+                // arm keeps its chrome/foreign-carrier guards; the marker arm
+                // reaches only source spans and adds no class specificity.
+                if ($bridgeSpans) {
+                    $span = ':is(' . $span . ',:where(.' . EngineMarker::subjectTagClass('span') . '))';
+                }
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $span );
             } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }
