@@ -212,6 +212,13 @@ final class SourceBlockAttributeProjector
     {
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
+            // A non-figure source wrapper can itself become core/image's
+            // figure. It still owns a real source box (and may establish the
+            // positioned image's containing block). Only a bare replaced leaf
+            // needs a layout-transparent figure; wrapper boxes must survive.
+            if ( ! in_array($sourceTagName, array( 'img', 'svg' ), true) ) {
+                return $attrs;
+            }
             if ($this->sourceImageIsFlexOrGridItem($sourceElement)) {
                 $attrs['className'] = SourceDom::mergeClassNames(
                     (string) ($attrs['className'] ?? ''),
