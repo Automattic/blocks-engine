@@ -203,9 +203,13 @@ final class ThemeTemplates
              $priority = array('header' => 0, 'footer' => 2);
              return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
          });
+         // Captured page headings live in post_content. New pages have no such
+         // heading, so their generic template needs a native title. Keep captured
+         // routes on content-only overrides rather than duplicating their titles.
+         $pageTitle = (bool) array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && 1 === preg_match('/<h1\b/i', $page['canonical_block_markup']));
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages): string {
+         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages, $pageTitle): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || TemplateSlugs::partAppliesToOverride($part, $templateSlug)
@@ -233,6 +237,9 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
+                 if ('page' === $templateSlug && $pageTitle && !isset($postTemplates[$templateSlug])) {
+                     $content = '<!-- wp:post-title {"level":1} /-->' . "\n" . $content;
+                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -258,9 +265,21 @@ final class ThemeTemplates
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(TemplateSlugs::overrides($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
         foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
+        $contentOnlyOverrides = array();
+        foreach ($pages as $page) if ($pageTitle && 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint'])) {
+            $slug = TemplateSlugs::forPage($page);
+            if (!isset($overrides[$slug])) $contentOnlyOverrides[$slug] = true;
+            $overrides[$slug] = true;
+        }
         $liveOverrides = array_fill_keys(array_map(TemplateSlugs::forPage(...), $pages), true);
         $overrides = array_intersect_key($overrides, $liveOverrides);
-        foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
+        foreach (array_keys($overrides) as $slug) {
+            // A route previously using page.html must keep that exact frame,
+            // including its document chrome, not acquire a new route layout.
+            $templates[] = $make($slug, 'templates/' . $slug . '.html', isset($contentOnlyOverrides[$slug]) ? str_replace('<!-- wp:post-title {"level":1} /-->' . "\n", '', $markup('page')) : $markup($slug));
+            if (isset($contentOnlyOverrides[$slug], $frames['page'])) $frames[$slug] = $frames['page'];
+            if (isset($contentOnlyOverrides[$slug], $documentChrome['page'])) $documentChrome[$slug] = $documentChrome['page'];
+        }
         foreach ($templates as &$template) {
             if (!isset($documentChrome[$template['slug']])) continue;
             // Document chrome frames the post content (leading and trailing side
