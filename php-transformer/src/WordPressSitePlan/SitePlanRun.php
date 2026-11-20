@@ -338,7 +338,7 @@ final class SitePlanRun
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null);
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array());
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);

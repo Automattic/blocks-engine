@@ -98,6 +98,8 @@ final class DesignUsageCollector
     private array $widths = array();
 
     private ?float $proseWidth = null;
+    /** @var array<string,array{viewport:int,left:float,width:float}> */
+    private array $proseColumns = array();
     /** @var array<string,array<string,array<string,true>>> Class list => property => observations. */
     private array $classStyles = array();
     /** @var list<array<string,mixed>> One observation per rendered heading, never inherited from a text descendant. */
@@ -122,13 +124,35 @@ final class DesignUsageCollector
      * @param list<DOMElement> $buttonElements Controls owned by emitted core/button blocks.
      * @return array<string,mixed>
      */
-    public function collect(DOMElement $body, array $buttonElements = array()): array
+    public function collect(DOMElement $body, array $buttonElements = array(), ?\Closure $boxEvidence = null, array $viewports = array()): array
     {
         $this->buttonElements = new \SplObjectStorage();
         foreach ($buttonElements as $element) $this->buttonElements->offsetSet($element);
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
         $this->proseWidth = null;
+        $this->proseColumns = array();
+        // Browser boxes prove columns that max-width alone cannot describe,
+        // including prose in a grid. Keep the widest body paragraph per viewport.
+        if (null !== $boxEvidence) {
+            foreach ($body->getElementsByTagName('p') as $paragraph) {
+                if ('' === trim($paragraph->textContent)) continue;
+                for ($ancestor = $paragraph->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                    if (in_array(strtolower($ancestor->tagName), array('header', 'footer', 'aside', 'nav', 'form'), true)) continue 2;
+                }
+                foreach ($boxEvidence($paragraph) as $name => $observation) {
+                    $styles = $observation['used_styles'] ?? array();
+                    if ('none' === ($styles['display'] ?? '') || in_array($styles['visibility'] ?? '', array('hidden', 'collapse'), true)) continue;
+                    $box = $observation['border_box'] ?? array();
+                    $width = (float) ($box['width'] ?? 0);
+                    $left = (float) ($box['x'] ?? 0);
+                    $viewport = (int) ($viewports[$name]['width'] ?? 0);
+                    if ($width <= 0 || $left < 0 || $left + $width > $viewport + 1 || $width <= ($this->proseColumns[$name]['width'] ?? 0)) continue;
+                    $this->proseColumns[$name] = array('viewport' => $viewport, 'left' => $left, 'width' => $width);
+                }
+            }
+        }
+        if (array() === $viewports) $this->proseColumns = DeclarativeProseColumns::collect($body, $this->resolver);
         $this->headingTypography = $this->buttonLooks = $this->schemeColors = array();
         $resolvedRootPx = $this->resolver->documentRootFontSize($body);
         $this->rootPx = $resolvedRootPx ?? 16.0;
@@ -200,6 +224,7 @@ final class DesignUsageCollector
             'spacing' => self::rows($this->spacing),
             'widths' => self::rows($this->widths),
             'prose_width_px' => $this->proseWidth,
+            'prose_columns' => array_values($this->proseColumns),
             'class_styles' => $this->classStyleRows(),
             'heading_typography' => $this->headingTypography,
             'button_looks' => $this->buttonLooks,

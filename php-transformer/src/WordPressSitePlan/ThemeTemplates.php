@@ -196,7 +196,7 @@ final class ThemeTemplates
      * @param array<string,string> $documentChrome Shared document chrome by template slug.
      * @return array<int,array<string,mixed>>
      */
-    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array(), ?float $fallbackProseWidth = null): array
+    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array(), ?float $fallbackProseWidth = null, array $fallbackProseColumns = array()): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -205,7 +205,7 @@ final class ThemeTemplates
          });
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages, $fallbackProseWidth): string {
+         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages, $fallbackProseWidth, $fallbackProseColumns): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || TemplateSlugs::partAppliesToOverride($part, $templateSlug)
@@ -242,6 +242,21 @@ final class ThemeTemplates
             if ('page' === $templateSlug && null !== $fallbackProseWidth && '<!-- wp:post-content /-->' === $content) {
                 $attrs = json_encode(array('layout' => array('type' => 'constrained', 'contentSize' => $fallbackProseWidth . 'px')), JSON_UNESCAPED_SLASHES);
                 $content = '<!-- wp:group ' . $attrs . ' --><div class="wp-block-group"><!-- wp:post-content {"layout":{"type":"constrained"}} /--></div><!-- /wp:group -->';
+            }
+            if ('page' === $templateSlug && array() !== $fallbackProseColumns && !isset($postTemplates['page'])) {
+                usort($fallbackProseColumns, static fn(array $a, array $b): int => $a['viewport'] <=> $b['viewport']);
+                $first = $fallbackProseColumns[0];
+                $last = $fallbackProseColumns[count($fallbackProseColumns) - 1];
+                $margin = static function (float $start, float $end) use ($first, $last): string {
+                    if ($first['viewport'] === $last['viewport'] || abs($end - $start) < 0.01) return $end . 'px';
+                    $slope = ($end - $start) / ($last['viewport'] - $first['viewport']);
+                    $offset = $start - $slope * $first['viewport'];
+                    return 'clamp(' . min($start, $end) . 'px,calc(' . round(100 * $slope, 6) . 'vw + ' . round($offset, 6) . 'px),' . max($start, $end) . 'px)';
+                };
+                $left = $margin($first['left'], $last['left']);
+                $right = $margin($first['viewport'] - $first['left'] - $first['width'], $last['viewport'] - $last['left'] - $last['width']);
+                $attrs = json_encode(array('layout' => array('type' => 'default'), 'style' => array('spacing' => array('margin' => array('left' => $left, 'right' => $right)))), JSON_UNESCAPED_SLASHES);
+                $content = '<!-- wp:group ' . $attrs . ' --><div class="wp-block-group" style="margin-right:' . $right . ';margin-left:' . $left . '"><!-- wp:post-content {"layout":{"type":"default"}} /--></div><!-- /wp:group -->';
             }
             if ($hasCommentForm && !str_contains($content, '<!-- wp:post-comments-form') && ('single' === $templateSlug || str_starts_with($templateSlug, 'single-'))) {
                 $content .= "\n" . '<!-- wp:comments --><div class="wp-block-comments"><!-- wp:post-comments-form /--></div><!-- /wp:comments -->';
