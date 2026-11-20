@@ -44,10 +44,13 @@ foreach (array('one', 'two', 'three', 'font', 'animation', 'container', 'propert
         'image' => str_replace('footer.jpg', 'changed.jpg', $wixCss),
         default => $wixCss,
     };
+    // WordPress body classes name the post, and interaction states sit
+    // mid-selector; neither may make the footer's key unique to the page.
     $css = $dependencies . ':root { --footer-color: #333; } .site-footer { color: var(--footer-color); }'
+        . ' .site-footer a:hover > span, button:-moz-focusring { color: green; }'
         . ' .' . $page . '-only { color: red; }';
     if ('three' === $page) $css .= ' .site-footer { color: blue; }';
-    $html = '<!doctype html><html><head><title>' . $page . '</title><style>' . $css . '</style></head><body>' . $html . '</body></html>';
+    $html = '<!doctype html><html><head><title>' . $page . '</title><style>' . $css . '</style></head><body class="postid-' . $index . '">' . $html . '</body></html>';
     $files[] = array('path' => $page . '.html', 'content' => $html);
 }
 // Keep both tested pages in the same non-entry scope.

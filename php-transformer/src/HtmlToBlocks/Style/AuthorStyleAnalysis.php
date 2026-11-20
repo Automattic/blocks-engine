@@ -432,6 +432,7 @@ final class AuthorStyleAnalysis
             foreach ( $rule['selectors'] as $selector ) {
                 $parsed = $selector['parsed'];
                 if ( ! ($parsed['supported'] ?? false) ) $parsed = $selector['direct_child_parsed'] ?? array();
+                if ( ! ($parsed['supported'] ?? false) ) $parsed = CssSelectorMatcher::parse(self::withoutSimplePseudos($selector['selector']));
                 if ( ! ($parsed['supported'] ?? false) ) {
                     // The established whole-CSS context remains safe for
                     // selectors whose observable context we cannot narrow.
@@ -507,6 +508,32 @@ final class AuthorStyleAnalysis
         }
         $node = $nodes->item(0);
         return $node instanceof DOMElement && $node->getNodePath() === $path ? $node : null;
+    }
+
+    /**
+     * The selector with each argument-free pseudo-class and pseudo-element
+     * (`:hover`, `:disabled`, `::before`, vendor names) made neutral. Dropping
+     * a condition only widens what a selector matches, so the result's matches
+     * cover every element the original could reach, in any state.
+     */
+    private static function withoutSimplePseudos(string $selector): string
+    {
+        $out = '';
+        for ( $i = 0, $length = strlen($selector); $i < $length; ++$i ) {
+            if ( '\\' === $selector[ $i ] ) {
+                $out .= substr($selector, $i++, 2);
+            } elseif ( '[' === $selector[ $i ] || '(' === $selector[ $i ] ) {
+                $close = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::matchingClose($selector, $i) ?? $length - 1;
+                $out .= substr($selector, $i, $close - $i + 1);
+                $i = $close;
+            } elseif ( preg_match('/\G::?[a-z-]++(?!\()/Ai', $selector, $match, 0, $i) ) {
+                $out .= ':where(*)';
+                $i += strlen($match[0]) - 1;
+            } else {
+                $out .= $selector[ $i ];
+            }
+        }
+        return $out;
     }
 
     private function documentTypeIdentity(DOMElement $element): string

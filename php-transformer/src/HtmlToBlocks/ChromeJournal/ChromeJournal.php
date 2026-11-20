@@ -151,7 +151,7 @@ final class ChromeJournal
             $css,
             SubtreeIdentity::normalize((string) $element->ownerDocument?->saveHTML($element)),
             // Source descriptions of the subtree read its root's preceding
-            // heading and its ancestors below body.
+            // heading and its ancestors' start tags.
             SourceDom::nearestPreviousHeadingText($element),
             self::ancestorStartTags($element),
             str_contains($sourcePath, '/') ? strtok($sourcePath, '/') : '',
@@ -405,12 +405,20 @@ final class ChromeJournal
         return $elements;
     }
 
-    /** @return list<string> */
+    /**
+     * Document classes (WordPress's `postid-N`, say) differ on every page and
+     * reach conversion only through CSS, which the author-style identity
+     * already matches against each ancestor; they are left out here.
+     *
+     * @return list<string>
+     */
     private static function ancestorStartTags(DOMElement $element): array
     {
         $tags = array();
         for ($parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode) {
-            $tags[] = SubtreeIdentity::normalize((string) $parent->ownerDocument?->saveHTML($parent->cloneNode(false)));
+            $tag = $parent->cloneNode(false);
+            if ($tag instanceof DOMElement && in_array(strtolower($tag->tagName), array('body', 'html'), true)) $tag->removeAttribute('class');
+            $tags[] = SubtreeIdentity::normalize((string) $parent->ownerDocument?->saveHTML($tag));
         }
         return $tags;
     }
