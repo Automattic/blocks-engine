@@ -99,6 +99,9 @@ final class SourceStyleResolutionState
      */
     private array $cascadedCustomProperties = array();
 
+    /** @var array<string, array{node: DOMElement, declarations: array<string, string>}> */
+    private array $authoredInheritedDeclarations = array();
+
     /** @var (Closure(): list<array<string, mixed>>)|null */
     private ?Closure $hiddenStateRules = null;
 
@@ -118,6 +121,7 @@ final class SourceStyleResolutionState
         $this->cascadedDeclarations = array();
         $this->matchedRules = array();
         $this->cascadedCustomProperties = array();
+        $this->authoredInheritedDeclarations = array();
         $this->ariaControlledTargetIds = array();
     }
 
@@ -143,6 +147,7 @@ final class SourceStyleResolutionState
         $this->cascadedDeclarations = array();
         $this->matchedRules = array();
         $this->cascadedCustomProperties = array();
+        $this->authoredInheritedDeclarations = array();
         $this->customProperties = $analysis['custom_properties'];
         $this->layerNames = array_values(array_map('strval', $analysis['layer_names'] ?? array()));
     }
@@ -161,6 +166,28 @@ final class SourceStyleResolutionState
         $this->ruleCandidateIndexes = array();
         $this->matchedRules = array();
         $this->cascadedCustomProperties = array();
+        $this->authoredInheritedDeclarations = array();
+    }
+
+    /**
+     * Remember an element's authored inherited cascade for all of its inputs.
+     * Selector invalidation owns the lifetime; detached nodes are never retained.
+     *
+     * @param list<string> $conditions
+     * @param callable(DOMElement): array<string, string> $compute
+     * @return array<string, string>
+     */
+    public function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor, array $conditions, bool $skipForeignConditions, callable $compute): array
+    {
+        if ( ! $element->isConnected ) {
+            return $compute($element);
+        }
+        $key = $this->selectorMatchCache->elementKey($element) . "\0" . serialize(array($navigationEditor, $conditions, $skipForeignConditions, $element->getAttribute('style')));
+        $entry = $this->authoredInheritedDeclarations[$key] ?? null;
+        if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
+            $entry = $this->authoredInheritedDeclarations[$key] = array('node' => $element, 'declarations' => $compute($element));
+        }
+        return $entry['declarations'];
     }
 
     /**
@@ -206,6 +233,13 @@ final class SourceStyleResolutionState
      */
     public function matchingRules(DOMElement $element, string $collection): array
     {
+        // The hot read must not allocate a closure or repeat the connected
+        // node check on every hit. Invalidation owns this memo's lifetime.
+        $key = $collection . "\0" . $this->selectorMatchCache->elementKey($element);
+        if (isset($this->matchedRules[$key]) && $element->isConnected
+            && $this->matchedRules[$key]['node']->isSameNode($element)) {
+            return $this->matchedRules[$key]['rules'];
+        }
         return $this->remembered($element, $collection, function (DOMElement $element) use ($collection): array {
             $rules = array();
             foreach ( $this->candidateRules($element, $collection) as $rule ) {
@@ -554,6 +588,7 @@ final class SourceStyleResolutionState
 
     public function setFormLayoutCss(string $css): void
     {
+        $this->authoredInheritedDeclarations = array();
         $this->formLayoutCss = $css;
         $this->containerStyleQueries = null;
         // Derived cascades evaluated `@container` style queries against the

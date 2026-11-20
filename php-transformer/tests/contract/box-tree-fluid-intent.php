@@ -106,8 +106,8 @@ $cases = array(
     'a rem clamp not reproducing a capture stays in pixels' => array(
         'h1{font-size:clamp(2.5rem,5vw,4.5rem)}', array('n6.font-size' => array('72px', '30px')), array('font-size:72px', 'font-size:30px'), array('clamp('),
     ),
-    'an invariant unitless line height stays in pixels' => array(
-        'h1{font-size:5.2vw;line-height:1.5}', array('n6.font-size' => array('20px', '20px'), 'n6.line-height' => array('30px', '30px')), array('30px'), array('line-height:1.5'),
+    'an invariant proven unitless line height retains its factor' => array(
+        'h1{font-size:5.2vw;line-height:1.5}', array('n6.font-size' => array('20px', '20px'), 'n6.line-height' => array('30px', '30px')), array('line-height:1.5'), array('line-height:30px'),
     ),
     'custom-property math lifts with every var() expanded' => array(
         ':root{--scale:100vw;--scrollbar:0px}h1{font-size:max(0.5px, 0.0410256 * (var(--scale) - var(--scrollbar)))}',

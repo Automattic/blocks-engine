@@ -74,6 +74,12 @@ foreach (array(
     array('box' => array('transform' => 'matrix(1, 0, 0, 1, 1, 0)'), 'refuse' => true),
     array('box' => array('padding-left' => '1px'), 'refuse' => true),
     array('child_box' => $inset, 'refuse' => true),
+    // With its only child out of flow, an empty grid box may take its size
+    // from its own tracks (a decorative dot sized by a `minmax()` row); the
+    // child lays out on tracks of its own and would lose that size.
+    array('box' => array('display' => 'grid'), 'allow' => true),
+    array('box' => array('display' => 'grid', 'grid-template-rows' => '100px'), 'refuse' => true),
+    array('box' => array('display' => 'grid', 'grid-template-columns' => '400px'), 'refuse' => true),
 ) as $change) {
     $position = $change['box']['position'] ?? 'relative';
     $cases[] = array(

@@ -30,8 +30,8 @@ use DOMElement;
  *   width (the user-agent 16px when undeclared), so the carrier does not
  *   depend on the destination's root font size.
  * - A unitless `line-height` scales with the element's font size: it is
- *   lifted when the observed line height differs between captures and
- *   equals that factor times the observed font size at every capture.
+ *   lifted when it equals that factor times the observed font size at every
+ *   capture, including invariant values whose line-box rounding pixels lose.
  * - A `display` or `visibility` keyword winner (`none`, reached directly
  *   or through `var()`) that equals the observed value at every capture and
  *   differs between captures is lifted, so a box the author hides below a
@@ -117,7 +117,7 @@ final class BoxTreeFluidIntent
         'margin-top' => 'margin', 'margin-right' => 'margin', 'margin-bottom' => 'margin', 'margin-left' => 'margin',
         'padding-top' => 'padding', 'padding-right' => 'padding', 'padding-bottom' => 'padding', 'padding-left' => 'padding',
         'top' => 'inset', 'right' => 'inset', 'bottom' => 'inset', 'left' => 'inset',
-        'flex-basis' => 'flex',
+        'flex-grow' => 'flex', 'flex-shrink' => 'flex', 'flex-basis' => 'flex',
         'grid-column-start' => array('grid-column', 'grid-area'), 'grid-column-end' => array('grid-column', 'grid-area'),
         'grid-row-start' => array('grid-row', 'grid-area'), 'grid-row-end' => array('grid-row', 'grid-area'),
         // `grid-gap` and `grid-*-gap` are legacy name aliases (CSS Box Alignment §8.4).
@@ -344,8 +344,6 @@ final class BoxTreeFluidIntent
                 && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
             $proven[$key] = $value;
         }
-        if ('line-height' === $property && count(array_unique(array_column(array_column($observations, 'used_styles'), $property))) < 2
-            && count(array_filter($proven, static fn(string $value): bool => 1 === preg_match('/^\d*\.?\d+$/', $value))) === count($proven)) return null;
         return $this->bands($widths, $samples, $proven, $winner, false);
     }
 
@@ -357,16 +355,11 @@ final class BoxTreeFluidIntent
     private function liftedExpression(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
     {
         $proven = array();
-        $observed = array();
         foreach ($widths as $key => $width) {
             $value = $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents);
             if (null === $value) return null;
             $proven[$key] = $value;
-            $observed[(string) ($observations[$key]['used_styles'][$property] ?? '')] = true;
         }
-        // A unitless line height already equals its pixels at every capture
-        // when they agree: only a varying one carries intent pixels lose.
-        if ('line-height' === $property && count($observed) < 2 && preg_match('/^\d*\.?\d+$/', (string) reset($proven))) return null;
         return $this->bands($widths, $samples, $proven, function (float $width) use ($property): ?string {
             $value = $this->declared($property, $width);
             return '' === $value ? null : $value;
@@ -727,6 +720,40 @@ final class BoxTreeFluidIntent
     }
 
     /**
+     * The longhands set by `flex` (CSS Flexbox §7.2). A lone number uses a
+     * 0% basis; a lone basis grows and shrinks by 1. Unresolved variables
+     * and CSS-wide keywords other than the defined `initial` prove nothing.
+     *
+     * @return array<string, string>
+     */
+    private static function flexLonghands(string $value): array
+    {
+        $keyword = strtolower(trim($value));
+        $named = array('none' => array('0', '0', 'auto'), 'auto' => array('1', '1', 'auto'), 'initial' => array('0', '1', 'auto'));
+        if (isset($named[$keyword])) return array_combine(array('flex-grow', 'flex-shrink', 'flex-basis'), $named[$keyword]);
+        if ('' === $keyword || preg_match('/\bvar\(|^(?:inherit|unset|revert|revert-layer)$/i', $keyword)) return array();
+        $numbers = array();
+        $basis = null;
+        $basisAfterNumbers = false;
+        foreach (CssValueSplitter::splitTopLevelWhitespace(trim($value)) as $token) {
+            if (is_numeric($token) && $token >= 0) {
+                // Grow and shrink must be adjacent, not separated by the basis.
+                if ($basisAfterNumbers) return array();
+                $numbers[] = $token;
+            } elseif (null === $basis) {
+                $basis = $token;
+                $basisAfterNumbers = array() !== $numbers;
+            } else {
+                return array();
+            }
+        }
+        if ((array() === $numbers && null === $basis) || count($numbers) > 2) return array();
+        $grow = $numbers[0] ?? '1';
+        $shrink = $numbers[1] ?? '1';
+        return array('flex-grow' => (string) (0 + $grow), 'flex-shrink' => (string) (0 + $shrink), 'flex-basis' => $basis ?? '0%');
+    }
+
+    /**
      * Use a capture's recorded height at its own width. Between captures, scale
      * the nearest capture's aspect ratio to preserve its orientation: a portrait
      * band then ends at the author's width breakpoint, not an arbitrary height.
@@ -783,7 +810,7 @@ final class BoxTreeFluidIntent
         if ('font' === $shorthand) {
             return trim(CssValueInspector::withoutImportant(CssFontShorthand::expand($value, true)[$property] ?? ''));
         }
-        if ('flex' === $shorthand) return '';
+        if ('flex' === $shorthand) return self::flexLonghands($value)[$property] ?? '';
         if ('grid-column' === $shorthand || 'grid-row' === $shorthand || 'grid-area' === $shorthand) {
             return self::gridLines($value, $shorthand)[$property] ?? '';
         }

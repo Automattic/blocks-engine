@@ -53,7 +53,7 @@ foreach ($plan['assets'] as $asset) {
 }
 
 $body = $rules[':root body'] ?? array();
-$assert('28px' === ($body['line-height'] ?? null), 'The body restates the leading its paragraphs inherit (' . json_encode($body) . ').');
+$assert('1.75' === ($body['line-height'] ?? null), 'The body restates the leading its paragraphs inherit (' . json_encode($body) . ').');
 $family = (string) ($body['font-family'] ?? '');
 if (1 === preg_match('/^var\(--wp--preset--font-family--([a-z0-9-]+)\)$/', $family, $preset)) $family = (string) ($families[$preset[1]] ?? '');
 $assert('Georgia,serif' === str_replace(', ', ',', $family), 'The body restates the family its content inherits (' . json_encode($body['font-family'] ?? null) . ').');

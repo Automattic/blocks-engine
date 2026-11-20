@@ -155,8 +155,9 @@ foreach (array('header' => 'Harbor ', 'footer' => 'Visit ') as $area => $text) {
     $assert(array('light' => $label, 'dark' => $label . ' (Events)') === array('light' => $titles['light'] ?? null, 'dark' => $titles['dark'] ?? null), "The main {$area} variant is titled {$label} and the other after its first route: " . json_encode($titles));
 }
 
-// Once three routes share a header, the entrypoint's different header
-// classes become a variant part; its different footer copy stays local.
+// Once three routes share a header and footer, the entrypoint's different
+// header classes and its different footer copy become variant parts: both
+// are its page-level landmarks, so neither stays a shell copy in content.
 $soleNav = '<nav><a href="index.html">Home</a><a href="about.html">About</a><a href="visit.html">Visit</a><a href="events.html">Events</a></nav>';
 $solePage = static function (string $title, bool $home) use ($soleNav): string {
     $header = '<header class="masthead' . ($home ? ' masthead--overlay' : '') . '"><a class="brand" href="index.html">Harbor</a>' . $soleNav . '</header>';
@@ -188,7 +189,7 @@ foreach (array_column($solePlan['pages'], null, 'source_path') as $source => $ro
 }
 foreach (array('header', 'footer') as $area) {
     $variant = array_values(array_filter($soleParts, static fn(array $part): bool => $area === $part['area'] && array('index.html') === ($part['placement']['source_paths'] ?? null)));
-    $assert(('header' === $area ? 1 : 0) === count($variant), "Only the home header is a presentation variant: " . json_encode(array_column($solePlan['template_parts'], 'title', 'slug')));
+    $assert(1 === count($variant), "The home {$area} is a presentation variant: " . json_encode(array_column($solePlan['template_parts'], 'title', 'slug')));
 }
 $assert(str_contains((string) $soleTemplates['front-page'], 'wp:post-content'), 'The front page renders its own content.');
 

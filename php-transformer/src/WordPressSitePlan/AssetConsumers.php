@@ -44,6 +44,10 @@ final class AssetConsumers
             preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $content, $matches);
             foreach (array_unique($matches[1]) as $token) $consumers[$token][] = array('kind' => 'stylesheet', 'target_path' => $write['target_path'], 'count' => substr_count($content, WordPressSitePlan::TOKEN_PREFIX . $token . '}}'));
         }
+        $productImages = ProductImages::referencedPaths($plan);
+        foreach ($plan['assets'] as $asset) {
+            if (isset($productImages[$asset['source_path']]) && ProductImages::isImage($asset)) $consumers[$asset['token']][] = array('kind' => 'declaration', 'type' => 'products', 'source_path' => $asset['source_path']);
+        }
         return $consumers;
     }
 
@@ -79,7 +83,10 @@ final class AssetConsumers
     {
         if ('media_library' !== $destination) return array();
         $reasons = array();
-        foreach ($consumers as $consumer) if ('stylesheet' === $consumer['kind']) $reasons[] = array('reason' => 'attachment_url_required', 'target_path' => $consumer['target_path'], 'count' => $consumer['count']);
+        foreach ($consumers as $consumer) {
+            if ('stylesheet' === $consumer['kind']) $reasons[] = array('reason' => 'attachment_url_required', 'target_path' => $consumer['target_path'], 'count' => $consumer['count']);
+            if ('declaration' === $consumer['kind']) $reasons[] = array('reason' => 'product_image_reference', 'source_path' => $consumer['source_path']);
+        }
         return $reasons;
     }
 
@@ -100,7 +107,9 @@ final class AssetConsumers
     {
         if ('proven' !== ($plan['reference_semantics']['dynamic_script_references'] ?? null)) return null;
         $images = array();
+        $productImages = ProductImages::referencedPaths($plan);
         foreach ($plan['assets'] as $asset) {
+            if (isset($productImages[$asset['source_path']])) continue;
             if ('asset' === ($asset['kind'] ?? null) && str_starts_with((string) ($asset['mime_type'] ?? ''), 'image/')) $images[$asset['token']] = $asset['target_path'];
         }
         $imageTargets = array_flip($images);

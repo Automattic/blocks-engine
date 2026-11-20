@@ -149,7 +149,15 @@ foreach ($collisionPlan['pages'] as $page) {
     $assert(in_array($key, array_column($collisionPlan['templates'], 'slug'), true), 'Assigned custom template exists.');
     $assert(in_array($key, array_column($theme['customTemplates'] ?? array(), 'name'), true), 'Assigned custom template is registered in theme.json.');
 }
-$assert(1 === count(array_unique($keys)), 'Routes retaining their unique headers can share the same plain content template.');
+// Each excluded route's own page-level header is its own variant part, so
+// its route template renders that part and its content carries no header.
+$assert(2 === count(array_unique($keys)), 'Routes with their own header designs keep their own route templates.');
+foreach ($collisionPlan['pages'] as $page) {
+    if (!in_array($page['source_path'], array('north/about.html', 'south/about.html'), true)) continue;
+    $template = current(array_filter($collisionPlan['templates'], static fn(array $template): bool => $page['route_template'] === $template['slug']));
+    $variant = current(array_filter($headers($collisionPlan), static fn(array $part): bool => array($page['source_path']) === ($part['placement']['source_paths'] ?? null)));
+    $assert(is_array($variant) && str_contains($template['canonical_block_markup'], '"slug":"' . $variant['slug'] . '"') && !str_contains($page['canonical_block_markup'], '"tagName":"header"'), "{$page['source_path']} renders its own header variant part from its route template.");
+}
 $dominant = current(array_filter($headers($collisionPlan), static fn(array $part): bool => 'header' === $part['slug']));
 
 foreach ($collisionPlan['templates'] as $template) if (in_array($template['slug'], $keys, true)) $assert(!str_contains($template['canonical_block_markup'], '"slug":"header"'), 'Excluded routes do not inherit the dominant header.');
