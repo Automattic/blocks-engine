@@ -1175,7 +1175,14 @@ final class SharedChromeStylesheets
                 $keep($asset);
                 continue;
             }
-            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
+            // A copy that follows a route-kept hook onto a detached part still
+            // comes from a stylesheet only some routes load. The hook can mean
+            // something else in other routes' stylesheets (per-page utility
+            // classes), and the copy keeps the source ancestors that route
+            // content sits under too, so it stays gated to the routes loading it.
+            $gate = self::routeGate($asset, $routeClasses);
+            $assetReanchor = null === $gate ? $reanchor : static fn (string $selector): string => $targetsChrome($selector) || self::routeGated($selector) ? $reanchor($selector) : $reanchor($gate . ' ' . trim($selector));
+            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $assetReanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
             if (null === $shared) {
                 $keep($asset);
                 continue;
@@ -1214,6 +1221,33 @@ final class SharedChromeStylesheets
             $projected[] = $sharedAsset;
         }
         return $projected;
+    }
+
+    /**
+     * The compiler route gate for a stylesheet that only some known routes
+     * load, or null when every route loads it or it may load elsewhere.
+     *
+     * @param array<string,mixed> $asset
+     * @param array<string,string> $routeClasses Stamped route class by page source path.
+     */
+    private static function routeGate(array $asset, array $routeClasses): ?string
+    {
+        $gated = array();
+        foreach ($asset['scopes'] ?? array() as $scope) {
+            $source = (string) ($scope['source_path'] ?? '');
+            if ('global' === ($scope['kind'] ?? null) || !isset($routeClasses[$source])) return null;
+            $gated[$routeClasses[$source]] = true;
+        }
+        if (array() === $gated || count($gated) >= count(array_unique($routeClasses))) return null;
+        ksort($gated);
+        return ':where(:root:is(.' . implode(',.', array_keys($gated)) . '))';
+    }
+
+    /** Whether a selector already leads with a compiler route gate. */
+    private static function routeGated(string $selector): bool
+    {
+        $tokens = CssSelectorTokenizer::tokenize(trim($selector));
+        return $tokens['supported'] && 1 === preg_match(self::ROUTE_GATE, (string) ($tokens['compounds'][0] ?? ''));
     }
 
     /**
@@ -1555,7 +1589,7 @@ final class SharedChromeStylesheets
             $gate = ':where(:root:is(.' . implode(',.', array_keys($scopeClasses)) . '))';
             $shared = (new CssStylesheetTransformer())->transformStyleRules($shared, static function (string $prelude, string $body) use ($gate): string {
                 $arms = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
-                return implode(',', array_map(static fn(string $arm): string => preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
+                return implode(',', array_map(static fn(string $arm): string => !self::routeGated($arm) && preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
             });
             $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
         }
