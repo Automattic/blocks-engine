@@ -192,11 +192,6 @@ final class ChromeJournal
         foreach (self::elements($element) as $index => $node) $indexes[$node] = $index;
         $encoded = self::encodeElements(array('delta' => $delta, 'fallbacks' => $fallbacks, 'block' => $block), $indexes);
         if (null === $encoded) return null;
-        $richTextMarkers = array();
-        foreach ($attributes as $index => $original) {
-            $marker = $original['data-blocks-engine-richtext-marker'] ?? '';
-            if ('' !== $marker) $richTextMarkers[$marker] = $index;
-        }
         $nodeIds = array();
         foreach ($attributes as $index => $original) {
             if (!isset($original[BoxTree::NODE_ATTRIBUTE])) continue;
@@ -213,7 +208,7 @@ final class ChromeJournal
         }
         return $encoded + array(
             'node_ids' => $nodeIds,
-            'richtext_markers' => $richTextMarkers,
+            'bound_markers' => self::boundMarkers($before, $element->getNodePath(), serialize($encoded)),
             'dom' => $dom,
             'root_path' => $element->getNodePath(),
             'source_path' => $this->session->sourcePath(),
@@ -239,9 +234,6 @@ final class ChromeJournal
         foreach ($journal['node_ids'] ?? array() as $id => $index) {
             $target = null !== $index ? ($elements[$index] ?? null) : null;
             $nodeIds[$id] = $target?->getAttribute(BoxTree::NODE_ATTRIBUTE) ?: null;
-        }
-        foreach ($journal['richtext_markers'] ?? array() as $marker => $index) {
-            $nodeIds[$marker] = isset($elements[$index]) ? ($elements[$index]->getAttribute('data-blocks-engine-richtext-marker') ?: null) : null;
         }
         $nodePattern = array() === $nodeIds ? null : '~(?<![a-zA-Z0-9_-])(?:' . implode('|', array_map(static fn (string $id): string => preg_quote($id, '~'), array_keys($nodeIds))) . ')(?![a-zA-Z0-9_-])~';
         $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath, $nodeIds, $nodePattern): mixed {
@@ -280,6 +272,15 @@ final class ChromeJournal
         foreach ($journal['allocations'] as [$method, $arguments, $marker]) {
             $markers[$marker] = $analysis->$method(...array_map($translate, $arguments));
         }
+        // Markers bound to subtree paths before recording began (a navigation
+        // pre-pass, say) take this page's names for the same paths.
+        $states = $this->session->journaledStates();
+        foreach ($journal['bound_markers'] as [$name, $property, $keys, $marker]) {
+            $value = self::read($states[$name], $property);
+            foreach ($translate($keys) as $key) $value = is_array($value) ? ($value[$key] ?? null) : null;
+            if (!is_string($value)) return null;
+            $markers[$marker] = $value;
+        }
         $markers = array_filter($markers, static fn (string $replacement, string $marker): bool => $replacement !== $marker, ARRAY_FILTER_USE_BOTH);
         $delta = $translate($journal['delta']);
         $block = $translate($journal['block']);
@@ -295,7 +296,6 @@ final class ChromeJournal
             foreach (array_diff_key($current[$index], $attributes) as $name => $_) if (!str_starts_with($name, 'xmlns')) $node->removeAttribute($name);
             foreach ($attributes as $name => $value) if (!str_starts_with($name, 'xmlns') && ($current[$index][$name] ?? null) !== $value) $node->setAttribute($name, $value);
         }
-        $states = $this->session->journaledStates();
         $provenanceState = $this->session->transformationProvenanceState();
         foreach ($delta as [$name, $property, $changes]) {
             $state = $states[$name];
@@ -381,6 +381,30 @@ final class ChromeJournal
             $value[$key] = $encoded;
         }
         return $value;
+    }
+
+    /**
+     * Engine markers the state held, before recording, under a key path that
+     * names an element of the subtree and that the recording refers to. Their
+     * names can depend on the whole page, so each replay looks its own up.
+     *
+     * @param array<string,array<string,mixed>> $state
+     * @return list<array{0:string,1:string,2:list<int|string>,3:string}>
+     */
+    private static function boundMarkers(array $state, string $root, string $recording): array
+    {
+        $bound = array();
+        $walk = static function (mixed $value, array $keys, bool $inside) use (&$walk, &$bound, $root, $recording): void {
+            if (is_array($value)) {
+                foreach ($value as $key => $entry) {
+                    $walk($entry, array(...$keys, $key), $inside || (is_string($key) && ($key === $root || str_starts_with($key, $root . '/'))));
+                }
+            } elseif ($inside && is_string($value) && 1 === preg_match('/^blocks-engine-[a-z-]+-[a-f0-9]{12}-\d+$/', $value) && str_contains($recording, $value)) {
+                $bound[] = array($keys[0], $keys[1], array_slice($keys, 2), $value);
+            }
+        };
+        $walk($state, array(), false);
+        return $bound;
     }
 
     /** @return array<string,array<string,mixed>> */

@@ -94,7 +94,7 @@ foreach (array('one', 'two') as $page) {
 // differs, reaches the same key and records it.
 $journals = $property->getValue($store->inner);
 $assert(1 === count($journals), 'Pages differing only in unrelated CSS must share one footer key.');
-$assert(array() !== reset($journals)['richtext_markers'], 'The footer must contain prepared rich-text markers to rebase.');
+$assert(array() !== reset($journals)['bound_markers'], 'The footer must refer to markers prepared before it, which replay rebases.');
 $third = $compiler->preparePage($artifact, $shared, $pagePath('three'));
 foreach (array(1, 2) as $_) $assert($compile($third) === $compile($third, $store), 'Relevant footer CSS must preserve the unshared receipt.');
 $assert(0 === $store->hits, 'Matching footer CSS must not hit the journal.');
