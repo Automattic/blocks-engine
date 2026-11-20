@@ -233,6 +233,12 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
+                 // New pages need a title even though captured pages carry
+                 // their source heading inside post content. Their route
+                 // templates retain the content-only slot below.
+                 if ('page' === $templateSlug && !isset($frames['page']) && '<!-- wp:post-content /-->' === $content) {
+                     $content = '<!-- wp:post-title {"level":1} /-->' . "\n" . $content;
+                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -257,7 +263,12 @@ final class ThemeTemplates
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(TemplateSlugs::overrides($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
-        foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
+        foreach ($pages as $page) {
+            if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
+            // Do not add the fallback's native title above an imported heading.
+            // WordPress resolves page-<slug> before the generic page template.
+            if (!isset($frames['page']) && !isset($postTemplates['page']) && 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint'])) $overrides[TemplateSlugs::forPage($page)] = true;
+        }
         $liveOverrides = array_fill_keys(array_map(TemplateSlugs::forPage(...), $pages), true);
         $overrides = array_intersect_key($overrides, $liveOverrides);
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
