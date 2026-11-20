@@ -49,7 +49,7 @@ trait StagedTransport
         $partition = $this->stagePartition($artifact, 'shared');
         $entryPath = (string) ($partition['entrypoints'][0] ?? '');
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
-        $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact, false);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($sharedArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $sharedArtifact['files'] = $normalized['files'];
         $this->retainSharedCssRuleTrees($normalized['files']);
@@ -148,7 +148,7 @@ trait StagedTransport
     private function pagePlanFromPartition(array $partition, array $sharedPlan, string $pageId): array
     {
         $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
-        $normalized = (new ArtifactNormalizer())->normalize($pageArtifact, false);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($pageArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $pageArtifact['files'] = $normalized['files'];
 
@@ -882,7 +882,7 @@ trait StagedTransport
         $partition = $this->stagePartition($hydratedArtifact, $scope, $pageId);
         $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
         $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
-        $normalized = (new ArtifactNormalizer())->normalize($planArtifact, false);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($planArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $planArtifact['files'] = $normalized['files'];
         $plan = array(
