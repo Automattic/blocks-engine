@@ -69,6 +69,9 @@ function run_tests(array $tests, int $jobs, string $root): array
                 rewind($job['log']);
                 $failures[$job['test']] = (string) stream_get_contents($job['log']);
                 fwrite(STDERR, "FAIL {$job['test']}\n");
+            } else {
+                // One line per finished test keeps long parallel runs observable.
+                printf("ok %6.1fs %s\n", $durations[$job['test']], $job['test']);
             }
             fclose($job['log']);
             unset($running[$index]);
