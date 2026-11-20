@@ -39,4 +39,20 @@ foreach (array(false, true) as $after) {
         throw new RuntimeException('External label must remain a sibling in source order: ' . $html);
     }
 }
+// Ordinary authored controls use generated blocks, not the capture-backed
+// core runtime. Do not leak runtime-only association attributes into their
+// serialized contract or change their existing wrapper topology.
+$ordinary = '<style>input,select,textarea{border:1px solid red}</style><form>'
+    . '<label for="ordinary">Name</label><input id="ordinary">'
+    . '<label for="choice">Choice</label><select id="choice"><option>A</option></select>'
+    . '<label for="message">Message</label><textarea id="message"></textarea>'
+    . '<button type="submit">Send</button></form>';
+$result = (new HtmlTransformer())->transform($ordinary)->toArray();
+foreach ($flatten($result['blocks']) as $block) {
+    $attrs = $block['attrs'] ?? array();
+    if (array_key_exists('labelFor', $attrs)
+        || (array_key_exists('labelAfterControl', $attrs) && false === $attrs['labelAfterControl'])) {
+        throw new RuntimeException('Capture-only label attributes leaked into ordinary control output');
+    }
+}
 echo "Captured input sibling label regression passed\n";
