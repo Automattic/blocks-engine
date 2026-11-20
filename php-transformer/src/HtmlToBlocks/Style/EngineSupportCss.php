@@ -142,6 +142,9 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none!important}';
+            // Retained accessibility text is still a native editable block.
+            // Hide it only on the front end, not from RichText in the canvas.
+            $parts[] = ':root .editor-styles-wrapper .' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '{display:block!important;position:static!important;clip:auto!important;clip-path:none!important;width:auto!important;height:auto!important;overflow:visible!important}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS) ) {
             // core/image inserts a figure between a source flex/grid item and
@@ -692,11 +695,14 @@ final class EngineSupportCss
     public function deviceVisibilityCss(string $serializedBlocks): array
     {
         $editorVariants = array();
-        foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS) as $class) {
+        foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS, CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS) as $class) {
             if (str_contains($serializedBlocks, $class)) {
-                $editorVariants[$class] = ':root .editor-styles-wrapper .' . $class;
+                $editorVariants[$class] = '.' . $class;
             }
         }
+        // Full document copies use document markers rather than island markers.
+        // The editor canvas can cross their breakpoint independently of the
+        // browser viewport; keep both copies selectable there as well.
         // Captured device islands remain separate editable content. Their
         // viewport visibility sheet belongs to the front end: hiding an island
         // in the editor makes its native blocks impossible to select or replace.
@@ -716,8 +722,9 @@ final class EngineSupportCss
             // the containment in the editor so those heights take effect.
             // Both variants share one rule per target: this sheet ships on
             // every route, so a repeated declaration block is page weight.
-            $list = static fn (string $suffix): string => implode(',', array_map(static fn (string $selector): string => $selector . $suffix, $editorVariants));
-            $ancestors = implode(',', array_map(static fn (string $class): string => ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . ')', array_keys($editorVariants)));
+            $variants = ':is(' . implode(',', $editorVariants) . ')';
+            $list = static fn (string $suffix): string => ':root .editor-styles-wrapper ' . $variants . $suffix;
+            $ancestors = ':root .editor-styles-wrapper .wp-block-group:has(' . $variants . ')';
             $editorCss = $list('') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important;container-type:normal!important}'
                 . $list(' figure.wp-block-image') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
                 . $list(' img') . '{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
