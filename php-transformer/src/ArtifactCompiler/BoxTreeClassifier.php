@@ -411,6 +411,7 @@ final class BoxTreeClassifier
         'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant', 'font-stretch', 'line-height',
         'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent', 'text-shadow', 'white-space',
         'word-break', 'overflow-wrap', 'hyphens', 'direction', 'list-style-type', 'list-style-position', 'visibility', 'cursor',
+        ...BoxTree::PAINT_PROPERTIES,
     );
 
     /**
