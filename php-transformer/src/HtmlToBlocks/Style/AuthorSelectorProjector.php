@@ -407,6 +407,8 @@ final class AuthorSelectorProjector
             return $arms;
         }
 
+        array_push($arms, ...$this->projectRichTextCarrierDescendantSelector($selector, $parsed, $context, $controlWrapper, $subjectArms, $semanticSubjectArms, $matches));
+
         // Some lowering paths retain the source leaf inside a paragraph
         // without marking it as a potential standalone inline carrier.
         // The emitted tree is authoritative: add a zero-specificity hop
@@ -480,6 +482,67 @@ final class AuthorSelectorProjector
         }
 
         array_push($arms, ...$this->projectMarkerCarriers($selector, $parsed, $matches, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+        return $arms;
+    }
+
+    /**
+     * Arms for a child or descendant rule whose ancestor is a RichText
+     * carrier addressed by class or id (`.fx > *`, `.fx .label`).
+     *
+     * A RichText carrier replaces its source element with a `<mark>` that
+     * no longer has the source classes or id, so the authored ancestor
+     * compound stops matching while the carrier's inline descendants stay
+     * inside it. The ancestor is projected like a pseudo-element host:
+     * through the same pipeline as a rule on its own, keeping only its
+     * RichText arms, which carry its specificity. The combinator and subject
+     * follow unchanged, with source tags rewritten as on any other arm. A
+     * type-only ancestor needs nothing here: the lowered span bridge already
+     * reaches the carrier.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return list<string>
+     */
+    private function projectRichTextCarrierDescendantSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms, array $matches): array
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        $combinator = end($combinators);
+        $compounds = $parsed['compounds'] ?? array();
+        $hostCompound = $compounds[count($compounds) - 2] ?? null;
+        if ( ! is_array($rightmost) || ! in_array($combinator, array( '>', ' ' ), true) || ! is_array($hostCompound)
+            || ( array() === ($hostCompound['classes'] ?? array()) && array() === ($hostCompound['ids'] ?? array()) ) ) {
+            return array();
+        }
+        // Only a match held by a RichText carrier needs an arm; find one
+        // before matching the ancestor selector itself.
+        $holdsCarrierDescendant = false;
+        foreach ( $matches as $match ) {
+            for ( $ancestor = $match->parentNode; $ancestor instanceof DOMElement && ! $holdsCarrierDescendant; $ancestor = '>' === $combinator ? null : $ancestor->parentNode ) {
+                $holdsCarrierDescendant = '' !== $context->selectorProjections->richTextMarker($context->authorStyles->sourcePath($ancestor));
+            }
+            if ( $holdsCarrierDescendant ) {
+                break;
+            }
+        }
+        if ( ! $holdsCarrierDescendant ) {
+            return array();
+        }
+        $start = (int) $rightmost['start'];
+        $host = rtrim(substr($selector, 0, $start));
+        $host = '>' === $combinator ? rtrim(substr($host, 0, -1)) : $host;
+        $subject = substr($selector, $start);
+        $subjectParsed = $context->sourceStyles->parsedSelector($subject);
+        if ( '' === $host || ! $context->sourceStyles->parsedSelector($host)['supported'] || ! $subjectParsed['supported'] ) {
+            return array();
+        }
+        $projectedSubject = $this->rewriteSourceTagTypes($subject, $subjectParsed, $context);
+        $arms = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPreludeOnce($host, $context, $controlWrapper, $subjectArms, $semanticSubjectArms)) ?? array() as $target ) {
+            if ( str_contains($target, 'blocks-engine-role-richtext') || str_contains($target, 'blocks-engine-richtext-marker') ) {
+                $arms[] = $target . ('>' === $combinator ? '>' : ' ') . $projectedSubject;
+            }
+        }
         return $arms;
     }
 

@@ -7384,6 +7384,31 @@ final class StyleResolver implements ElementPresentationResolver
         return false;
     }
 
+    /**
+     * The `data-*` attributes this element's `::before`/`::after` generated
+     * content reads through `attr()`, in any viewport. An element that
+     * lowers to a new carrier must keep these, or its generated content
+     * resolves to an empty string.
+     *
+     * @return list<string> Lowercase attribute names the element carries.
+     */
+    public function generatedContentDataAttributes(DOMElement $element): array
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $names = array();
+        foreach ($state->pseudoElementRules() as $rule) {
+            $content = $rule['declarations']['content'] ?? null;
+            if (!is_string($content) || !in_array((string) ($rule['pseudo'] ?? ''), array('before', 'after'), true)
+                || !preg_match_all('/\battr\(\s*(data-[a-z0-9_.-]+)/i', $content, $matches)
+                || !$state->matches($element, (string) $rule['selector'])) continue;
+            foreach ($matches[1] as $name) {
+                $name = strtolower($name);
+                if ($element->hasAttribute($name)) $names[$name] = true;
+            }
+        }
+        return array_keys($names);
+    }
+
     public function specificityResolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
         if ( ! in_array($property, self::SVG_TEXT_CASCADE_PROPERTIES, true) ) {
