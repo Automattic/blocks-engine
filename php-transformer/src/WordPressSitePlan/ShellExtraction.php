@@ -3430,16 +3430,35 @@ final class ShellExtraction
                 $routeFooter = true;
             }
         }
-        $start = $nodes[$siblings[$from]]['offset'];
-        $end = $nodes[$siblings[$to]]['end'];
+        // The gap can still be a chain of content-column carriers. Keep
+        // those carriers in the template, not in each post, so newly authored
+        // content receives the same layout. Empty decorative siblings remain
+        // in their exact positions around the slot.
+        $contentIds = array_slice($siblings, $from, $to - $from + 1);
+        $outerFrame = substr($markup, 0, $nodes[$contentIds[0]]['offset']) . substr($markup, $nodes[$contentIds[count($contentIds) - 1]]['end']);
+        if (preg_match('/"tagName":"main"/', $outerFrame) && (!isset($refs['header']) || !self::leadsMainDocument(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $nodes[$refs['header']]['offset']))) return null;
+        $nestedColumn = false;
+        while (1 === count($contentIds)) {
+            $carrier = $nodes[$contentIds[0]];
+            if (!in_array($carrier['name'], array('group', 'custom/layout-shell'), true) || array() === $carrier['children']) break;
+            $children = array();
+            foreach ($carrier['children'] as $child) {
+                $slice = substr($markup, $nodes[$child]['offset'], $nodes[$child]['end'] - $nodes[$child]['offset']);
+                if ('group' === $nodes[$child]['name'] && str_contains($nodes[$child]['attributes'], 'blocks-engine-empty-visual-group') && '' === trim(strip_tags((string) preg_replace('/<!--.*?-->/s', '', $slice)))) continue;
+                $children[] = $child;
+            }
+            // A flat main containing the body's blocks is already the
+            // content boundary. Only a nested carrier chain proves a column.
+            if (array() === $children || (!$nestedColumn && 1 !== count($children))) break;
+            $nestedColumn = true;
+            $contentIds = $children;
+        }
+        $start = $nodes[$contentIds[0]]['offset'];
+        $end = $nodes[$contentIds[count($contentIds) - 1]]['end'];
         $opening = substr($markup, 0, $start);
         $closing = substr($markup, $end);
         $content = substr($markup, $start, $end - $start);
         if ('' === trim($content) || str_contains($content, 'wp:template-part')) return null;
-        // A document-wide main may own the masthead as its first child.
-        // Hoist that complete frame rather than detaching chrome from its
-        // stacking/selector context. A main within the content gap stays put.
-        if (preg_match('/"tagName":"main"/', $opening . $closing) && (!isset($refs['header']) || !self::leadsMainDocument(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $nodes[$refs['header']]['offset']))) return null;
         // A frame belongs to one captured device document. When the shells sit
         // in one of several device documents, the others are page content, not
         // chrome around it.
