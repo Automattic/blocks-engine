@@ -245,6 +245,12 @@ final class ThemeTemplates
                 if ('<!-- wp:post-content /-->' === $content) $content = '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->';
                 $content = $frames[$templateSlug]['opening'] . $content . $frames[$templateSlug]['closing'];
             }
+            // Captured pages own their headings in post_content. New pages have
+            // no captured body, so their lifecycle still needs a native title.
+            // Add it after frame composition to preserve the slot's transport.
+            if (('page' === $templateSlug || 'front-page' === $templateSlug || str_starts_with($templateSlug, 'page-')) && !str_contains($content, '<!-- wp:post-title')) {
+                $content = '<!-- wp:post-title {"level":1,"metadata":{"blocksEngineUncapturedTitle":true}} /-->' . "\n" . $content;
+            }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;
             return $before . $content . "\n" . $after;
         };

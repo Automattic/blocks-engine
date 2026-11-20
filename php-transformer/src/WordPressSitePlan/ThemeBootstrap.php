@@ -594,6 +594,16 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
+        // Only the generated fallback is conditional. Imported pages retain
+        // their exact captured heading (or intentional absence of one), while
+        // newly authored pages use Core's context-aware title renderer.
+        if (self::markupContains($templates, 'blocksEngineUncapturedTitle')) {
+            $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block, WP_Block \$instance ): string {";
+            $lines[] = "    if ( empty( \$block['attrs']['metadata']['blocksEngineUncapturedTitle'] ) ) return \$content;";
+            $lines[] = "    \$post_id = (int) ( \$instance->context['postId'] ?? 0 );";
+            $lines[] = "    return \$post_id && '' !== (string) get_post_meta( \$post_id, '_blocks_engine_reconciliation_identity', true ) ? '' : \$content;";
+            $lines[] = "}, 10, 3 );";
+        }
         self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
