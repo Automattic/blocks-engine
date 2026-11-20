@@ -68,6 +68,61 @@ $assert(
 $recording->recordInheritedPresentation($nav, array( 'menu' ));
 $assert(1 === count($state->correspondences()), 'inherited presentation records nothing when no author rule styles the links');
 
+// Marker identity must retain author order, not the order of index buckets.
+$document = new DOMDocument();
+$document->loadHTML('<!doctype html><html><body><nav><a id="home" class="menu-link" data-menu="primary" href="/">Home</a></nav></body></html>');
+$anchor = $document->getElementsByTagName('a')->item(0);
+$styles = new StyleResolverFixture($document->getElementsByTagName('body')->item(0));
+$context = new NavigationPatternContext($styles->styleResolver, $styles->session);
+$resolution = $styles->session->sourceStyleResolutionState();
+$analysis = $styles->session->authorStyleAnalysis();
+$selectorLists = array(
+    array('[data-menu]'),
+    array('.unrelated'),
+    array('*'),
+    array('#home', '.menu-link', 'a'),
+    array('a:unsupported-pseudo'),
+    array('nav > a'),
+    array('[aria-current]'),
+);
+$authorRules = array();
+foreach ($selectorLists as $order => $selectors) {
+    $authorRules[] = array(
+        'order' => $order,
+        'selectors' => array_map(static fn (string $text): array => array(
+            'selector' => $text,
+            'parsed' => $resolution->parsedSelector($text),
+        ), $selectors),
+        'declarations' => array('color' => 'red'),
+        // Even print-only rules contributed to the original marker identity.
+        'conditions' => 0 === $order ? array('@media print') : array(),
+    );
+}
+$analysis->installStyleRules($authorRules);
+$candidates = $analysis->subjectRuleCandidates($anchor);
+$assert(array(0, 2, 3, 4, 5) === array_column($candidates, 'order'), 'subject candidates retain unsupported and universal rules in source order, skipping unrelated subjects');
+$assert(!$resolution->matches($anchor, 'a:unsupported-pseudo'), 'unsupported selector remains a non-match');
+
+// Reference the original full scan, including selector order within a rule.
+$matched = array();
+foreach ($analysis->styleRules() as $rule) {
+    foreach ($rule['selectors'] as $selector) {
+        $text = $selector['selector'];
+        if ('' !== $text && $resolution->matches($anchor, $text) && !$styles->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $anchor)) {
+            $matched[] = array($text, $rule['declarations'], $rule['conditions'] ?? array());
+        }
+    }
+}
+$assert(array('[data-menu]', '*', '#home', '.menu-link', 'a', 'nav > a') === array_column($matched, 0), 'reference identity covers attribute, universal, id, class and tag subjects in source order');
+$identity = array('a', 'home', 'menu-link', '', $matched);
+$expected = $analysis->allocateStableMarker('navigation-item', (string) json_encode($identity));
+$markerMethod = new ReflectionMethod(NavigationPatternContext::class, 'navigationSubjectMarker');
+$assert($expected === $markerMethod->invoke($context, $anchor, 'item'), 'indexed navigation marker is byte-identical to the full-scan marker');
+
+// Reinstalling author rules must invalidate the candidate list as well as its index.
+$analysis->installStyleRules(array($authorRules[1]));
+$assert(array() === $analysis->subjectRuleCandidates($anchor), 'reinstalled rules do not reuse stale subject candidates');
+
 if ( 0 !== $failures ) {
     fwrite(STDERR, "navigation pattern context failed ({$failures} failures, {$passes} passed)\n");
     exit(1);

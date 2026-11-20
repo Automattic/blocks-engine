@@ -1686,16 +1686,20 @@ final class FormPresentationGraphBuilder
         return array( 'base' => $base, 'conditional' => $conditional );
     }
 
-    /** Resolve inherited select text without copying native-control line metrics. */
+    /** Resolve inherited select text without copying native-control line metrics or provider label tracking. */
     private function selectInheritedFont(DOMElement $element, array $facts, array $rules): array
     {
         $inheritance = $facts['font-family'] ?? $facts['font'] ?? null;
-        if (!is_array($inheritance) || 'inherit' !== strtolower(trim($inheritance['value']))) return $facts;
+        $spacing = $facts['letter-spacing'] ?? null;
+        $inheritsFont = is_array($inheritance) && 'inherit' === strtolower(trim($inheritance['value']));
+        $inheritsSpacing = is_array($spacing) && 'inherit' === strtolower(trim($spacing['value']));
+        if (!$inheritsFont && !$inheritsSpacing) return $facts;
         // Native selects keep their platform line-height. Resolve only the text
         // longhands, including weight: a provider shell can be bold even when
         // the source ancestors have the initial (normal) weight.
-        $properties = array('font-family' => true);
-        if ('inherit' === strtolower(trim($facts['font']['value'] ?? ''))) {
+        $properties = $inheritsFont ? array('font-family' => true) : array();
+        if ($inheritsSpacing) $properties['letter-spacing'] = true;
+        if ($inheritsFont && 'inherit' === strtolower(trim($facts['font']['value'] ?? ''))) {
             $properties += array('font-weight' => true, 'font-style' => true, 'font-variant' => true);
         }
         foreach (array_keys($properties) as $property) {
@@ -1716,15 +1720,15 @@ final class FormPresentationGraphBuilder
                 // not compare the ancestor's specificity with `font:inherit`
                 // and discard the resolved longhand as a weaker reset.
                 // Keep the value's owner for custom-property resolution only.
-                $facts[$property] = array_replace($inheritance, array(
+                $facts[$property] = array_replace('letter-spacing' === $property ? $spacing : $inheritance, array(
                     'value' => $fact['value'],
                     'element' => $ancestor,
                 ));
                 unset($properties[$property]);
             }
         }
-        foreach (array_intersect_key(array('font-weight' => 'normal', 'font-style' => 'normal', 'font-variant' => 'normal'), $properties) as $property => $value) {
-            $facts[$property] = array_replace($inheritance, array('value' => $value));
+        foreach (array_intersect_key(array('font-weight' => 'normal', 'font-style' => 'normal', 'font-variant' => 'normal', 'letter-spacing' => 'normal'), $properties) as $property => $value) {
+            $facts[$property] = array_replace('letter-spacing' === $property ? $spacing : $inheritance, array('value' => $value));
         }
         return $facts;
     }

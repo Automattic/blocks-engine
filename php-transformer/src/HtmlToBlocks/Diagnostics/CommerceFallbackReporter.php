@@ -1176,7 +1176,7 @@ final class CommerceFallbackReporter
                 additionalControls: $additionalControls
             ))->build(
                 $element,
-                $this->session->authorStyleAnalysis()->stylesheetAssets(),
+                $this->session->authorStyleAnalysis()->stylesheetAssets(true),
                 $this->session->sourceStyleResolutionState()->formLayoutCss()
             );
             $fallbacks[] = FallbackDiagnostic::build(array(

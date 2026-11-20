@@ -91,6 +91,7 @@
     "test:carousel-control-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-carousel-control-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/carousel-control-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:captured-gallery-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-captured-gallery-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/captured-gallery-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "visual:native-emoji-wordpress": "node tools/visual-parity/tests/native-emoji-wordpress.mjs",
+    "test:heading-inline-size-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-heading-inline-size-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/heading-inline-size-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:palette-alpha-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-palette-alpha-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/palette-alpha-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:design-system-restyle": "bash tests/integration/design-system-restyle.sh",
     "visual:source-wordpress-presets": "node tools/visual-parity/tests/source-wordpress-presets.mjs",

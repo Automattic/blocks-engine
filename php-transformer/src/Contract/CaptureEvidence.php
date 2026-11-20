@@ -269,6 +269,11 @@ final class CaptureEvidence
     /** On an inline JSON `<script>`: names the capture sidecar it carries. */
     public const SOURCE_EVIDENCE = 'data-blocks-engine-capture-source-evidence';
 
+    // Source-evidence keys.
+
+    /** SOURCE_EVIDENCE value for capture-proven runtime roots handed to site owners. */
+    public const RUNTIME_OWNED_REGIONS_EVIDENCE_KEY = 'runtime-owned-regions';
+
     // Sidecar schemas.
 
     /** Legacy inline captured interaction report, still accepted by readers. */
@@ -285,7 +290,7 @@ final class CaptureEvidence
     /** Collection filter `finiteBootstrap.status` record. */
     public const COLLECTION_STATUS_SCHEMA = 'blocks-engine-capture/collection-status/v1';
     /** Inline `runtime-owned-regions` source evidence: capture-proven runtime roots handed to site owners. */
-    public const RUNTIME_OWNED_REGIONS_SCHEMA = 'blocks-engine-capture/runtime-owned-regions/v1';
+    public const RUNTIME_OWNED_REGIONS_SCHEMA = 'blocks-engine-capture/' . self::RUNTIME_OWNED_REGIONS_EVIDENCE_KEY . '/v1';
 
     // Recognized capture runtimes: sha256 of the trimmed `<script>` body.
 

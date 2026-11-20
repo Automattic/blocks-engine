@@ -51,4 +51,21 @@ foreach (array('font_weight', 'font_style', 'font_variant') as $property) {
 foreach (array(0, 2) as $index) {
     if (($before[$index] ?? null) !== ($after[$index] ?? null)) throw new RuntimeException('Select inheritance changed another control');
 }
+// Labels can use tracked uppercase text without tracking the select's value.
+// A provider shell must not become the inherited letter-spacing owner.
+$tracked = (new HtmlTransformer())->transform(
+    '<style>body{font-family:Arial}.field label{letter-spacing:.12em;font-weight:700}select{font:inherit;letter-spacing:inherit;font-size:16px}</style>'
+    . '<form class="field" method="post"><label for="topic">Topic</label><select id="topic" name="topic"><option>Choose an enquiry type</option></select><button>Send</button></form>'
+)->toArray();
+$trackedStyles = $tracked['fallbacks'][0]['presentation_graph']['controls'][0]['control']['styles'] ?? array();
+if ('normal' !== ($trackedStyles['letter_spacing'] ?? null)) {
+    throw new RuntimeException('Select must not inherit tracking from provider label chrome: ' . json_encode($trackedStyles));
+}
+$spaced = (new HtmlTransformer())->transform(
+    '<style>form{letter-spacing:2px}select{letter-spacing:inherit}</style>'
+    . '<form method="post"><label for="topic">Topic</label><select id="topic" name="topic"><option>One</option></select><button>Send</button></form>'
+)->toArray();
+if ('2px' !== ($spaced['fallbacks'][0]['presentation_graph']['controls'][0]['control']['styles']['letter_spacing'] ?? null)) {
+    throw new RuntimeException('Select must preserve authored source ancestor tracking');
+}
 echo "Select source font inheritance passed\n";

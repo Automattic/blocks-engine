@@ -26,7 +26,7 @@ final class RuntimeOwnedRegionProjector
             $document = HtmlSerialization::parseDocument($file['content']);
             $xpath = new DOMXPath($document);
             $regions = array();
-            foreach ($xpath->query('//script[@type="application/json"][@' . CaptureEvidence::SOURCE_EVIDENCE . '="runtime-owned-regions"]') ?: array() as $script) {
+            foreach ($xpath->query('//script[@type="application/json"][@' . CaptureEvidence::SOURCE_EVIDENCE . '="' . CaptureEvidence::RUNTIME_OWNED_REGIONS_EVIDENCE_KEY . '"]') ?: array() as $script) {
                 $evidence = json_decode($script->textContent, true);
                 if (!is_array($evidence) || CaptureEvidence::RUNTIME_OWNED_REGIONS_SCHEMA !== ($evidence['schema'] ?? null)) continue;
                 foreach (is_array($evidence['regions'] ?? null) ? $evidence['regions'] : array() as $region) {
