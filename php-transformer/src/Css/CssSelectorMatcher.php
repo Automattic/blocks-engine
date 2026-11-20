@@ -13,6 +13,28 @@ use DOMNode;
 final class CssSelectorMatcher
 {
     /**
+     * Id tokens, including those in functional pseudos or unsupported selectors.
+     * Strings, comments and attribute-selector values are not id selectors.
+     *
+     * @return list<string>
+     */
+    public static function referencedIds(string $selector): array
+    {
+        $ids = array();
+        $state = CssSyntaxScanner::state();
+        for ($offset = 0, $length = strlen($selector); $offset < $length;) {
+            if (!$state['comment'] && '' === $state['quote'] && !$state['url'] && 0 === $state['brackets'] && '#' === $selector[$offset]) {
+                ++$offset;
+                $id = self::identifier($selector, $offset);
+                if (null !== $id) $ids[$id] = true;
+                continue;
+            }
+            $offset = CssSyntaxScanner::consume($selector, $offset, $state) ?? ($offset + 1);
+        }
+        return array_map('strval', array_keys($ids));
+    }
+
+    /**
      * Parse the An+B microsyntax, without the unsupported `of S` extension.
      *
      * @return array{a:int,b:int}|null
