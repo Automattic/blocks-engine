@@ -3074,12 +3074,15 @@ final class ShellExtraction
         foreach (array_intersect_key($split, $inner) as $index => $frame) {
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             foreach ($slugs[1] as $slug) if (isset($areas[$slug], $boundAreas[$areas[$slug]])) continue 2;
-            $groups[self::frameIdentity($frame)][] = $index;
+            // Shell equality alone does not prove an authoring layout: pages
+            // can share chrome while their body columns have different ancestry.
+            $groups[self::frameIdentity(self::withAuthoringContentFrame($frame))][] = $index;
         }
         $generic = null;
         foreach ($groups as $indexes) if (null === $generic || count($indexes) > count($generic)) $generic = $indexes;
         $genericSource = null !== $generic ? (string) $pages[$generic[0]]['source_path'] : null;
         $generic = null !== $generic ? $split[$generic[0]] : null;
+        $authoringFrame = null !== $generic ? self::withAuthoringContentFrame($generic) : null;
         $postGroups = array();
         foreach ($split as $index => $frame) if ('post' === $pages[$index]['post_type']) $postGroups[self::frameIdentity($frame)][] = $index;
         $postGeneric = null;
@@ -3140,6 +3143,22 @@ final class ShellExtraction
                 $frames['page'] = $fallback;
                 $genericSource = (string) $pages[array_key_first($split)]['source_path'];
             }
+        }
+        // Only the native page lifecycle borrows body ancestry. Keep captured
+        // routes and other lifecycle fallbacks on their original shell frames;
+        // otherwise a text column also changes archives and the entry route.
+        if (null !== $authoringFrame && self::frameIdentity($authoringFrame) !== self::frameIdentity($generic)) {
+            foreach ($pages as &$page) {
+                if (!empty($page['entrypoint']) || !empty($page['synthetic']) || 'page' !== ($page['post_type'] ?? null)) continue;
+                if ('page' !== ($page['route_template'] ?? 'page')) continue;
+                $slug = TemplateSlugs::forPage(array_diff_key($page, array('route_template' => true)));
+                $frames[$slug] = $frames['page'];
+                $page['route_template'] = $slug;
+                $page['metadata']['post_meta']['_wp_page_template'] = $slug;
+            }
+            unset($page);
+            $frames['page']['opening'] = $authoringFrame['opening'];
+            $frames['page']['closing'] = $authoringFrame['closing'];
         }
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
@@ -3446,6 +3465,39 @@ final class ShellExtraction
         preg_match_all('/' . '(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')' . '(?:":"|=")([^"]+)"/', $opening . $closing, $documents);
         if (count(array_unique($documents[1])) > 1) return null;
         return array('opening' => $opening, 'closing' => $closing, 'content' => $content) + ($routeFooter ? array('route_footer' => true) : array());
+    }
+
+    /**
+     * New pages own no captured content wrappers. Lend the generic source's
+     * body-text ancestry to their content slot, without copying its text or
+     * siblings. Captured routes keep their original frame and content via
+     * route overrides, so this does not wrap their content a second time.
+     *
+     * @param array<string,mixed> $frame
+     * @return array<string,mixed>
+     */
+    private static function withAuthoringContentFrame(array $frame): array
+    {
+        $markup = $frame['content'];
+        $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
+        foreach ($nodes as $id => $node) {
+            if ('paragraph' !== $node['name'] || str_contains($node['attributes'], 'blocks-engine-hidden-richtext-marker')) continue;
+            $opening = $closing = '';
+            for ($up = $node['parent']; null !== $up; $up = $nodes[$up]['parent']) {
+                $ancestor = $nodes[$up];
+                // Only structural core groups can be safely borrowed. Other
+                // block kinds can require their children to retain semantics.
+                if ('group' !== $ancestor['name']) return $frame;
+                $children = $ancestor['children'];
+                $opening = substr($markup, $ancestor['offset'], $nodes[$children[0]]['offset'] - $ancestor['offset']) . $opening;
+                $last = $nodes[$children[count($children) - 1]]['end'];
+                $closing .= substr($markup, $last, $ancestor['end'] - $last);
+            }
+            $frame['opening'] .= $opening;
+            $frame['closing'] = $closing . $frame['closing'];
+            return $frame;
+        }
+        return $frame;
     }
 
     /**

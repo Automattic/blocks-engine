@@ -42,7 +42,8 @@ foreach (array('front-page', 'page') as $slug) {
     $assert(2 === count($children), "The {$slug} root holds the frame and the pinned bar.");
     $frame = array_values(array_filter($children[0]['innerBlocks'], static fn (array $block): bool => null !== $block['blockName']));
     $names = array_map(static fn (array $block): string => 'core/template-part' === $block['blockName'] ? 'part:' . $block['attrs']['slug'] : $block['blockName'], $frame);
-    $assert(3 === count($names) && 'core/group' === $names[0] && 'core/post-content' === $names[1] && 'part:footer' === $names[2], "The {$slug} frame keeps the header layer, post-content and the footer in source order.");
+    $assert(3 === count($names) && 'core/group' === $names[0] && ('page' === $slug ? 'core/group' : 'core/post-content') === $names[1] && 'part:footer' === $names[2], "The {$slug} frame keeps the header layer, content slot and the footer in source order.");
+    if ('page' === $slug) $assert('main' === ($frame[1]['attrs']['tagName'] ?? null) && 'core/post-content' === ($frame[1]['innerBlocks'][0]['blockName'] ?? null), 'The native page borrows main around its content slot.');
     $assert(str_contains($markup, 'blocks-engine-frame-content') && str_contains($markup, 'Call us'), "The {$slug} template keeps the post-content marker and the pinned bar.");
 }
 
