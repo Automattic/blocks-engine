@@ -2163,10 +2163,22 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
 
-    /** Text block roots render both anchor and entrance runtime attributes. */
+    /** Native text and passive SVG image roots render entrance identity. */
     public static function rendersFoldEntrance(DOMElement $child): bool
     {
-        return in_array(strtolower($child->tagName), array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true);
+        if (in_array(strtolower($child->tagName), array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true)) return true;
+        if ('div' === strtolower($child->tagName)) {
+            $elements = array();
+            foreach ($child->childNodes as $node) {
+                if ($node instanceof DOMElement) $elements[] = $node;
+                elseif ('' !== trim($node->textContent)) return false;
+            }
+            return 1 === count($elements) && 'svg' === strtolower($elements[0]->tagName)
+                && self::rendersFoldEntrance($elements[0]);
+        }
+        return 'svg' === strtolower($child->tagName)
+            && Support\SvgMaterializer::isPassiveSvgMarkup($child)
+            && !SourceDom::isDefinitionsOnlySvg($child);
     }
 
     /** The source child that replaces a neutral box, or null when the box is kept. */
@@ -2263,6 +2275,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $boxId = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
             $childId = $neutralChild->getAttribute(BoxTree::NODE_ATTRIBUTE);
             if ( $boxId !== ($this->foldedInto[$childId]['from'] ?? null) ) {
+                // A neutral SVG host can sit between the entrance handoff and
+                // the image leaf. Its identity must reach the rendered root.
+                if ($element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) && self::rendersFoldEntrance($neutralChild)) {
+                    foreach ($element->attributes as $attribute) {
+                        if (in_array($attribute->name, array('id', CaptureEvidence::VIEWPORT_ENTRANCE), true)
+                            || \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
+                            $neutralChild->setAttribute($attribute->name, $attribute->value);
+                        }
+                    }
+                    $motion = array_filter(Style\SourceDeclarations::inline($element), static fn (string $name): bool => str_starts_with(strtolower($name), '--motion-'), ARRAY_FILTER_USE_KEY);
+                    $neutralChild->setAttribute('style', $neutralChild->getAttribute('style') . ';' . $this->styleResolver->cssDeclarationString($motion));
+                }
                 return $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
             }
             // A folded box's declarations survive only in its child's box-tree
@@ -2272,6 +2296,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $before = $fallbacks;
             $childStyle = $neutralChild->hasAttribute('style') ? $neutralChild->getAttribute('style') : null;
             $identity = $this->foldedInto[$childId]['identity'];
+            if ($element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) && self::rendersFoldEntrance($neutralChild)) {
+                foreach ($element->attributes as $attribute) {
+                    if (in_array($attribute->name, array('id', CaptureEvidence::VIEWPORT_ENTRANCE), true)
+                        || \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
+                        $identity['attributes'][$attribute->name] = $attribute->value;
+                    }
+                }
+                $motion = array_filter(Style\SourceDeclarations::inline($element), static fn (string $name): bool => str_starts_with(strtolower($name), '--motion-'), ARRAY_FILTER_USE_KEY);
+                $identity['attributes']['style'] = $neutralChild->getAttribute('style') . ';' . $this->styleResolver->cssDeclarationString($motion);
+            }
             $handed = array_keys($identity['attributes'] ?? array());
             foreach ($identity['attributes'] ?? array() as $name => $value) $neutralChild->setAttribute($name, $value);
             $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
