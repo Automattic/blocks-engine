@@ -97,6 +97,9 @@ final class FormPresentationGraphBuilder
         'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
         'border-radius', 'background-color',
+        // The frame's padding insets its members, so a padded stepper keeps its box.
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+        'padding-block', 'padding-inline', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end',
     );
     private const ROW_ITEM_PROPERTIES = array('flex-grow', 'flex-shrink', 'flex-basis', 'width', 'min-width', 'max-width');
     /** Elements whose default display opens a block box; a member of this kind breaks the shared line. */
