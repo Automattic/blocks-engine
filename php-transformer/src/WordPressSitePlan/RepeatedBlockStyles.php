@@ -38,13 +38,14 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
  *   rewrites its style, and no runtime binding anchors on its markup.
  * - At least two blocks lose it: a value one block carries is not repeated.
  *
- * The same pass generalizes this to opt-in looks: identical non-margin style
- * sets on two or more paragraphs, details, groups, lists or list items become
- * `styles.blocks.<block>.variations.<slug>` and the blocks get
- * `is-style-<slug>`. Core prints those as
+ * The same pass generalizes this to opt-in looks: identical style sets on two
+ * or more paragraphs, headings, details, groups, lists, list items or image
+ * figures (margins only) become `styles.blocks.<block>.variations.<slug>` and
+ * the blocks get `is-style-<slug>`. Core prints those as
  * `:root :where(.wp-block-x.is-style-slug)`; a variation is used only when no
- * delivered rule competes for one of its properties. Headings stay inline
- * because heading element styles may otherwise outrank the variation.
+ * delivered rule sets one of its longhands to another value on the block, and
+ * margin sets only where the block's layout cannot override the variation
+ * (see hoistVariations()).
  *
  * @internal
  */
@@ -60,6 +61,22 @@ final class RepeatedBlockStyles
         'core/heading' => array('class' => 'wp-block-heading'),
         'core/list-item' => array('tag' => 'li'),
         'core/image' => array('class' => 'wp-block-image'),
+        'core/group' => array('class' => 'wp-block-group'),
+        'core/details' => array('class' => 'wp-block-details'),
+    );
+
+    /**
+     * The root tag each variation-capable block type's selector reaches
+     * (`p`, `.wp-block-list > li`, the block class for the others), and the
+     * style families a type's root selector carries when its other supports
+     * target an inner element (image borders and dimensions style the `img`).
+     */
+    private const VARIATION_ROOTS = array(
+        'core/paragraph' => array('tag' => 'p'),
+        'core/heading' => array('class' => 'wp-block-heading'),
+        'core/list' => array('class' => 'wp-block-list'),
+        'core/list-item' => array('tag' => 'li', 'parent_class' => 'wp-block-list'),
+        'core/image' => array('class' => 'wp-block-image', 'families' => array('spacing' => array('margin'))),
         'core/group' => array('class' => 'wp-block-group'),
         'core/details' => array('class' => 'wp-block-details'),
     );
@@ -85,16 +102,17 @@ final class RepeatedBlockStyles
      * @param list<string> $observed Other emitted markup the theme renders, read but never rewritten.
      * @param list<array<string,mixed>> $assets Delivered stylesheet assets.
      * @param list<string> $anchors Block markup runtime bindings search for.
+     * @param array<string,mixed> $theme The theme.json the hoisted styles merge into.
      * @return array{markup:array<string,string>,blocks:array<string,array<string,mixed>>}
      */
-    public static function hoist(array $documents, array $observed, array $assets, array $anchors = array()): array
+    public static function hoist(array $documents, array $observed, array $assets, array $anchors = array(), array $theme = array()): array
     {
         // The unrestricted block-type margin is the all-members special case.
         // Resolve it first, retaining its exposure and layout guards, then group
         // the remaining exact style sets behind opt-in variation selectors.
         $result = self::hoistMargins($documents, $observed, $assets, $anchors);
         foreach ($result['markup'] as $key => $markup) $documents[$key]['markup'] = $markup;
-        $variations = self::hoistVariations($documents, $assets, $anchors);
+        $variations = self::hoistVariations($documents, $assets, $anchors, $theme);
         return array('markup' => array_replace($result['markup'], $variations['markup']), 'blocks' => array_replace_recursive($result['blocks'], $variations['blocks']));
     }
 
@@ -148,61 +166,94 @@ final class RepeatedBlockStyles
     }
 
     /**
-     * Exact remaining style sets, never partial intersections. Only root style
-     * supports with a proven inline serialization are eligible. Custom selectors
-     * (notably image borders and heading/link element styles) are not assumed to
-     * target the wrapper. Unknown properties leave the entire set inline.
+     * Exact remaining style sets (colours aside), never partial intersections. Only root style
+     * supports with a proven inline serialization are eligible, and only on
+     * blocks whose root tag the variation selector reaches. Colours stay on the
+     * block (their `has-*` marker classes are part of its saved markup), and an
+     * unknown property leaves the entire set inline.
+     *
+     * A variation is opt-in, so its exposure is only the blocks that carry its
+     * class. Core prints it as `:root :where(<block selector>.is-style-slug)`
+     * (0-1-0) after the block type's own style, so it wins over:
+     *
+     * - top-level element styles, which core prints bare (`h2{…}`,
+     *   `h1, h2, h3, h4, h5, h6{…}`, 0-0-1): only block-scoped element
+     *   styles (`styles.blocks.<x>.elements.h2`, 0-1-0, printed in another
+     *   block's node) compete with a heading variation;
+     * - root layout margins (`:root :where(.is-layout-flow) > *`), printed
+     *   before every block node. Root `> :first-child` rules are 0-2-0, so
+     *   margins move only when the theme suppresses the root block gap
+     *   (`styles.spacing.blockGap: false`), and only where `layoutAllows()`
+     *   proves no per-container gap rule or alignment reaches the block.
+     *
+     * Delivered rules are compared per longhand: a rule that reaches the block
+     * and sets one of the moved longhands to another value blocks the set,
+     * whatever its specificity.
+     *
+     * @param array<string,mixed> $theme
      */
-    private static function hoistVariations(array $documents, array $assets, array $anchors): array
+    private static function hoistVariations(array $documents, array $assets, array $anchors, array $theme): array
     {
         $groups = array();
         $rules = self::classRules($assets, false);
+        foreach ($rules as $index => $rule) $rules[$index]['longhands'] = self::longhands($rule['property'], $rule['value']);
+        $margins = false === ($theme['styles']['spacing']['blockGap'] ?? null);
+        $headingCompetitors = self::headingCompetitors($theme);
         foreach ($documents as $key => $document) {
             if (!$document['strippable']) continue;
             $protected = self::protectedRanges($document['markup'], $anchors);
             foreach (self::blocks($document['markup']) as $block) {
-                // Heading element styles can outrank a variation's 0-1-0;
-                // do not remove their inline typography without that proof.
-                if (!in_array($block['name'], array('core/paragraph', 'core/details', 'core/group', 'core/list', 'core/list-item'), true)) continue;
+                $root = self::VARIATION_ROOTS[$block['name']] ?? null;
                 $attrs = $block['attributes'];
-                if (!$attrs instanceof \stdClass || null === $block['tag'] || BlockAttributes::encode($attrs) !== $block['json']) continue;
+                if (null === $root || !$attrs instanceof \stdClass || null === $block['tag'] || !self::variationReaches($block, $root)) continue;
+                if (BlockAttributes::encode($attrs) !== $block['json']) continue;
                 if (isset($attrs->align) || isset($attrs->metadata->blocksEngineRuntimeAttributes) || str_contains((string) ($attrs->className ?? ''), 'is-style-')) continue;
                 $blocked = false;
                 foreach ($protected as [$start, $end]) if ($block['offset'] >= $start && $block['offset'] < $end) $blocked = true;
                 if ($blocked) continue;
-                $style = json_decode(json_encode($attrs->style ?? new \stdClass(), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
                 // Preset attributes stay on the block: they serialize as `has-*`
                 // classes, not inline declarations a variation could replace.
-                if (array() === $style) continue;
-                // Margin-only sets retain the original site-wide exposure
-                // proof, including raw and dynamic selector members.
-                if (array('spacing') === array_keys($style) && array('margin') === array_keys($style['spacing'])) continue;
-                $declarations = self::styleDeclarations($style);
-                if (null === $declarations || array() === $declarations) continue;
+                $style = json_decode(json_encode($attrs->style ?? new \stdClass(), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+                [$moved, $kept] = self::partition($style);
+                if (array() === $moved) continue;
+                if (isset($root['families']) && array() !== array_diff_key($moved, $root['families'])) continue;
+                foreach ($root['families'] ?? array() as $family => $keys) if (array() !== array_diff_key($moved[$family] ?? array(), array_flip($keys))) $blocked = true;
+                $declarations = self::styleDeclarations($moved);
+                if ($blocked || null === $declarations || array() === $declarations) continue;
+                $classes = self::classes($block['tag']['html']);
                 $inline = CssRuleAnalyzer::declarationList(HtmlTagScanner::attribute($block['tag']['html'], 'style'));
+                $longhands = array();
                 foreach ($declarations as $property => $value) {
                     $matches = array_values(array_filter($inline, static fn(array $d): bool => $d['name'] === $property));
-                    // Presets may serialize as a utility class, whose removal is
-                    // deliberately not inferred here.
                     if (array(array('name' => $property, 'value' => $value)) !== $matches) $blocked = true;
-                    if (str_starts_with($property, 'margin-') && !self::strippable($block, substr($property, 7), $rules, $protected)) $blocked = true;
-                    foreach ($rules as $rule) {
-                        if (!self::competes($property, $rule['property'])) continue;
-                        if (self::sameValue($rule['value'], $value)) continue;
-                        $shorthand = $rule['property'];
-                        if (in_array($shorthand, array('border-top', 'border-right', 'border-bottom', 'border-left'), true)) {
-                            $expanded = implode(' ', array_map(static fn(string $part): string => $declarations[$shorthand . '-' . $part] ?? '', array('width', 'style', 'color')));
-                            if ($expanded === $rule['value']) continue;
-                        }
+                    if (str_starts_with($property, 'margin-') && (!$margins || !self::layoutAllows($block, substr($property, 7)))) $blocked = true;
+                    // `:root :where(p.has-background)` and
+                    // `h2:where(.wp-block-heading).has-background` set padding.
+                    if (str_starts_with($property, 'padding-') && in_array('has-background', $classes, true)) $blocked = true;
+                    // Core scopes list borders to non-nested lists.
+                    if (str_starts_with($property, 'border-') && in_array($block['name'], array('core/list', 'core/list-item'), true) && $block['list_depth'] > ('core/list' === $block['name'] ? 0 : 1)) $blocked = true;
+                    if ('core/heading' === $block['name'] && isset($headingCompetitors[$property])) $blocked = true;
+                    $longhands += self::longhands($property, $value) ?? array($property => $value);
+                }
+                foreach ($rules as $rule) {
+                    if ($blocked) break;
+                    if (null === $rule['longhands']) {
+                        $competing = array_filter(array_keys($declarations), static fn(string $property): bool => self::competes($property, $rule['property']));
+                        if (array() !== $competing && self::ruleReaches($block, $rule)) $blocked = true;
+                        continue;
+                    }
+                    foreach ($rule['longhands'] as $longhand => $value) {
+                        if (!isset($longhands[$longhand]) || self::sameCss($value, $longhands[$longhand])) continue;
                         if (self::ruleReaches($block, $rule)) $blocked = true;
+                        break;
                     }
                 }
                 if ($blocked) continue;
-                self::sortStyle($style);
-                $signature = $block['name'] . ':' . json_encode($style, JSON_THROW_ON_ERROR);
-                $groups[$signature]['style'] = $style;
+                self::sortStyle($moved);
+                $signature = $block['name'] . ':' . json_encode($moved, JSON_THROW_ON_ERROR);
+                $groups[$signature]['style'] = $moved;
                 $groups[$signature]['declarations'] = $declarations;
-                $groups[$signature]['blocks'][] = $block + array('document' => $key);
+                $groups[$signature]['blocks'][] = $block + array('document' => $key, 'kept' => $kept);
             }
         }
         $theme = array();
@@ -232,14 +283,75 @@ final class RepeatedBlockStyles
         return array('markup' => $markup, 'blocks' => $theme);
     }
 
+    /** Whether the variation selector (`<block selector>.is-style-x`) reaches the block's root tag. */
+    private static function variationReaches(array $block, array $root): bool
+    {
+        if (isset($root['tag']) && $root['tag'] !== $block['tag']['name']) return false;
+        if (isset($root['class']) && !in_array($root['class'], self::classes($block['tag']['html']), true)) return false;
+        if (!isset($root['parent_class'])) return true;
+        $parent = isset($block['element']) ? $block['element']->parentNode : null;
+        return $parent instanceof \DOMElement && in_array($root['parent_class'], preg_split('/\s+/', trim($parent->getAttribute('class')), -1, PREG_SPLIT_NO_EMPTY) ?: array(), true);
+    }
+
+    /**
+     * Splits a block style into the values a variation can carry and the ones
+     * that stay on the block. Text, background and top-level border colours
+     * add `has-text-color`, `has-background` and `has-border-color` to the
+     * saved markup, which the block would no longer reproduce without them.
+     *
+     * @return array{0:array<string,mixed>,1:array<string,mixed>}
+     */
+    private static function partition(array $style): array
+    {
+        $kept = array();
+        if (isset($style['color'])) {
+            $kept['color'] = $style['color'];
+            unset($style['color']);
+        }
+        if (isset($style['border']['color'])) {
+            $kept['border']['color'] = $style['border']['color'];
+            unset($style['border']['color']);
+            if (array() === $style['border']) unset($style['border']);
+        }
+        return array($style, $kept);
+    }
+
+    /**
+     * CSS properties block-scoped heading element styles set. Core prints
+     * those as `:root :where(.wp-block-x h2)` (0-1-0) in another block's node,
+     * which may follow `core/heading`'s variations; top-level element styles
+     * print bare (`h2`, 0-0-1) and always lose to a variation.
+     *
+     * @return array<string,true>
+     */
+    private static function headingCompetitors(array $theme): array
+    {
+        $properties = array();
+        foreach ($theme['styles']['blocks'] ?? array() as $styles) {
+            foreach (array('heading', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $element) {
+                $style = $styles['elements'][$element] ?? null;
+                if (!is_array($style)) continue;
+                unset($style[':hover'], $style[':focus'], $style[':active'], $style[':visited'], $style[':focus-visible']);
+                $declarations = self::styleDeclarations($style);
+                // Unknown element styles compete for every property.
+                if (null === $declarations) return array_fill_keys(array_values(self::styleMap()), true) + array('margin-top' => true, 'margin-bottom' => true, 'margin-left' => true, 'margin-right' => true);
+                foreach (array_keys($declarations) as $property) {
+                    foreach (array_keys(self::longhands($property, 'initial') ?? array($property => true)) as $longhand) $properties[$longhand] = true;
+                    $properties[$property] = true;
+                }
+            }
+        }
+        return $properties;
+    }
+
     private static function sortStyle(array &$style): void
     {
         ksort($style);
         foreach ($style as &$value) if (is_array($value)) self::sortStyle($value);
     }
 
-    /** @return array<string,string>|null */
-    private static function styleDeclarations(array $style, string $prefix = ''): ?array
+    /** @return array<string,string> theme.json style paths and the declarations core serializes inline. */
+    private static function styleMap(): array
     {
         $map = array(
             'typography.fontWeight' => 'font-weight', 'typography.fontStyle' => 'font-style',
@@ -253,6 +365,13 @@ final class RepeatedBlockStyles
             foreach (array('margin', 'padding') as $box) $map['spacing.' . $box . '.' . $side] = $box . '-' . $side;
             foreach (array('color', 'style', 'width') as $part) $map['border.' . $side . '.' . $part] = 'border-' . $side . '-' . $part;
         }
+        return $map;
+    }
+
+    /** @return array<string,string>|null */
+    private static function styleDeclarations(array $style, string $prefix = ''): ?array
+    {
+        $map = self::styleMap();
         $result = array();
         foreach ($style as $key => $value) {
             $path = $prefix . $key;
@@ -268,6 +387,7 @@ final class RepeatedBlockStyles
         return $result;
     }
 
+    /** Conservative overlap for declarations `longhands()` cannot expand. */
     private static function competes(string $property, string $other): bool
     {
         if (in_array($other, array('all', 'font', 'background', 'border', 'margin', 'padding'), true)) return 'all' === $other || str_starts_with($property, $other) || ('font' === $other && in_array($property, array('line-height', 'letter-spacing'), true));
@@ -277,10 +397,89 @@ final class RepeatedBlockStyles
         return str_starts_with($property, 'padding-') && str_starts_with($other, 'padding-');
     }
 
+    /**
+     * The physical longhands a declaration sets (horizontal, left-to-right
+     * writing), or null when its value cannot be expanded with certainty.
+     *
+     * @return array<string,string>|null
+     */
+    private static function longhands(string $property, string $value): ?array
+    {
+        $property = strtolower($property);
+        $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));
+        $sides = array('top', 'right', 'bottom', 'left');
+        if (in_array($property, array('all', 'font', 'background', 'border-image', 'border-block', 'border-inline'), true) || str_starts_with($property, 'border-block-') || str_starts_with($property, 'border-inline-') || str_contains($property, 'radius') && 'border-radius' !== $property) return null;
+        $logical = array('margin-block-start' => 'margin-top', 'margin-block-end' => 'margin-bottom', 'margin-inline-start' => 'margin-left', 'margin-inline-end' => 'margin-right', 'padding-block-start' => 'padding-top', 'padding-block-end' => 'padding-bottom', 'padding-inline-start' => 'padding-left', 'padding-inline-end' => 'padding-right');
+        if (isset($logical[$property])) return array($logical[$property] => $value);
+        $tokens = self::tokens($value);
+        if (in_array($property, array('margin', 'padding', 'border-width', 'border-style', 'border-color'), true)) {
+            if (array() === $tokens || count($tokens) > 4) return null;
+            $box = array($tokens[0], $tokens[1] ?? $tokens[0], $tokens[2] ?? $tokens[0], $tokens[3] ?? $tokens[1] ?? $tokens[0]);
+            $result = array();
+            foreach ($sides as $index => $side) $result[str_starts_with($property, 'border-') ? 'border-' . $side . substr($property, 6) : $property . '-' . $side] = $box[$index];
+            return $result;
+        }
+        foreach (array('margin', 'padding') as $box) {
+            if (in_array($property, array($box . '-block', $box . '-inline'), true)) {
+                if (array() === $tokens || count($tokens) > 2) return null;
+                [$first, $second] = str_ends_with($property, '-block') ? array('top', 'bottom') : array('left', 'right');
+                return array($box . '-' . $first => $tokens[0], $box . '-' . $second => $tokens[1] ?? $tokens[0]);
+            }
+        }
+        $edge = 'border' === $property ? $sides : (1 === preg_match('/^border-(top|right|bottom|left)$/', $property, $match) ? array($match[1]) : null);
+        if (null === $edge) return array($property => $value);
+        $parts = array('width' => 'medium', 'style' => 'none', 'color' => 'currentcolor');
+        $seen = array();
+        foreach ($tokens as $token) {
+            $lower = strtolower($token);
+            $part = in_array($lower, array('none', 'hidden', 'dotted', 'dashed', 'solid', 'double', 'groove', 'ridge', 'inset', 'outset'), true) ? 'style'
+                : (1 === preg_match('/^(?:thin|medium|thick|0|[0-9]*\.?[0-9]+[a-z]+)$/', $lower) ? 'width'
+                : (1 === preg_match('/^(?:#[0-9a-f]{3,8}|[a-z]+|(?:rgb|rgba|hsl|hsla)\([^()]*\))$/', $lower) ? 'color' : null));
+            if (null === $part || isset($seen[$part]) || in_array($lower, array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return null;
+            $seen[$part] = true;
+            $parts[$part] = $token;
+        }
+        $result = array();
+        foreach ($edge as $side) foreach ($parts as $part => $token) $result['border-' . $side . '-' . $part] = $token;
+        return $result;
+    }
+
+    /** @return list<string> Whitespace-separated tokens outside parentheses. */
+    private static function tokens(string $value): array
+    {
+        $tokens = array();
+        $depth = 0;
+        $current = '';
+        foreach (str_split($value) as $character) {
+            if ('(' === $character) ++$depth;
+            if (')' === $character) --$depth;
+            if (0 === $depth && ctype_space($character)) {
+                if ('' !== $current) $tokens[] = $current;
+                $current = '';
+                continue;
+            }
+            $current .= $character;
+        }
+        if ('' !== $current) $tokens[] = $current;
+        return $tokens;
+    }
+
+    /** Equal computed values: zero lengths, case and whitespace inside functions are normalized. */
+    private static function sameCss(string $a, string $b): bool
+    {
+        $normalize = static function (string $value): string {
+            $value = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $value)));
+            $value = (string) preg_replace('/\s*([(),])\s*/', '$1', $value);
+            return 1 === preg_match('/^0(?:\.0+)?(?:px|em|rem|%)?$/', $value) ? '0' : $value;
+        };
+        return $normalize($a) === $normalize($b);
+    }
+
     private static function withVariation(string $markup, array $block, string $slug, array $declarations): string
     {
         $attrs = $block['attributes'];
-        unset($attrs->style, $attrs->fontSize, $attrs->fontFamily, $attrs->textColor, $attrs->backgroundColor);
+        unset($attrs->style);
+        if (array() !== $block['kept']) $attrs->style = json_decode(json_encode($block['kept'], JSON_THROW_ON_ERROR), false, 512, JSON_THROW_ON_ERROR);
         $class = 'is-style-' . $slug;
         $attrs->className = trim(($attrs->className ?? '') . ' ' . $class);
         $html = $block['tag']['html'];
@@ -329,6 +528,7 @@ final class RepeatedBlockStyles
                 'member' => null !== $tag && self::isMember($name, $tag),
                 'margin' => $margin,
                 'parent_gap' => null === $parent ? null : ($parent['attributes']->style->spacing->blockGap ?? null),
+                'list_depth' => count(array_filter($stack, static fn(int $index): bool => 'core/list' === $blocks[$index]['name'])),
             );
             if (!$selfClosing) $stack[] = count($blocks) - 1;
         }
@@ -411,9 +611,8 @@ final class RepeatedBlockStyles
     {
         $attributes = $block['attributes'];
         if (!$attributes instanceof \stdClass || null === $block['tag'] || !$block['member']) return false;
-        if (null !== $block['parent_gap'] && (!in_array($side, array('top', 'bottom'), true) || !is_string($block['parent_gap']) || !self::sameValue($block['parent_gap'], '0px') || !self::sameValue($block['margin'][$side], '0px'))) return false;
+        if (!self::layoutAllows($block, $side)) return false;
         if (BlockAttributes::encode($attributes) !== $block['json']) return false;
-        if (isset($attributes->align) && (!in_array($side, array('top', 'bottom'), true) || !in_array($attributes->align, array('center', 'wide', 'full'), true))) return false;
         if (isset($attributes->metadata->blocksEngineRuntimeAttributes)) return false;
         foreach ($protected as [$start, $end]) if ($block['offset'] >= $start && $block['offset'] < $end) return false;
         foreach ($classRules as $rule) {
@@ -425,6 +624,20 @@ final class RepeatedBlockStyles
         $expected = self::declaration($side, $block['margin'][$side]);
         $matching = array_filter($declarations, static fn(array $declaration): bool => in_array($declaration['name'], self::SIDE_PROPERTIES[$side], true));
         return array(array('name' => $expected[0], 'value' => $expected[1])) === array_values($matching);
+    }
+
+    /**
+     * Whether no layout rule outranks a 0-1-0 style for the block's margin
+     * side: its parent has no block gap (core prints the per-container gap rule
+     * after global styles) unless both are zero, and alignment does not float
+     * the box or set its inline margins.
+     */
+    private static function layoutAllows(array $block, string $side): bool
+    {
+        $attributes = $block['attributes'];
+        $value = $block['margin'][$side] ?? null;
+        if (null !== $block['parent_gap'] && (!in_array($side, array('top', 'bottom'), true) || !is_string($block['parent_gap']) || !is_string($value) || !self::sameValue($block['parent_gap'], '0px') || !self::sameValue($value, '0px'))) return false;
+        return !(isset($attributes->align) && (!in_array($side, array('top', 'bottom'), true) || !in_array($attributes->align, array('center', 'wide', 'full'), true)));
     }
 
     /** @return array{0:string,1:string} The inline declaration core serializes for a margin side. */
@@ -468,6 +681,9 @@ final class RepeatedBlockStyles
 
     private static function ruleReaches(array $block, array $rule): bool
     {
+        // A pseudo-element box inherits the element's computed values, which
+        // moving a declaration from inline to a variation does not change.
+        if (1 === preg_match('/::?(?:before|after|marker|placeholder|selection|backdrop|first-line|first-letter|file-selector-button)\s*$/i', (string) ($rule['selector'] ?? ''))) return false;
         if (!isset($block['element'])) return true;
         $match = CssSelectorMatcher::matches($block['element'], $rule['parsed']);
         return !$match['supported'] || $match['matches'];
