@@ -182,6 +182,8 @@ final class BoxTreeClassifier
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
+            // Neutral removal transfers neither declarations nor a containing
+            // block. Even an unpainted pseudo must use the guarded fold path.
             if (!empty($observation['pseudo']) || self::paints($s)) return 'paints';
         }
         if (self::clips($node, $tree)) return 'clips';
@@ -488,7 +490,7 @@ final class BoxTreeClassifier
      * A clip is redundant when that child repeats it without exterior paint,
      * or moves to a non-clipping child that preserves descendant clipping.
      *
-     * Never folded: pseudo-elements, non-identity transforms, filters, opacity, blending,
+     * Never folded: load-bearing pseudo-elements, non-identity transforms, filters, opacity, blending,
      * isolation, unmatched z-index, other non-flow boxes, and every
      * criterion {@see self::behavior()} reports.
      *
@@ -525,7 +527,7 @@ final class BoxTreeClassifier
             $c = $child['viewports'][$viewport]['used_styles'] ?? null;
             $p = $parent['viewports'][$viewport]['used_styles'] ?? null;
             if (!is_array($c) || !is_array($p)) return 'missing-observation';
-            if (!empty($observation['pseudo'])) return 'pseudo-element';
+            if (self::hasLoadBearingPseudo($observation)) return 'pseudo-element';
             $fill = 'absolute' === $b['position'];
             if (null !== $absolute && $absolute !== $fill) return 'inconsistent-position';
             $absolute = $fill;
@@ -568,6 +570,7 @@ final class BoxTreeClassifier
                     || ($b['border-radius'] !== $c['border-radius'] && !$roundedClip)) return 'child-clip-conflict';
                 $transferClip = $transferClip || $b[$overflow] !== $c[$overflow];
                 if ($roundedClip) $moves['border-radius'] = 'border-radius';
+                if ($transferClip) $moves[$overflow] = $overflow;
                 $clipped = true;
             }
             if ($transferClip) {
@@ -735,6 +738,35 @@ final class BoxTreeClassifier
         if (array() === $rules) return 'no-fold-rules';
         $moves += $inheritedMoves;
         return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);
+    }
+
+    /** Empty, unpainted absolute fills add neither ink nor flow geometry. */
+    private static function hasLoadBearingPseudo(array $observation): bool
+    {
+        foreach ($observation['pseudo'] ?? array() as $pseudo) {
+            if (!in_array(trim((string) ($pseudo['content'] ?? '')), array('""', '" "', "''", "' '"), true)) return true;
+            $s = $pseudo['used_styles'] ?? array();
+            if ('absolute' !== ($s['position'] ?? null) || self::boxPaints($s)) return true;
+            $box = $pseudo['border_box'] ?? array();
+            foreach (array('x', 'y', 'width', 'height') as $dimension) {
+                if (!isset($box[$dimension], $observation['border_box'][$dimension])
+                    || abs($box[$dimension] - $observation['border_box'][$dimension]) > 0.01) return true;
+            }
+            // The overlay must not add a distinct hit-test or cursor boundary.
+            foreach (array('pointer-events', 'cursor') as $property) {
+                if (!isset($s[$property], $observation['used_styles'][$property])
+                    || $s[$property] !== $observation['used_styles'][$property]) return true;
+            }
+            foreach (self::NEVER_FOLD as $property => $inert) {
+                if (!isset($s[$property]) || !in_array($s[$property], $inert, true)) return true;
+            }
+            if ('none' !== ($s['animation-name'] ?? null) || preg_match('/[1-9]/', $s['transition-duration'] ?? '1s')) return true;
+            foreach (array('top', 'right', 'bottom', 'left') as $side) {
+                if ('0px' !== ($s[$side] ?? null) || '0px' !== ($s['margin-' . $side] ?? null)
+                    || '0px' !== ($s['padding-' . $side] ?? null) || 0.0 !== self::borderWidth($s['border-' . $side] ?? '')) return true;
+            }
+        }
+        return false;
     }
 
     /** A used track list that occupies space: any track resolves to a positive length. */

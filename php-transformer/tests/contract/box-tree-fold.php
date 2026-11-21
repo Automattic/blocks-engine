@@ -115,6 +115,11 @@ foreach (array(
     array('box' => array('border-radius' => '4.5px', 'border-top' => '1px solid rgb(0, 0, 0)')),
     array('box' => array('top' => '1px')),
     array('child' => array('overflow-x' => 'visible'), 'allow' => true, 'expect' => array('overflow-x' => 'clip')),
+    // Square clips, like rounded clips, move to an equal borderless child.
+    array('child' => array('overflow-x' => 'visible', 'overflow-y' => 'visible'), 'allow' => true,
+        'expect' => array('overflow-x' => 'clip', 'overflow-y' => 'clip')),
+    array('box' => array('overflow-x' => 'hidden'), 'child' => array('overflow-x' => 'visible'), 'allow' => true,
+        'expect' => array('overflow-x' => 'hidden')),
     array('child' => array('box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px')),
     array('box' => array('z-index' => '1')),
     array('child' => array('outline' => '1px solid rgb(0, 0, 0)')),
@@ -159,6 +164,26 @@ foreach (array(
     );
 }
 
+// Neutral removal cannot discharge a pseudo boundary: it has no
+// declaration or containing-block transfer, unlike a geometry-proven fold.
+$cases[] = array('rule' => 'containing-block', 'box' => array(), 'pseudo' => array(), 'refuse' => true);
+
+// An empty, unpainted absolute overlay may accompany a proven fold.
+// Changing its ink, extent or hit testing must still refuse the fold.
+foreach (array(
+    array(),
+    array('styles' => array('background-color' => 'rgb(255, 0, 0)'), 'refuse' => true),
+    array('styles' => array('pointer-events' => 'none'), 'refuse' => true),
+    array('width' => 401, 'refuse' => true),
+    array('x' => 1, 'refuse' => true),
+    array('y' => 1, 'refuse' => true),
+    array('content' => '"visible"', 'refuse' => true),
+) as $pseudo) {
+    $cases[] = array('rule' => 'containing-block', 'box' => array('position' => 'relative'),
+        'badge' => array('position' => 'absolute', 'top' => '0px', 'right' => '0px'),
+        'pseudo' => $pseudo, 'refuse' => $pseudo['refuse'] ?? false, 'expect' => array('position' => 'relative'));
+}
+
 $assert = static function (bool $ok, string $message): void {
     if (!$ok) throw new RuntimeException($message);
     echo "PASS: $message\n";
@@ -190,6 +215,18 @@ foreach ($cases as $case) {
                 'badge' => $case['badge_box'] ?? array('x' => 380, 'y' => 0, 'width' => 20, 'height' => 20),
                 default => $box,
             };
+            if ('box' === $id && isset($case['pseudo'])) {
+                $pseudo = $case['pseudo'];
+                $observation['pseudo']['before'] = array(
+                    'content' => $pseudo['content'] ?? '" "',
+                    'border_box' => array_replace($box, array('width' => $pseudo['width'] ?? $box['width'],
+                        'x' => $pseudo['x'] ?? $box['x'], 'y' => $pseudo['y'] ?? $box['y'])),
+                    'used_styles' => array_replace($observation['used_styles'], $absoluteChild,
+                        array('pointer-events' => 'auto', 'cursor' => 'auto', 'animation-name' => 'none', 'transition-duration' => '0s'), $pseudo['styles'] ?? array()),
+                );
+                $observation['used_styles']['pointer-events'] = 'auto';
+                $observation['used_styles']['cursor'] = 'auto';
+            }
             $node['viewports'][$viewport] = $observation;
         }
         $tree['nodes'][$id] = $node;
