@@ -1730,8 +1730,16 @@ final class AuthorStylesheetProjector
     {
         $projected = $this->selectors->projectControlSelector($selector, $parsed, $marker, $context);
         // Generated button style variations can carry later important declarations.
-        // Keep the source-owned control selector specific to its exact target.
-        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ').' . $marker . '.' . $marker, $projected);
+        // Keep the source-owned control selector specific to its exact target:
+        // two class weights on the marker's carrier. Every carrier of a control
+        // marker also carries the control role class (EngineMarker::ROLE_KINDS),
+        // so the role class repeats for that weight, as in
+        // nativeButtonControlTarget(). The arm then differs from the other
+        // carriers' arms only inside `:where()`, so the site-wide sheet folds
+        // them into one marker list instead of one arm per carrier.
+        $role = EngineMarker::roleClass($marker);
+        $weight = '' !== $role ? '.' . $role . '.' . $role : '.' . $marker . '.' . $marker;
+        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ')' . $weight, $projected);
     }
 
     /**
