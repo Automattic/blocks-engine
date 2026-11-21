@@ -161,6 +161,7 @@ final class CapturedComponentStates
                 if (is_array($state) && is_array($state['evidence'] ?? null)) {
                     // Inventory kind is declared evidence, not a guess from the panel's paint.
                     $probe = $state['evidence'];
+                    $probe['component_kind'] = $component['kind'];
                     if (in_array($component['kind'], array('dialog', 'listbox', 'carousel'), true)) {
                         $probe['kind'] = 'carousel' === $component['kind'] && 'gallery' === ($probe['kind'] ?? null) ? 'gallery' : $component['kind'];
                     }
