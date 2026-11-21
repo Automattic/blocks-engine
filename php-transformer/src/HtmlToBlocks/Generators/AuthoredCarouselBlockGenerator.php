@@ -1551,7 +1551,8 @@ JS;
         $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        $namedSlideshow = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity);
+        $presentation = 'track';
         if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
             $visible = 0;
             $hidden = 0;
@@ -1608,7 +1609,12 @@ JS;
         $exposedTogether = count(array_filter($items, static fn (DOMElement $item): bool => 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))));
         $visibleCount = 1 < $exposedTogether && count($exposed) === $exposedTogether && $exposedTogether < count($items) ? $exposedTogether : 0;
         if ( 0 === $visibleCount && count($exposed) < count($items) ) {
-            $visibleCount = $this->translatedTrackWindowCount($element, $list, array_values($exposed));
+            $visibleCount = $this->translatedTrackWindowCount($element, $list, array_values($exposed), count($items));
+        }
+        // A slideshow name (a `__slideshow-holder` wrapper around a track) is
+        // only a hint; a measured multi-up track window outweighs it.
+        if ( $namedSlideshow && 0 === $visibleCount ) {
+            $presentation = 'slideshow';
         }
         foreach ( $items as $index => $item ) {
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && 0 === $visibleCount && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
@@ -1634,10 +1640,15 @@ JS;
      * leading buffer (slides at negative offsets) is mirrored by the same
      * number of trailing buffer slides past the window's end.
      *
+     * A rotating track parks recycled slides at a far sentinel offset (well
+     * beyond every slide's pitch from the window origin). A parked slide that
+     * is still exposed is not part of the measured window; it stands in for
+     * the trailing buffer slide it is being recycled into.
+     *
      * @param list<DOMElement> $exposed
      * @return int The visible slide count, or 0 when the geometry is not a regular track window.
      */
-    private function translatedTrackWindowCount(DOMElement $element, DOMElement $list, array $exposed): int
+    private function translatedTrackWindowCount(DOMElement $element, DOMElement $list, array $exposed, int $slideCount): int
     {
         if ( count($exposed) < 2 ) {
             return 0;
@@ -1651,8 +1662,21 @@ JS;
             $offsets[] = (float) $match[1];
         }
         sort($offsets);
-        $pitch = $offsets[1] - $offsets[0];
+        $pitch = 0.0;
+        foreach ( $offsets as $index => $offset ) {
+            $gap = $index > 0 ? $offset - $offsets[$index - 1] : 0.0;
+            if ( $gap >= 1.0 && (0.0 === $pitch || $gap < $pitch) ) {
+                $pitch = $gap;
+            }
+        }
         if ( $pitch < 1.0 ) {
+            return 0;
+        }
+        $reach = max($slideCount, count($offsets)) * $pitch;
+        $placed = array_values(array_filter($offsets, static fn (float $offset): bool => abs($offset) <= $reach));
+        $parked = count($offsets) - count($placed);
+        $offsets = $placed;
+        if ( count($offsets) < 2 ) {
             return 0;
         }
         $hasOrigin = false;
@@ -1678,7 +1702,7 @@ JS;
         $leading = count(array_filter($offsets, static fn (float $offset): bool => $offset < 0.0));
         $inView = $holderWidth > 0.0
             ? count(array_filter($offsets, static fn (float $offset): bool => $offset >= 0.0 && $offset < $holderWidth))
-            : count($offsets) - 2 * $leading;
+            : count($offsets) + $parked - 2 * $leading;
 
         return $inView >= 2 ? $inView : 0;
     }
