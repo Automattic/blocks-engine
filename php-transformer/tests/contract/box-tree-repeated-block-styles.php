@@ -165,9 +165,20 @@ $assert(str_contains($index, 'margin-top:1em;margin-bottom:1em'), 'The live inde
 $selectors = array('core/paragraph' => 'p', 'core/heading' => '.wp-block-heading', 'core/list-item' => '.wp-block-list > li', 'core/image' => '.wp-block-image', 'core/group' => '.wp-block-group', 'core/details' => '.wp-block-details');
 $globalStyles = ':root :where(.is-layout-flow) > *,:root :where(.is-layout-constrained) > *{margin-block-start:24px;margin-block-end:0}'
     . ':root :where(.is-layout-flow) > :first-child,:root :where(.is-layout-constrained) > :first-child{margin-block-start:0}';
+// Repeated looks print as block style variations after their block type's style.
+$declarations = static function (array $style, string $prefix = '') use (&$declarations): array {
+    $names = array('fontWeight' => 'font-weight', 'letterSpacing' => 'letter-spacing', 'textTransform' => 'text-transform', 'fontStyle' => 'font-style', 'lineHeight' => 'line-height', 'fontSize' => 'font-size', 'fontFamily' => 'font-family');
+    $out = array();
+    foreach ($style as $key => $value) {
+        if (is_array($value)) $out = array_merge($out, $declarations($value, in_array($key, array('typography', 'spacing'), true) ? '' : $prefix . $key . '-'));
+        else $out[] = ($names[$key] ?? $prefix . $key) . ':' . preg_replace('/var:preset\|([^|]+)\|([^|]+)/', 'var(--wp--preset--$1--$2)', $value);
+    }
+    return $out;
+};
 foreach ($blockStyles as $type => $style) {
-    if (!isset($selectors[$type]) || !is_array($style['spacing']['margin'] ?? null)) continue;
-    $globalStyles .= ':root :where(' . $selectors[$type] . '){' . implode(';', array_map(static fn(string $side, string $value): string => "margin-$side:$value", array_keys($style['spacing']['margin']), $style['spacing']['margin'])) . '}';
+    if (!isset($selectors[$type])) continue;
+    if (is_array($style['spacing']['margin'] ?? null)) $globalStyles .= ':root :where(' . $selectors[$type] . '){' . implode(';', array_map(static fn(string $side, string $value): string => "margin-$side:$value", array_keys($style['spacing']['margin']), $style['spacing']['margin'])) . '}';
+    foreach ($style['variations'] ?? array() as $slug => $look) $globalStyles .= ':root :where(' . $selectors[$type] . '.is-style-' . $slug . '){' . implode(';', $declarations($look)) . '}';
 }
 $css = '';
 $assets = array_column($plan['assets'], null, 'target_path');

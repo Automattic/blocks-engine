@@ -732,7 +732,7 @@ final class SitePlanRun
             if ('search_block_markup' === $key && is_string($value)) $anchors[$value] = $value;
         });
         $surfaces = array_values(array_filter(array_column($this->surfaces, 'block_markup'), 'is_string'));
-        $hoisted = RepeatedBlockStyles::hoist($documents, $surfaces, $assets, array_values($anchors));
+        $hoisted = RepeatedBlockStyles::hoist($documents, $surfaces, $assets, array_values($anchors), $theme);
         if (array() === $hoisted['blocks']) return array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'theme' => $theme);
         $sets = array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts);
         foreach ($hoisted['markup'] as $key => $markup) {
