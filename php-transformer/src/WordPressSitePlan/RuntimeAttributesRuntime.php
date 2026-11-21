@@ -14,6 +14,18 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class RuntimeAttributesRuntime
 {
+    /**
+     * The engine-prefix tests and the composed subject class this runtime
+     * emits, and their form in a bootstrap whose classes ClassPublisher
+     * published: a class is read back to its engine name before a prefix is
+     * tested, and a composed engine class is written in its published name.
+     */
+    public const PUBLISHED_CLASS_MATCHERS = array(
+        "str_starts_with( \$class, 'blocks-engine-' )" => "str_starts_with( __PUBLISHED___engine_class( \$class ), 'blocks-engine-' )",
+        "str_starts_with( \$class, 'be-inline-geometry-' )" => "str_starts_with( __PUBLISHED___engine_class( \$class ), 'be-inline-geometry-' )",
+        "'" . EngineMarker::SUBJECT_CLASS_PREFIX . "' . substr( hash( 'sha256', \$token ), 0, 12 )" => "__PUBLISHED___published_class( '" . EngineMarker::SUBJECT_CLASS_PREFIX . "' . substr( hash( 'sha256', \$token ), 0, 12 ) )",
+    );
+
     public static function source(): string
     {
         return str_replace(array('__DEVICE_INLINE__', '__DEVICE_CLASS__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__', '__SUBJECT_BASE__', '__SUBJECT_CLASS_PREFIX__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT, EngineMarker::SUBJECT_BASE_CLASS, EngineMarker::SUBJECT_CLASS_PREFIX), <<<'PHP'

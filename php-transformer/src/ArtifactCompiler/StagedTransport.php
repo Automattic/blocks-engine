@@ -704,7 +704,7 @@ trait StagedTransport
         }
         ksort($pages, SORT_STRING);
         $identity = array();
-        foreach (array('site_slug', 'site_name', 'block_namespace') as $key) if (is_string($artifact[$key] ?? null)) $identity[$key] = $artifact[$key];
+        foreach (array('site_slug', 'site_name', 'block_namespace', 'class_namespace') as $key) if (is_string($artifact[$key] ?? null)) $identity[$key] = $artifact[$key];
         // The source origin resolves captured same-site absolute links; every
         // stage has to know it, just as the whole compilation does.
         if (is_string($artifact['provenance']['source_url'] ?? null)) $identity['provenance'] = array('source_url' => $artifact['provenance']['source_url']);

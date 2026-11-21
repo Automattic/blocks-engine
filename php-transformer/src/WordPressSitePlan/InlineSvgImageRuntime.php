@@ -6,6 +6,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 /** Document-context paint for native, replaceable SVG images. */
 final class InlineSvgImageRuntime
 {
+    /**
+     * The engine-prefix test this runtime emits, and its form in a bootstrap
+     * whose classes ClassPublisher published: the published class is read
+     * back to its engine name before the prefix is tested.
+     */
+    public const PUBLISHED_CLASS_MATCHERS = array(
+        "str_starts_with( \$class, 'be-inline-geometry-' )" => "str_starts_with( __PUBLISHED___engine_class( \$class ), 'be-inline-geometry-' )",
+    );
+
     public static function source(): string
     {
         return <<<'PHP'

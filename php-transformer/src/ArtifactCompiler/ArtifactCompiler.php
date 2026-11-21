@@ -573,6 +573,9 @@ final class ArtifactCompiler
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], ArrayField::array($entryBlocks, 'document_root_markers'), ArrayField::array($entryBlocks, 'design_usage'));
         $compiledSite['source_css_bytes'] = $normalized['source_css_bytes'];
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
+        // The theme's class namespace: the site plan publishes engine classes in it.
+        $classNamespace = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ClassPublisher::namespaceSlug($artifact['class_namespace'] ?? null);
+        if (null !== $classNamespace) $compiledSite['class_namespace'] = $classNamespace;
         $sourceReports['compiled_site'] = $compiledSite;
         $identityFailures = DocumentIdentity::compiledSiteFailures($compiledSite);
         foreach ( DocumentIdentity::diagnostics($identityFailures) as $identityDiagnostic ) {

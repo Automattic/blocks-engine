@@ -1693,6 +1693,20 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/ClassPublisher.php": {
+      "InvalidArgumentException('A delivered stylesheet or script is not readable text, so what it names is unknown.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A runtime binding would not survive publishing byte for byte.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Re-anchored runtime declarations no longer fit the plan.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/CompiledAssets.php": {
       "InvalidArgumentException('Compiled site assets must be an array.')": {
         "class": "integrity",
