@@ -47,9 +47,15 @@ shop imports. Rows retain `name`, `slug`, `regular_price` and existing optional
 metadata. Prices are decimal strings. Existing card fields win when JSON-LD
 supplies evidence for the same slug; missing commerce fields are filled in.
 
+Rows and variant rows may optionally carry `currency`, an uppercase ISO 4217
+code matching `/^[A-Z]{3}$/` (for example `PEN`). JSON-LD product and variant
+`offers.priceCurrency` maps to this field. Missing currency stays absent; no
+currency is inferred from price symbols. Malformed values are dropped with a
+`product_currency_invalid` warning diagnostic, leaving the rest of the row intact.
+
 Caller catalogs declared as `entity_collection:products` with schema
 `generic/products/v1` merge with detected products by `slug`. Caller rows own
-`name`, `regular_price`, `sale_price`, `description`, `sku`, `image`, `images`, `tags`,
+`name`, `regular_price`, `sale_price`, `currency`, `description`, `sku`, `image`, `images`, `tags`,
 `variants`, `stock_status`, and `category` when supplied; detection retains
 bindings, compiled detail-page `source_path`/`url`, `whole_page_candidate`,
 controls, and presentation graphs. Detected-only rows remain in the collection;
@@ -89,7 +95,7 @@ Schema.org `Product` and `ProductGroup` evidence can additionally supply:
 - `stock_status`: `instock` for InStock, LimitedAvailability, PreOrder, BackOrder;
   `outofstock` for OutOfStock, SoldOut, Discontinued. Bare names and schema.org
   HTTP/HTTPS URLs are accepted.
-- `variants`: ordered `{sku?, regular_price, sale_price?, stock_status, image?,
+- `variants`: ordered `{sku?, regular_price, sale_price?, currency?, stock_status, image?,
   attributes}` rows from `hasVariant` Products. Unknown variant stock defaults
   to `instock`. Attributes use `{key, label, value, value_label}` with slug keys
   and values. Sources are additionalProperty PropertyValue name/value pairs,
