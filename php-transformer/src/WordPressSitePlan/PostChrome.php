@@ -1385,6 +1385,7 @@ final class PostChrome
         $foundDate = false;
         $foundShared = false;
         $emittedContent = false;
+        $titleAfterContent = false;
         $body = '';
         $retained = array();
         $replacements = array();
@@ -1396,7 +1397,10 @@ final class PostChrome
             && ($dateContext || 'date' === $this->classifyBlock($slice, $post, $route, $postIndex));
         foreach ($children as $child) {
             $transformed = $this->transformRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange, $slots);
-            if ($transformed['content'] && $emittedContent) {
+            // Content after the title cannot join a slot placed before it:
+            // the template would render the title after the whole body. It
+            // places a slot of its own, which the single template rejects.
+            if ($transformed['content'] && $emittedContent && !$titleAfterContent) {
                 // The subtree leaves the template, and with it any title or
                 // date it placed: neither is found. Shared blocks inside it
                 // leave too, so the body keeps the complete subtree.
@@ -1408,6 +1412,7 @@ final class PostChrome
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);
+            $titleAfterContent = $titleAfterContent || ($emittedContent && $transformed['title']);
             $foundTitle = $foundTitle || $transformed['title'];
             $foundDate = $foundDate || $transformed['date'];
             if ($transformed['content']) {
