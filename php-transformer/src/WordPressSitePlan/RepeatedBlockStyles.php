@@ -171,10 +171,8 @@ final class RepeatedBlockStyles
                 foreach ($protected as [$start, $end]) if ($block['offset'] >= $start && $block['offset'] < $end) $blocked = true;
                 if ($blocked) continue;
                 $style = json_decode(json_encode($attrs->style ?? new \stdClass(), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
-                // Preset attributes are represented as theme.json values too.
-                foreach (array('fontSize' => array('typography', 'fontSize', 'font-size'), 'fontFamily' => array('typography', 'fontFamily', 'font-family'), 'textColor' => array('color', 'text', 'color'), 'backgroundColor' => array('color', 'background', 'color')) as $attribute => [$family, $property, $preset]) {
-                    if (isset($attrs->{$attribute})) $style[$family][$property] = 'var:preset|' . $preset . '|' . $attrs->{$attribute};
-                }
+                // Preset attributes stay on the block: they serialize as `has-*`
+                // classes, not inline declarations a variation could replace.
                 if (array() === $style) continue;
                 // Margin-only sets retain the original site-wide exposure
                 // proof, including raw and dynamic selector members.
