@@ -530,7 +530,7 @@ final class RuntimeEntityCollector
                 $this->products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
             }
             // Detail-page descriptive evidence wins; cards fill only absent fields.
-            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations', 'controls', 'presentation_graph') as $field ) if ( isset($row[$field]) ) $this->products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'currency', 'stock_status', 'translations', 'controls', 'presentation_graph') as $field ) if ( isset($row[$field]) ) $this->products[$productSlug][$field] = $row[$field];
             foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($this->products[$productSlug][$field]) && isset($row[$field]) ) $this->products[$productSlug][$field] = $row[$field];
             // A detail price replaces a card's price-on-request label.
             if ( ! isset($this->products[$productSlug]['regular_price']) ) {
