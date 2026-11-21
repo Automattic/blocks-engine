@@ -169,13 +169,15 @@ final class UnreferencedEngineClasses
         $references = self::references($plan['assets'] ?? array(), $emitted, $plan['runtime_declarations'] ?? array(), $plan['runtime_records'] ?? array(), $plan['runtime_entity_records'] ?? array(), $plan['theme'] ?? array(), $plan['visual_repair'] ?? array(), array_column($plan['pages'] ?? array(), 'document_metadata'));
         $markups = self::markups(self::units($plan));
         $dropped = self::unreferenced($markups, $references);
+        // Publishing changes names, not the provenance of the class tokens.
+        $published = array_fill_keys(array_values($plan[ClassPublisher::MAP_KEY] ?? array()), true);
         $tokens = 0;
         $engine = 0;
         $unreferenced = 0;
         foreach ($markups as $markup) {
             foreach (self::classLists($markup) as $list) foreach (self::tokens($list['value']) as $token) {
                 ++$tokens;
-                if (1 === preg_match(self::ENGINE_CLASS, $token)) ++$engine;
+                if (isset($published[$token]) || 1 === preg_match(self::ENGINE_CLASS, $token)) ++$engine;
                 if (isset($dropped[$token])) ++$unreferenced;
             }
         }

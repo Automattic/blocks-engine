@@ -206,9 +206,9 @@ final class ClassPublisher
         $plan = self::withIntegrity($plan);
         $runtimeRecords = $plan['runtime_records'] ?? array();
         $plan['pages'] = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['runtime_entity_records']);
-        $plan['quality']['metrics'] = array_merge($plan['quality']['metrics'], UnreferencedEngineClasses::metrics($plan));
         ksort($map, SORT_STRING);
         $plan[self::MAP_KEY] = $map;
+        $plan['quality']['metrics'] = array_merge($plan['quality']['metrics'], UnreferencedEngineClasses::metrics($plan));
         return $plan;
     }
 
