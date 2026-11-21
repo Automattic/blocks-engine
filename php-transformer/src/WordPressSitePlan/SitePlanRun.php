@@ -491,6 +491,8 @@ final class SitePlanRun
         $plan = AssetConsumers::assign($plan);
         $plan['quality']['metrics'] += UnreferencedEngineClasses::metrics($plan);
         $plan = ContentConservation::check($plan, $this->compiled['pages']);
+        // Everything that ships is final: engine classes take the theme's names.
+        if (is_string($this->compiled['class_namespace'] ?? null)) $plan = ClassPublisher::publish($plan, $this->compiled['class_namespace']);
         $plan['plan_identity'] = WordPressSitePlan::planIdentity($plan);
         WordPressSitePlan::assertValid($plan);
         return $plan;
