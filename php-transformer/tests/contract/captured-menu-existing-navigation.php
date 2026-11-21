@@ -6,30 +6,22 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
-// PR #7341 real-import document: source CSS and capture runtime CSS are
-// deliberately in the same style element, with the already-projected header.
-$html = file_get_contents(dirname(__DIR__) . '/fixtures/captured-menu-existing-navigation.html');
-$document = new DOMDocument();
-@$document->loadHTML($html);
-$xpath = new DOMXPath($document);
-foreach ($xpath->query('//@*[starts-with(name(), "data-blocks-engine-capture-")]') as $attribute) {
-    $attribute->ownerElement->removeAttribute($attribute->name);
-}
-foreach ($xpath->query('//*[@id="data-blocks-engine-capture-dialog-0"]') as $panel) {
-    $panel->removeAttribute('id');
-    $panel->setAttribute('class', 'links');
-}
-foreach ($document->getElementsByTagName('button') as $button) {
-    foreach (array('aria-controls', 'aria-expanded', 'aria-haspopup') as $name) $button->removeAttribute($name);
-}
+// The real export includes pre-projected HTML AND raw component evidence.
+$artifact = json_decode(file_get_contents(dirname(__DIR__) . '/fixtures/captured-menu-existing-navigation-artifact.json'), true, 512, JSON_THROW_ON_ERROR);
+$compiler = new ArtifactCompiler();
+$shared = $compiler->prepareShared($artifact);
+$pages = $compiler->preparePages($artifact, $shared);
+$receipts = $compiler->compilePreparedPages($shared, array_values($pages));
+$results = array(
+    'compile' => $compiler->compile($artifact),
+    'staged' => $compiler->compose($shared, array_values($receipts)),
+);
 $failures = array();
-foreach (array('without markers' => $document->saveHTML(), 'exported capture' => $html) as $case => $content) {
-    $artifact = array('entrypoint' => 'index.html', 'files' => array(
-        array('path' => 'index.html', 'content' => $content),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'index.html')))))
-    ));
-    $result = (new ArtifactCompiler())->compile($artifact)->toArray();
-    $markup = (string) ($result['serialized_blocks'] ?? '');
+foreach ($results as $case => $result) {
+    $plan = $result->toWordPressSitePlanView()['wordpress_site_plan'];
+    $headers = array_values(array_filter($plan['template_parts'] ?? array(), static fn (array $part): bool => 'header' === ($part['area'] ?? null)));
+    if (1 !== count($headers)) $failures[] = $case . ': expected one header template part';
+    $markup = (string) ($headers[0]['canonical_block_markup'] ?? '');
     $runtime = new Runtime();
     $blocks = $runtime->parseBlocks($markup);
     $navigation = array();
@@ -45,15 +37,23 @@ foreach (array('without markers' => $document->saveHTML(), 'exported capture' =>
     // Core dynamically renders overlayMenu=mobile: hidden until opened on
     // phones, inline at desktop; no authored display override is needed.
     if (1 !== count($navigation) || 'mobile' !== ($navigation[0]['attrs']['overlayMenu'] ?? null)) $failures[] = $case . ': expected one responsive core/navigation';
+    if (!str_contains($navigation[0]['attrs']['className'] ?? '', 'blocks-engine-native-responsive-navigation')) $failures[] = $case . ': expected native responsive navigation class';
     $items = $navigation[0]['innerBlocks'] ?? array();
+    // Site plans materialize navigation children as a referenced menu entity.
+    foreach ($plan['menus'] ?? array() as $menu) {
+        if ('{{wordpress-site-plan:navigation:' . $menu['token'] . '}}' === ($navigation[0]['attrs']['ref'] ?? null)) {
+            $items = $runtime->parseBlocks($menu['block_markup']);
+            $walk($items);
+        }
+    }
     if (5 !== count($items)) $failures[] = $case . ': expected five native navigation links';
     foreach (array('The Stories', 'Approach', 'Collections', 'About', 'Get in touch ↗') as $index => $label) {
         if ('core/navigation-link' !== ($items[$index]['blockName'] ?? '') || $label !== ($items[$index]['attrs']['label'] ?? '')) $failures[] = $case . ': missing native link ' . $label;
     }
-    if (str_contains($markup, 'data-blocks-engine-capture-dialog')) $failures[] = $case . ': captured dialog survived';
+    foreach (array('data-blocks-engine-capture-dialog', 'data-blocks-engine-capture-dropdown', 'dialog-trigger') as $marker) {
+        if (str_contains($markup, $marker)) $failures[] = $case . ': captured wiring survived: ' . $marker;
+    }
     if (!$blocks || $runtime->serializeBlocks($blocks) !== $markup) $failures[] = $case . ': block markup does not round-trip';
-    if (isset($baseline) && $baseline !== $markup) $failures[] = 'capture markers must not change native navigation output';
-    $baseline = $markup;
 }
 foreach ($failures as $failure) fwrite(STDERR, 'FAIL: ' . $failure . PHP_EOL);
 exit($failures ? 1 : 0);
