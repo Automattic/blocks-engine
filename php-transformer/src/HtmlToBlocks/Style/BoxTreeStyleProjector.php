@@ -107,7 +107,7 @@ final class BoxTreeStyleProjector
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
-        $consumed = $inlineSupports ? $this->mapInlineSupports($attrs, $base, $keys, $observations, $blockName) : array();
+        $consumed = $inlineSupports ? $this->mapInlineSupports($attrs, $base, $keys, $observations, $blockName, $bands) : array();
         $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
@@ -122,9 +122,10 @@ final class BoxTreeStyleProjector
      * @param array<string, mixed> $attrs
      * @param array<string, string> $base
      * @param list<string> $keys
+     * @param array<int|string, array<string, string>> $bands Lifted author @media values by max-width.
      * @return array<string, string>
      */
-    private function mapInlineSupports(array &$attrs, array $base, array $keys, array $observations, string $blockName): array
+    private function mapInlineSupports(array &$attrs, array $base, array $keys, array $observations, string $blockName, array $bands = array()): array
     {
         // A block the runtime has no metadata for (a generated block, whose
         // save builds its markup by hand) declares no style supports, so it
@@ -137,9 +138,12 @@ final class BoxTreeStyleProjector
         // Never resurrect authored values for observed (including inherited) properties.
         $unobserved = array_diff_key($existingDeclarations, $observations[$baseKey]['used_styles']);
         // Block attributes serialize inline and beat every @media carrier rule,
-        // so only a value observed identically in every viewport may become one.
-        // A varying property stays entirely in the carrier: base rule plus deltas.
-        $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations): bool {
+        // so only a value observed identically in every viewport, with no lifted
+        // author band, may become one. A varying property stays entirely in the
+        // carrier: base rule plus deltas.
+        $banded = array_fill_keys(array_keys(array_merge(...array_values($bands))), true);
+        $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations, $banded): bool {
+            if (isset($banded[$property])) return false;
             foreach ($keys as $key) {
                 if (($observations[$key]['used_styles'][$property] ?? null) !== $value) return false;
             }
