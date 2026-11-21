@@ -567,7 +567,10 @@ final class StyleAttributeMapper
 
         $noBorder = 'none' === $style || ( '' !== $width && (float) $width === 0.0 && '' === $colorValue && '' === $style );
         if ( ! $noBorder ) {
-            if ( $global['width']['declared'] && '' !== $width && (float) $width !== 0.0 ) {
+            // A global zero reset still owns the other sides when one side
+            // paints. Dropping it while emitting solid/color exposes the UA's
+            // initial medium width on all sides without a side override.
+            if ( $global['width']['declared'] && '' !== $width && ( (float) $width !== 0.0 || in_array(true, $paintingSides, true) ) ) {
                 $border['width'] = $width;
             }
             if ( $global['style']['declared'] && '' !== $style && 'none' !== $style ) {
