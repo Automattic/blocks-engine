@@ -33,6 +33,10 @@ $assert(str_contains($kept, '.x:hover{color:red}'), 'interaction-state rules sur
 $assert(str_contains($kept, '.x[data-interact-enter="done"]{animation:fade 1s}'), 'runtime state attribute rules survive retirement', $kept);
 $assert(!str_contains($kept, 'color:blue'), 'resting author rules are retired', $kept);
 
+$kept = $retire('@keyframes arrive{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}@media(min-width:600px){.x{animation:arrive 1.4s ease forwards;color:red}}');
+$assert(str_contains($kept, '@media(min-width:600px){.x{animation:arrive 1.4s ease forwards}}'), 'direct entrance bindings retain timing and fill mode without resting paint', $kept);
+$assert(str_contains($kept, '@keyframes arrive{'), 'direct entrance bindings retain their keyframes', $kept);
+
 // Conditional context, list members, negated state attributes, custom
 // property animation bindings and unobserved ancestor wrappers (Wix).
 $kept = $retire('.y,.x:focus-visible{outline:1px solid}'

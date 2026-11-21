@@ -284,7 +284,6 @@ final class EvidenceRouteStateRules
     /** @param list<array<string, mixed>> $nodes */
     private function markConsumers(array &$nodes): void
     {
-        if (array() === $this->motionProperties) return;
         foreach ($nodes as &$node) {
             if ('group' === $node['type']) $this->markConsumers($node['children']);
             if ('style' !== $node['type'] || null !== $node['keep']) continue;
@@ -293,6 +292,15 @@ final class EvidenceRouteStateRules
             foreach ($this->declarations($node['body']) as [$property, $value]) {
                 if (!preg_match(self::MOTION, $property)) continue;
                 $motion[] = $property . ':' . $value;
+                // Carriers record animation-name, not its timing or fill mode.
+                // Keep direct author bindings as well as var() consumers: a
+                // retired shorthand otherwise leaves a zero-duration animation
+                // and the capture's transient opacity/transform frozen in place.
+                if (in_array(strtolower($property), array('animation', 'animation-name'), true)) {
+                    if (preg_match_all('/(?<![\w-])-?[A-Za-z_][\w-]*/', $value, $names)) foreach ($names[0] as $name) {
+                        $consumes = $consumes || isset($this->keyframes[$name]);
+                    }
+                }
                 if (preg_match_all('/var\(\s*(--[\w-]+)/', $value, $vars)) foreach ($vars[1] as $var) $consumes = $consumes || isset($this->motionProperties[$var]);
             }
             if (!$consumes) continue;
