@@ -288,6 +288,13 @@ final class ChromeJournal
         // Markers were allocated against this page; a reference that does not
         // resolve leaves the page to convert normally, with nothing applied.
         if ($missing) return null;
+        $provenanceState = $this->session->transformationProvenanceState();
+        // A change inside an entry the recording page already held (one more
+        // occurrence of an asset, say) completes that entry only where this
+        // page holds it too. Without it the page converts normally.
+        foreach ($delta as [$name, $property, $changes]) {
+            if (!self::fits(self::read($states[$name], $property), $changes, $states[$name] === $provenanceState ? (int) $journal['next_source_id'] : null, $offset)) return null;
+        }
 
         // Namespace declarations are not attributes DOM can set or remove.
         $current = self::attributes($element);
@@ -296,7 +303,6 @@ final class ChromeJournal
             foreach (array_diff_key($current[$index], $attributes) as $name => $_) if (!str_starts_with($name, 'xmlns')) $node->removeAttribute($name);
             foreach ($attributes as $name => $value) if (!str_starts_with($name, 'xmlns') && ($current[$index][$name] ?? null) !== $value) $node->setAttribute($name, $value);
         }
-        $provenanceState = $this->session->transformationProvenanceState();
         foreach ($delta as [$name, $property, $changes]) {
             $state = $states[$name];
             self::write($state, $property, self::apply(self::read($state, $property), $changes, $state === $provenanceState ? (int) $journal['next_source_id'] : null, $offset));
@@ -341,7 +347,7 @@ final class ChromeJournal
     {
         foreach ($changes as $change) {
             [$operation, $path] = $change;
-            if (null !== $firstSourceId && is_int($path[0] ?? null) && $path[0] >= $firstSourceId) $path[0] += $offset;
+            $path = self::rebasedPath($path, $firstSourceId, $offset);
             $last = 'unset' === $operation ? array_pop($path) : null;
             $target = &$current;
             foreach ($path as $key) {
@@ -362,6 +368,36 @@ final class ChromeJournal
             unset($target);
         }
         return $current;
+    }
+
+    /**
+     * Whether every entry the changes reach into exists in $current.
+     * {@see changes()} recurses only into entries the recording page held,
+     * so a nested change carries just the part of an entry that changed.
+     *
+     * @param list<array{0:string,1:list<int|string>,2?:mixed}> $changes
+     */
+    private static function fits(mixed $current, array $changes, ?int $firstSourceId, int $offset): bool
+    {
+        foreach ($changes as [$operation, $path]) {
+            if ('unset' === $operation) continue;
+            $target = $current;
+            foreach (array_slice(self::rebasedPath($path, $firstSourceId, $offset), 0, -1) as $key) {
+                if (!is_array($target) || !array_key_exists($key, $target)) return false;
+                $target = $target[$key];
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param list<int|string> $path
+     * @return list<int|string>
+     */
+    private static function rebasedPath(array $path, ?int $firstSourceId, int $offset): array
+    {
+        if (null !== $firstSourceId && is_int($path[0] ?? null) && $path[0] >= $firstSourceId) $path[0] += $offset;
+        return $path;
     }
 
     /**
