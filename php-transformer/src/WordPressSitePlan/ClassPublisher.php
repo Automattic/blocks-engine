@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use InvalidArgumentException;
 
 /**
@@ -29,7 +31,9 @@ use InvalidArgumentException;
  * runtime names is removed from content. A referenced one becomes
  * `<namespace>-<semantic>`, the semantic part taken from a co-occurring
  * source class, then the block's name or landmark, then its block type;
- * collisions take `-2`, `-3`. A class runtime declarations or document roots
+ * collisions take `-2`, `-3`. Hooks carried by exactly the same elements
+ * share a name when doing so preserves selector specificity ordering.
+ * A class runtime declarations or document roots
  * name is part of a contract this pass cannot see into, so it keeps its
  * internal name. When the published plan would not validate, the plan ships
  * unpublished with a finding instead.
@@ -136,7 +140,15 @@ final class ClassPublisher
         $taken = array();
         $listed = array();
         $outside = array();
+        $carriers = array();
+        $element = 0;
         foreach ($markups as $markup) {
+            // Include block attributes as well as rendered elements: dynamic
+            // blocks may have no saved HTML. Each document has its own IDs.
+            foreach (self::classLists($markup) as $list) {
+                foreach (array_unique(self::tokens($list['value'])) as $token) $carriers[$token][] = $element;
+                ++$element;
+            }
             foreach (self::occurrences($markup) as $occurrence) {
                 $token = $occurrence['token'];
                 $listed[$token] = true;
@@ -165,8 +177,14 @@ final class ClassPublisher
             $taken[$name] = true;
             $map[$shim] = $name;
         }
+        $folds = self::folds($carriers, array_diff_key($order, $drop, $pinned, $map), $cssText);
         foreach ($order as $token => $_) {
             if (isset($drop[$token]) || isset($pinned[$token]) || isset($map[$token])) continue;
+            $leader = $folds[$token] ?? $token;
+            if (isset($map[$leader])) {
+                $map[$token] = $map[$leader];
+                continue;
+            }
             $semantic = isset($occurrences[$token]) ? self::semantic($occurrences[$token], $namespace) : '';
             if ('' === $semantic) $semantic = self::internalSemantic($token, $namespace);
             $name = $namespace . '-' . $semantic;
@@ -176,7 +194,7 @@ final class ClassPublisher
         }
         if (array() === $map && array() === $drop) return $plan + array(self::MAP_KEY => array());
 
-        $rewrite = static fn (string $markup): string => self::renamed(UnreferencedEngineClasses::without($markup, $drop), $map);
+        $rewrite = static fn (string $markup): string => self::renamedMarkup(UnreferencedEngineClasses::without($markup, $drop), $map);
         $plan = self::withMarkup($plan, $markups, $rewrite);
         foreach ($plan['assets'] as $index => $asset) {
             if (isset($published[$asset['source_path'] ?? ''])) continue;
@@ -467,6 +485,117 @@ final class ClassPublisher
         return preg_match_all(self::ENGINE_IDENT, $text, $matches) ? array_fill_keys($matches[0], true) : array();
     }
 
+    /**
+     * Equal carrier vectors mean equal membership in every shipped document.
+     * Missing carriers never fold (CSS-only and runtime-only hooks included).
+     *
+     * @param array<string,list<int>> $carriers
+     * @param array<string,int> $eligible
+     * @return array<string,string>
+     */
+    private static function folds(array $carriers, array $eligible, string $css): array
+    {
+        $groups = array();
+        foreach ($eligible as $token => $_) {
+            if (isset($carriers[$token])) $groups[implode(',', $carriers[$token])][] = $token;
+        }
+        $folds = array();
+        foreach ($groups as $tokens) {
+            if (count($tokens) < 2) continue;
+            $candidate = array_fill_keys($tokens, $tokens[0]);
+            if (self::foldPreservesCascade($css, $folds + $candidate)) $folds += $candidate;
+        }
+        return $folds;
+    }
+
+    /**
+     * A conservative cascade proof: if any selector loses weight, require its
+     * ordering against every other selector to stay unchanged. Comparing even
+     * disjoint rules/properties/conditions is deliberate: we need no assumptions
+     * about runtime state, shorthand expansion, layers or stylesheet order.
+     * Unknown selector syntax vetoes a specificity-changing fold, not publishing.
+     *
+     * @param array<string,string> $map
+     */
+    private static function foldPreservesCascade(string $css, array $map): bool
+    {
+        $weights = array();
+        $changed = false;
+        $prelude = '';
+        foreach (self::cssPieces($css) as $piece) {
+            if ('{' === $piece) {
+                if (!str_starts_with(ltrim($prelude), '@')) {
+                    foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
+                        $after = self::renamedPrelude($selector, $map);
+                        $beforeParsed = CssSelectorMatcher::parse(trim($selector));
+                        $afterParsed = CssSelectorMatcher::parse(trim($after));
+                        $known = $beforeParsed['supported'] && $afterParsed['supported'];
+                        $before = $known ? CssSelectorMatcher::specificity($beforeParsed) : null;
+                        $afterWeight = $known ? CssSelectorMatcher::specificity($afterParsed) : null;
+                        $weights[] = array($before, $afterWeight);
+                        if (preg_match_all(self::CLASS_SELECTOR, $after) < preg_match_all(self::CLASS_SELECTOR, $selector) && (!$known || $before !== $afterWeight)) $changed = true;
+                    }
+                }
+                $prelude = '';
+            } elseif ('}' === $piece || ';' === $piece) {
+                $prelude = '';
+            } else {
+                $prelude .= $piece;
+            }
+        }
+        if (!$changed) return true;
+        foreach ($weights as [$before, $after]) {
+            if (null === $before) return false;
+            if ($before === $after) continue;
+            foreach ($weights as [$otherBefore, $otherAfter]) {
+                if (null === $otherBefore || ($before <=> $otherBefore) !== ($after <=> $otherAfter)) return false;
+            }
+        }
+        return true;
+    }
+
+    /** @param array<string,string> $map */
+    private static function renamedMarkup(string $markup, array $map): string
+    {
+        $markup = self::renamed($markup, $map);
+        return preg_replace_callback('/(\\sclass=")([^"]*)(")|("(?:className|class)":")([^"]*)(")/', static function (array $match): string {
+            if ('' !== ($match[1] ?? '')) return $match[1] . implode(' ', array_unique(self::tokens($match[2]))) . $match[3];
+            return $match[4] . implode(' ', array_unique(self::tokens($match[5]))) . $match[6];
+        }, $markup) ?? $markup;
+    }
+
+    /**
+     * Only collapse different original tokens mapped to the same class within
+     * one compound. Combinators and functional pseudo boundaries reset the set;
+     * strings, comments and attribute predicates are opaque.
+     *
+     * @param array<string,string> $map
+     */
+    private static function renamedPrelude(string $prelude, array $map): string
+    {
+        $pieces = preg_split('~(/\\*.*?\\*/|"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|\\[[^\\]]*\\]|[\\s>+\~,()]+)~s', $prelude, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array();
+        $seen = array();
+        $result = '';
+        foreach ($pieces as $piece) {
+            if (1 === preg_match('/^[\\s>+~,()]/', $piece)) {
+                $seen = array();
+                $result .= $piece;
+            } elseif (str_starts_with($piece, '/*') || in_array($piece[0] ?? '', array('"', "'", '['), true)) {
+                $result .= $piece;
+            } else {
+                $result .= preg_replace_callback(self::CLASS_SELECTOR, static function (array $match) use ($map, &$seen): string {
+                    $token = $match[1];
+                    if (!isset($map[$token])) return $match[0];
+                    $name = $map[$token];
+                    if (isset($seen[$name]) && $seen[$name] !== $token) return '';
+                    $seen[$name] = $token;
+                    return '.' . $name;
+                }, $piece) ?? $piece;
+            }
+        }
+        return $result;
+    }
+
     /** @param array<string,string> $map */
     private static function renamed(string $text, array $map): string
     {
@@ -487,7 +616,7 @@ final class ClassPublisher
         $prelude = '';
         foreach (self::cssPieces($css) as $piece) {
             if ('{' === $piece) {
-                $prelude = preg_replace_callback(self::CLASS_SELECTOR, static fn (array $match): string => isset($map[$match[1]]) ? '.' . $map[$match[1]] : $match[0], $prelude) ?? $prelude;
+                $prelude = self::renamedPrelude($prelude, $map);
                 // A type or id shim is no class selector, but its name is engine vocabulary too.
                 $published .= preg_replace_callback(self::shimPattern(), static fn (array $match): string => $map[$match[0]] ?? $match[0], $prelude) . '{';
                 $prelude = '';
@@ -597,8 +726,8 @@ final class ClassPublisher
 
     /**
      * The bootstrap in published names. Emitted runtimes that recognize an
-     * engine class by prefix read the published class back to its engine name
-     * first, and one that composes an engine class reads its published name.
+     * engine class by prefix or pattern test all internal hooks for the name;
+     * one that composes an engine class reads its published name.
      *
      * @param array<string,string> $map
      */
@@ -613,8 +742,9 @@ final class ClassPublisher
         if (!$helpers || !str_starts_with($rewritten, "<?php\n")) return $rewritten;
         $names = var_export($map, true);
         $source = "function {$function}_published_class_names(): array {\n    static \$names = {$names};\n    return \$names;\n}\n"
-            . "function {$function}_published_class( string \$class ): string {\n    return {$function}_published_class_names()[ \$class ] ?? \$class;\n}\n"
-            . "function {$function}_engine_class( string \$class ): string {\n    static \$engine = null;\n    \$engine ??= array_flip( {$function}_published_class_names() );\n    return \$engine[ \$class ] ?? \$class;\n}\n";
+            . "function {$function}_published_class( string \$class ): string {\n    return {$function}_published_class_names()[ \$class ] ?? \$class;\n}\n";
+        $source .= "function {$function}_has_engine_prefix( string \$class, string \$prefix ): bool {\n    foreach ( {$function}_published_class_names() as \$engine => \$published ) {\n        if ( \$class === \$published && str_starts_with( \$engine, \$prefix ) ) return true;\n    }\n    return str_starts_with( \$class, \$prefix );\n}\n"
+            . "function {$function}_matches_engine_class( string \$pattern, string \$class ): bool {\n    foreach ( {$function}_published_class_names() as \$engine => \$published ) {\n        if ( \$class === \$published && preg_match( \$pattern, \$engine ) ) return true;\n    }\n    return 1 === preg_match( \$pattern, \$class );\n}\n";
         return "<?php\n" . $source . substr($rewritten, strlen("<?php\n"));
     }
 
