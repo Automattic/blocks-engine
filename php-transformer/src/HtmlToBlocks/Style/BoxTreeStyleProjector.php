@@ -10,6 +10,13 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 final class BoxTreeStyleProjector
 {
     private const SELECTOR = "\0carrier\0";
+    /**
+     * A container block whose box inherits `pointer-events:none`. The editor
+     * gives every block wrapper `pointer-events:auto`, so the inherited value
+     * the front end keeps must be restated there (NavigationStyleProjector).
+     */
+    public const CLICK_THROUGH_CLASS = 'blocks-engine-click-through';
+    private const CLICK_THROUGH_BLOCKS = array('core/group', 'core/columns', 'core/column', 'core/cover');
 
     /** The carrier class once, for declarations retained source state rules must still override ({@see self::inlineCarrier()}). */
     private const STATE_YIELDING_SELECTOR = "\0state-yielding\0";
@@ -104,6 +111,7 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
+        $attrs = $this->projectClickThrough($attrs, $blockName, $keys, $observations, $status);
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
@@ -162,6 +170,37 @@ final class BoxTreeStyleProjector
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
         return SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
+    }
+
+    /** Restore inherited click-through behavior before editor wrappers reset it. */
+    private function projectClickThrough(array $attrs, string $blockName, array $keys, array $observations, array $status): array
+    {
+        // A click-through box (a fixed Wix pinned layer over the whole page)
+        // that takes `none` from its parent declares nothing on the front end.
+        // In the editor the block wrapper resets it to `auto`, and the overlay
+        // took every click meant for the page's text (issue #5901). Mark it
+        // for the editor-only rule rather than restating it in the front-end
+        // carrier, where inheritance already gives it.
+        if ($this->inheritsClickThrough($blockName, $keys, $observations, $status)) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CLICK_THROUGH_CLASS);
+        }
+        return $attrs;
+    }
+
+    /**
+     * @param list<string> $keys
+     * @param array<string, array<string, mixed>> $observations
+     * @param array<string, array<string, string>> $status
+     */
+    private function inheritsClickThrough(string $blockName, array $keys, array $observations, array $status): bool
+    {
+        if (!in_array($blockName, self::CLICK_THROUGH_BLOCKS, true)) return false;
+        $inherited = false;
+        foreach ($keys as $key) {
+            if ('none' !== strtolower(trim((string) ($observations[$key]['used_styles']['pointer-events'] ?? '')))) return false;
+            $inherited = $inherited || in_array($status[$key]['pointer-events'] ?? null, array(BoxTreeDeclarationPruner::INHERITED, BoxTreeDeclarationPruner::KEPT), true);
+        }
+        return $inherited;
     }
 
     private static function runtime(): Runtime

@@ -22,7 +22,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 final class EditorRestingStateRuntime
 {
     /** Markers in saved markup that make the module apply. */
-    public const MARKERS = array('blocksEngineRuntimeAttributes', 'blocksEngineDialog', '<!-- wp:image');
+    public const MARKERS = array('blocksEngineRuntimeAttributes', 'blocksEngineDialog', '<!-- wp:image', 'blocks-engine-hidden-richtext-marker');
 
     public static function source(): string
     {
@@ -35,6 +35,18 @@ final class EditorRestingStateRuntime
 ( function( hooks, element, data, compose ) {
     if ( ! hooks || ! element || ! data || ! compose ) return;
     var createElement = element.createElement;
+    function hiddenSupportText( props ) {
+        return ( 'core/paragraph' === props.name || 'core/heading' === props.name )
+            && String( ( props.attributes || {} ).className || '' ).split( /\s+/ ).includes( 'blocks-engine-hidden-richtext-marker' );
+    }
+    // Keep the saved text block, content, and selector subjects unchanged. At
+    // rest it has no focusable surface; List View selection restores its Edit.
+    hooks.addFilter( 'editor.BlockEdit', 'blocks-engine/hidden-support-text', compose.createHigherOrderComponent( function( BlockEdit ) {
+        return function( props ) {
+            if ( hiddenSupportText( props ) && ! props.isSelected ) return null;
+            return createElement( BlockEdit, props );
+        };
+    }, 'withBlocksEngineHiddenSupportText' ) );
     function hiddenAtRest( attributes ) {
         var metadata = attributes && attributes.metadata || {};
         var runtime = metadata.blocksEngineRuntimeAttributes;
