@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex;
@@ -256,6 +257,7 @@ final class StylesheetScopes
         $delivery = static fn(array $asset): ?string => 'engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? null) && str_starts_with(basename((string) ($asset['target_path'] ?? '')), 'engine-support-')
             && is_string($asset['content'] ?? null) && 1 !== preg_match('/url\(|@import|@charset|@namespace/i', $asset['content'])
             ? serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '')) : null;
+        $assets = self::withoutShadowedRules($assets, $delivery);
         $scopesOf = static function (array $members): array {
             $scopes = array();
             foreach ($members as $member) foreach ($member['asset']['scopes'] as $scope) $scopes['global' === $scope['kind'] ? '' : $scope['source_path']] = $scope;
@@ -396,6 +398,106 @@ final class StylesheetScopes
         return $result;
     }
 
+    /** At-rules whose block holds rules: their preludes are a rule's enclosing context. */
+    private const GROUP_RULE = '/^@(?:media|supports|layer|container)\b/i';
+
+    /**
+     * Drop each support rule an identical rule in a later sheet shadows (#7301): same
+     * normalized selector list, declarations (with `!important`) and
+     * enclosing at-rule/layer chain, in a support sheet of the same delivery
+     * that every route loading the earlier rule also loads (a global sheet
+     * covers every route). The later copy wins wherever the earlier one
+     * applies, so the earlier one changes nothing. Layer-order and other
+     * statements stay, an emptied `@layer` block still declares its layer,
+     * and a sheet left with nothing is not emitted. Editor-only sheets and
+     * sheets $delivery keeps in place are untouched.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param callable(array<string,mixed>):?string $delivery
+     * @return array<int,array<string,mixed>>
+     */
+    private static function withoutShadowedRules(array $assets, callable $delivery): array
+    {
+        $covered = $removed = $trees = array();
+        foreach (array_reverse($assets, true) as $index => $asset) {
+            $key = $delivery($asset);
+            if (null === $key || 'editor' === ($asset['stylesheet_target'] ?? 'both')) continue;
+            $scopes = $asset['scopes'] ?? array(array('kind' => 'global'));
+            $routes = in_array('global', array_column($scopes, 'kind'), true) ? array('') : array_unique(array_column($scopes, 'source_path'));
+            $tree = new CssRuleTree((string) $asset['content']);
+            if (array() === $routes || !$tree->wellFormed) continue;
+            $trees[$index] = $tree;
+            $identities = self::ruleIdentities($tree, -1, $key);
+            foreach ($identities as [$start, $identity]) {
+                foreach ($covered[$identity] ?? array() as $laterRoutes) {
+                    if (isset($laterRoutes['']) || array() === array_diff_key(array_flip($routes), $laterRoutes)) { $removed[$index][$start] = true; break; }
+                }
+            }
+            foreach ($identities as [, $identity]) $covered[$identity][$index] = array_flip($routes);
+        }
+        $result = array();
+        foreach ($assets as $index => $asset) {
+            if (isset($removed[$index])) {
+                $content = self::withoutRules($trees[$index], -1, $removed[$index]);
+                if ('' === trim(CssSyntaxScanner::withoutComments($content))) continue;
+                $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
+            }
+            $result[] = $asset;
+        }
+        return $result;
+    }
+
+    /**
+     * Each style rule (or other leaf block) in a scope with its structural
+     * identity: delivery, enclosing group preludes, selectors and body.
+     *
+     * @return list<array{0:int,1:string}>
+     */
+    private static function ruleIdentities(CssRuleTree $tree, int $scope, string $context): array
+    {
+        $normal = static fn(string $css): string => trim(CssSyntaxScanner::withoutRedundantWhitespace(CssSyntaxScanner::withoutComments($css)));
+        $identities = array();
+        foreach ($tree->rules($scope) as $rule) {
+            if (';' === $tree->source[$rule['boundary']]) continue;
+            $prelude = $normal(substr($tree->source, $rule['start'], $rule['boundary'] - $rule['start']));
+            if (1 === preg_match(self::GROUP_RULE, $prelude)) {
+                // Each anonymous layer creates a distinct cascade context.
+                if (1 !== preg_match('/^@layer\s*$/i', $prelude)) array_push($identities, ...self::ruleIdentities($tree, $rule['boundary'], $context . "\0" . $prelude));
+                continue;
+            }
+            // Opaque at-rules (font faces, keyframes, etc.) are not style rules.
+            if (str_starts_with($prelude, '@')) continue;
+            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+            if (null !== $selectors) $prelude = implode(',', array_map($normal, $selectors));
+            // Normalize as a block so only a structural final semicolon goes;
+            // a semicolon inside a string or escaped value is significant.
+            $body = $normal('{' . substr($tree->source, $rule['boundary'] + 1, $rule['end'] - $rule['boundary'] - 1) . '}');
+            $identities[] = array($rule['start'], serialize(array($context, $prelude, $body)));
+        }
+        return $identities;
+    }
+
+    /** @param array<int,true> $removed Starts of rules to drop. */
+    private static function withoutRules(CssRuleTree $tree, int $scope, array $removed): string
+    {
+        $css = '';
+        foreach ($tree->rules($scope) as $rule) {
+            $text = substr($tree->source, $rule['start'], $rule['end'] - $rule['start'] + 1);
+            if (';' === $tree->source[$rule['boundary']]) { $css .= $text; continue; }
+            $prelude = trim(CssSyntaxScanner::withoutComments(substr($tree->source, $rule['start'], $rule['boundary'] - $rule['start'])));
+            if (1 === preg_match(self::GROUP_RULE, $prelude)) {
+                $inner = self::withoutRules($tree, $rule['boundary'], $removed);
+                // An emptied conditional group applies nothing; an emptied
+                // layer block still declares its layer's position.
+                if ('' === trim(CssSyntaxScanner::withoutComments($inner)) && 1 !== preg_match('/^@layer\b/i', $prelude)) continue;
+                $css .= substr($tree->source, $rule['start'], $rule['boundary'] - $rule['start'] + 1) . $inner . '}';
+                continue;
+            }
+            if (!isset($removed[$rule['start']])) $css .= $text;
+        }
+        return $css;
+    }
+
     /**
      * Partition generated rules by their exact consumers and delivery side.
      * Opaque statements and sheets with location-dependent URLs retain their
@@ -415,7 +517,7 @@ final class StylesheetScopes
             // conservative URL guard for every other reference.
             $withoutDataUrls = preg_replace('/url\(\s*(?:"data:[^"]*"|\'data:[^\']*\'|data:[^\s)"\']*)\s*\)/i', '', $content) ?? $content;
             if (false !== stripos($withoutDataUrls, 'url(')) continue;
-            $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($content);
+            $tree = new CssRuleTree($content);
             if (!$tree->wellFormed) continue;
             $parts = $layerOrder = array();
             foreach ($tree->rules() as $rule) {
