@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -187,8 +188,9 @@ final class RepeatedBlockStyles
      *   proves no per-container gap rule or alignment reaches the block.
      *
      * Delivered rules are compared per longhand: a rule that reaches the block
-     * and sets one of the moved longhands to another value blocks the set,
-     * whatever its specificity.
+     * and can outrank the variation blocks the set only when it sets a moved
+     * longhand to a different value. Delivered route CSS follows global styles:
+     * equal specificity competes, but non-important rules below 0-1-0 cannot.
      *
      * @param array<string,mixed> $theme
      */
@@ -196,7 +198,16 @@ final class RepeatedBlockStyles
     {
         $groups = array();
         $rules = self::classRules($assets, false);
-        foreach ($rules as $index => $rule) $rules[$index]['longhands'] = self::longhands($rule['property'], $rule['value']);
+        foreach ($rules as $index => $rule) {
+            $rules[$index]['longhands'] = self::longhands($rule['property'], $rule['value']);
+            // Unsupported selectors remain competitors; their zero counts are
+            // not proof of low specificity. Conditional/layered rules remain
+            // conservative too (important layers reverse cascade order).
+            $counts = CssSelectorMatcher::specificityCounts($rule['parsed']);
+            $rules[$index]['loses'] = $rule['unconditional'] && ($rule['parsed']['supported'] ?? false)
+                && 0 === $counts['ids'] && 0 === $counts['classes']
+                && 1 !== preg_match('/!\s*important\s*$/i', $rule['value']);
+        }
         $margins = false === ($theme['styles']['spacing']['blockGap'] ?? null);
         $headingCompetitors = self::headingCompetitors($theme);
         foreach ($documents as $key => $document) {
@@ -237,13 +248,14 @@ final class RepeatedBlockStyles
                 }
                 foreach ($rules as $rule) {
                     if ($blocked) break;
+                    if ($rule['loses']) continue;
                     if (null === $rule['longhands']) {
                         $competing = array_filter(array_keys($declarations), static fn(string $property): bool => self::competes($property, $rule['property']));
                         if (array() !== $competing && self::ruleReaches($block, $rule)) $blocked = true;
                         continue;
                     }
                     foreach ($rule['longhands'] as $longhand => $value) {
-                        if (!isset($longhands[$longhand]) || self::sameCss($value, $longhands[$longhand])) continue;
+                        if (!isset($longhands[$longhand]) || self::sameCss($value, $longhands[$longhand], $theme)) continue;
                         if (self::ruleReaches($block, $rule)) $blocked = true;
                         break;
                     }
@@ -465,14 +477,44 @@ final class RepeatedBlockStyles
     }
 
     /** Equal computed values: zero lengths, case and whitespace inside functions are normalized. */
-    private static function sameCss(string $a, string $b): bool
+    private static function sameCss(string $a, string $b, array $theme): bool
     {
-        $normalize = static function (string $value): string {
+        $normalize = static function (string $value) use ($theme): string {
+            $value = self::literalPreset($value, $theme);
             $value = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $value)));
             $value = (string) preg_replace('/\s*([(),])\s*/', '$1', $value);
-            return 1 === preg_match('/^0(?:\.0+)?(?:px|em|rem|%)?$/', $value) ? '0' : $value;
+            // Only context-free colour notations: light-dark(), currentColor,
+            // and other environment-dependent functions cannot prove equality.
+            if (1 === preg_match('/^(?:#[0-9a-f]+|rgba?\([^()]*\))$/', $value)) {
+                $color = CssColor::parse($value);
+                if (null !== $color) return json_encode($color, JSON_THROW_ON_ERROR);
+            }
+            if (1 === preg_match('/^([+-]?(?:[0-9]*\.)?[0-9]+)(px|em|rem|%|pt|in|cm|mm|pc|q)?$/', $value, $match)) {
+                $number = (float) $match[1];
+                return 0.0 === $number ? '0' : (string) $number . ($match[2] ?? '');
+            }
+            return $value;
         };
         return $normalize($a) === $normalize($b);
+    }
+
+    /** Resolve only fixed literals from the theme's own preset definitions. */
+    private static function literalPreset(string $value, array $theme): string
+    {
+        if (1 !== preg_match('/^(?:var:preset\|([a-z-]+)\|([a-z0-9-]+)|var\(--wp--preset--([a-z-]+?)--([a-z0-9-]+)\))$/i', trim($value), $match)) return $value;
+        $kind = $match[1] ?: $match[3];
+        $slug = $match[2] ?: $match[4];
+        $paths = array('spacing' => array('spacing', 'spacingSizes', 'size'), 'font-size' => array('typography', 'fontSizes', 'size'), 'color' => array('color', 'palette', 'color'));
+        if (!isset($paths[$kind])) return $value;
+        [$section, $key, $field] = $paths[$kind];
+        foreach ($theme['settings'][$section][$key] ?? array() as $preset) {
+            if (($preset['slug'] ?? null) !== $slug) continue;
+            if ('font-size' === $kind && false !== ($preset['fluid'] ?? $theme['settings']['typography']['fluid'] ?? false)) return $value;
+            $literal = $preset[$field] ?? null;
+            if (!is_string($literal)) return $value;
+            if (1 === preg_match('/^(?:[+-]?(?:[0-9]*\.)?[0-9]+(?:px|em|rem|%|pt|in|cm|mm|pc|q)?|#[0-9a-f]{3,8}|rgba?\([^()]*\))$/i', trim($literal))) return $literal;
+        }
+        return $value;
     }
 
     private static function withVariation(string $markup, array $block, string $slug, array $declarations): string

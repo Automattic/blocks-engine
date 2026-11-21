@@ -97,13 +97,30 @@ try {
     $heading = '<!-- wp:heading {"style":{"typography":{"fontWeight":"400","textTransform":"none"}}} --><h2 class="wp-block-heading" style="font-weight:400;text-transform:none">Title</h2><!-- /wp:heading -->';
     $figure = '<!-- wp:image {"style":{"spacing":{"margin":{"top":"0","right":"0","bottom":"0","left":"0"}}}} --><figure class="wp-block-image" style="margin-top:0;margin-right:0;margin-bottom:0;margin-left:0"><img src="a.png" alt=""/></figure><!-- /wp:image -->';
     $card = '<!-- wp:group {"style":{"border":{"width":"1px","bottom":{"style":"solid","color":"rgb(201, 187, 172)"}},"spacing":{"padding":{"top":"20px"}}}} --><div class="wp-block-group" style="border-width:1px;border-bottom-color:rgb(201, 187, 172);border-bottom-style:solid;padding-top:20px"></div><!-- /wp:group -->';
+    $preset = '<!-- wp:paragraph {"style":{"typography":{"fontSize":"var:preset|font-size|size-38"}}} --><p style="font-size:var(--wp--preset--font-size--size-38)">Text</p><!-- /wp:paragraph -->';
+    $presetSpacing = str_replace('13px', 'var:preset|spacing|50', $spaced);
+    $presetSpacing = str_replace('style="margin-top:var:preset|spacing|50;margin-bottom:var:preset|spacing|50"', 'style="margin-top:var(--wp--preset--spacing--50);margin-bottom:var(--wp--preset--spacing--50)"', $presetSpacing);
+    $presetCard = str_replace('rgb(201, 187, 172)', 'var:preset|color|accent-9', $card);
+    $presetCard = str_replace('border-bottom-color:var:preset|color|accent-9', 'border-bottom-color:var(--wp--preset--color--accent-9)', $presetCard);
+    $settings = array('settings' => array('typography' => array('fontSizes' => array(array('slug' => 'size-38', 'size' => '38px')))));
     $flow = array('styles' => array('spacing' => array('blockGap' => false)));
     // Raw selector members keep every case off the site-wide block-type hoist.
     $observed = array('<!-- wp:image --><figure class="wp-block-image"><img src="b.png" alt=""/></figure><!-- /wp:image --><p>Raw</p><h2 class="wp-block-heading">Raw</h2>');
     foreach (array(
-        'different type selector' => array($block . $block, 'p{font-weight:400}', array(), false),
+        'different type selector loses to variation' => array($block . $block, 'p{font-weight:400}', array(), true),
         'conditional rule' => array($block . $block, '@media(min-width:900px){p{font-weight:400}}', array(), false),
         'element rule' => array($block . $block, '.entry-content p{font-weight:400}', array(), true),
+        'preset restated literally' => array($preset . $preset, ':root p{font-size:38.0px}', array(), true, 'core/paragraph', $settings),
+        'preset different literal' => array($preset . $preset, ':root p{font-size:39px}', array(), false, 'core/paragraph', $settings),
+        'spacing preset restated by shorthand' => array($presetSpacing . $presetSpacing, ':root p{margin:20.0px 0}', array(), true, 'core/paragraph', array_replace_recursive($flow, array('settings' => array('spacing' => array('spacingSizes' => array(array('slug' => '50', 'size' => '20px'))))))),
+        'spacing preset different literal' => array($presetSpacing . $presetSpacing, ':root p{margin:21px 0}', array(), false, 'core/paragraph', array_replace_recursive($flow, array('settings' => array('spacing' => array('spacingSizes' => array(array('slug' => '50', 'size' => '20px'))))))),
+        'palette preset restated as rgb' => array($presetCard . $presetCard, '.wp-block-group{border-color:rgb(101,86,75)}', array(), true, 'core/group', array('settings' => array('color' => array('palette' => array(array('slug' => 'accent-9', 'color' => '#65564b')))))),
+        'palette preset different rgb' => array($presetCard . $presetCard, '.wp-block-group{border-color:rgb(102,86,75)}', array(), false, 'core/group', array('settings' => array('color' => array('palette' => array(array('slug' => 'accent-9', 'color' => '#65564b')))))),
+        'clamp preset not a fixed literal' => array($preset . $preset, ':root p{font-size:38px}', array(), false, 'core/paragraph', array_replace_recursive($settings, array('settings' => array('typography' => array('fontSizes' => array(array('size' => 'clamp(20px,3vw,38px)'))))))),
+        'fluid preset not a fixed literal' => array($preset . $preset, ':root p{font-size:38px}', array(), false, 'core/paragraph', array_replace_recursive($settings, array('settings' => array('typography' => array('fluid' => true))))),
+        'where-only different value' => array($card . $card, ':where(.wp-block-group){border-color:red}', array(), true, 'core/group'),
+        'class outside where competes' => array($card . $card, '.wp-block-group:where(.wp-block-group){border-color:red}', array(), false, 'core/group'),
+        'important where-only competes' => array($card . $card, ':where(.wp-block-group){border-color:red!important}', array(), false, 'core/group'),
         'runtime anchor' => array($block . $block, '', array($block), false),
         'single instance' => array($block, '', array(), false),
         'repeated set' => array($block . $block, '', array(), true),
@@ -112,7 +129,7 @@ try {
         'margin-only set under the root block gap' => array($spaced . $spaced, '', array(), false, 'core/paragraph', array()),
         'margin-only set under a parent gap' => array('<!-- wp:group {"style":{"spacing":{"blockGap":"24px"}}} --><div class="wp-block-group">' . $spaced . $spaced . '</div><!-- /wp:group -->', '', array(), false, 'core/paragraph', $flow),
         'margin-only set with a competing class margin' => array($spaced . $spaced, '.x p{margin:0}', array(), true, 'core/paragraph', $flow),
-        'margin-only set with a reaching shorthand' => array($spaced . $spaced, 'main p, p{margin:0 0 13px}', array(), false, 'core/paragraph', $flow),
+        'margin-only set with a reaching shorthand' => array($spaced . $spaced, ':root p{margin:0 0 13px}', array(), false, 'core/paragraph', $flow),
         'image figure margins beside a raw figure' => array($figure . $figure, '', array(), true, 'core/image', $flow),
         // Headings: top-level element styles print at 0-0-1 and lose.
         'heading set' => array($heading . $heading, '', array(), true, 'core/heading', array('styles' => array('elements' => array('h2' => array('typography' => array('fontWeight' => '700')))))),
