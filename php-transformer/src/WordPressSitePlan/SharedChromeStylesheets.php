@@ -611,7 +611,7 @@ final class SharedChromeStylesheets
             array_push($ids, ...(array) ($part['ancestor_context']['ids'] ?? array()));
         }
         if (array() === $classes && array() === $ids) return array();
-        $elements = array();
+        $documents = $branching = array();
         foreach ($pages as $page) {
             $document = HtmlSerialization::parseDocument('<html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>');
             // Rules conditioned on the document root (`body:not(.responsive) …`)
@@ -620,9 +620,17 @@ final class SharedChromeStylesheets
                 $root = $document->getElementsByTagName($tag)->item(0);
                 foreach ((array) ($page['document_metadata'][$key] ?? array()) as $name => $value) $root?->setAttribute((string) $name, (string) $value);
             }
-            foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
-                if (!$element instanceof \DOMElement) continue;
-                $hooks = array_intersect(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), $classes);
+            $candidates = array();
+            foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) if ($element instanceof \DOMElement) $candidates[] = $element;
+            // The generated rules apply to every route, so a class that fails
+            // to identify the ancestors on one route is no hook on any route.
+            array_push($branching, ...self::branchingClasses($candidates, $classes));
+            $documents[] = array($document, $candidates);
+        }
+        $elements = array();
+        foreach ($documents as [, $candidates]) {
+            foreach ($candidates as $element) {
+                $hooks = array_diff(array_intersect(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), $classes), $branching);
                 $id = $element->getAttribute('id');
                 if ('' !== $id && in_array($id, $ids, true)) $hook = '#' . CssIdent::escape($id);
                 elseif (array() !== $hooks) $hook = '.' . CssIdent::escape((string) reset($hooks));
@@ -631,6 +639,39 @@ final class SharedChromeStylesheets
             }
         }
         return $elements;
+    }
+
+    /**
+     * Ancestor classes that cannot identify the detached part's ancestors.
+     * The ancestors of one element form a chain, so a class whose carriers
+     * branch inside another carrier (a class every element of a builder's
+     * output carries) also sits on content that never enclosed the part.
+     * Separate chains, such as one per device document, still qualify.
+     *
+     * @param list<\DOMElement> $elements
+     * @param list<string> $classes
+     * @return list<string>
+     */
+    private static function branchingClasses(array $elements, array $classes): array
+    {
+        $branching = array();
+        foreach (array_unique($classes) as $class) {
+            $carriers = new \SplObjectStorage();
+            foreach ($elements as $element) if (in_array($class, preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), true)) $carriers[$element] = true;
+            // A second carrier whose nearest carrier ancestor is the same
+            // element is a branch.
+            $children = new \SplObjectStorage();
+            foreach ($carriers as $carrier) {
+                for ($parent = $carrier->parentNode; $parent instanceof \DOMElement && !isset($carriers[$parent]); $parent = $parent->parentNode);
+                if (!$parent instanceof \DOMElement) continue;
+                if (isset($children[$parent])) {
+                    $branching[] = $class;
+                    break;
+                }
+                $children[$parent] = true;
+            }
+        }
+        return $branching;
     }
 
     /**
