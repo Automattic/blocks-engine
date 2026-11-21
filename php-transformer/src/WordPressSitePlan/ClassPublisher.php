@@ -73,8 +73,9 @@ final class ClassPublisher
         if (!is_string($value)) return null;
         $slug = self::slug($value);
         if ('' === $slug) return null;
-        // A published name must never read as an engine class.
-        return 1 === preg_match(self::ENGINE_CLASS, $slug . '-x') ? 'theme-' . $slug : $slug;
+        // A published name is a CSS identifier, which starts with a letter,
+        // and never reads as an engine class.
+        return 1 !== preg_match('/^[a-z]/', $slug) || 1 === preg_match(self::ENGINE_CLASS, $slug . '-x') ? 'theme-' . $slug : $slug;
     }
 
     /**
