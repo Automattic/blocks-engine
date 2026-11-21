@@ -2026,11 +2026,127 @@ final class ShellExtraction
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+            // A template-bound area stays template-bound for every population
+            // that repeats one design of it, so those routes keep their own
+            // wrappers in content instead of forking route templates around them.
+            // Type and language populations rebind their parts afterwards.
+            if ('shared_shell' === $placement && $partitionTypes && $partitionHeaders) {
+                $population = $this->templateBoundShellPopulations($pages, $clusters, $identity, $candidates, $area, $excludedTemplateSlugs, $reservedSlugs + array($partSlug => true) + array_fill_keys(array_column($parts, 'slug'), true), $runtimeDeclarations);
+                $pages = $population['pages'];
+                array_push($parts, ...$population['parts']);
+                array_push($diagnostics, ...$population['diagnostics']);
+                $excluded = array_diff_key($excluded, $population['indexes']);
+            }
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         ['pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics] = $this->withRouteLocalShellVariants($pages, $parts, $diagnostics, $runtimeDeclarations, $stylesheetIds);
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Bind each further repeated design of a template-bound area as its own
+     * template part, placed after the content like the dominant part.
+     *
+     * A route population whose shell is one source-equal design (proven by
+     * clustering, not by its route-compiled bytes) gets one part. Its routes'
+     * override templates bind that part, and the shell leaves their content
+     * while the wrappers around it (a page root, a route grid) stay route
+     * content, as they do on the dominant routes. Binding the shell in place
+     * instead would hoist each route's own page-root frame into a template
+     * of its own, forking one template per route around the same part.
+     *
+     * A population is left to route-local handling when its routes do not all
+     * own an override template, a shell carries a runtime binding or a
+     * responsive variant, or a shell cannot be removed unambiguously.
+     *
+     * @param array<int,array<string,mixed>> $pages @param array<string,array{candidate:array<string,mixed>,indexes:array<int,int>}> $clusters @param array<int,array<int,array<string,mixed>>> $candidates @param list<string> $excludedTemplateSlugs @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,parts:list<array<string,mixed>>,diagnostics:list<array<string,mixed>>,indexes:array<int,true>}
+     */
+    private function templateBoundShellPopulations(array $pages, array $clusters, ?string $dominant, array $candidates, string $area, array $excludedTemplateSlugs, array $reservedSlugs, array $runtimeDeclarations): array
+    {
+        $parts = array(); $diagnostics = array(); $extracted = array();
+        $overrides = array_flip($excludedTemplateSlugs);
+        foreach ($clusters as $clusterIdentity => $cluster) {
+            if ($clusterIdentity === $dominant || count($cluster['indexes']) < 2) continue;
+            $templateSlugs = array();
+            foreach ($cluster['indexes'] as $index) {
+                $slug = TemplateSlugs::forPage($pages[$index]);
+                if (!empty($pages[$index]['entrypoint']) ? 'front-page' !== $slug : !isset($overrides[$slug])) continue 2;
+                $templateSlugs[$slug] = true;
+            }
+            if (count($templateSlugs) !== count($cluster['indexes'])) continue;
+            [$bindings, $retained] = $this->shellBindings($runtimeDeclarations, $pages, $cluster['indexes'], $candidates, $area);
+            if ($retained || array() !== $bindings) continue;
+            $withoutShells = array();
+            foreach ($cluster['indexes'] as $index) {
+                $candidate = $candidates[$index][0];
+                if (!empty($candidate['device_document_bundle']) || isset($candidate['legacy_content_markup'])) continue 2;
+                $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
+                if (is_array($variants) && count($variants) > 1) continue 2;
+                $withoutShell = !empty($candidate['nested_shell'])
+                    ? $this->withoutNestedShell($pages[$index]['canonical_block_markup'], $candidate)
+                    : $this->withoutTopLevelShell($pages[$index]['canonical_block_markup'], $area, $candidate['markup'], $candidate['offset'] ?? null);
+                if (null === $withoutShell || '' === trim($withoutShell) || $this->retainsResponsiveVariantLandmark($withoutShell, $area)) continue 2;
+                $withoutShells[$index] = $withoutShell;
+            }
+            $members = array_intersect_key($pages, $withoutShells);
+            [$wrappers, $withoutShells] = $this->templateChromeWrappers($pages, $members, $cluster['indexes'], $candidates, $area, false, $withoutShells);
+            $wrappers = array_intersect_key($wrappers, $templateSlugs);
+            // Other routes' override templates keep their own population's part.
+            $otherOverrides = array();
+            foreach ($pages as $index => $page) {
+                $slug = TemplateSlugs::forPage($page);
+                if (!isset($withoutShells[$index]) && !isset($templateSlugs[$slug]) && 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug)) $otherOverrides[$slug] = true;
+            }
+            $first = $this->populationRepresentative($pages, $candidates, array_keys($withoutShells), $area) ?? $cluster['candidate'];
+            $partSlug = $area . '-' . substr(hash('sha256', $clusterIdentity), 0, 12);
+            for ($suffix = 2; isset($reservedSlugs[$partSlug]); ++$suffix) $partSlug = $area . '-' . substr(hash('sha256', $clusterIdentity), 0, 12) . '-' . $suffix;
+            $reservedSlugs[$partSlug] = true;
+            $sourcePath = 'wordpress-site-plan/shared/' . $partSlug;
+            $title = self::routeVariantTitle($area, $pages[$cluster['indexes'][0]], count($parts) + 2);
+            $partMarkup = (string) $first['template_part_markup'];
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => array_keys($templateSlugs), 'excluded_template_slugs' => array_keys($otherOverrides), 'template_wrappers' => $wrappers), static fn(mixed $value): bool => array() !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_population', array_intersect_key($candidates, $withoutShells), $clusterIdentity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($first['ancestor_context'] ?? null) ? array('ancestor_context' => $first['ancestor_context']) : array());
+            foreach ($withoutShells as $index => $withoutShell) {
+                $pages[$index]['canonical_block_markup'] = $withoutShell;
+                $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
+                $extracted[$index] = true;
+            }
+            $sources = array_values(array_map(static fn(int $index): string => (string) $pages[$index]['source_path'], array_keys($withoutShells)));
+            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_population_extracted', 'severity' => 'info', 'message' => "Extracted a {$area} design repeated by several routes as one template part bound to their templates.", 'area' => $area, 'slug' => $partSlug, 'page_count' => count($sources), 'source_paths' => $sources);
+        }
+        return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => $diagnostics, 'indexes' => $extracted);
+    }
+
+    /**
+     * The compiled shell a population part renders on every member route.
+     *
+     * Source equality settles one presentation for every route: the copy the
+     * evidence source compiled. A route whose author selectors retire (an
+     * evidence route) cannot render that copy when it names author hooks
+     * only: its own compilation carries the shell's presentation as engine
+     * carriers and presets instead. A population holding such routes renders
+     * their compiled copy, whose carriers follow the part into shared chrome
+     * on every member route. The most repeated evidence-route compilation
+     * wins, then the first route; null keeps the settled presentation.
+     *
+     * @param array<int,array<string,mixed>> $pages @param array<int,array<int,array<string,mixed>>> $candidates @param list<int> $indexes
+     * @return array<string,mixed>|null
+     */
+    private function populationRepresentative(array $pages, array $candidates, array $indexes, string $area): ?array
+    {
+        $groups = array();
+        foreach ($indexes as $index) {
+            if (empty($pages[$index]['document_metadata']['engine_owned_styles'])) continue;
+            $candidate = $candidates[$index][0] ?? null;
+            if (!is_array($candidate) || !is_string($candidate['markup'] ?? null)) continue;
+            $markup = self::landmarkPartMarkup(RestingNavigation::markup($candidate['markup']), $area);
+            $groups[$markup][] = array('template_part_markup' => $markup) + $candidate;
+        }
+        if (array() === $groups) return null;
+        $best = null;
+        foreach ($groups as $group) if (null === $best || count($group) > count($best)) $best = $group;
+        return $best[0];
     }
 
     /**
