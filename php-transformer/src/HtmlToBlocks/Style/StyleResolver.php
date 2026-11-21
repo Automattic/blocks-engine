@@ -236,25 +236,9 @@ final class StyleResolver implements ElementPresentationResolver
             return $cache->attributes[$cacheKey];
         }
 
-        $presentation = $this->presentationDeclarations($element);
-        // Text leaves below the recognition boundary still need to own an
-        // explicit class color. Unlike inheritance, that rule prevents a
-        // parent's color control from reaching the leaf. Do not project tag
-        // defaults or other presentation skipped by the boundary.
-        if (!isset($presentation['color']) && in_array(strtolower($element->tagName), array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'span'), true)) {
-            $classPaint = SourceDeclarations::parse($this->specificityResolvedPresentationStyle(
-                $element,
-                fn (string $selector): bool => !$this->unsupportedSelectorReferencesElement($selector, $element),
-                false
-            ));
-            $own = SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element));
-            if (isset($classPaint['color'], $own['color']) && $classPaint['color'] === $own['color']) {
-                $presentation['color'] = $own['color'];
-            }
-        }
         $declarations = $this->classOwnedResponsiveDeclarations(
             $element,
-            $presentation
+            $this->presentationDeclarations($element)
         );
         $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
         $mapped       = $this->styleAttributeMapper()->map(

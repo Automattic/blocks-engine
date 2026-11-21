@@ -417,6 +417,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->imageUrls = new ImageUrlResolver($this->session);
         $mediaLowering = new Elements\MediaLowering($this, $this->styleResolver, $this->imageUrls);
         $this->imageDimensions = new ImageDimensionResolver($this->styleResolver);
+        $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this->runtime
+        );
+        $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->imageLowering = new Elements\ImageLowering(
             $this,
             $this->blockFactory,
@@ -426,7 +431,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->imageUrls,
             $this->imageDimensions,
-            $this->sourceElementClassifier
+            $this->sourceElementClassifier,
+            $this->richTextMaterializer->inlineVisualDeclarations(...)
         );
         $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier,
             new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session),
@@ -440,15 +446,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->createNavigationStyleProjectionContext(),
             $this->styleResolver
         );
-        $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
-            $this->styleResolver,
-            $this->runtime
-        );
         $capturedDisclosureDialogs = new Elements\CapturedDisclosureDialog($this->styleResolver);
         $this->standaloneBreaks = new Elements\StandaloneBreakLowering($this, $this->styleResolver);
         $flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->sourceVisibility = new Style\SourceElementVisibility($this->styleResolver);
-        $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->structuralRichTextContainers = new Elements\StructuralRichTextContainerLowering($this, $this, $this->richTextMaterializer, $this->styleResolver);
         $this->richTextStylingHooks = new RichTextStylingHookNormalizer($this->styleResolver, $this->richTextMaterializer, $this->session, $this->sourceElementClassifier);
         $inlineFlows = new Elements\InlineFlowLowering($this, $this, $this->styleResolver, $this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime);

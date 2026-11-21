@@ -1284,7 +1284,10 @@ final class WrapperCoalescer
         if ($this->boxTreeClassifierOwnsWrappers()) return null;
         $proof = $this->layoutGeometryProofFor($element);
         if (null === $proof || $this->isLayoutGeometryCorrectiveTarget($element) || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
-        $children = $this->tree->children($element, $fallbacks, true);
+        // A declined coalesce discards this conversion and the caller converts
+        // the subtree again; only an accepted one may report its findings (#7271).
+        $childFallbacks = array();
+        $children = $this->tree->children($element, $childFallbacks, true);
         if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
         $sourceChild = ($this->soleElementChild)($element);
         if (!$sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
@@ -1292,6 +1295,7 @@ final class WrapperCoalescer
         $childAttrs['className'] = SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
         $this->session->layoutGeometryState()->recordProof($proof);
+        array_push($fallbacks, ...$childFallbacks);
         return $this->createBlock->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
     }
 

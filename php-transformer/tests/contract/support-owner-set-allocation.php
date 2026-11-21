@@ -27,26 +27,39 @@ foreach ($plan['writes'] as $write) if ('functions.php' === $write['target_path'
 echo 'Reduction: ' . count($support) . ' support files, ' . array_sum(array_map(static fn(array $asset): int => strlen($asset['content']), $support)) . ' support bytes, ' . strlen($bootstrap) . " functions.php bytes\n";
 $byTarget = array_column($plan['assets'], null, 'target_path');
 $markup = array_column($plan['pages'], 'canonical_block_markup', 'source_path');
+$supportByTarget = array_column($support, null, 'target_path');
+$routeSupport = static function (string $owner) use ($plan, $supportByTarget): array {
+    $loaded = array();
+    foreach (ThemeBootstrap::documentStylesheets($plan, $owner) as $stylesheet) if (isset($supportByTarget[$stylesheet['target_path']])) $loaded[] = $supportByTarget[$stylesheet['target_path']];
+    return $loaded;
+};
 foreach (array('all-copy' => $owners, 'subset-copy' => array_slice($owners, 0, 3), 'other-subset' => array_slice($owners, 2, 3), 'unique-copy' => array($owners[1])) as $class => $consumers) {
-    $rule = '.' . $class . '{box-sizing:content-box}';
-    $sheets = array_values(array_filter($support, static fn(array $asset): bool => str_contains($asset['content'], $rule)));
-    $assert(1 === count($sheets), 'Each generated rule is written exactly once: ' . $class);
+    $pattern = '/(?:^|[},])[^{}]*\.' . $class . '(?=[,{])[^{}]*\{box-sizing:content-box\}/';
     foreach ($owners as $owner) {
-        $loads = in_array($sheets[0]['target_path'], array_column(ThemeBootstrap::documentStylesheets($plan, $owner), 'target_path'), true);
+        $loads = 1 === preg_match($pattern, implode("\n", array_column($routeSupport($owner), 'content')));
         // Support never reaches a route outside its consumers (#6458).
-        $assert(in_array($owner, $consumers, true) === $loads, 'Support loads on exactly its consumers: ' . $class);
+        $assert(in_array($owner, $consumers, true) === $loads, 'Support loads on exactly its consumers: ' . $class . ' ' . $owner);
     }
 }
-$assert(4 === count($support), 'Adjacent support sheets with one delivery fold into one resource per owner set.');
+$allCopy = array_values(array_filter($support, static fn(array $asset): bool => str_contains($asset['content'], '.all-copy{box-sizing:content-box}')));
+$assert(1 === count($allCopy) && array(array('kind' => 'global')) === $allCopy[0]['scopes'], 'Support every route loads is written once, globally.');
+// Each route loads the global sheet and one route bundle: the five distinct
+// bundles (two routes share a byte-identical one) plus the global sheet.
+$assert(5 === count($support), 'Support folds into one bundle per route: ' . count($support));
+$assert(count($support) === count(array_unique(array_column($support, 'content'))), 'No two support resources are byte-identical.');
 $assert(str_contains($bootstrap, "if ( true )"), 'Global support also loads on WordPress-native routes.');
-$seen = array();
-foreach ($support as $asset) {
-    $assert('' !== trim($asset['content']), 'Support resources are never empty.');
-    $tree = new Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($asset['content']);
-    foreach ($tree->rules() as $row) {
-        $rule = trim(substr($asset['content'], $row['start'], $row['end'] - $row['start'] + 1));
-        $assert(!isset($seen[$rule]), 'No support rule is written twice.');
-        $seen[$rule] = true;
+foreach ($owners as $owner) {
+    $loaded = $routeSupport($owner);
+    $assert(count(array_filter($loaded, static fn(array $asset): bool => 'global' !== $asset['scopes'][0]['kind'])) <= 1, 'Each route loads at most one route-owned support sheet: ' . $owner);
+    $seen = array();
+    foreach ($loaded as $asset) {
+        $assert('' !== trim($asset['content']), 'Support resources are never empty.');
+        $tree = new Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($asset['content']);
+        foreach ($tree->rules() as $row) {
+            $rule = trim(substr($asset['content'], $row['start'], $row['end'] - $row['start'] + 1));
+            $assert(!isset($seen[$rule]), 'No route loads a support rule twice.');
+            $seen[$rule] = true;
+        }
     }
 }
 foreach ($plan['assets'] as $asset) if (in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state'), true)) {
