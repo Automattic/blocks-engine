@@ -329,6 +329,9 @@ final class ShellExtraction
         }
         unset($declaration);
         $this->resolveManifestEntities($declarations, $records);
+        // Every footer tail of every source compares its markers against the
+        // same stylesheets: index their marker arms once, not per comparison.
+        $markerArms = array('assets' => array(), 'parsed' => array());
         foreach ($parts as $partIndex => $part) {
             if ('footer' !== ($part['area'] ?? null) || 'shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
             $sources = array_keys($part['provenance']['sources'] ?? array());
@@ -351,7 +354,7 @@ final class ShellExtraction
                             if ($bindings['blocked']) continue;
                             $content = substr($markup, $range['offset'], $range['length']);
                             $identity = ChromeIdentity::document($content, $markup);
-                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets, substr_replace($markup, '<!--engine-chrome-start-->' . $content . '<!--engine-chrome-end-->', $range['offset'], $range['length']));
+                            $identity = self::engineMarkerChromeIdentity($identity, $original['source_path'], $assets, $markerArms, substr_replace($markup, '<!--engine-chrome-start-->' . $content . '<!--engine-chrome-end-->', $range['offset'], $range['length']));
                             $evidence[$scope][$tailPosition][$identity][$original['source_path']] = array('content' => $content, 'refs' => $bindings['refs']);
                         }
                     }
@@ -442,41 +445,75 @@ final class ShellExtraction
      * Compare generated markers by their emitted rules, including conditional
      * context. Missing evidence keeps the class significant. The emitted copy
      * keeps its original class, so support-CSS projection still sees its rules.
+     *
+     * @param array{assets: array<int|string, array{arms: list<array{0: list<string>, 1: string, 2: string}>, classes: array<string, list<int>>}>, parsed: array<string, array<string, mixed>>} $markerArms
+     *        Marker arms of each stylesheet and parsed arms, shared by every
+     *        comparison of one footer pass.
      */
-    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets, string $documentMarkup): string
+    private static function engineMarkerChromeIdentity(string $markup, string $source, array $assets, array &$markerArms, string $documentMarkup): string
     {
         preg_match_all('/\bblocks-engine-responsive-typography-[a-f0-9]+\b/', $markup, $typography);
         $classes = array_unique(array_merge(EngineMarker::all($markup), $typography[0]));
+        if (array() === $classes) return $markup;
         $replacements = array();
         // Read the original copy, not its normalized identity, with its document
         // ancestors intact. Boundary comments add no selector-visible wrapper.
         $document = HtmlSerialization::parseDocument('<html><body>' . $documentMarkup . '</body></html>');
         $elements = (new \DOMXPath($document))->query('//*[preceding::comment()[.="engine-chrome-start"] and following::comment()[.="engine-chrome-end"]]');
+        // Whether an arm applies depends on the arm and this copy's elements,
+        // not on which of its marker classes is being compared. Compacted
+        // marker groups name hundreds of markers in one arm.
+        $applies = array();
         foreach ($classes as $class) {
             $kind = EngineMarker::withoutDocumentSeeds($class);
             if ($kind === $class) $kind = 'blocks-engine-responsive-typography';
             $rules = array();
-            foreach ($assets as $asset) {
+            foreach ($assets as $assetIndex => $asset) {
                 if ('css' !== ($asset['kind'] ?? null) || !StylesheetActivation::active($asset) || !self::stylesheetAppliesToPages($asset, array($source))) continue;
-                (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body, array $ancestors) use ($class, $kind, $elements, &$rules): void {
-                    // A grouped rule can name several documents' copies. Compare
-                    // only the arms emitted for this marker, not its neighbours.
-                    foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
-                        if (!preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $arm)) continue;
-                        $parsed = CssSelectorMatcher::parse($arm);
-                        $applies = !$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'];
+                $index = $markerArms['assets'][$assetIndex] ??= self::stylesheetMarkerArms((string) ($asset['content'] ?? ''));
+                // A grouped rule can name several documents' copies. Compare
+                // only the arms emitted for this marker, not its neighbours.
+                foreach ($index['classes'][$class] ?? array() as $armIndex) {
+                    [$ancestors, $arm, $body] = $index['arms'][$armIndex];
+                    if (!isset($applies[$arm])) {
+                        $parsed = $markerArms['parsed'][$arm] ??= CssSelectorMatcher::parse($arm);
+                        $applies[$arm] = !$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'];
                         foreach ($elements ?: array() as $element) {
-                            if ($applies) break;
+                            if ($applies[$arm]) break;
                             $match = CssSelectorMatcher::matches($element, $parsed);
-                            $applies = !$match['supported'] || $match['matches'];
+                            $applies[$arm] = !$match['supported'] || $match['matches'];
                         }
-                        if ($applies) $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
                     }
-                });
+                    if ($applies[$arm]) $rules[] = array($ancestors, str_replace($class, $kind, trim($arm)), trim($body));
+                }
             }
             if (array() !== $rules) $replacements[$class] = $kind . '-' . RuntimeDeclarations::hash($rules);
         }
         return strtr($markup, $replacements);
+    }
+
+    /**
+     * Selector arms of one stylesheet that name a generated-marker class
+     * (`.class` not continued by another identifier character), in source
+     * order with the rule's conditional ancestors and body, and the arms
+     * naming each such class.
+     *
+     * @return array{arms: list<array{0: list<string>, 1: string, 2: string}>, classes: array<string, list<int>>}
+     */
+    private static function stylesheetMarkerArms(string $stylesheet): array
+    {
+        $index = array('arms' => array(), 'classes' => array());
+        if (!str_contains($stylesheet, '.blocks-engine-')) return $index;
+        (new CssStylesheetTransformer())->visitStyleRules($stylesheet, static function (string $selector, string $body, array $ancestors) use (&$index): void {
+            if (!str_contains($selector, '.blocks-engine-')) return;
+            foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
+                if (!preg_match_all('/\.(blocks-engine-[\w-]*)/', $arm, $named)) continue;
+                $armIndex = count($index['arms']);
+                $index['arms'][] = array($ancestors, $arm, $body);
+                foreach (array_unique($named[1]) as $class) $index['classes'][$class][] = $armIndex;
+            }
+        });
+        return $index;
     }
 
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
