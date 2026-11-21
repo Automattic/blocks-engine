@@ -21,8 +21,8 @@ final class RuntimeAttributesRuntime
      * tested, and a composed engine class is written in its published name.
      */
     public const PUBLISHED_CLASS_MATCHERS = array(
-        "str_starts_with( \$class, 'blocks-engine-' )" => "str_starts_with( __PUBLISHED___engine_class( \$class ), 'blocks-engine-' )",
-        "str_starts_with( \$class, 'be-inline-geometry-' )" => "str_starts_with( __PUBLISHED___engine_class( \$class ), 'be-inline-geometry-' )",
+        "str_starts_with( \$class, 'blocks-engine-' )" => "__PUBLISHED___has_engine_prefix( \$class, 'blocks-engine-' )",
+        "str_starts_with( \$class, 'be-inline-geometry-' )" => "__PUBLISHED___has_engine_prefix( \$class, 'be-inline-geometry-' )",
         "'" . EngineMarker::SUBJECT_CLASS_PREFIX . "' . substr( hash( 'sha256', \$token ), 0, 12 )" => "__PUBLISHED___published_class( '" . EngineMarker::SUBJECT_CLASS_PREFIX . "' . substr( hash( 'sha256', \$token ), 0, 12 ) )",
     );
 
