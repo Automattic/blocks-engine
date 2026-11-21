@@ -543,7 +543,23 @@ final class ImageLowering
         if ( $figure instanceof DOMElement ) {
             $caption = SourceDom::firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
-                $attrs['caption'] = SourceDom::innerHtml($caption);
+                $captionCopy = $caption->cloneNode(true);
+                // Captions bypass paragraph lowering. Carry their text leaves'
+                // native color declarations too, without restyling the caption
+                // box or projecting unrelated typography onto inline formats.
+                if ($captionCopy instanceof DOMElement) {
+                    $targets = iterator_to_array($captionCopy->getElementsByTagName('*'));
+                    foreach ($caption->getElementsByTagName('*') as $index => $inline) {
+                        $paint = $this->styleResolver->presentationAttributes($inline)['style']['color']['text'] ?? null;
+                        $paint = is_string($paint) ? $this->styleResolver->stripResponsiveClassOwnedDeclarations($inline, array('color' => $paint), true) : array();
+                        if (isset($paint['color']) && !in_array(strtolower($paint['color']), array('inherit', 'unset'), true)) {
+                            $declarations = SourceDeclarations::inline($targets[$index]);
+                            $declarations['color'] ??= $paint['color'];
+                            $targets[$index]->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
+                        }
+                    }
+                    $attrs['caption'] = SourceDom::innerHtml($captionCopy);
+                }
                 // Core saves only wp-element-caption on this inner part. Bind
                 // author rules to a figure carrier, including rich-text subjects
                 // whose selectors depended on the source caption's classes.
