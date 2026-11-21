@@ -88,8 +88,33 @@ final class StylesheetScopes
     {
         foreach ($assets as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
             $document = $documentsBySource[$scope['source_path']] ?? null;
-            if (!is_array($document) || $scope != PageStylesheets::documentScope($document)) throw new InvalidArgumentException('An asset scope does not match its canonical document.');
+            $canonical = is_array($document) ? PageStylesheets::documentScope($document) : null;
+            if ($scope != $canonical) throw new InvalidArgumentException(sprintf('An asset scope does not match its canonical document: scope %s; document scope %s.', json_encode($scope, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE), null === $canonical ? 'missing' : json_encode($canonical, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)));
         }
+    }
+
+    /**
+     * Working archive pages have become native document roots. Retain each
+     * stylesheet's consumer set, but derive its delivery identity from the
+     * documents that actually ship. Missing owners remain errors, not globals.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<string,array<string,mixed>> $documentsBySource
+     * @return array<int,array<string,mixed>>
+     */
+    public static function canonicalize(array $assets, array $documentsBySource): array
+    {
+        foreach ($assets as &$asset) {
+            foreach ($asset['scopes'] ?? array() as $index => $scope) {
+                if ('global' === $scope['kind']) continue;
+                $document = $documentsBySource[$scope['source_path']] ?? null;
+                if (is_array($document)) $asset['scopes'][$index] = PageStylesheets::documentScope($document);
+            }
+            if (isset($asset['stylesheet_replays'])) $asset['stylesheet_replays'] = self::canonicalize($asset['stylesheet_replays'], $documentsBySource);
+        }
+        unset($asset);
+        self::assertOwned($assets, $documentsBySource);
+        return $assets;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $documentsBySource @return array<int,array<string,mixed>> */
