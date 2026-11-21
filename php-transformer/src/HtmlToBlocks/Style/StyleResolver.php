@@ -2220,6 +2220,23 @@ final class StyleResolver implements ElementPresentationResolver
         return $className;
     }
 
+    /** Keep consumed quotation boxes local to a moving, clipped figure. */
+    public function movingFigureQuoteClassName(DOMElement $blockquote, ?DOMElement $caption): string
+    {
+        if (!$this->movesTextAcrossClip($blockquote)) return '';
+        $declarations = $this->structuralPresentationDeclarations($blockquote);
+        $box = array_intersect_key($declarations, array_flip(array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left')));
+        $box['display'] = 'block';
+        $captionText = null === $caption ? array() : array_intersect_key($this->structuralPresentationDeclarations($caption), array_flip(array('font-size', 'line-height')));
+        $signature = "moving-figure-quote\n" . $this->cssDeclarationString($box) . "\n" . $this->cssDeclarationString($captionText);
+        $className = $this->session->layoutGeometryState()->allocateCarrier($signature);
+        $selector = '.' . $className . '.' . $className;
+        $rules = $selector . '>p{' . $this->cssDeclarationString($box) . '}';
+        if (array() !== $captionText) $rules .= $selector . '>cite{' . $this->cssDeclarationString($captionText) . '}';
+        $this->session->layoutGeometryState()->registerRule($className, $rules);
+        return $className;
+    }
+
     /**
      * `core/embed`'s save() is a rigid, two-level `<figure><div
      * class="wp-block-embed__wrapper">` shape with no attribute path onto
