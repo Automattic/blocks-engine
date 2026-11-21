@@ -44,5 +44,10 @@
   {"name":"custom-element-state-rule", "tag":"x-wrap", "attributes":"data-state=\"open\"", "style":"x-wrap[data-state]:hover img{opacity:.5}", "criterion":"interaction/state"},
   {"name":"custom-element-interact-rule", "tag":"x-wrap", "attributes":"data-interact-key=\"k1\"", "style":"@media (min-width: 1px){[data-interact-key=\"k1\"] [data-interact-enter=\"done\"]{opacity:1}}", "criterion":"interaction/state"},
   {"name":"custom-element-unrelated-state-rule", "tag":"x-wrap", "attributes":"data-state=\"open\"", "style":".other:hover img{opacity:.5}", "criterion":"equal-child-geometry"},
+  {"name":"state-div-outside-overlay","style":".overlay > div:hover{opacity:.5}","styles":{"background-color":"rgb(255, 0, 0)","padding-top":"0px","margin-top":"0px","padding-right":"0px","margin-right":"0px","padding-bottom":"0px","margin-bottom":"0px","padding-left":"0px","margin-left":"0px"},"child_styles":{"padding-top":"0px","margin-top":"0px","padding-right":"0px","margin-right":"0px","padding-bottom":"0px","margin-bottom":"0px","padding-left":"0px","margin-left":"0px"},"criterion":"paints","disposition":"folded"},
+  {"name":"state-div-inside-overlay", "body_attributes":"class=\"overlay\"", "style":".overlay > div:hover{opacity:.5}", "styles":{"background-color":"rgb(255, 0, 0)"}, "criterion":"paints", "fold_refusal":"state-targeted"},
+  {"name":"state-rule-ancestor", "attributes":"class=\"overlay\"", "style":".overlay > img:hover{opacity:.5}", "styles":{"background-color":"rgb(255, 0, 0)"}, "criterion":"paints", "fold_refusal":"state-targeted"},
+  {"name":"state-rule-subject", "body_attributes":"class=\"overlay\"", "style":".overlay:hover > div{opacity:.5}", "styles":{"background-color":"rgb(255, 0, 0)"}, "criterion":"paints", "fold_refusal":"state-targeted"},
+  {"name":"state-negation-only", "attributes":"class=\"x\"", "body_attributes":"class=\"overlay\"", "style":".overlay > :not(.x):focus{opacity:.5}", "styles":{"background-color":"rgb(255, 0, 0)"}, "criterion":"paints", "fold_refusal":"state-targeted"},
   {"name":"reserved-hyphenated-name", "tag":"font-face", "criterion":"semantics/id/anchor"}
 ]

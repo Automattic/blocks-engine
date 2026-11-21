@@ -18,6 +18,7 @@ foreach ($cases as $case) {
         for ($i = 1; $i <= 11; ++$i) $open .= '<div data-blocks-engine-node-id="chain' . $i . '">';
         $html = str_replace('<img data-blocks-engine-node-id="image" src="image.png">', $open . '<img data-blocks-engine-node-id="image" src="image.png">' . str_repeat('</div>', 11), $html);
     }
+    if (isset($case['body_attributes'])) $html = str_replace('<body ', '<body ' . $case['body_attributes'] . ' ', $html);
     if (isset($case['device'])) $html = str_replace('<body ', '<body data-blocks-engine-capture-device-document="' . $case['device'] . '" ', $html);
     if (isset($case['reference'])) $html = str_replace('src="image.png"', 'src="image.png" ' . $case['reference'], $html);
     $tree = $base;
@@ -49,6 +50,8 @@ foreach ($cases as $case) {
     $report = $result['source_reports']['box_tree']['index.html']['classification'];
     if ('equal-child-geometry' === $case['criterion']) $assert($report['counts']['neutral'] > 0, 'Capture-shaped fixture retains neutral boxes');
     $assert($case['criterion'] === $report['nodes']['wrapper']['criterion'], $case['name'] . ' has the named criterion');
+    if (isset($case['fold_refusal'])) $assert($case['fold_refusal'] === ($report['nodes']['wrapper']['fold_refusal'] ?? null), $case['name'] . ' retains the state rule handle');
+    if (isset($case['disposition'])) $assert($case['disposition'] === $report['nodes']['wrapper']['disposition'], $case['name'] . ' has the expected disposition: ' . json_encode($report['nodes']['wrapper']));
     if ('unobserved-viewport' === $case['criterion']) {
         $assert('load-bearing' === $report['nodes']['wrapper']['disposition'] && 'unobserved-viewport' === $report['nodes']['wrapper']['fold_refusal'], $case['name'] . ' refuses collapse without viewport evidence');
     }

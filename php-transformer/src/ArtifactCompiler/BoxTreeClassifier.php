@@ -884,10 +884,10 @@ final class BoxTreeClassifier
     }
 
     /**
-     * Compounds of document style rules that apply only in a non-resting state,
-     * with state pseudo-classes removed so the resting capture can be matched.
-     * A box matched by any compound of such a rule (subject or ancestor) is the
-     * rule's handle; collapsing it would orphan the state styling.
+     * Selector prefixes of document style rules that apply only in a non-resting
+     * state, with state pseudo-classes removed for the resting capture. Each
+     * compound keeps its preceding context: subjects and ancestors remain rule
+     * handles without targeting unrelated boxes of the same type.
      *
      * @return list<string>
      */
@@ -903,12 +903,15 @@ final class BoxTreeClassifier
                 foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
                     if (!preg_match(self::STATE_PSEUDO_CLASS, $selector) && !preg_match(self::STATE_ATTRIBUTE, $selector)) continue;
                     $tokens = CssSelectorTokenizer::tokenize($selector);
-                    foreach ($tokens['supported'] ? $tokens['compounds'] : array($selector) as $compound) {
+                    $prefix = '';
+                    foreach ($tokens['supported'] ? $tokens['compounds'] : array($selector) as $i => $compound) {
                         $compound = trim((string) preg_replace(self::STATE_PSEUDO_CLASS, '', $compound));
                         // Only negations left (`:not(.x):focus`) names no box:
                         // like `*`, it is whichever element enters the state.
                         $positive = trim((string) preg_replace(self::NEGATION, '', $compound));
-                        $compounds['' === $positive || '*' === $positive ? '*' : $compound] = true;
+                        $compound = '' === $positive || '*' === $positive ? '*' : $compound;
+                        $prefix .= (0 === $i ? '' : ' ' . $tokens['combinators'][$i - 1] . ' ') . $compound;
+                        $compounds[$prefix] = true;
                     }
                 }
             }
