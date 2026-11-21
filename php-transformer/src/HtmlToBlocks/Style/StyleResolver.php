@@ -236,18 +236,9 @@ final class StyleResolver implements ElementPresentationResolver
             return $cache->attributes[$cacheKey];
         }
 
-        $presentation = $this->presentationDeclarations($element);
-        // Text leaves need an owned color even below the structural recognition
-        // boundary. A retained source rule paints the leaf directly, so it
-        // cannot be treated as inheritance from an editable parent block.
-        if (in_array(strtolower($element->tagName), array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'), true)
-            && !isset($presentation['color'])) {
-            $own = SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element));
-            if (isset($own['color'])) $presentation['color'] = $own['color'];
-        }
         $declarations = $this->classOwnedResponsiveDeclarations(
             $element,
-            $presentation
+            $this->presentationDeclarations($element)
         );
         $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
         $mapped       = $this->styleAttributeMapper()->map(
