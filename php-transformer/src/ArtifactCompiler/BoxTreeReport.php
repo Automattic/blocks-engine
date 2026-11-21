@@ -23,6 +23,9 @@ final class BoxTreeReport
             $decoded = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
             $tree = BoxTree::expandCompact($decoded);
             $code = null === $tree && null !== $decoded ? 'box_tree_styles_invalid' : self::validate($tree, $sources);
+            if (null === $code && self::hasAnimatedObservations($tree)) {
+                $code = 'box_tree_animated_observations';
+            }
             if (null === $code) {
                 $path = $tree['source_path'];
                 if (isset($seen[$path])) {
@@ -38,6 +41,29 @@ final class BoxTreeReport
             $trees[$tree['source_path']] = $tree;
         }
         return array('trees' => self::withSharedChromeViewports($trees, $sources), 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * An animation's computed styles describe a sampled frame, not a resting
+     * cascade. Agreement across widths does not prove that frame is stable
+     * over time (even identical zero opacity can be an entrance animation).
+     * Intake is atomic: retiring the route's author CSS while keeping only
+     * some nodes would also lose keyframes and inherited animation effects.
+     * Keep the authored conversion until the producer supplies settled evidence.
+     */
+    private static function hasAnimatedObservations(array $tree): bool
+    {
+        foreach ($tree['nodes'] as $node) {
+            foreach ($node['viewports'] as $observation) {
+                foreach (array_merge(array($observation), array_values($observation['pseudo'] ?? array())) as $box) {
+                    $names = explode(',', (string) ($box['used_styles']['animation-name'] ?? 'none'));
+                    foreach ($names as $name) {
+                        if (!in_array(strtolower(trim($name)), array('', 'none'), true)) return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
