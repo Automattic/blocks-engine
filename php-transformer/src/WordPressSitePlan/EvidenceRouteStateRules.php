@@ -27,6 +27,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * are dropped. The capture's device-island gate (`.data-blocks-engine-capture-
  * desktop-only` / `-mobile-only` under its viewport media) is engine contract,
  * not author selectors, and carriers render both islands: it is kept too.
+ * A template part captured without this route's carriers renders here as
+ * that capture did, so a rule whose classes and ids all name hooks such a
+ * part carries is kept whole as well.
  * Everything else is dropped, except `@font-face` and `@layer` order
  * statements.
  */
@@ -54,8 +57,9 @@ final class EvidenceRouteStateRules
      * @param string $markup Emitted route markup; an ancestor compound of attributes it never carries is dropped.
      * @param string|null $reach Every markup the route renders (route and template parts); a rule
      *                           whose subject names an id it never carries matches nothing. Defaults to `$markup`.
+     * @param string $chrome Template part markup the route renders without its carriers.
      */
-    public function __construct(private readonly array $stateAttributes, private readonly string $markup = '', private readonly ?string $reach = null)
+    public function __construct(private readonly array $stateAttributes, private readonly string $markup = '', private readonly ?string $reach = null, private readonly string $chrome = '')
     {
     }
 
@@ -100,6 +104,11 @@ final class EvidenceRouteStateRules
         // animation consumers read.
         foreach ($trees as &$tree) $this->markState($tree);
         unset($tree);
+        if ('' !== $this->chrome) {
+            $hooks = self::hooks($this->chrome);
+            foreach ($trees as &$tree) $this->markChrome($tree, $hooks);
+            unset($tree);
+        }
         $this->motionProperties += $this->stateProperties;
         foreach ($trees as &$tree) $this->markConsumers($tree);
         unset($tree);
@@ -158,7 +167,7 @@ final class EvidenceRouteStateRules
     {
         foreach ($nodes as &$node) {
             if ('group' === $node['type']) $this->markDefinitions($node['children']);
-            if ('style' !== $node['type'] || true === ($node['keep']['state'] ?? false)) continue;
+            if ('style' !== $node['type'] || isset($node['keep']['body'])) continue;
             $added = array();
             foreach ($this->declarations($node['body']) as [$property, $value]) {
                 $declaration = $property . ':' . $value;
@@ -215,6 +224,61 @@ final class EvidenceRouteStateRules
             foreach ($this->declarations($node['body']) as [$property]) if (str_starts_with($property, '--')) $this->stateProperties[$property] = true;
             $this->bind($node['body'], false);
         }
+    }
+
+    /**
+     * Resting rules that style template parts, kept whole.
+     *
+     * @param list<array<string, mixed>> $nodes
+     * @param array{class: array<string, true>, id: array<string, true>} $hooks
+     */
+    private function markChrome(array &$nodes, array $hooks): void
+    {
+        foreach ($nodes as &$node) {
+            if ('group' === $node['type']) $this->markChrome($node['children'], $hooks);
+            if ('style' !== $node['type'] || null !== $node['keep']) continue;
+            $arms = CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array();
+            $selectors = $this->reachable(array_values(array_filter($arms, static fn(string $selector): bool => self::namesOnly($selector, $hooks))));
+            if (array() === $selectors) continue;
+            $node['keep'] = array('selectors' => $selectors, 'body' => $node['body'], 'state' => false);
+            $this->bind($node['body']);
+        }
+    }
+
+    /**
+     * Classes and ids in markup, from rendered HTML and block attributes.
+     *
+     * @return array{class: array<string, true>, id: array<string, true>}
+     */
+    private static function hooks(string $markup): array
+    {
+        $hooks = array('class' => array(), 'id' => array());
+        preg_match_all('/\sclass="([^"]*)"|"className":"([^"]*)"/', $markup, $classes);
+        foreach (array_merge($classes[1], $classes[2]) as $list) foreach (preg_split('/\s+/', html_entity_decode($list, ENT_QUOTES | ENT_HTML5)) ?: array() as $class) if ('' !== $class) $hooks['class'][$class] = true;
+        preg_match_all('/\sid="([^"]+)"|"anchor":"([^"]+)"/', $markup, $ids);
+        foreach (array_filter(array_merge($ids[1], $ids[2])) as $id) $hooks['id'][html_entity_decode($id, ENT_QUOTES | ENT_HTML5)] = true;
+        return $hooks;
+    }
+
+    /**
+     * Whether a selector names at least one class or id, and only ones the
+     * hooks carry. Negated, attribute and escaped names are not read.
+     * Document root route stamps (`be-r-…`, `be-rs-…`) and the classes
+     * WordPress adds when it renders a block (`wp-…`, current menu state)
+     * gate rather than name.
+     *
+     * @param array{class: array<string, true>, id: array<string, true>} $hooks
+     */
+    private static function namesOnly(string $selector, array $hooks): bool
+    {
+        if (str_contains($selector, '\\')) return false;
+        $bare = (string) preg_replace(array('/"[^"]*"|\'[^\']*\'/', '/' . self::ATTRIBUTE . '/'), array('""', ''), $selector);
+        do $bare = (string) preg_replace('/:not\((?:[^()]|\([^()]*\))*\)/i', '', $bare, -1, $count); while ($count > 0);
+        preg_match_all('/([.#])(-?[A-Za-z_][\w-]*)/', $bare, $names, PREG_SET_ORDER);
+        $names = array_filter($names, static fn(array $name): bool => '#' === $name[1] || 1 !== preg_match('/^(?:be-rs?(?:-[0-9a-f]+)?|wp-[\w-]+|current[-_](?:menu|page)[\w-]*)$/D', $name[2]));
+        if (array() === $names) return false;
+        foreach ($names as [, $kind, $name]) if (!isset($hooks['.' === $kind ? 'class' : 'id'][$name])) return false;
+        return true;
     }
 
     /** @param list<array<string, mixed>> $nodes */
