@@ -18,6 +18,7 @@ foreach ($cases as $case) {
         for ($i = 1; $i <= 11; ++$i) $open .= '<div data-blocks-engine-node-id="chain' . $i . '">';
         $html = str_replace('<img data-blocks-engine-node-id="image" src="image.png">', $open . '<img data-blocks-engine-node-id="image" src="image.png">' . str_repeat('</div>', 11), $html);
     }
+    if (isset($case['device'])) $html = str_replace('<body ', '<body data-blocks-engine-capture-device-document="' . $case['device'] . '" ', $html);
     if (isset($case['reference'])) $html = str_replace('src="image.png"', 'src="image.png" ' . $case['reference'], $html);
     $tree = $base;
     if (!empty($case['desktop_only'])) unset($tree['viewports']['mobile']);
@@ -48,6 +49,9 @@ foreach ($cases as $case) {
     $report = $result['source_reports']['box_tree']['index.html']['classification'];
     if ('equal-child-geometry' === $case['criterion']) $assert($report['counts']['neutral'] > 0, 'Capture-shaped fixture retains neutral boxes');
     $assert($case['criterion'] === $report['nodes']['wrapper']['criterion'], $case['name'] . ' has the named criterion');
+    if ('unobserved-viewport' === $case['criterion']) {
+        $assert('load-bearing' === $report['nodes']['wrapper']['disposition'] && 'unobserved-viewport' === $report['nodes']['wrapper']['fold_refusal'], $case['name'] . ' refuses collapse without viewport evidence');
+    }
     if (!empty($case['chain'])) $assert(1 === $report['projection']['depth'] && 0 === $report['projection']['groups'], 'Twelve neutral image wrappers project to one leaf');
     $assert(array_sum($report['counts']) === count($tree['nodes']), 'Every source node is counted');
     $assert($report['projection']['depth'] <= 10 && $report['projection']['groups_per_leaf'] <= 1.1, 'Fixture projection meets depth and wrapper budget');

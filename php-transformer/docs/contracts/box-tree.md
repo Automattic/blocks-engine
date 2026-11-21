@@ -142,6 +142,12 @@ and the deciding `criterion`. Criteria are `paints`, `clips`, `multi-child-layou
 `own-sizing`; neutral nodes have `equal-child-geometry`. Precedence follows that
 order. Neutrality requires one element child, no direct non-whitespace text, and
 matching x/y/width/height at **every** viewport (0.01 CSS pixel tolerance).
+Before neutrality or folding, a reflow document requires desktop and mobile
+observations (plus any additional tree viewports). Within a captured device
+document scope, only that profile's capture is required. The wrapper and its
+children must have those observations; otherwise the wrapper stays load-bearing
+with criterion and fold refusal `unobserved-viewport`. Device scope comes from
+capture document markers, never a platform name.
 Equal geometry is not neutral when reparenting the child would size it from
 content in the nearest non-collapsed flex ancestor. A block-level in-flow
 wrapper is kept as `own-sizing` (and cannot fold) if, at any capture, it is a

@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
 /**
@@ -110,7 +111,8 @@ final class BoxTreeClassifier
             $stateCompounds ??= self::stateCompounds($dom);
             $handoff = self::identityHandoff($element, $node, $effective, $elements, $references, $stateCompounds);
             $identity = is_array($handoff) ? $handoff : array();
-            $criterion = self::criterion($element, $node, $effective, $blockParent, isset($containing[$id]), $referenced, $stateTargeted, isset($identity['entrance']) ? $identity : array());
+            $observed = self::observedViewports($element, $node, $effective);
+            $criterion = $observed ? self::criterion($element, $node, $effective, $blockParent, isset($containing[$id]), $referenced, $stateTargeted, isset($identity['entrance']) ? $identity : array()) : 'unobserved-viewport';
             $disposition = 'equal-child-geometry' === $criterion ? 'neutral' : 'load-bearing';
             $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion);
             if ('semantics/id/anchor' === $criterion && isset($identity['link'])
@@ -119,7 +121,7 @@ final class BoxTreeClassifier
                 $nodes[$id]['identity'] = $identity;
             }
             $semantic = isset($identity['tagName']);
-            if ('load-bearing' === $disposition && (in_array($criterion, self::FOLDABLE, true) || $semantic)) {
+            if ($observed && 'load-bearing' === $disposition && (in_array($criterion, self::FOLDABLE, true) || $semantic)) {
                 // A state rule kept on the route can hang on any tag, not only custom elements.
                 if (!$stateTargeted) {
                     $stateCompounds ??= self::stateCompounds($dom);
@@ -147,8 +149,8 @@ final class BoxTreeClassifier
                 }
             }
             if ('load-bearing' === $disposition && 1 === count($node['children'])) {
-                $nodes[$id]['fold_refusal'] = is_string($handoff) && 'ineligible-identity' !== $handoff && 'missing-handoff-target' !== $handoff ? $handoff
-                    : (isset($fold) ? (is_string($fold) ? $fold : 'unequal-box') : $criterion);
+                $nodes[$id]['fold_refusal'] = !$observed ? 'unobserved-viewport' : (is_string($handoff) && 'ineligible-identity' !== $handoff && 'missing-handoff-target' !== $handoff ? $handoff
+                    : (isset($fold) ? (is_string($fold) ? $fold : 'unequal-box') : $criterion));
             }
             unset($fold);
             ++$counts[$disposition];
@@ -176,6 +178,32 @@ final class BoxTreeClassifier
             'basis' => 'estimated-block-producing-boxes', 'depth' => $depth, 'groups' => $groups,
             'leaves' => $leaves, 'groups_per_leaf' => $leaves ? $groups / $leaves : 0.0,
         ) : null);
+    }
+
+    /** Equality at one width cannot authorize removing a box served at another. */
+    private static function observedViewports(DOMElement $element, array $node, array $tree): bool
+    {
+        $required = array_unique(array_merge(array('desktop', 'mobile'), array_keys($tree['viewports'] ?? array())));
+        for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            $profile = EngineMarker::deviceScopeValue($ancestor);
+            if ('' === $profile) {
+                foreach (preg_split('/\s+/', trim($ancestor->getAttribute('class')), -1, PREG_SPLIT_NO_EMPTY) as $class) {
+                    $profile = CaptureEvidence::deviceDocumentProfile($class) ?? '';
+                    if ('' !== $profile) break;
+                }
+            }
+            if ('' !== $profile) {
+                $required = array($profile);
+                break;
+            }
+        }
+        foreach ($required as $viewport) {
+            if (!isset($tree['viewports'][$viewport], $node['viewports'][$viewport])) return false;
+            foreach ($node['children'] as $child) {
+                if (!isset($tree['nodes'][$child]['viewports'][$viewport])) return false;
+            }
+        }
+        return true;
     }
 
     private static function criterion(DOMElement $element, array $node, array $tree, ?array $blockParent, bool $containing, bool $referenced, bool $stateTargeted = false, array $identity = array()): string
