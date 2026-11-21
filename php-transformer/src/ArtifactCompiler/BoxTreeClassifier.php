@@ -903,9 +903,24 @@ final class BoxTreeClassifier
                 foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
                     if (!preg_match(self::STATE_PSEUDO_CLASS, $selector) && !preg_match(self::STATE_ATTRIBUTE, $selector)) continue;
                     $tokens = CssSelectorTokenizer::tokenize($selector);
+                    $resting = '';
+                    foreach ($tokens['supported'] ? $tokens['compounds'] : array($selector) as $i => $compound) {
+                        $resting .= (0 === $i ? '' : ' ' . $tokens['combinators'][$i - 1] . ' ') . self::restingCompound($compound);
+                    }
+                    $parsed = CssSelectorMatcher::parse($resting);
+                    if ($parsed['supported']) {
+                        $hasSubject = false;
+                        foreach ($dom->getElementsByTagName('*') as $element) {
+                            if (CssSelectorMatcher::matches($element, $parsed)['matches']) {
+                                $hasSubject = true;
+                                break;
+                            }
+                        }
+                        if (!$hasSubject) continue;
+                    }
                     $prefix = '';
                     foreach ($tokens['supported'] ? $tokens['compounds'] : array($selector) as $i => $compound) {
-                        $compound = trim((string) preg_replace(self::STATE_PSEUDO_CLASS, '', $compound));
+                        $compound = self::restingCompound($compound);
                         // Only negations left (`:not(.x):focus`) names no box:
                         // like `*`, it is whichever element enters the state.
                         $positive = trim((string) preg_replace(self::NEGATION, '', $compound));
@@ -917,6 +932,14 @@ final class BoxTreeClassifier
             }
         }
         return array_keys($compounds);
+    }
+
+    /** Remove transient states; a negated state alone holds at rest. */
+    private static function restingCompound(string $compound): string
+    {
+        $compound = (string) preg_replace(self::STATE_PSEUDO_CLASS, '', $compound);
+        $compound = trim((string) preg_replace('/:not\(\s*\)/i', '', $compound));
+        return '' === $compound ? '*' : $compound;
     }
 
     /** @param list<string> $compounds */
