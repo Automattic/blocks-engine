@@ -270,18 +270,23 @@ final class RepeatedBlockStyles
         }
         $theme = array();
         $edits = array();
-        foreach ($groups as $signature => $group) {
+        $used = array();
+        // Allocate site-wide names in type/signature order, independent of
+        // route traversal order (including types such as list/list-item).
+        uksort($groups, static fn(string $a, string $b): int => strcmp(explode(':', $a, 2)[0], explode(':', $b, 2)[0]) ?: strcmp($a, $b));
+        foreach ($groups as $group) {
             if (count($group['blocks']) < self::MIN_REPEATS) continue;
             $shared = null;
             foreach ($group['blocks'] as $block) {
-                $classes = array_values(array_filter(self::classes($block['tag']['html']), static fn(string $class): bool => !str_starts_with($class, 'be-') && !str_starts_with($class, 'wp-') && !str_starts_with($class, 'has-') && !str_starts_with($class, 'blocks-engine-') && 1 === preg_match('/^[a-z][a-z0-9-]{0,39}$/', $class)));
+                $classes = array_values(array_filter(self::classes($block['tag']['html']), static fn(string $class): bool => !str_starts_with($class, 'be-') && !str_starts_with($class, 'wp-') && !str_starts_with($class, 'has-') && !str_starts_with($class, 'is-') && !str_starts_with($class, 'blocks-engine-') && 1 === preg_match('/^[a-z][a-z0-9-]{0,39}$/', $class)));
                 $shared = null === $shared ? $classes : array_values(array_intersect($shared, $classes));
             }
-            sort($shared);
             $type = $group['blocks'][0]['name'];
-            // Hash suffix also prevents two different looks sharing a source
-            // class from acquiring the same variation name across routes.
-            $slug = ($shared[0] ?? 'look') . '-' . substr(hash('sha256', $signature), 0, 8);
+            $base = $shared[0] ?? substr($type, 5);
+            $slug = $base;
+            $suffix = 2;
+            while (isset($used[$type][$slug])) $slug = $base . '-' . $suffix++;
+            $used[$type][$slug] = true;
             $theme[$type]['variations'][$slug] = $group['style'];
             foreach ($group['blocks'] as $block) $edits[$block['document']][$block['offset']] = array($block, $slug, $group['declarations']);
         }
