@@ -58,4 +58,15 @@ $assert(! isset($products['zeta-note']), 'An unpriced card of another kind is no
 $grid = (current(array_filter($plan['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'product_grids' === ($declaration['type'] ?? null))) ?: array())['payload']['entities'][0] ?? array();
 $assert(array('alpha-lamp', 'beta-vase', 'gamma-tray', 'delta-bin', 'epsilon-bowl') === array_column($grid['items'] ?? array(), 'product'), 'The grid repeats every card, including the price-on-request one: ' . json_encode(array_column($grid['items'] ?? array(), 'product')));
 
+// A detail page that does publish a price wins over the card's label.
+$files['products/beta-vase/index.html'] = str_replace('<main>', '<script type="application/ld+json">' . json_encode(array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Beta Vase', 'url' => '/products/beta-vase/', 'offers' => array('@type' => 'Offer', 'price' => '120.00', 'priceCurrency' => 'EUR'))) . '</script><main>', $files['products/beta-vase/index.html']);
+$priced = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$beta = array();
+foreach ($priced['runtime_declarations'] ?? array() as $declaration) {
+    foreach ('products' === ($declaration['type'] ?? null) ? $declaration['payload']['entities'] : array() as $entity) {
+        if ('beta-vase' === $entity['slug']) $beta = $entity;
+    }
+}
+$assert('120.00' === ($beta['regular_price'] ?? null) && ! isset($beta['price_label']), 'A published detail price replaces the label: ' . json_encode(array_diff_key($beta, array('bindings' => true))));
+
 echo "product-grid-price-on-request: ok\n";
