@@ -40,8 +40,51 @@ final class ImageLowering
         private readonly HtmlTransformerSession $session,
         private readonly ImageUrlResolver $imageUrls,
         private readonly ImageDimensionResolver $imageDimensions,
-        private readonly SourceElementClassifier $sourceElementClassifier
+        private readonly SourceElementClassifier $sourceElementClassifier,
+        private readonly ?\Closure $richTextInlineDeclarations = null
     ) {
+    }
+
+    /**
+     * A caption is RichText like a paragraph, but it bypasses paragraph
+     * lowering. Its inline elements keep their source markup and also carry
+     * their resolved text colour inline, as paragraph RichText does, so the
+     * caption's text colour is owned by the content instead of a retained
+     * author class that silently overrides the block's colour control.
+     * Only colour moves: the caption box and other inline typography stay
+     * owned by the author rules bound to the figure carrier.
+     */
+    private function captionContent(DOMElement $caption): string
+    {
+        if (null === $this->richTextInlineDeclarations || 0 === $caption->getElementsByTagName('*')->length) {
+            return SourceDom::innerHtml($caption);
+        }
+        $copy = $caption->cloneNode(true);
+        if (!$copy instanceof DOMElement) {
+            return SourceDom::innerHtml($caption);
+        }
+        $targets = iterator_to_array($copy->getElementsByTagName('*'));
+        foreach ($caption->getElementsByTagName('*') as $index => $inline) {
+            $target = $targets[$index] ?? null;
+            if (!$target instanceof DOMElement || '' === trim($inline->textContent) || isset(SourceDeclarations::inline($inline)['color'])) {
+                continue;
+            }
+            $color = ($this->richTextInlineDeclarations)($inline)['color'] ?? null;
+            if (!is_string($color)) {
+                continue;
+            }
+            // A breakpoint-owned colour stays with its class rule: an inline
+            // resting value would freeze it at every width.
+            $color = $this->styleResolver->stripResponsiveClassOwnedDeclarations($inline, array('color' => $color), true)['color'] ?? null;
+            if (!is_string($color) || in_array(strtolower(trim($color)), array('inherit', 'unset', 'initial', 'currentcolor'), true)) {
+                continue;
+            }
+            $declarations = SourceDeclarations::inline($target);
+            $declarations['color'] = $color;
+            $target->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
+        }
+
+        return SourceDom::innerHtml($copy);
     }
 
     /** @return array<string, mixed>|null */
@@ -543,7 +586,7 @@ final class ImageLowering
         if ( $figure instanceof DOMElement ) {
             $caption = SourceDom::firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
-                $attrs['caption'] = SourceDom::innerHtml($caption);
+                $attrs['caption'] = $this->captionContent($caption);
                 // Core saves only wp-element-caption on this inner part. Bind
                 // author rules to a figure carrier, including rich-text subjects
                 // whose selectors depended on the source caption's classes.
