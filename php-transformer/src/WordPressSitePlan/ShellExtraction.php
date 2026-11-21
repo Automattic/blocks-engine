@@ -4709,7 +4709,11 @@ final class ShellExtraction
                     $rest = reset($rest);
                     // The item keeps its own label; only its markers are per document.
                     if (isset($row['attrs']['label'])) $rest['label'] = $row['attrs']['label'];
-                    if ($rest === $atRest($row['attrs'])) continue;
+                    // An item that already wears the resting look, as the shell
+                    // identity sees it, keeps its own copy: the stored rest is
+                    // one route's raw attributes, and an evidence route's carry
+                    // carriers and inline values no other route renders.
+                    if (BlockAttributes::encode($asIdentity($rest)) === BlockAttributes::encode($asIdentity($atRest($row['attrs'])))) continue;
                     $markers = array_values(array_filter($classes($row['attrs']), $isMarker));
                     if (array() !== $markers) $rest['className'] = trim(($rest['className'] ?? '') . ' ' . implode(' ', $markers));
                     $comment = '<!-- wp:navigation-' . $row['kind'] . ' ' . BlockAttributes::encode($rest) . ($row['closed'] ? ' /-->' : ' -->');
