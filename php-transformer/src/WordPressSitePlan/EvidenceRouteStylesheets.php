@@ -12,10 +12,16 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * replace (EvidenceRouteStateRules). A sheet that routes without evidence
  * also load stays whole for them, and its evidence routes load that retained
  * part as a sibling sheet in the same cascade positions.
+ *
+ * Carriers describe a route's own capture. A template part whose shared copy
+ * came from a capture without evidence renders on an evidence route without
+ * carriers, so a retired sheet keeps the rules that style that part.
  */
 final class EvidenceRouteStylesheets
 {
     public const RETAINED_SUFFIX = '.evidence-retained.css';
+
+    private const CARRIER = '/be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/';
 
     /**
      * @param list<array<string, mixed>> $parts Template parts every route renders; their markup counts as emitted.
@@ -95,9 +101,47 @@ final class EvidenceRouteStylesheets
         }
         if (array() === $author) return $assets;
         $reach = $markup . (string) json_encode(array_column($parts, 'canonical_block_markup'), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $rules = new EvidenceRouteStateRules(EvidenceRouteStateRules::stateAttributes($markup), $markup, $reach);
+        $rules = new EvidenceRouteStateRules(EvidenceRouteStateRules::stateAttributes($markup), $markup, $reach, self::uncarriedChrome($assets, $evidence, array() !== $legacy, $parts));
         $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context);
         foreach ($author as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
         return $assets;
+    }
+
+    /**
+     * Markup of the parts some evidence route renders without its carriers:
+     * the part carries no class that route's own engine-support sheets (those
+     * no route without evidence loads) style.
+     *
+     * @param list<array<string, mixed>> $assets
+     * @param array<string, true> $evidence
+     * @param bool $mixed Whether routes without evidence exist.
+     * @param list<array<string, mixed>> $parts
+     */
+    private static function uncarriedChrome(array $assets, array $evidence, bool $mixed, array $parts): string
+    {
+        $carriers = array_fill_keys(array_keys($evidence), array());
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || 'engine-support' !== ($asset['source'] ?? null)) continue;
+            $routes = array();
+            foreach ($asset['scopes'] ?? array() as $scope) {
+                if ('global' === $scope['kind'] && !$mixed) $routes += $evidence;
+                elseif (isset($evidence[$scope['source_path'] ?? ''])) $routes[$scope['source_path']] = true;
+                else continue 2;
+            }
+            if (array() === $routes || !preg_match_all(self::CARRIER, (string) ($asset['content'] ?? ''), $classes)) continue;
+            foreach (array_keys($routes) as $route) $carriers[$route] += array_fill_keys($classes[0], true);
+        }
+        $chrome = array();
+        foreach ($parts as $part) {
+            if ('unbound' === ($part['placement']['kind'] ?? null)) continue;
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $own = preg_match_all(self::CARRIER, $markup, $classes) ? array_fill_keys($classes[0], true) : array();
+            foreach ($carriers as $route) {
+                if (array() !== array_intersect_key($own, $route)) continue;
+                $chrome[] = $markup;
+                break;
+            }
+        }
+        return implode("\n", $chrome);
     }
 }
