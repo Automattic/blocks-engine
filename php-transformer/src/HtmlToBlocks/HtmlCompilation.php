@@ -298,7 +298,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * (`from`), child property => box property (`moves`), and whether the
      * child's border box equals the box's (`equal_box`).
      *
-     * @var array<string, array{from: string, moves: array<string, string>, equal_box: bool}>
+     * @var array<string, array{from: string, moves: array<string, string>, add_padding: array<string, string>, equal_box: bool}>
      */
     private array $foldedInto = array();
 
@@ -1967,7 +1967,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // ADR 0005 slice 5: a folded box's declarations now belong to its child.
         foreach ( $classification['folds'] as $id => $fold ) {
-            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'identity' => $fold['identity']);
+            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'add_padding' => $fold['add_padding'], 'equal_box' => $fold['equal_box'], 'identity' => $fold['identity']);
             $this->foldChildObservations[(string) $fold['child']] = $tree['nodes'][$fold['child']]['viewports'] ?? array();
         }
         $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => isset($node['identity']['link'])))));
@@ -2018,6 +2018,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if (isset($fold['moves']['position']) && !isset($fold['moves']['align-self']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
             unset($fluid['align-self'], $fluid['justify-self']);
         }
+        // Additive moves already contain both captured padding values. Do not
+        // replace their sum with either element's unsummed author bands.
+        $fluid = array_diff_key($fluid, $fold['add_padding']);
         $box = $element->parentNode;
         while ( $box instanceof DOMElement && $fold['from'] !== $box->getAttribute(BoxTree::NODE_ATTRIBUTE) ) {
             $box = $box->parentNode;
