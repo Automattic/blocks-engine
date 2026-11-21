@@ -567,7 +567,10 @@ final class StyleAttributeMapper
 
         $noBorder = 'none' === $style || ( '' !== $width && (float) $width === 0.0 && '' === $colorValue && '' === $style );
         if ( ! $noBorder ) {
-            if ( $global['width']['declared'] && '' !== $width && (float) $width !== 0.0 ) {
+            // Mixed borders still need the global zero reset: emitting solid
+            // without it restores medium-width borders on the unpainted sides.
+            // The all-zero case has already returned above.
+            if ( $global['width']['declared'] && '' !== $width ) {
                 $border['width'] = $width;
             }
             if ( $global['style']['declared'] && '' !== $style && 'none' !== $style ) {
