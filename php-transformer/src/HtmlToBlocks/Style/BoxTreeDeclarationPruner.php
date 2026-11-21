@@ -150,11 +150,15 @@ final class BoxTreeDeclarationPruner
 
     /**
      * Wrapper declarations constrained by a block's generated structure.
-     * Cover's absolute image and overlay need a containing block and clipping;
-     * source values outside these sets must yield to Core, not undo it.
+     * Cover's absolute image and overlay need a containing block and clipping,
+     * and its content position aligns the inner container only in Core's flex
+     * layout (the source children's percentage sizes resolve against that
+     * container, not the cover). Source values outside these sets must yield
+     * to Core, not undo it.
      */
     private const BLOCK_STRUCTURAL_VALUES = array(
         'core/cover' => array(
+            'display' => array('flex', 'none'),
             'position' => array('relative', 'absolute', 'fixed', 'sticky'),
             'overflow' => array('hidden', 'clip', 'auto', 'scroll'),
             'overflow-x' => array('hidden', 'clip', 'auto', 'scroll'),
