@@ -64,7 +64,9 @@ final class BoxTreeClassifier
         $references = array();
         foreach ($dom->getElementsByTagName('*') as $element) {
             $href = $element->getAttribute('href');
-            if (str_starts_with($href, '#')) $references[rawurldecode(substr($href, 1))] = true;
+            // A bare `#` targets the document top, not an element; indexing the
+            // empty id would mark every id-less element as referenced.
+            if (str_starts_with($href, '#') && '' !== ($target = rawurldecode(substr($href, 1)))) $references[$target] = true;
             foreach (array('aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'for') as $attribute) {
                 foreach (preg_split('/\s+/', trim($element->getAttribute($attribute)), -1, PREG_SPLIT_NO_EMPTY) as $target) $references[$target] = true;
             }
@@ -72,6 +74,8 @@ final class BoxTreeClassifier
         foreach ($dom->getElementsByTagName('style') as $style) {
             $references += CssRuleAnalyzer::referencedIds((string) $style->textContent);
         }
+        // An element without an id is never referenced.
+        unset($references['']);
         $containing = array();
         foreach ($tree['viewports'] ?? array() as $viewport => $_) {
             $absolute = $fixed = array();
