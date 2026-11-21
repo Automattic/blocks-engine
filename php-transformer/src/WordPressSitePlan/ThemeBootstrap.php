@@ -307,8 +307,10 @@ PHP;
         $lines[] = <<<'PHP'
 add_action( 'init', static function (): void {
     $theme = wp_json_file_decode( get_theme_file_path( 'theme.json' ), array( 'associative' => true ) );
-    foreach ( $theme['styles']['blocks']['core/button']['variations'] ?? array() as $slug => $look ) {
-        register_block_style( 'core/button', array( 'name' => $slug, 'label' => ucwords( str_replace( '-', ' ', $slug ) ) ) );
+    foreach ( $theme['styles']['blocks'] ?? array() as $block => $styles ) {
+        foreach ( $styles['variations'] ?? array() as $slug => $look ) {
+            register_block_style( $block, array( 'name' => $slug, 'label' => ucwords( str_replace( '-', ' ', $slug ) ) ) );
+        }
     }
 } );
 PHP;
