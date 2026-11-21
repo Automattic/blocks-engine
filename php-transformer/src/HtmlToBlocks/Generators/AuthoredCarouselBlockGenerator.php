@@ -1551,7 +1551,8 @@ JS;
         $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        $namedSlideshow = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity);
+        $presentation = 'track';
         if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
             $visible = 0;
             $hidden = 0;
@@ -1609,6 +1610,11 @@ JS;
         $visibleCount = 1 < $exposedTogether && count($exposed) === $exposedTogether && $exposedTogether < count($items) ? $exposedTogether : 0;
         if ( 0 === $visibleCount && count($exposed) < count($items) ) {
             $visibleCount = $this->translatedTrackWindowCount($element, $list, array_values($exposed), count($items));
+        }
+        // A slideshow name (a `__slideshow-holder` wrapper around a track) is
+        // only a hint; a measured multi-up track window outweighs it.
+        if ( $namedSlideshow && 0 === $visibleCount ) {
+            $presentation = 'slideshow';
         }
         foreach ( $items as $index => $item ) {
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && 0 === $visibleCount && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
