@@ -15,9 +15,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * state (an interaction pseudo-class, or a runtime state attribute the
  * capture replays) still override that pose the way they overrode the
  * resting author rule, and blocks keep their source classes, so those rules
- * are kept in their cascade position and conditional context. Resting rules
- * that bind an animation through a custom property a state rule defines are
- * kept down to their motion declarations. So are resting rules that bind
+ * are kept in their cascade position and conditional context. Resting motion
+ * declarations are kept too: observations cannot replace animation bindings,
+ * timing longhands or disabling overrides, whether direct or through var(). So are resting rules that bind
  * a scroll- or time-driven animation through a custom property whose value
  * names one of the sheets' `@keyframes` (Wix parallax: `--anm-0` carries the
  * keyframes, `--anm-tmln-0` the view timeline). The custom properties kept
@@ -284,18 +284,18 @@ final class EvidenceRouteStateRules
     /** @param list<array<string, mixed>> $nodes */
     private function markConsumers(array &$nodes): void
     {
-        if (array() === $this->motionProperties) return;
         foreach ($nodes as &$node) {
             if ('group' === $node['type']) $this->markConsumers($node['children']);
             if ('style' !== $node['type'] || null !== $node['keep']) continue;
             $motion = array();
-            $consumes = false;
             foreach ($this->declarations($node['body']) as [$property, $value]) {
                 if (!preg_match(self::MOTION, $property)) continue;
                 $motion[] = $property . ':' . $value;
-                if (preg_match_all('/var\(\s*(--[\w-]+)/', $value, $vars)) foreach ($vars[1] as $var) $consumes = $consumes || isset($this->motionProperties[$var]);
             }
-            if (!$consumes) continue;
+            // Resting box observations do not describe a live animation's
+            // timing or binding. Direct names, separate timing longhands and
+            // disabling overrides need the same retention as var() consumers.
+            if (array() === $motion) continue;
             $selectors = $this->reachable(CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array($node['prelude']));
             if (array() === $selectors) continue;
             $node['keep'] = array('selectors' => $selectors, 'declarations' => $motion, 'state' => false);
