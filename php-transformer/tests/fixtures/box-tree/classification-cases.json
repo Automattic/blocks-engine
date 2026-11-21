@@ -1,5 +1,11 @@
 [
   {"name":"neutral", "criterion":"equal-child-geometry"},
+  {"name":"padding-id-block", "padding_case":true, "attributes":"id=\"padded\"", "criterion":"own-sizing", "disposition":"folded", "expected_padding":"7px"},
+  {"name":"padding-child-paint", "padding_case":true, "child_styles":{"background-color":"red"}, "criterion":"own-sizing", "fold_refusal":"child-paint"},
+  {"name":"padding-child-clip", "padding_case":true, "child_styles":{"overflow-x":"hidden"}, "criterion":"own-sizing", "fold_refusal":"child-border-clip"},
+  {"name":"padding-child-border", "padding_case":true, "child_styles":{"border-top":"1px solid red"}, "criterion":"own-sizing", "fold_refusal":"border"},
+  {"name":"padding-child-border-box-width", "padding_case":true, "child_styles":{"box-sizing":"border-box","width":"90px"}, "criterion":"own-sizing", "fold_refusal":"constraint-box"},
+  {"name":"padding-child-margin", "padding_case":true, "child_styles":{"margin-left":"1px"}, "criterion":"own-placement", "fold_refusal":"edge-conflict:left"},
   {"name":"hidden", "styles":{"display":"none"}, "criterion":"hidden"},
   {"name":"flex-order", "styles":{"order":"1"}, "criterion":"own-placement"},
   {"name":"offset", "styles":{"position":"relative","top":"-40px"}, "criterion":"own-placement"},

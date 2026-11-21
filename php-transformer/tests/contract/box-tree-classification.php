@@ -12,7 +12,20 @@ $assert = static function (bool $ok, string $message): void {
     echo "PASS: $message\n";
 };
 foreach ($cases as $case) {
+    if (!empty($case['padding_case'])) {
+        $initial = array('width' => 'auto', 'height' => 'auto', 'min-width' => 'auto', 'min-height' => 'auto', 'max-width' => 'none', 'max-height' => 'none', 'overflow-x' => 'visible', 'overflow-y' => 'visible');
+        foreach (array('top', 'right', 'bottom', 'left') as $side) {
+            $initial['padding-' . $side] = '0px';
+            $initial['margin-' . $side] = '0px';
+        }
+        $case['styles'] = array_replace($initial, array_fill_keys(array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'), '5px'));
+        $case['child_styles'] = array_replace($initial, array_fill_keys(array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'), '2px'), $case['child_styles'] ?? array());
+        $case['child_box'] = array('x' => 5, 'y' => 5, 'width' => 90, 'height' => 10);
+    }
     $html = '<html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head">' . (isset($case['style']) ? '<style>' . $case['style'] . '</style>' : '') . '</head><body data-blocks-engine-node-id="body"><' . ($case['tag'] ?? 'div') . ' data-blocks-engine-node-id="wrapper" ' . ($case['attributes'] ?? '') . '><img data-blocks-engine-node-id="image" src="image.png">' . (!empty($case['second_child']) ? '<img data-blocks-engine-node-id="second" src="image.png">' : '') . '</' . ($case['tag'] ?? 'div') . '></body></html>';
+    if (isset($case['expected_padding'])) {
+        $html = str_replace('<img data-blocks-engine-node-id="image" src="image.png">', '<div data-blocks-engine-node-id="image"><p data-blocks-engine-node-id="first">First</p><p data-blocks-engine-node-id="second">Second</p></div>', $html);
+    }
     if (!empty($case['chain'])) {
         $open = '';
         for ($i = 1; $i <= 11; ++$i) $open .= '<div data-blocks-engine-node-id="chain' . $i . '">';
@@ -50,6 +63,11 @@ foreach ($cases as $case) {
     $report = $result['source_reports']['box_tree']['index.html']['classification'];
     if ('equal-child-geometry' === $case['criterion']) $assert($report['counts']['neutral'] > 0, 'Capture-shaped fixture retains neutral boxes');
     $assert($case['criterion'] === $report['nodes']['wrapper']['criterion'], $case['name'] . ' has the named criterion');
+    if (isset($case['expected_padding'])) {
+        $markup = $result['serialized_blocks'];
+        $assert(str_contains($markup, 'padded'), $case['name'] . ' hands off its identity');
+        $assert(str_contains(json_encode($result), $case['expected_padding']), $case['name'] . ' emits summed child padding');
+    }
     if (isset($case['fold_refusal'])) $assert($case['fold_refusal'] === ($report['nodes']['wrapper']['fold_refusal'] ?? null), $case['name'] . ' retains the state rule handle');
     if (isset($case['disposition'])) $assert($case['disposition'] === $report['nodes']['wrapper']['disposition'], $case['name'] . ' has the expected disposition: ' . json_encode($report['nodes']['wrapper']));
     if ('unobserved-viewport' === $case['criterion']) {

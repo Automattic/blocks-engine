@@ -208,12 +208,14 @@ node keeps its deciding `criterion` and lists the applied rules in `fold`;
 `counts.folded` counts folded boxes and `fold_counts` counts folds per rule
 (one box can apply several rules).
 
-- `own-sizing`: each padding side becomes the child's margin on that side when
-  the child has no margin there and its border box sits exactly inside the
-  box's padding edge (0.01px). A vertical side needs a flex or grid parent, where
-  the new margin cannot collapse. Sizing constraints (`min-*`, `max-*`) move only
-  when the child's border box equals the box's and neither has padding or
-  borders; otherwise non-initial constraints refuse the fold.
+- `own-sizing`: padding adds to the child's padding when its border box fills
+  the box's content box (0.01px), with zero margin on each padded side. At every
+  viewport the child must have zero borders, no paint, and visible overflow on
+  both axes. A constrained child must be content-box; border-box width, height,
+  min/max constraints refuse with `constraint-box`. The expanded border box
+  equals the removed box's, while the child's content box remains unchanged;
+  vertical padding cannot collapse even in block flow. Margin transfer remains
+  independent. Wrapper min/max constraints require compatible sizing boxes.
 - `paint`: background longhands, `border-radius`, `box-shadow` and `outline`
   move when the child's border box equals the box's and the child paints none
   of them. A painting border has a width, so it never folds.
@@ -243,6 +245,13 @@ parent (unless the child establishes one itself), and every behavior criterion
 (semantics, references, interaction or state rules of any tag, capture markers,
 motion, unobserved children, direct text). Boxes are classified in document
 order on effective observations, so a chain of folds composes.
+
+The fold contract has separate `moves` (destination property => wrapper
+property, copied) and `add_padding` (child padding property => wrapper padding
+property, summed) maps. Additive moves sum the two used pixel values at each
+viewport, update the child's effective border box, and compose through wrapper
+chains. Conversion uses those summed observations rather than replacing them
+with either element's unsummed author bands.
 
 Moved declarations keep the box's author bands: the box's own fluid lift (in
 the box's context) replaces the child's for every moved property, renamed from
