@@ -76,6 +76,62 @@ final class CapturedNavigationPanels
         }
     }
 
+    /** Restore a proven source menu once, where capture adoption owns its trigger. */
+    public static function restoreSourceNavigationPanel(DOMElement $panel): void
+    {
+        $key = $panel->getAttribute(CaptureEvidence::DIALOG_PANEL);
+        $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+        foreach ( array('class', 'style') as $attribute ) {
+            $value = $snapshot['resting'][$attribute] ?? null;
+            if ( null === $value ) $panel->removeAttribute($attribute);
+            else $panel->setAttribute($attribute, $value);
+        }
+        $classes = array_diff(SourceDom::tokens($panel->getAttribute('class')), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS));
+        $panel->setAttribute('class', implode(' ', $classes));
+        foreach ( array(CaptureEvidence::EXISTING_PANEL, CaptureEvidence::RESTING_PANEL, CaptureEvidence::OBSERVED_PLACEMENT, CaptureEvidence::DIALOG_PANEL, 'hidden') as $attribute ) {
+            $panel->removeAttribute($attribute);
+        }
+        if ( str_starts_with($key, CaptureEvidence::DIALOG_CLASS . '-') && $key === $panel->getAttribute('id') ) $panel->removeAttribute('id');
+        foreach ( $panel->parentNode->childNodes as $trigger ) {
+            if ( ! $trigger instanceof DOMElement || $key !== $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER) ) continue;
+            foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DISCLOSURE_LABEL, 'aria-controls', 'aria-expanded', 'aria-haspopup') as $attribute ) {
+                $trigger->removeAttribute($attribute);
+            }
+        }
+    }
+
+    /**
+     * A source header's link nav is not a captured dialog. Leave its tree for
+     * ordinary responsive navigation recognition, which owns the native overlay.
+     * Nested dropdowns and non-navigation panels keep their capture contract.
+     */
+    public static function isSourceNavigationPanel(DOMElement $panel): bool
+    {
+        if ( 'nav' !== strtolower($panel->tagName)
+            || ! $panel->hasAttribute(CaptureEvidence::EXISTING_PANEL)
+            || ! SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS)
+            || ! SourceDom::hasAncestorTag($panel, array('header'))
+            || SourceDom::hasAncestorTag($panel, array('nav')) ) return false;
+        $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+        $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
+        if ( ! is_array($resting) || false !== ($resting['hidden'] ?? null)
+            || ! array_key_exists('style', $resting) || ! array_key_exists('class', $resting)
+            || (null !== $resting['style'] && ! is_string($resting['style']))
+            || (null !== $resting['class'] && ! is_string($resting['class'])) ) return false;
+        $key = $panel->getAttribute(CaptureEvidence::DIALOG_PANEL);
+        if ( ! str_starts_with($key, CaptureEvidence::DIALOG_CLASS . '-')
+            || $key !== $panel->getAttribute('id') || $panel->childElementCount < 2 ) return false;
+        foreach ( $panel->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ('a' !== strtolower($child->tagName) || ! $child->hasAttribute('href')) ) return false;
+        }
+        foreach ( $panel->parentNode->childNodes as $trigger ) {
+            if ( $trigger instanceof DOMElement && 'button' === strtolower($trigger->tagName)
+                && $key === $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER)
+                && $key === $trigger->getAttribute('aria-controls') ) return true;
+        }
+        return false;
+    }
+
     public static function restoreRestingStates(DOMElement $body): void
     {
         foreach ($body->getElementsByTagName('*') as $element) {
