@@ -377,15 +377,19 @@ final class BoxTreeClassifier
         $child = $elements[$childId] ?? null;
         if (!$child instanceof DOMElement || $child->parentNode !== $element) return 'missing-handoff-target';
         if (self::carriesOnlyViewportEntrance($element)) {
-            if (!\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation::rendersFoldEntrance($child)
-                || $child->hasAttribute('id') || self::carriesCaptureMarker($child)) return 'capture-marker';
+            if (!\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation::rendersFoldEntrance($child)) return 'entrance-target-unrendered';
+            if ($child->hasAttribute('id')) return 'entrance-target-id';
+            if (self::carriesCaptureMarker($child)) return 'entrance-target-marker';
             foreach (CssRuleAnalyzer::declarationList($element->getAttribute('style')) as $declaration) {
-                if (!preg_match('/^--motion-/i', $declaration['name'])) return 'capture-marker';
+                if (!preg_match('/^--motion-/i', $declaration['name'])) return 'entrance-own-style';
             }
             foreach (CssRuleAnalyzer::declarationList($child->getAttribute('style')) as $declaration) {
-                if (preg_match('/^--motion-/i', $declaration['name'])) return 'capture-marker';
+                if (preg_match('/^--motion-/i', $declaration['name'])) return 'entrance-child-motion';
             }
             $attributes = array(CaptureEvidence::VIEWPORT_ENTRANCE => $element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE));
+            foreach ($element->attributes as $attribute) {
+                if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) $attributes[$attribute->name] = $attribute->value;
+            }
             if ($element->hasAttribute('id')) $attributes['id'] = $element->getAttribute('id');
             if ('' !== trim($element->getAttribute('style'))) $attributes['style'] = rtrim($child->getAttribute('style'), "; \t\n\r\0\x0B") . ';' . $element->getAttribute('style');
             return array('entrance' => true, 'attributes' => $attributes);
