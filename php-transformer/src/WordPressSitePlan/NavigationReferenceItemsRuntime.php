@@ -42,6 +42,18 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
     // Remove recorded top-level extras before replaying positional presentation.
     // WP_Block_List preserves stored WP_Block instances (and their context).
     if ( array_filter( $presentation, static fn ( $own ): bool => is_array( $own ) && ! empty( $own['omit'] ) ) ) {
+    // Importers rewrite entity URLs to permalinks: a trailing slash or the
+    // site's absolute origin still names the recorded destination.
+    $site_host = strtolower( (string) parse_url( home_url( '/' ), PHP_URL_HOST ) );
+    $destination = static function ( string $url ) use ( $site_host ): string {
+        $url = trim( $url );
+        $parts = parse_url( $url );
+        if ( ! is_array( $parts ) || isset( $parts['fragment'] ) ) return $url;
+        $host = strtolower( (string) ( $parts['host'] ?? '' ) );
+        if ( '' !== $host && $host !== $site_host ) return '//' . $host . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' ) . '/' . trim( (string) ( $parts['path'] ?? '' ), '/' ) . ( isset( $parts['query'] ) ? '?' . $parts['query'] : '' );
+        if ( '' === $host && ( isset( $parts['scheme'] ) || '/' !== ( $url[0] ?? '' ) ) ) return $url;
+        return '/' . trim( (string) ( $parts['path'] ?? '' ), '/' ) . ( isset( $parts['query'] ) ? '?' . $parts['query'] : '' );
+    };
     $kept = array();
     $kept_presentation = array();
     $position = 0;
@@ -57,7 +69,7 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         $attrs = $block->parsed_block['attrs'] ?? array();
         $omit = ! empty( $own['omit'] ) && isset( $own['label'], $own['omitUrl'] )
             && $text( (string) ( $attrs['label'] ?? '' ) ) === $own['label']
-            && (string) ( $attrs['url'] ?? '' ) === $own['omitUrl'];
+            && $destination( (string) ( $attrs['url'] ?? '' ) ) === $destination( (string) $own['omitUrl'] );
         if ( ! $omit ) {
             $kept[] = $block;
             array_push( $kept_presentation, ...array_slice( $presentation, $position, $length ) );
