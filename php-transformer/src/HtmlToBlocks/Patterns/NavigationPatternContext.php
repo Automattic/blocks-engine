@@ -913,6 +913,7 @@ final class NavigationPatternContext
                 continue;
             }
             $current = $this->withoutCurrentItemPresentation($block);
+            $liftedLabels = $this->liftUniformLabelWrapper($block, $source);
             $targets = $levelCounts = array();
             $collect($block['innerBlocks'] ?? array(), '');
             foreach ($targets as $marker => $pathSet) {
@@ -938,6 +939,7 @@ final class NavigationPatternContext
             }
             if (array() === $targets && array() === $current) {
                 $this->publishInheritedNavigationPresentation($block, $source, '');
+                $this->installLiftedLabelSubjects($liftedLabels, CssIdent::compoundClassSelector(SourceDom::tokens($block['attrs']['className'] ?? '')));
                 continue;
             }
             // The instance names the resting menu: per-item link colours follow
@@ -965,6 +967,7 @@ final class NavigationPatternContext
             $hasSubmenus = str_contains($markup, '"core\/navigation-submenu"');
             $root = $source->getNodePath() ?? '';
             $this->publishInheritedNavigationPresentation($block, $source, $scope);
+            $this->installLiftedLabelSubjects($liftedLabels, '.' . $scope);
             foreach ($this->pendingNavigationSubjects as $path => $subject) {
                 if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
                 $marker = $subject['marker'];
@@ -988,6 +991,77 @@ final class NavigationPatternContext
             }
         }
         unset($block);
+    }
+
+    /**
+     * A menu whose every label is one classed span around plain text (a
+     * builder's `<a><span class="item-label">Services</span></a>`) states a
+     * menu-wide label style, not per-item rich text. Unwrap the labels and
+     * return the source spans, whose author rules then bind to Core's item
+     * label: siblings look the same and a later item matches them. Labels
+     * that differ, partial wraps, semantic tags and spans carrying identity,
+     * language, accessibility or inline style keep their markup.
+     *
+     * @param array<string, mixed> $block
+     * @return list<string> Source paths of the unwrapped spans.
+     */
+    private function liftUniformLabelWrapper(array &$block, DOMElement $source): array
+    {
+        $wrappers = array();
+        $collect = static function (array $items) use (&$collect, &$wrappers): bool {
+            foreach ($items as $item) {
+                if (!in_array($item['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
+                $label = (string) ($item['attrs']['label'] ?? '');
+                if (1 !== preg_match('/^<span\b([^<>]*)>([^<]*)<\/span>$/', $label, $match) || '' === trim($match[2])) return false;
+                preg_match_all('/\s([^\s=]+)(?:="([^"]*)")?/', $match[1], $attributes, PREG_SET_ORDER);
+                $classes = '';
+                foreach ($attributes as $attribute) {
+                    $name = strtolower($attribute[1]);
+                    if ('class' === $name) $classes = $attribute[2] ?? '';
+                    elseif (!str_starts_with($name, 'data-')) return false;
+                }
+                $wrappers[] = $classes;
+                if (!$collect($item['innerBlocks'] ?? array())) return false;
+            }
+            return true;
+        };
+        if (!$collect($block['innerBlocks'] ?? array()) || count($wrappers) < 2 || 1 !== count(array_unique($wrappers))) return array();
+        $authored = array_values(array_filter(SourceDom::tokens($wrappers[0]), static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-')));
+        if (array() === $authored) return array();
+        sort($authored);
+        $paths = array();
+        foreach ($source->getElementsByTagName('a') as $anchor) {
+            $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement || '' !== trim($node->textContent ?? '')));
+            $span = $children[0] ?? null;
+            if (1 !== count($children) || !$span instanceof DOMElement || 'span' !== strtolower($span->tagName) || 0 !== $span->childElementCount || $span->hasAttribute('style')) continue;
+            $classes = array_values(array_unique(array_filter(SourceDom::tokens($span->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
+            sort($classes);
+            if ($classes === $authored) $paths[] = $span->getNodePath() ?? '';
+        }
+        if (count($paths) < count($wrappers)) return array();
+        $unwrap = static function (array &$items) use (&$unwrap): void {
+            foreach ($items as &$item) {
+                if (!in_array($item['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
+                $item['attrs']['label'] = preg_replace('/^<span\b[^<>]*>([^<]*)<\/span>$/', '$1', (string) $item['attrs']['label']);
+                if (!empty($item['innerBlocks'])) $unwrap($item['innerBlocks']);
+            }
+            unset($item);
+        };
+        $unwrap($block['innerBlocks']);
+        return $paths;
+    }
+
+    /**
+     * Every item label of this menu, including one the owner adds later, is
+     * the native counterpart of an unwrapped source label span.
+     *
+     * @param list<string> $paths
+     */
+    private function installLiftedLabelSubjects(array $paths, string $menu): void
+    {
+        foreach ($paths as $path) {
+            $this->session->authorSelectorProjectionState()->installNavigationSubject($path, '.wp-block-navigation' . $menu . ' .wp-block-navigation-item__label');
+        }
     }
 
     /**
