@@ -647,7 +647,7 @@ final class BoxTreeClassifier
             $childBorderBox = $childBorderBox && 'border-box' === ($c['box-sizing'] ?? null);
             foreach (self::CONSTRAINT_INITIAL as $property => $initial) {
                 if (in_array($b[$property], $initial, true)) continue;
-                if (!$replaces && !in_array($c[$property], $initial, true)) return 'child-own-' . $property;
+                if (!$replaces && !in_array($c[$property], $initial, true) && $c[$property] !== $b[$property]) return 'child-own-' . $property;
                 $constrained = true;
             }
             if (self::boxPaints($b)) {
