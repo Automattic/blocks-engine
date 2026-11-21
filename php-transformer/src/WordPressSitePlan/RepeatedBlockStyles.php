@@ -38,6 +38,14 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
  *   rewrites its style, and no runtime binding anchors on its markup.
  * - At least two blocks lose it: a value one block carries is not repeated.
  *
+ * The same pass generalizes this to opt-in looks: identical non-margin style
+ * sets on two or more paragraphs, details, groups, lists or list items become
+ * `styles.blocks.<block>.variations.<slug>` and the blocks get
+ * `is-style-<slug>`. Core prints those as
+ * `:root :where(.wp-block-x.is-style-slug)`; a variation is used only when no
+ * delivered rule competes for one of its properties. Headings stay inline
+ * because heading element styles may otherwise outrank the variation.
+ *
  * @internal
  */
 final class RepeatedBlockStyles
@@ -80,6 +88,17 @@ final class RepeatedBlockStyles
      * @return array{markup:array<string,string>,blocks:array<string,array<string,mixed>>}
      */
     public static function hoist(array $documents, array $observed, array $assets, array $anchors = array()): array
+    {
+        // The unrestricted block-type margin is the all-members special case.
+        // Resolve it first, retaining its exposure and layout guards, then group
+        // the remaining exact style sets behind opt-in variation selectors.
+        $result = self::hoistMargins($documents, $observed, $assets, $anchors);
+        foreach ($result['markup'] as $key => $markup) $documents[$key]['markup'] = $markup;
+        $variations = self::hoistVariations($documents, $assets, $anchors);
+        return array('markup' => array_replace($result['markup'], $variations['markup']), 'blocks' => array_replace_recursive($result['blocks'], $variations['blocks']));
+    }
+
+    private static function hoistMargins(array $documents, array $observed, array $assets, array $anchors): array
     {
         $blocks = array();
         $exposure = array();
@@ -126,6 +145,157 @@ final class RepeatedBlockStyles
             $markup[$key] = $text;
         }
         return array('markup' => $markup, 'blocks' => $theme);
+    }
+
+    /**
+     * Exact remaining style sets, never partial intersections. Only root style
+     * supports with a proven inline serialization are eligible. Custom selectors
+     * (notably image borders and heading/link element styles) are not assumed to
+     * target the wrapper. Unknown properties leave the entire set inline.
+     */
+    private static function hoistVariations(array $documents, array $assets, array $anchors): array
+    {
+        $groups = array();
+        $rules = self::classRules($assets, false);
+        foreach ($documents as $key => $document) {
+            if (!$document['strippable']) continue;
+            $protected = self::protectedRanges($document['markup'], $anchors);
+            foreach (self::blocks($document['markup']) as $block) {
+                // Heading element styles can outrank a variation's 0-1-0;
+                // do not remove their inline typography without that proof.
+                if (!in_array($block['name'], array('core/paragraph', 'core/details', 'core/group', 'core/list', 'core/list-item'), true)) continue;
+                $attrs = $block['attributes'];
+                if (!$attrs instanceof \stdClass || null === $block['tag'] || BlockAttributes::encode($attrs) !== $block['json']) continue;
+                if (isset($attrs->align) || isset($attrs->metadata->blocksEngineRuntimeAttributes) || str_contains((string) ($attrs->className ?? ''), 'is-style-')) continue;
+                $blocked = false;
+                foreach ($protected as [$start, $end]) if ($block['offset'] >= $start && $block['offset'] < $end) $blocked = true;
+                if ($blocked) continue;
+                $style = json_decode(json_encode($attrs->style ?? new \stdClass(), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+                // Preset attributes are represented as theme.json values too.
+                foreach (array('fontSize' => array('typography', 'fontSize', 'font-size'), 'fontFamily' => array('typography', 'fontFamily', 'font-family'), 'textColor' => array('color', 'text', 'color'), 'backgroundColor' => array('color', 'background', 'color')) as $attribute => [$family, $property, $preset]) {
+                    if (isset($attrs->{$attribute})) $style[$family][$property] = 'var:preset|' . $preset . '|' . $attrs->{$attribute};
+                }
+                if (array() === $style) continue;
+                // Margin-only sets retain the original site-wide exposure
+                // proof, including raw and dynamic selector members.
+                if (array('spacing') === array_keys($style) && array('margin') === array_keys($style['spacing'])) continue;
+                $declarations = self::styleDeclarations($style);
+                if (null === $declarations || array() === $declarations) continue;
+                $inline = CssRuleAnalyzer::declarationList(HtmlTagScanner::attribute($block['tag']['html'], 'style'));
+                foreach ($declarations as $property => $value) {
+                    $matches = array_values(array_filter($inline, static fn(array $d): bool => $d['name'] === $property));
+                    // Presets may serialize as a utility class, whose removal is
+                    // deliberately not inferred here.
+                    if (array(array('name' => $property, 'value' => $value)) !== $matches) $blocked = true;
+                    if (str_starts_with($property, 'margin-') && !self::strippable($block, substr($property, 7), $rules, $protected)) $blocked = true;
+                    foreach ($rules as $rule) {
+                        if (!self::competes($property, $rule['property'])) continue;
+                        if (self::sameValue($rule['value'], $value)) continue;
+                        $shorthand = $rule['property'];
+                        if (in_array($shorthand, array('border-top', 'border-right', 'border-bottom', 'border-left'), true)) {
+                            $expanded = implode(' ', array_map(static fn(string $part): string => $declarations[$shorthand . '-' . $part] ?? '', array('width', 'style', 'color')));
+                            if ($expanded === $rule['value']) continue;
+                        }
+                        if (self::ruleReaches($block, $rule)) $blocked = true;
+                    }
+                }
+                if ($blocked) continue;
+                self::sortStyle($style);
+                $signature = $block['name'] . ':' . json_encode($style, JSON_THROW_ON_ERROR);
+                $groups[$signature]['style'] = $style;
+                $groups[$signature]['declarations'] = $declarations;
+                $groups[$signature]['blocks'][] = $block + array('document' => $key);
+            }
+        }
+        $theme = array();
+        $edits = array();
+        foreach ($groups as $signature => $group) {
+            if (count($group['blocks']) < self::MIN_REPEATS) continue;
+            $shared = null;
+            foreach ($group['blocks'] as $block) {
+                $classes = array_values(array_filter(self::classes($block['tag']['html']), static fn(string $class): bool => !str_starts_with($class, 'be-') && !str_starts_with($class, 'wp-') && !str_starts_with($class, 'has-') && !str_starts_with($class, 'blocks-engine-') && 1 === preg_match('/^[a-z][a-z0-9-]{0,39}$/', $class)));
+                $shared = null === $shared ? $classes : array_values(array_intersect($shared, $classes));
+            }
+            sort($shared);
+            $type = $group['blocks'][0]['name'];
+            // Hash suffix also prevents two different looks sharing a source
+            // class from acquiring the same variation name across routes.
+            $slug = ($shared[0] ?? 'look') . '-' . substr(hash('sha256', $signature), 0, 8);
+            $theme[$type]['variations'][$slug] = $group['style'];
+            foreach ($group['blocks'] as $block) $edits[$block['document']][$block['offset']] = array($block, $slug, $group['declarations']);
+        }
+        $markup = array();
+        foreach ($edits as $key => $changes) {
+            krsort($changes);
+            $text = $documents[$key]['markup'];
+            foreach ($changes as [$block, $slug, $declarations]) $text = self::withVariation($text, $block, $slug, $declarations);
+            $markup[$key] = $text;
+        }
+        return array('markup' => $markup, 'blocks' => $theme);
+    }
+
+    private static function sortStyle(array &$style): void
+    {
+        ksort($style);
+        foreach ($style as &$value) if (is_array($value)) self::sortStyle($value);
+    }
+
+    /** @return array<string,string>|null */
+    private static function styleDeclarations(array $style, string $prefix = ''): ?array
+    {
+        $map = array(
+            'typography.fontWeight' => 'font-weight', 'typography.fontStyle' => 'font-style',
+            'typography.fontSize' => 'font-size', 'typography.fontFamily' => 'font-family',
+            'typography.lineHeight' => 'line-height', 'typography.letterSpacing' => 'letter-spacing',
+            'typography.textTransform' => 'text-transform', 'typography.textDecoration' => 'text-decoration',
+            'color.text' => 'color', 'color.background' => 'background-color',
+            'border.color' => 'border-color', 'border.style' => 'border-style', 'border.width' => 'border-width', 'border.radius' => 'border-radius',
+        );
+        foreach (array('top', 'right', 'bottom', 'left') as $side) {
+            foreach (array('margin', 'padding') as $box) $map['spacing.' . $box . '.' . $side] = $box . '-' . $side;
+            foreach (array('color', 'style', 'width') as $part) $map['border.' . $side . '.' . $part] = 'border-' . $side . '-' . $part;
+        }
+        $result = array();
+        foreach ($style as $key => $value) {
+            $path = $prefix . $key;
+            if (is_array($value)) {
+                $nested = self::styleDeclarations($value, $path . '.');
+                if (null === $nested) return null;
+                $result += $nested;
+            } else {
+                if (!isset($map[$path]) || !is_string($value)) return null;
+                $result[$map[$path]] = self::declaration('', $value)[1];
+            }
+        }
+        return $result;
+    }
+
+    private static function competes(string $property, string $other): bool
+    {
+        if (in_array($other, array('all', 'font', 'background', 'border', 'margin', 'padding'), true)) return 'all' === $other || str_starts_with($property, $other) || ('font' === $other && in_array($property, array('line-height', 'letter-spacing'), true));
+        if ($property === $other) return true;
+        if (str_starts_with($property, 'border-') && str_starts_with($other, 'border-')) return true;
+        if (str_starts_with($property, 'margin-') && str_starts_with($other, 'margin-')) return true;
+        return str_starts_with($property, 'padding-') && str_starts_with($other, 'padding-');
+    }
+
+    private static function withVariation(string $markup, array $block, string $slug, array $declarations): string
+    {
+        $attrs = $block['attributes'];
+        unset($attrs->style, $attrs->fontSize, $attrs->fontFamily, $attrs->textColor, $attrs->backgroundColor);
+        $class = 'is-style-' . $slug;
+        $attrs->className = trim(($attrs->className ?? '') . ' ' . $class);
+        $html = $block['tag']['html'];
+        $classes = trim(HtmlTagScanner::attribute($html, 'class') . ' ' . $class);
+        $tag = str_contains($html, 'class="')
+            ? (string) preg_replace_callback('/class="[^"]*"/', static fn(): string => 'class="' . htmlspecialchars($classes, ENT_QUOTES, 'UTF-8') . '"', $html, 1)
+            : substr_replace($html, ' class="' . $class . '"', strlen($block['tag']['name']) + 1, 0);
+        $kept = array_filter(CssRuleAnalyzer::declarationList(HtmlTagScanner::attribute($html, 'style')), static fn(array $d): bool => !isset($declarations[$d['name']]));
+        $style = implode(';', array_map(static fn(array $d): string => $d['name'] . ':' . $d['value'], $kept));
+        $tag = (string) preg_replace_callback('/\sstyle="[^"]*"/i', static fn(): string => '' === $style ? '' : ' style="' . htmlspecialchars($style, ENT_QUOTES, 'UTF-8') . '"', $tag, 1);
+        $delimiter = '<!-- wp:' . substr($block['name'], 5) . ' ' . BlockAttributes::encode($attrs) . ' -->';
+        $between = substr($markup, $block['offset'] + strlen($block['delimiter']), $block['tag']['offset'] - $block['offset'] - strlen($block['delimiter']));
+        return substr($markup, 0, $block['offset']) . $delimiter . $between . $tag . substr($markup, $block['tag']['offset'] + strlen($html));
     }
 
     /**
@@ -267,20 +437,20 @@ final class RepeatedBlockStyles
     }
 
     /** Delivered margin rules, retaining selectors and values for conservative matching. */
-    private static function classRules(array $assets): array
+    private static function classRules(array $assets, bool $marginsOnly = true): array
     {
         $margins = array_fill_keys(array_merge(...array_values(self::SIDE_PROPERTIES)), true);
         $rules = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || !str_contains($asset['content'], 'margin')) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$rules, $margins): void {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || ($marginsOnly && !str_contains($asset['content'], 'margin'))) continue;
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$rules, $margins, $marginsOnly): void {
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                     // Type/universal resets were already resolved by the capture.
                     // Only class rules can compete with the block-type style.
-                    if (!str_contains($selector, '.')) continue;
+                    if ($marginsOnly && !str_contains($selector, '.')) continue;
                     foreach (CssRuleAnalyzer::declarationList($body) as $declaration) {
-                        if (!isset($margins[$declaration['name']])) continue;
+                        if ($marginsOnly && !isset($margins[$declaration['name']])) continue;
                         $rules[] = array('selector' => $selector, 'parsed' => CssSelectorMatcher::parse($selector), 'property' => $declaration['name'], 'value' => $declaration['value'], 'unconditional' => array() === $ancestors);
                     }
                 }

@@ -75,7 +75,7 @@ unset($html);
 $variationMarkup = '';
 $registered = false;
 foreach ($compile($input)['writes'] as $write) {
-    if ('functions.php' === $write['target_path']) $registered = str_contains($write['payload']['data'], "register_block_style( 'core/button'");
+    if ('functions.php' === $write['target_path']) $registered = str_contains($write['payload']['data'], 'register_block_style( $block,');
     if ('theme.json' === $write['target_path']) $variationTheme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     else $variationMarkup .= $write['payload']['data'];
 }
