@@ -138,6 +138,10 @@ final class BoxTreeClassifier
                     foreach ($effective['nodes'][$child]['viewports'] as $viewport => &$observation) {
                         if (!isset($node['viewports'][$viewport])) continue;
                         foreach ($fold['moves'] as $to => $from) $observation['used_styles'][$to] = $node['viewports'][$viewport]['used_styles'][$from];
+                        foreach ($fold['add_padding'] as $to => $from) {
+                            $observation['used_styles'][$to] = (self::pixels($observation['used_styles'][$to]) + self::pixels($node['viewports'][$viewport]['used_styles'][$from])) . 'px';
+                        }
+                        if ($fold['equal_box']) $observation['border_box'] = $node['viewports'][$viewport]['border_box'];
                         if (isset($fold['moves']['position']) && !isset($fold['moves']['align-self']) && 'absolute' === $observation['used_styles']['position']) {
                             $observation['used_styles']['align-self'] = $observation['used_styles']['justify-self'] = 'auto';
                         }
@@ -145,7 +149,7 @@ final class BoxTreeClassifier
                     unset($observation);
                     // The child's border box is the box's, so it now contains what the box contained.
                     if (isset($containing[$id])) $containing[$child] = true;
-                    if (array() !== $fold['moves']) $received[$child] = true;
+                    if (array() !== $fold['moves'] || array() !== $fold['add_padding']) $received[$child] = true;
                     $folds[$id] = array('child' => $child) + $fold;
                     $disposition = 'folded';
                     $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion, 'fold' => $fold['rules']);
@@ -525,7 +529,7 @@ final class BoxTreeClassifier
      * criterion {@see self::behavior()} reports.
      *
      * @param array<string, mixed>|null $parent The node the child would sit in.
-     * @return array{rules: list<string>, moves: array<string, string>, equal_box: bool}|string Stable report-safe refusal code.
+     * @return array{rules: list<string>, moves: array<string, string>, add_padding: array<string, string>, equal_box: bool}|string Stable report-safe refusal code.
      */
     private static function fold(DOMElement $element, array $node, array $tree, ?array $parent, bool $containing, bool $referenced, array $identity = array()): array|string
     {
@@ -539,12 +543,19 @@ final class BoxTreeClassifier
         if (null === $child || self::reparentingShrinks($node, $child, $parent, $tree)) return 'reparenting-shrinks';
         $sides = array('top' => array('y', 'height', 1), 'right' => array('x', 'width', -1), 'bottom' => array('y', 'height', -1), 'left' => array('x', 'width', 1));
         $source = array_fill_keys(array_keys($sides), null);
-        $moves = $rules = array();
+        $moves = $rules = $addPadding = array();
         $equalBox = true;
+        $hasPadding = false;
+        foreach ($node['viewports'] as $observation) {
+            foreach (array_keys($sides) as $side) {
+                $hasPadding = $hasPadding || 0.0 !== (self::pixels($observation['used_styles']['padding-' . $side]) ?? 0.0);
+            }
+        }
         $boxless = true;
         // A border-box child measures a moved constraint on its border box.
         $childBorderBox = true;
         $constrained = false;
+        $paddingConstraint = true;
         $paints = false;
         $relative = false;
         $absolute = null;
@@ -638,6 +649,19 @@ final class BoxTreeClassifier
             }
             $box = $observation['border_box'];
             $inner = $child['viewports'][$viewport]['border_box'];
+            if ($hasPadding) {
+                foreach (array_keys($sides) as $childSide) {
+                    if (0.0 !== self::borderWidth($c['border-' . $childSide])) return 'border';
+                    if (null === self::pixels($c['padding-' . $childSide])) return 'unresolved-edge:' . $childSide;
+                }
+                if (self::boxPaints($c)) return 'child-paint';
+                if ('visible' !== $c['overflow-x'] || 'visible' !== $c['overflow-y']) return 'child-border-clip';
+                if ('content-box' !== ($c['box-sizing'] ?? null)) {
+                    foreach (self::CONSTRAINT_INITIAL + array('width' => array('auto'), 'height' => array('auto')) as $property => $initial) {
+                        if (!in_array($c[$property], $initial, true)) return 'constraint-box';
+                    }
+                }
+            }
             foreach ($sides as $side => [$axis, $size, $direction]) {
                 $border = self::borderWidth($b['border-' . $side]);
                 $padding = self::pixels($b['padding-' . $side]);
@@ -657,14 +681,11 @@ final class BoxTreeClassifier
                 if ($clipped && 0.0 !== $childBorder) return 'child-border-clip';
                 if (0.0 !== $padding || null === $childBorder || 0.0 !== $childBorder || 0.0 !== (float) (self::pixels($c['padding-' . $side]) ?? 1.0)) $boxless = false;
                 if (0.0 !== $padding) {
-                    $equalBox = false;
-                    if (0.0 !== $childMargin || 'margin' === $source[$side]) return 'edge-conflict:' . $side;
-                    if ('y' === $axis && !$parentLays) return 'vertical-padding-collapse';
-                    $source[$side] = 'padding';
-                } elseif ($margin !== $childMargin && !(0.0 === $margin && 'y' === $axis && 'block' === $display && !$parentLays)) {
-                    // (A child's vertical margin already collapses through a
-                    // flow box with no padding or border into a block parent.)
-                    if (0.0 !== $childMargin || 'padding' === $source[$side]) return 'edge-conflict:' . $side;
+                    if (0.0 !== $childMargin) return 'edge-conflict:' . $side;
+                    $addPadding['padding-' . $side] = 'padding-' . $side;
+                }
+                if ($margin !== $childMargin && !(0.0 === $margin && 'y' === $axis && 'block' === $display && !$parentLays)) {
+                    if (0.0 !== $childMargin) return 'edge-conflict:' . $side;
                     $source[$side] = 'margin';
                 }
             }
@@ -679,6 +700,10 @@ final class BoxTreeClassifier
                 if ($b[$property] === $c[$property]) continue;
                 if ($initial !== $c[$property] && !self::fillsSoleGridCell($b, $property, $c[$property])) return 'child-placement:' . $property;
                 $moves[$property] = $property;
+            }
+            $paddingConstraint = $paddingConstraint && 'content-box' === ($b['box-sizing'] ?? null) && 'content-box' === ($c['box-sizing'] ?? null);
+            foreach (array_keys($sides) as $side) {
+                $paddingConstraint = $paddingConstraint && 0.0 === self::pixels($c['padding-' . $side]);
             }
             $childBorderBox = $childBorderBox && 'border-box' === ($c['box-sizing'] ?? null);
             foreach (self::CONSTRAINT_INITIAL as $property => $initial) {
@@ -727,14 +752,13 @@ final class BoxTreeClassifier
         // Positioned descendants resolve against the padding box: it must not change.
         if (($containing || $relative || $absolute || $clipped) && !$equalBox) return 'unequal-box';
         if ($paints && !$equalBox) return 'unequal-box';
-        // With an equal box the box has no padding or border, so its
-        // constraint bounds the border box the child shares: the child holds
-        // it as is when it has no box either, or sizes its border box.
-        if ($constrained && !($equalBox && ($boxless || $childBorderBox))) return 'constraint-box';
+        // Constraints need matching sizing edges: a shared border box, or
+        // content-box sizing with wrapper padding added to an unpadded child.
+        if ($constrained && !($equalBox && ($boxless || $childBorderBox || ($hasPadding && $paddingConstraint)))) return 'constraint-box';
         foreach ($source as $side => $from) {
             if (null !== $from) $moves['margin-' . $side] = $from . '-' . $side;
         }
-        if (in_array('padding', $source, true) || $constrained) $rules[] = 'own-sizing';
+        if (array() !== $addPadding || $constrained) $rules[] = 'own-sizing';
         if ($constrained) {
             foreach (self::CONSTRAINT_INITIAL as $property => $_) $moves[$property] = $property;
         }
@@ -766,7 +790,7 @@ final class BoxTreeClassifier
         }
         if (array() === $rules) return 'no-fold-rules';
         $moves += $inheritedMoves;
-        return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);
+        return array('rules' => $rules, 'moves' => $moves, 'add_padding' => $addPadding, 'equal_box' => $equalBox);
     }
 
     /** A used track list that occupies space: any track resolves to a positive length. */
