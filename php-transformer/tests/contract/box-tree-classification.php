@@ -50,6 +50,7 @@ foreach ($cases as $case) {
     $report = $result['source_reports']['box_tree']['index.html']['classification'];
     if ('equal-child-geometry' === $case['criterion']) $assert($report['counts']['neutral'] > 0, 'Capture-shaped fixture retains neutral boxes');
     $assert($case['criterion'] === $report['nodes']['wrapper']['criterion'], $case['name'] . ' has the named criterion');
+    if (!empty($case['not_state_targeted'])) $assert('state-targeted' !== ($report['nodes']['wrapper']['fold_refusal'] ?? null), $case['name'] . ' does not retain an absent state rule handle');
     if (isset($case['fold_refusal'])) $assert($case['fold_refusal'] === ($report['nodes']['wrapper']['fold_refusal'] ?? null), $case['name'] . ' retains the state rule handle');
     if (isset($case['disposition'])) $assert($case['disposition'] === $report['nodes']['wrapper']['disposition'], $case['name'] . ' has the expected disposition: ' . json_encode($report['nodes']['wrapper']));
     if ('unobserved-viewport' === $case['criterion']) {
