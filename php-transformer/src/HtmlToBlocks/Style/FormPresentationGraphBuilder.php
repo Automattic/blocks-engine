@@ -60,6 +60,15 @@ final class FormPresentationGraphBuilder
         'font' => array( 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'line-height' ),
         'margin' => array( 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ),
         'padding' => array( 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ),
+        'border' => array(
+            'border-width', 'border-style', 'border-color',
+            'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+            'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+            'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+        ),
+        'border-width' => array( 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width' ),
+        'border-style' => array( 'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style' ),
+        'border-color' => array( 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color' ),
     );
     /**
      * The box a button's caption carrier paints behind the caption: a sliding-door
