@@ -123,6 +123,9 @@ try {
         'bordered card with an unrelated border longhand' => array($card . $card, '.wp-block-group{border-radius:4px;border-top-width:1px}', array(), true, 'core/group'),
         'bordered card with a different colour' => array($card . $card, '.wp-block-group{border-color:red}', array(), false, 'core/group'),
         'bordered card with an unparsed border' => array($card . $card, '.wp-block-group{border-bottom:var(--edge)}', array(), false, 'core/group'),
+        // A pseudo-element box inherits the element's computed values.
+        'bordered card beside a pseudo-element rule' => array($card . $card, '.wp-block-group::after{border:0;padding:0;margin:0}', array(), true, 'core/group'),
+        'bordered card beside the same element rule' => array($card . $card, '.wp-block-group{border:0;padding:0;margin:0}', array(), false, 'core/group'),
     ) as $label => $row) {
         [$input, $rule, $anchors, $expected] = $row;
         $type = $row[4] ?? 'core/paragraph';

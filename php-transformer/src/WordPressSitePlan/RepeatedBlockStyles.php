@@ -681,6 +681,9 @@ final class RepeatedBlockStyles
 
     private static function ruleReaches(array $block, array $rule): bool
     {
+        // A pseudo-element box inherits the element's computed values, which
+        // moving a declaration from inline to a variation does not change.
+        if (1 === preg_match('/::?(?:before|after|marker|placeholder|selection|backdrop|first-line|first-letter|file-selector-button)\s*$/i', (string) ($rule['selector'] ?? ''))) return false;
         if (!isset($block['element'])) return true;
         $match = CssSelectorMatcher::matches($block['element'], $rule['parsed']);
         return !$match['supported'] || $match['matches'];
