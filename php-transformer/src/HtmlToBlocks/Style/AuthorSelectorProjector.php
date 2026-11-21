@@ -1299,8 +1299,18 @@ final class AuthorSelectorProjector
      * A selector no source element matches as a whole, whose rightmost
      * compound matches controls: keep the authored ancestry and project the
      * subject onto every control carrier it matches. Every such carrier gets
-     * the same arm shape, so with `$subjectArms` and a context-free subject the
-     * carriers are addressed through their subject classes in one arm.
+     * the same arm shape, so with a context-free subject the carriers are
+     * addressed through their subject classes in one arm.
+     *
+     * That holds even when `$subjectArms` is off. Per-control declaration
+     * routing (wrapper geometry, placement, collapsed widths) follows the
+     * elements the whole selector matches, and a dormant selector matches
+     * none here, so every carrier receives the same declarations. Naming each
+     * carrier's marker instead would grow the arm with every page that loads
+     * the stylesheet. The shared arm is identical on every such page, and the
+     * route-variant scoping fences it off routes where it could match. A
+     * carrier whose entrance replays a subject class keeps its marker arm, so
+     * that class stays a live predicate.
      *
      * @param array<string, mixed> $parsed
      * @return list<string>
@@ -1335,7 +1345,9 @@ final class AuthorSelectorProjector
         }
         $markers = array_values(array_unique($markers));
         $prefix = substr($selector, 0, (int) $rightmost['start']);
-        $subject = $subjectArms && array() !== $markers ? $this->contextFreeSubject('control', $leafParsed, $markers, $context) : null;
+        $subject = array() !== $markers && ($subjectArms || !$this->replaysEntranceClass($leafParsed, $markers, $context))
+            ? $this->contextFreeSubject('control', $leafParsed, $markers, $context)
+            : null;
         $projected = array();
         // A dormant ancestor (including a route-owned body id) does not make
         // the leaf control-only. Keep its other subjects addressable too.
@@ -1350,6 +1362,28 @@ final class AuthorSelectorProjector
             $projected[] = $prefix . $this->projectControlSelector($leafSelector, $leafParsed, $marker, $context, $wrapper);
         }
         return array_values(array_unique($projected));
+    }
+
+    /**
+     * Whether a control's entrance replays a class the leaf compound names.
+     * Its marker arm keeps that token live (see projectControlSelector()).
+     *
+     * @param array<string, mixed> $leafParsed
+     * @param list<string> $markers
+     */
+    private function replaysEntranceClass(array $leafParsed, array $markers, AuthorStylesheetProjectionContext $context): bool
+    {
+        $rightmost = CssSelectorCompoundInspector::rightmost($leafParsed['compounds'] ?? array());
+        $classes = array_map('strval', $rightmost['classes'] ?? array());
+        if ( array() === $classes ) {
+            return false;
+        }
+        foreach ( $markers as $marker ) {
+            if ( array() !== array_intersect($classes, $context->selectorProjections->controlEntranceClasses($marker)) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
