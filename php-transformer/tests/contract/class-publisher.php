@@ -73,6 +73,9 @@ $assert(1 === preg_match($engineIdent, $content($internal)), 'Without a class na
 $blank = $compile($artifact + array('class_namespace' => ' '));
 $assert($content($blank) === $content($internal) && $blank['assets'] === $internal['assets'] && $bootstrap($blank) === $bootstrap($internal), 'A blank class namespace publishes nothing.');
 $assert($internal['plan_identity'] === $compile($artifact)['plan_identity'], 'The unpublished plan is deterministic.');
+foreach (array('89-acme' => 'theme-89-acme', 'be-acme' => 'theme-be-acme', 'Acme Co' => 'acme-co') as $given => $expected) {
+    $assert($expected === ClassPublisher::namespaceSlug($given), 'Class namespace ' . $given . ' publishes as the CSS identifier prefix ' . $expected . '.');
+}
 
 // The map is deterministic: same input, same names.
 $again = $compile($artifact + array('class_namespace' => 'acme'));
