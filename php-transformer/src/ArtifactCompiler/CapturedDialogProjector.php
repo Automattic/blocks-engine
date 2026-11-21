@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedNavigationPanels;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMDocument;
@@ -488,14 +489,6 @@ final class CapturedDialogProjector
             if (array() === $triggers) {
                 continue;
             }
-            // A menu snapshot repeating the header's own links is evidence of
-            // its responsive disclosure, not new dialog content. Leave the
-            // authored nav and toggle untouched for native navigation lowering;
-            // in particular, never import the open snapshot's forced pose.
-            if ('menu' === ($state['component_kind'] ?? null)
-                && $this->disclosesExistingNavigation($triggers, $dialogHtml)) {
-                continue;
-            }
             // Shared chrome renders alike on every route. A chrome control
             // whose evidence another route could not verify stays as the
             // source wired it here too, as it does on that route.
@@ -566,50 +559,6 @@ final class CapturedDialogProjector
 
         $output = HtmlSerialization::documentHtml($document);
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
-    }
-
-    /** @param list<DOMElement> $triggers */
-    private function disclosesExistingNavigation(array $triggers, string $html): bool
-    {
-        $snapshot = HtmlSerialization::parseDocument($html);
-        $navs = $snapshot->getElementsByTagName('nav');
-        if (1 !== $navs->length) return false;
-        $body = $snapshot->getElementsByTagName('body')->item(0);
-        if (!$body instanceof DOMElement) return false;
-        foreach ($body->childNodes as $child) {
-            if ($child->isSameNode($navs->item(0))) continue;
-            if ($child instanceof DOMElement || '' !== trim($child->textContent)) return false;
-        }
-        $links = $this->navigationLinkIdentity($navs->item(0));
-        if (array() === $links) return false;
-        foreach ($triggers as $trigger) {
-            // Bound panels have their own resting/runtime contract. This case
-            // is only the unbound toggle disclosing existing header links.
-            if ($trigger->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)) return false;
-            $header = $trigger->parentNode;
-            while ($header instanceof DOMElement && 'header' !== strtolower($header->tagName)) $header = $header->parentNode;
-            if (!$header instanceof DOMElement) return false;
-            $matches = 0;
-            foreach ($header->getElementsByTagName('nav') as $nav) {
-                if ($links === $this->navigationLinkIdentity($nav)) ++$matches;
-            }
-            if (1 !== $matches) return false;
-        }
-        return array() !== $triggers;
-    }
-
-    /** @return list<array{string, string}> */
-    private function navigationLinkIdentity(DOMElement $nav): array
-    {
-        $links = array();
-        foreach ($nav->getElementsByTagName('a') as $link) {
-            $href = trim($link->getAttribute('href'));
-            if ('' === $href) return array();
-            // Route serialization can shorten /index.html to / in snapshots.
-            $href = preg_replace('~/index\\.html(?=#|$)~', '/', $href) ?? $href;
-            $links[] = array($href, preg_replace('/\\s+/u', ' ', trim($link->textContent)) ?? '');
-        }
-        return $links;
     }
 
     /** Consume viewport-scoped, observed image selection before the ordinary dialog adoption. */
@@ -890,6 +839,7 @@ final class CapturedDialogProjector
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
                 if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
                 if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
+                if (CapturedNavigationPanels::isSourceNavigationPanel($panel)) continue;
                 // Sanitize the panel envelope, retaining its content wrapper:
                 // that wrapper can own a menu's hierarchy and presentation.
                 $html = (string) $document->saveHTML($panel);
