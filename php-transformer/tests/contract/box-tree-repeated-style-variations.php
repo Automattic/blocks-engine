@@ -63,22 +63,22 @@ try {
     $theme = json_decode(array_column($plan['writes'], null, 'target_path')['theme.json']['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     $variations = array();
     foreach ($theme['styles']['blocks'] ?? array() as $type => $styles) foreach ($styles['variations'] ?? array() as $slug => $look) $variations[$type][$slug] = $look;
-    // Table-driven looks: block type, the shared source class the slug starts
-    // with, the number of blocks, and the inline properties the variation replaces.
+    // Table-driven looks: block type, exact slug, number of blocks, and
+    // the inline properties the variation replaces.
     $cases = array(
         'eyebrow paragraph' => array('core/paragraph', 'eyebrow', 10, array('font-weight', 'letter-spacing', 'text-transform')),
         'margin-only paragraph in a flow group' => array('core/paragraph', 'gap', 3, array('margin-top', 'margin-bottom')),
         'list margin and padding' => array('core/list', 'list', 3, array('margin-top', 'margin-bottom', 'padding-left', 'padding-right')),
-        'heading typography' => array('core/heading', 'title', 2, array('font-style', 'font-weight', 'text-transform'), 2),
+        'heading typography' => array('core/heading', 'title-2', 2, array('font-style', 'font-weight', 'text-transform'), 2),
         'heading typography and margins' => array('core/heading', 'title', 2, array('font-style', 'font-weight', 'margin-top', 'margin-bottom'), 3),
-        'bordered details' => array('core/details', 'look', 5, array('border-bottom', 'padding-top', 'padding-bottom')),
+        'bordered details' => array('core/details', 'details', 5, array('border-bottom', 'padding-top', 'padding-bottom')),
         'bordered card' => array('core/group', 'card', 3, array('border-width', 'border-radius', 'border-top-style', 'border-bottom-color', 'padding-top', 'padding-left')),
     );
     foreach ($cases as $label => $case) {
         [$type, $prefix, $count, $properties] = $case;
         $level = $case[4] ?? null;
         $references = array();
-        $slugs = array_values(array_filter(array_keys($variations[$type] ?? array()), static fn(string $slug): bool => str_starts_with($slug, $prefix . '-')));
+        $slugs = array_values(array_filter(array_keys($variations[$type] ?? array()), static fn(string $slug): bool => $slug === $prefix));
         preg_match_all('/<!-- wp:' . substr($type, 5) . ' (\{.*?\}) -->\s*<[^>]+>/s', $markup, $matches);
         foreach ($slugs as $slug) {
             foreach ($matches[1] as $index => $json) {
@@ -90,6 +90,39 @@ try {
             }
         }
         $assert(1 === count($references) && $count === count(current($references)), "$label: $count blocks reference one shared $type variation. " . json_encode(array_keys($variations[$type] ?? array())));
+    }
+    // Naming is decided once across routes, not per block or per document.
+    // Put the later signature first to prove allocation does not follow input order.
+    $namingCases = array(
+        array('heading', 'x', '700', 'x-2'),
+        array('heading', 'x', '400', 'x'),
+        array('paragraph', '', '600', 'paragraph'),
+        array('paragraph', 'x', '700', 'x'),
+        array('paragraph', 'zebra alpha', '500', 'zebra'),
+        array('image', 'is-resized', '13px', 'image'),
+    );
+    $documents = array();
+    foreach ($namingCases as $index => [$kind, $sourceClass, $value, $slug]) {
+        $image = 'image' === $kind;
+        $tag = $image ? 'figure' : ('heading' === $kind ? 'h2' : 'p');
+        $classes = trim(('paragraph' === $kind ? '' : 'wp-block-' . $kind) . ' ' . $sourceClass);
+        $attrs = array('className' => $sourceClass, 'style' => $image ? array('spacing' => array('margin' => array('top' => $value))) : array('typography' => array('fontWeight' => $value)));
+        $input = '<!-- wp:' . $kind . ' ' . json_encode($attrs, JSON_THROW_ON_ERROR) . ' --><' . $tag . ' class="' . $classes . '" style="' . ($image ? 'margin-top:' : 'font-weight:') . $value . '">Text</' . $tag . '><!-- /wp:' . $kind . ' -->';
+        // Each group repeats only across routes.
+        foreach (array('a', 'b') as $route) $documents[$route . $index] = array('markup' => $input, 'strippable' => true);
+    }
+    $compileNames = static fn(array $docs): array => Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RepeatedBlockStyles::hoist($docs, array('<figure class="wp-block-image"></figure>'), array(), array(), array('styles' => array('spacing' => array('blockGap' => false))));
+    $named = $compileNames($documents);
+    $assert($named === $compileNames($documents), 'Readable variation names and markup are identical across two compiles.');
+    $reversed = $compileNames(array_reverse($documents, true));
+    $assert($named['blocks'] === $reversed['blocks'], 'Variation allocation is independent of route order.');
+    foreach ($namingCases as $index => [$kind, $sourceClass, $value, $slug]) {
+        $assert(isset($named['blocks']['core/' . $kind]['variations'][$slug]), "$kind $sourceClass $value has readable slug $slug.");
+        foreach (array('a', 'b') as $route) {
+            $markupForRoute = $named['markup'][$route . $index] ?? '';
+            $assert(2 === substr_count($markupForRoute, 'is-style-' . $slug), "$slug is consistent in the block attributes and rendered class on route $route.");
+            $assert($markupForRoute === $reversed['markup'][$route . $index], "$slug markup is stable when routes are reversed.");
+        }
     }
     // Safety cases share the same exact-set grouping path as the evidence route.
     $block = '<!-- wp:paragraph {"style":{"typography":{"fontWeight":"600"}}} --><p style="font-weight:600">Text</p><!-- /wp:paragraph -->';
