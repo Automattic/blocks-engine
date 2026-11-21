@@ -283,8 +283,8 @@ final class CommerceFallbackReporter
     }
 
     /**
-     * A two-track layout of one product card and its text-free media, such
-     * as a cover beside a purchase panel.
+     * A two-track layout of one product card and its media, possibly with
+     * short decoration, such as a cover beside a purchase panel.
      */
     private function isSplitDetailLayout(DOMElement $element): bool
     {
@@ -294,13 +294,39 @@ final class CommerceFallbackReporter
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement
                 && null === $this->recognizer->productCardData($child)
-                && '' === SourceDom::renderedTextContent($child)
+                && $this->isDecorativeMediaTrack($child)
                 && ('img' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('img')->length)
             ) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Allow a bounded badge, not prose or an independently titled/priced card.
+     * Inspect structure and semantics rather than badge wording or CSS hooks.
+     */
+    private function isDecorativeMediaTrack(DOMElement $element): bool
+    {
+        $text = SourceDom::renderedTextContent($element);
+        if ( mb_strlen($text) > 48 || count(preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: array()) > 6
+            || $this->recognizer->looksLikePriceText($text)
+            || null !== $this->recognizer->cartControlElement($element)
+        ) {
+            return false;
+        }
+        foreach ( array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node ) {
+            if ( in_array(strtolower($node->tagName), array('select', 'input', 'textarea'), true)
+                || preg_match('/^h[1-6]$/i', $node->tagName)
+                || 'heading' === strtolower(SourceDom::attr($node, 'role'))
+                || preg_match('/(?:^|\s)(?:name|price)(?:\s|$)/i', SourceDom::attr($node, 'itemprop'))
+                || $this->recognizer->looksLikePriceText(SourceDom::renderedTextContent($node))
+            ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

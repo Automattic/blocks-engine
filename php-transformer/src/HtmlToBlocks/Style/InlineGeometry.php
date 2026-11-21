@@ -400,8 +400,12 @@ final class InlineGeometry
         return $properties;
     }
 
-    /** Carry the source box properties a transparent figure cannot honour. */
-    public function syntheticFlexImageBoxClassName(DOMElement $element): string
+    /**
+     * Carry the source box properties a transparent figure cannot honour.
+     *
+     * @param list<string> $redundantProperties Box declarations the rendered image already satisfies.
+     */
+    public function syntheticFlexImageBoxClassName(DOMElement $element, array $redundantProperties = array()): string
     {
         // The synthetic figure is display:contents. Box spacing and item
         // alignment therefore belong to the rendered image, not its wrapper.
@@ -409,7 +413,10 @@ final class InlineGeometry
         // including media conditions. Do not freeze their desktop values into
         // an unconditional important carrier.
         $resolved = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
-        $box = array_filter($resolved, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY);
+        $box = array_diff_key(
+            array_filter($resolved, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY),
+            array_flip($redundantProperties)
+        );
         if ( array() === $box ) {
             return '';
         }

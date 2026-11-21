@@ -34,18 +34,22 @@ $assert = static function (bool $ok, string $message): void {
 };
 
 $entrance = '{"attributes":{"data-interact-enter":{"before":null,"after":"done"}},"rootMargin":"0px 0px 0px 0px","threshold":[0.15],"repeat":false}';
-$compile = static function (string $childId, string $boxStyle = '', string $childStyle = '', string $tag = 'p') use ($base, $initial, $entrance): array {
+$compile = static function (string $childId, string $boxStyle = '', string $childStyle = '', string $tag = 'p', bool $svgHost = false) use ($base, $initial, $entrance): array {
     $html = '<!doctype html><html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head"><title data-blocks-engine-node-id="title">Entrance</title>'
         . '<style>#rich-text:not([data-interact-enter]){visibility:hidden}</style></head>'
         . '<body data-blocks-engine-node-id="body"><main class="fold-parent" data-blocks-engine-node-id="parent">'
         . '<div id="rich-text" class="rich-text-box" style="' . htmlspecialchars($boxStyle, ENT_QUOTES) . '" data-interact-enter="done" data-blocks-engine-capture-viewport-entrance="' . htmlspecialchars($entrance, ENT_QUOTES) . '" data-blocks-engine-node-id="box">'
-        . '<' . $tag . ('' !== $childId ? ' id="' . $childId . '"' : '') . ' style="' . htmlspecialchars($childStyle, ENT_QUOTES) . '" data-blocks-engine-node-id="child">Revealed text</' . $tag . '></div>'
+        . '<' . $tag . ('' !== $childId ? ' id="' . $childId . '"' : '') . ' style="' . htmlspecialchars($childStyle, ENT_QUOTES) . '" data-blocks-engine-node-id="child">' . ($svgHost ? '<svg data-blocks-engine-node-id="svg"><path d="M0 0h10v10z"/></svg>' : ('svg' === $tag ? '<path d="M0 0h10v10z"/>' : 'Revealed text')) . '</' . $tag . '></div>'
         . '<p data-blocks-engine-node-id="sibling">Sibling</p></main></body></html>';
     $tree = $base;
     $tree['source_hash'] = hash('sha256', $html);
     $tree['nodes'] = array();
     $layout = array('html' => array('head', 'body'), 'head' => array('title'), 'title' => array(), 'body' => array('parent'),
         'parent' => array('box', 'sibling'), 'box' => array('child'), 'child' => array(), 'sibling' => array());
+    if ($svgHost) {
+        $layout['child'] = array('svg');
+        $layout['svg'] = array();
+    }
     foreach ($layout as $id => $children) {
         $node = array('children' => $children, 'viewports' => array());
         foreach ($base['nodes']['n1']['viewports'] as $viewport => $observation) {
@@ -68,6 +72,7 @@ $result = $compile('');
 $node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];
 $markup = $result['serialized_blocks'];
 $assert('folded' === $node['disposition'] && in_array('viewport-entrance', $node['fold'] ?? array(), true), 'an entrance-only text wrapper is classified folded.');
+$assert(!isset($node['identity']), 'the report does not expose source identity payloads.');
 $assert(!str_contains($markup, 'rich-text-box'), 'the wrapper emits no Group.');
 $assert(1 === substr_count($markup, '<!-- wp:group '), 'only the parent remains a group.');
 $assert(1 === preg_match('/<!-- wp:paragraph (\{[^\n]*?\}) -->\s*<p id="rich-text"[^>]*>Revealed text/', $markup, $match), 'the paragraph takes the box\'s place and id.');
@@ -91,7 +96,7 @@ foreach (array(
     $markup = $result['serialized_blocks'];
     $assert(($folds ? 'folded' : 'load-bearing') === $node['disposition'], "$label: expected disposition.");
     if (!$folds) {
-        $assert('capture-marker' === $node['criterion'] && str_contains($markup, 'rich-text-box'), "$label: keeps its Group.");
+        $assert(str_starts_with($node['fold_refusal'] ?? '', 'entrance-') && str_contains($markup, 'rich-text-box'), "$label: keeps its Group with a specific entrance refusal.");
         continue;
     }
     $block = 'p' === $tag ? 'paragraph' : 'heading';
@@ -111,3 +116,17 @@ $node = $result['source_reports']['box_tree']['index.html']['classification']['n
 $markup = $result['serialized_blocks'];
 $assert('load-bearing' === $node['disposition'] && 'capture-marker' === $node['criterion'], 'a child with its own id cannot take the box\'s entrance.');
 $assert(str_contains($markup, 'rich-text-box') && str_contains($markup, 'id="own-id"'), 'that box keeps its Group around the child.');
+
+foreach (array(false, true) as $svgHost) {
+$result = $compile('', $motion, '', $svgHost ? 'div' : 'svg', $svgHost);
+$node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];
+$markup = $result['serialized_blocks'];
+$assert('folded' === $node['disposition'], 'an SVG entrance wrapper folds.');
+$assert(!str_contains($markup, 'rich-text-box'), 'the SVG entrance wrapper emits no Group.');
+$assert(1 === preg_match('/<!-- wp:image (\{[^\n]*?\}) -->\s*<figure[^>]*id="rich-text"/', $markup, $match), 'the synthetic image figure takes the entrance id.');
+$attrs = json_decode($match[1], true);
+$assert(isset($attrs['metadata']['blocksEngineRuntimeAttributes']['data-blocks-engine-capture-viewport-entrance']), 'the image figure carries the entrance marker.');
+$assert('done' === ($attrs['metadata']['blocksEngineRuntimeAttributes']['data-interact-enter'] ?? null), 'the image figure carries the entrance runtime attribute.');
+$css = implode("\n", array_column($result['assets'], 'content'));
+$assert(str_contains($css, '--motion-origin-x'), 'the image retains motion declarations.');
+}

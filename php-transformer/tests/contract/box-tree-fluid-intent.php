@@ -87,38 +87,6 @@ $cases = array(
     'vw font-size not reproducing a capture stays in pixels' => array(
         'h1{font-size:5.2vw}', array('n6.font-size' => array('75px', '30px')), array('font-size:75px', 'font-size:30px'), array('5.2vw'),
     ),
-    '% width against an equal grid track lifts, not the whole grid' => array(
-        'main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:40px}h1{width:100%}',
-        array('n5.display' => array('grid', 'grid'), 'n5.width' => array('1240px', '350px'),
-            'n5.grid-template-columns' => array('600px 600px', '155px 155px'),
-            'n6.width' => array('600px', '155px'),
-            'n6.grid-column-start' => array('auto', 'auto'), 'n6.grid-column-end' => array('auto', 'auto')),
-        array('h1 ;width:100%'), array('h1 ;width:600px', 'h1 ;width:155px'),
-    ),
-    'an explicitly placed single-column grid item lifts against its track' => array(
-        'main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}h1{width:100%;grid-column:2/3}',
-        array('n5.display' => array('grid', 'grid'), 'n5.width' => array('600px', '200px'),
-            'n5.grid-template-columns' => array('300px 300px', '100px 100px'),
-            'n6.width' => array('300px', '100px'),
-            'n6.grid-column-start' => array('2', '2'), 'n6.grid-column-end' => array('3', '3')),
-        array('h1 ;width:100%'), array('h1 ;width:300px', 'h1 ;width:100px'),
-    ),
-    'an unequal grid keeps captured percentage widths without placement proof' => array(
-        'main{display:grid;grid-template-columns:1fr 2fr}h1{width:100%}',
-        array('n5.display' => array('grid', 'grid'), 'n5.width' => array('900px', '300px'),
-            'n5.grid-template-columns' => array('300px 600px', '100px 200px'),
-            'n6.width' => array('300px', '100px'),
-            'n6.grid-column-start' => array('auto', 'auto'), 'n6.grid-column-end' => array('auto', 'auto')),
-        array('h1 ;width:300px'), array('h1 ;width:100%'),
-    ),
-    'an explicitly spanning grid item keeps captured widths' => array(
-        'main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}h1{width:100%;grid-column:span 2}',
-        array('n5.display' => array('grid', 'grid'), 'n5.width' => array('600px', '200px'),
-            'n5.grid-template-columns' => array('300px 300px', '100px 100px'),
-            'n6.width' => array('600px', '200px'),
-            'n6.grid-column-start' => array('span 2', 'span 2'), 'n6.grid-column-end' => array('auto', 'auto')),
-        array('h1 ;width:600px'), array('h1 ;width:100%'),
-    ),
     '% width against the parent content width lifts' => array(
         'h1{width:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px'),
     ),

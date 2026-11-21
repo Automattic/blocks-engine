@@ -77,7 +77,7 @@ use DOMElement;
  * `%` resolves against the observed CSS containing block: the content box
  * of the nearest ancestor that generates a block box (skipping
  * `display: contents` and inline ancestors) for in-flow and relative boxes,
- * the padding box of the nearest positioned ancestor for absolute boxes, and
+ * or the grid area when that ancestor is a grid container, the padding box of the nearest positioned ancestor for absolute boxes, and
  * the viewport for fixed boxes. Offsets (`top`, `right`, `bottom`, `left`)
  * lift against it like widths; vertical percentages need a definite
  * containing block height, so only absolute and fixed boxes lift them.
@@ -200,6 +200,8 @@ final class BoxTreeFluidIntent
     private \Closure $evidence;
     /** @var array<string, array<string, mixed>> */
     private array $viewports = array();
+    /** @var array<string, array<string, mixed>> The lifted box's own observations, by viewport key. */
+    private array $observations = array();
 
     /**
      * @param array<string, array<string, mixed>> $observations Captured observations of the element, by viewport key.
@@ -260,6 +262,7 @@ final class BoxTreeFluidIntent
         $this->winners = array();
         $this->rootFontSizes = array();
         $this->viewports = $viewports;
+        $this->observations = $observations;
         $parentNode = $element->parentNode;
         $this->evidence = $evidence ?? static fn(DOMElement $node): array => $node === $parentNode ? $parents : array();
         $properties = array_keys(reset($observations)['used_styles'] ?? array());
@@ -975,7 +978,7 @@ final class BoxTreeFluidIntent
         $outOfFlow = in_array($position, array('absolute', 'fixed'), true);
         if (in_array($property, self::BOX_SIDES, true)) {
             $block = $this->containingBlock($key, $position);
-            return array(null === $block ? null : $block[0], $own);
+            return array($block[0] ?? null, $own);
         }
         if ('column-gap' === $property) {
             $box = self::box($styles, true);
@@ -987,17 +990,17 @@ final class BoxTreeFluidIntent
         // An in-flow percentage height or vertical offset needs a definite
         // containing block height the carriers no longer freeze.
         if (!$horizontal && !$outOfFlow) return array(null, $own);
-        $block = $horizontal && !$outOfFlow && in_array(strtolower((string) ($parent['display'] ?? '')), array('grid', 'inline-grid'), true)
-            ? $this->equalGridArea($styles, $parent)
-            : $this->containingBlock($key, $position);
-        return array(null === $block ? null : $block[$horizontal ? 0 : 1], $own);
+        $block = $this->containingBlock($key, $position);
+        return array($block[$horizontal ? 0 : 1] ?? null, $own);
     }
 
     /**
      * The observed containing block of the element at one capture, as
      * [width, height] in pixels, or null when the evidence cannot prove it.
+     * An in-flow grid item's containing block is its grid area, whose
+     * height stays unknown (in-flow percentage heights are not lifted here).
      *
-     * @return array{0: float, 1: float}|null
+     * @return array{0: float, 1: float|null}|null
      */
     private function containingBlock(string $key, string $position): ?array
     {
@@ -1007,7 +1010,10 @@ final class BoxTreeFluidIntent
         }
         $absolute = 'absolute' === $position;
         // A pseudo-element's box is a child of its host's.
-        for ($node = '' === $this->pseudo ? $this->element->parentNode : $this->element; $node instanceof DOMElement; $node = $node->parentNode) {
+        // The child of the box the walk is on, the grid item when that box is
+        // a grid container; null while it is the lifted box itself.
+        $item = null;
+        for ($node = '' === $this->pseudo ? $this->element->parentNode : $this->element; $node instanceof DOMElement; $item = $node, $node = $node->parentNode) {
             $styles = ($this->evidence)($node)[$key]['used_styles'] ?? null;
             if (!is_array($styles)) {
                 // The document root boxes are rarely captured; an absolute
@@ -1023,6 +1029,7 @@ final class BoxTreeFluidIntent
                 // An inline containing block is the box around its fragments.
                 return 'inline' === $display ? null : self::box($styles, false);
             }
+            if (in_array($display, array('grid', 'inline-grid'), true)) return $this->gridArea($key, $node, $styles, null === $item ? ($this->observations[$key]['used_styles'] ?? array()) : (($this->evidence)($item)[$key]['used_styles'] ?? array()));
             if ('inline' !== $display) return self::box($styles, true);
         }
         // An absolute box with no positioned ancestor uses the initial containing block.
@@ -1031,40 +1038,86 @@ final class BoxTreeFluidIntent
     }
 
     /**
-     * An item spanning one column of an equal-column grid resolves
-     * percentages against one track, not the entire grid. Unequal tracks or
-     * multi-column spans need a placement solver; keep their captured pixels
-     * instead.
+     * The width of an in-flow grid item's grid area at one capture (CSS Grid
+     * §9: the area, not the grid container, is its containing block), as
+     * [width, null]. The item's column comes from its line placement, or,
+     * when auto-placed, from the column holding the lifted box's left edge:
+     * the box lies inside its item's area, and that is so even when the item
+     * generates no box in the output and the lifted box takes its place.
+     * Track sizes are the container's resolved `grid-template-columns`; a
+     * grid without explicit columns has one implicit column, its content
+     * box. Unresolvable placement or tracks prove nothing.
      *
-     * @return array{0: float, 1: float}|null
+     * @param DOMElement $container The grid container.
+     * @param array<string, mixed> $grid The grid container's used styles.
+     * @param array<string, mixed> $item The grid item's used styles.
+     * @return array{0: float, 1: null}|null
      */
-    private function equalGridArea(array $styles, array $parent): ?array
+    private function gridArea(string $key, DOMElement $container, array $grid, array $item): ?array
     {
-        $tracks = CssValueSplitter::splitTopLevelWhitespace((string) ($parent['grid-template-columns'] ?? ''));
-        if (array() === $tracks || !self::spansOneColumn($styles, count($tracks))) return null;
-        $width = self::pixels($tracks[0]);
-        if (null === $width) return null;
-        foreach ($tracks as $track) {
-            $other = self::pixels($track);
-            if (null === $other || abs($width - $other) > self::TOLERANCE) return null;
+        $content = self::box($grid, true);
+        if (null === $content) return null;
+        $template = trim((string) ($grid['grid-template-columns'] ?? 'none'));
+        $start = strtolower(trim((string) ($item['grid-column-start'] ?? 'auto')));
+        $end = strtolower(trim((string) ($item['grid-column-end'] ?? 'auto')));
+        $auto = static fn(string $line): bool => in_array($line, array('', 'auto', 'none'), true);
+        if (in_array(strtolower($template), array('', 'none'), true)) {
+            // One implicit column holds every auto-placed item of a row-flow grid.
+            $flow = strtolower((string) ($grid['grid-auto-flow'] ?? 'row'));
+            return $auto($start) && $auto($end) && !str_contains($flow, 'column') ? array($content[0], null) : null;
         }
-        $box = self::box($parent, true);
-        return null === $box ? null : array($width, $box[1]);
-    }
-
-    /**
-     * Whether the observed placement lines put an item in exactly one
-     * explicit column: auto placement, `span 1`, or line N to N+1 (or auto)
-     * within the explicit grid.
-     */
-    private static function spansOneColumn(array $styles, int $tracks): bool
-    {
-        $start = strtolower(trim((string) ($styles['grid-column-start'] ?? 'auto')));
-        $end = strtolower(trim((string) ($styles['grid-column-end'] ?? 'auto')));
-        $auto = static fn(string $line): bool => 'auto' === $line || 'span 1' === $line;
-        if ($auto($start)) return $auto($end);
-        if (1 !== preg_match('/^[1-9]\d*$/', $start) || (int) $start > $tracks) return false;
-        return $auto($end) || (string) ((int) $start + 1) === $end;
+        $tracks = array();
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\[[^\]]*\]/', ' ', $template))) ?: array() as $track) {
+            $size = self::pixels($track);
+            if (null === $size) return null;
+            $tracks[] = $size;
+        }
+        $count = count($tracks);
+        if (0 === $count) return null;
+        $gapValue = strtolower(trim((string) ($grid['column-gap'] ?? 'normal')));
+        $gap = in_array($gapValue, array('normal', 'none', ''), true) ? 0.0 : self::pixels($gapValue);
+        if (null === $gap) return null;
+        // A line number, negative from the end (`-1` is the last line).
+        $line = static function (string $value) use ($count): ?int {
+            if (!preg_match('/^-?\d+$/', $value) || 0 === (int) $value) return null;
+            $number = (int) $value;
+            return $number > 0 ? $number : $count + 2 + $number;
+        };
+        $span = static fn(string $value): ?int => preg_match('/^span\s+(\d+)$/', $value, $m) && (int) $m[1] > 0 ? (int) $m[1] : null;
+        // `grid-column: span 2` auto-places a two-column item.
+        $columns = 1;
+        if (null !== $span($start)) {
+            if (!$auto($end)) return null;
+            $columns = (int) $span($start);
+            $start = 'auto';
+        }
+        $first = null;
+        if (!$auto($start)) {
+            $first = $line($start);
+            if (null === $first) return null;
+        } elseif (1 === $count) {
+            $first = 1;
+        } else {
+            $box = $this->observations[$key]['border_box'] ?? null;
+            $origin = self::pixels((string) ($grid['padding-left'] ?? '0px'));
+            $border = self::borderWidth((string) ($grid['border-left'] ?? 'none'));
+            $frame = ($this->evidence)($container)[$key]['border_box'] ?? null;
+            if (!is_array($box) || !isset($box['x']) || !is_array($frame) || !isset($frame['x']) || null === $origin || null === $border) return null;
+            $x = (float) $box['x'] - (float) $frame['x'] - $origin - $border;
+            $cursor = 0.0;
+            foreach ($tracks as $index => $size) {
+                if ($x >= $cursor - self::TOLERANCE && $x < $cursor + $size - self::TOLERANCE) { $first = $index + 1; break; }
+                $cursor += $size + $gap;
+            }
+            if (null === $first) return null;
+        }
+        $last = match (true) {
+            $auto($end) => $first + $columns,
+            null !== $span($end) => $first + (int) $span($end),
+            default => $line($end),
+        };
+        if (null === $last || $last <= $first || $last > $count + 1) return null;
+        return array(array_sum(array_slice($tracks, $first - 1, $last - $first)) + ($last - $first - 1) * $gap, null);
     }
 
     /** Whether a box is the containing block of its absolutely positioned descendants. */

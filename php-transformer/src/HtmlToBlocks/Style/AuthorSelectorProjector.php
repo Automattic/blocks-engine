@@ -116,6 +116,9 @@ final class AuthorSelectorProjector
      * That holds only for a selector naming positioned images alone: its
      * figure arm reaches every figure the type matches, so a global `img`
      * rule would also restyle the figures of static images.
+     * A positioned `svg` materialized as a standalone core/image is the same
+     * case: left static, its figure falls into flow and the image renders at
+     * the viewBox's intrinsic ratio instead of the author's stretched box.
      * Attributes stay on the <img>. Classes and id must be on the figure, so a
      * class the figure did not keep leaves the authored selector alone.
      *
@@ -123,7 +126,7 @@ final class AuthorSelectorProjector
      */
     private function isPositionedImage(DOMElement $element): bool
     {
-        return 'img' === strtolower($element->tagName)
+        return in_array(strtolower($element->tagName), array( 'img', 'svg' ), true)
             && in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array( 'absolute', 'fixed' ), true);
     }
 
@@ -145,7 +148,7 @@ final class AuthorSelectorProjector
         // Only an explicit type subject can use the existing type-span rewrite;
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
-            && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
+            && 1 === preg_match('/^' . preg_quote($tagName, '/') . '\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
         if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
@@ -404,6 +407,8 @@ final class AuthorSelectorProjector
             return $arms;
         }
 
+        array_push($arms, ...$this->projectRichTextCarrierDescendantSelector($selector, $parsed, $context, $controlWrapper, $subjectArms, $semanticSubjectArms, $matches));
+
         // Some lowering paths retain the source leaf inside a paragraph
         // without marking it as a potential standalone inline carrier.
         // The emitted tree is authoritative: add a zero-specificity hop
@@ -477,6 +482,67 @@ final class AuthorSelectorProjector
         }
 
         array_push($arms, ...$this->projectMarkerCarriers($selector, $parsed, $matches, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+        return $arms;
+    }
+
+    /**
+     * Arms for a child or descendant rule whose ancestor is a RichText
+     * carrier addressed by class or id (`.fx > *`, `.fx .label`).
+     *
+     * A RichText carrier replaces its source element with a `<mark>` that
+     * no longer has the source classes or id, so the authored ancestor
+     * compound stops matching while the carrier's inline descendants stay
+     * inside it. The ancestor is projected like a pseudo-element host:
+     * through the same pipeline as a rule on its own, keeping only its
+     * RichText arms, which carry its specificity. The combinator and subject
+     * follow unchanged, with source tags rewritten as on any other arm. A
+     * type-only ancestor needs nothing here: the lowered span bridge already
+     * reaches the carrier.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return list<string>
+     */
+    private function projectRichTextCarrierDescendantSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms, array $matches): array
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        $combinator = end($combinators);
+        $compounds = $parsed['compounds'] ?? array();
+        $hostCompound = $compounds[count($compounds) - 2] ?? null;
+        if ( ! is_array($rightmost) || ! in_array($combinator, array( '>', ' ' ), true) || ! is_array($hostCompound)
+            || ( array() === ($hostCompound['classes'] ?? array()) && array() === ($hostCompound['ids'] ?? array()) ) ) {
+            return array();
+        }
+        // Only a match held by a RichText carrier needs an arm; find one
+        // before matching the ancestor selector itself.
+        $holdsCarrierDescendant = false;
+        foreach ( $matches as $match ) {
+            for ( $ancestor = $match->parentNode; $ancestor instanceof DOMElement && ! $holdsCarrierDescendant; $ancestor = '>' === $combinator ? null : $ancestor->parentNode ) {
+                $holdsCarrierDescendant = '' !== $context->selectorProjections->richTextMarker($context->authorStyles->sourcePath($ancestor));
+            }
+            if ( $holdsCarrierDescendant ) {
+                break;
+            }
+        }
+        if ( ! $holdsCarrierDescendant ) {
+            return array();
+        }
+        $start = (int) $rightmost['start'];
+        $host = rtrim(substr($selector, 0, $start));
+        $host = '>' === $combinator ? rtrim(substr($host, 0, -1)) : $host;
+        $subject = substr($selector, $start);
+        $subjectParsed = $context->sourceStyles->parsedSelector($subject);
+        if ( '' === $host || ! $context->sourceStyles->parsedSelector($host)['supported'] || ! $subjectParsed['supported'] ) {
+            return array();
+        }
+        $projectedSubject = $this->rewriteSourceTagTypes($subject, $subjectParsed, $context);
+        $arms = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPreludeOnce($host, $context, $controlWrapper, $subjectArms, $semanticSubjectArms)) ?? array() as $target ) {
+            if ( str_contains($target, 'blocks-engine-role-richtext') || str_contains($target, 'blocks-engine-richtext-marker') ) {
+                $arms[] = $target . ('>' === $combinator ? '>' : ' ') . $projectedSubject;
+            }
+        }
         return $arms;
     }
 
@@ -1698,7 +1764,8 @@ final class AuthorSelectorProjector
     {
         $typeSpans = $parsed['type_spans'];
         $bridgeAnchors = $this->hasLoweredAnchorCarrier($context->emittedMarkup);
-        if ($bridgeAnchors && ! $parsed['supported']) {
+        $bridgeSpans = str_contains($context->emittedMarkup, EngineMarker::subjectTagClass('span'));
+        if (($bridgeAnchors || $bridgeSpans) && ! $parsed['supported']) {
             // Ancestor states are outside the matcher's static subset, but
             // tokenization still identifies each compound's leading type.
             $tokens = CssSelectorTokenizer::tokenize($selector);
@@ -1706,7 +1773,7 @@ final class AuthorSelectorProjector
                 $resting = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound) ?? $compound;
                 $compoundParsed = CssSelectorMatcher::parse($resting);
                 foreach ($compoundParsed['type_spans'] as $span) {
-                    if (0 !== $span['start'] || 'a' !== strtolower($span['name'])) continue;
+                    if (0 !== $span['start'] || ! in_array(strtolower($span['name']), array('a', 'span'), true)) continue;
                     $start = $tokens['compound_spans'][$index]['start'];
                     $typeSpans[] = array('start' => $start, 'end' => $start + $span['end'], 'name' => $span['name']);
                 }
@@ -1759,7 +1826,14 @@ final class AuthorSelectorProjector
                 // Keep real source spans addressable, without adding weight.
                 // A span carrier for another source tag (a lowered `<p>`)
                 // matches only that tag's rules, never those for real spans.
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))' );
+                $span = 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))';
+                // RichText can replace source spans with marks. The native
+                // arm keeps its chrome/foreign-carrier guards; the marker arm
+                // reaches only source spans and adds no class specificity.
+                if ($bridgeSpans) {
+                    $span = ':is(' . $span . ',:where(.' . EngineMarker::subjectTagClass('span') . '))';
+                }
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $span );
             } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }

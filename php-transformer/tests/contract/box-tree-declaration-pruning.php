@@ -108,6 +108,29 @@ $rows = array(
     array('an image background keeps its layer longhands', array('background-image' => 'url("a.png")', 'background-size' => 'cover'), array(), 'core/group', array('background-size:cover', 'background-repeat:repeat'), array()),
     array('a hidden box keeps its observed styles for revealed states', array('display' => 'none', 'opacity' => '0.5'), array(), 'core/group', array('display:none', 'opacity:0.5'), array('flex-wrap')),
 );
+// Cover consumes the source paint into its image/overlay and must retain
+// Core's containing block, clipping and flex layout, which positions its
+// content (#7206). The same group stays unchanged.
+$hero = array(
+    'box-sizing' => 'border-box', 'padding-top' => '115px', 'padding-bottom' => '65px',
+    'min-height' => '540px', 'width' => '1440px', 'height' => '798px',
+    'background-image' => 'linear-gradient(90deg, rgba(16, 16, 16, 0.95), rgba(16, 16, 16, 0.4)), url("https://source.example/hero.jpg")',
+    'background-size' => 'auto, cover', 'background-position-x' => '0%, 50%', 'background-position-y' => '0%, 50%',
+    'background-repeat' => 'repeat, no-repeat', 'background-clip' => 'border-box, content-box',
+    'background-origin' => 'padding-box, content-box', 'background-attachment' => 'scroll, fixed',
+    'background-blend-mode' => 'normal, multiply', 'color' => 'rgb(255, 255, 255)',
+);
+$paint = array('background-image', 'background-size', 'background-position', 'background-repeat', 'background-clip', 'background-origin', 'background-attachment', 'background-blend-mode');
+$geometry = array('padding-top:115px', 'padding-bottom:65px', 'min-height:540px', 'color:rgb(255, 255, 255)');
+$rows[] = array('a cover yields its structure and consumed paint to Core', $hero, array('width' => '1440px'), 'core/cover', $geometry,
+    array_merge(array('position:', 'overflow', 'display:'), $paint));
+$rows[] = array('a cover hidden by the source stays hidden', array_replace($hero, array('display' => 'none')), array(), 'core/cover', array('display:none'), array());
+$rows[] = array('a group retains the same source paint and geometry', $hero, array('width' => '1440px'), 'core/group',
+    array_merge($geometry, array('background-image:linear-gradient', 'background-size:auto, cover', 'background-position-x:0%, 50%', 'background-position-y:0%, 50%', 'background-repeat:', 'background-clip:', 'background-origin:', 'background-attachment:', 'background-blend-mode:')), array('position:', 'overflow'));
+foreach (array('relative', 'absolute', 'fixed', 'sticky') as $position) {
+    $rows[] = array("a cover retains containing position $position and clipping", array_replace($hero, array('position' => $position, 'overflow-x' => 'hidden', 'overflow-y' => 'hidden')), array(), 'core/cover',
+        array_merge($geometry, array("position:$position", 'overflow:hidden')), $paint);
+}
 // Matches a declaration or property prefix only at a property boundary.
 $declares = static fn(string $css, string $prefix): bool => 1 === preg_match('/(?<![a-z-])' . preg_quote($prefix, '/') . '/', $css);
 foreach ($rows as [$label, $styles, $parent, $block, $kept, $pruned]) {
@@ -157,3 +180,15 @@ $assert(!str_contains($inline, 'font-size') && !str_contains($inline, 'line-heig
 $assert(str_contains($inline, 'font-weight'), 'A font weight observed identically in every viewport stays a block attribute.');
 $assert($declares(substr($rule, 0, (int) strpos($rule, '@media')), 'font-size:270px'), 'The carrier base rule declares the widest font size.');
 $assert($declares($media, 'font-size:75px') && $declares($media, 'line-height:60px'), 'The carrier @media rule overrides the font size on mobile.');
+
+// A value captured in one viewport only is still not invariant when a lifted
+// author band varies it: the band's @media rule must not lose to an inline
+// block attribute.
+$state = new LayoutGeometryState();
+$attrs = (new BoxTreeStyleProjector())->project(array(), array(
+    'desktop' => array('used_styles' => array_replace($initial, array('margin-top' => '128px'))),
+), array('desktop' => $viewports['desktop']), $state, array('desktop' => array('used_styles' => $initial)), 'core/cover', array('margin-top' => array(array(null, '128px'), array(991, '90px'))));
+$inline = (new StyleAttributeMapper())->serialize(is_array($attrs['style'] ?? null) ? $attrs['style'] : array())['style'];
+$rule = $state->cssForSerializedBlocks((string) ($attrs['className'] ?? ''));
+$assert(!str_contains($inline, 'margin-top'), 'A value an author band varies is not a block attribute.');
+$assert($declares(substr($rule, 0, (int) strpos($rule, '@media')), 'margin-top:128px') && $declares(substr($rule, (int) strpos($rule, '@media (max-width:991px)')), 'margin-top:90px'), 'The carrier declares the base value and its band.');

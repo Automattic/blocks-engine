@@ -417,6 +417,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->imageUrls = new ImageUrlResolver($this->session);
         $mediaLowering = new Elements\MediaLowering($this, $this->styleResolver, $this->imageUrls);
         $this->imageDimensions = new ImageDimensionResolver($this->styleResolver);
+        $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this->runtime
+        );
+        $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->imageLowering = new Elements\ImageLowering(
             $this,
             $this->blockFactory,
@@ -426,7 +431,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->imageUrls,
             $this->imageDimensions,
-            $this->sourceElementClassifier
+            $this->sourceElementClassifier,
+            $this->richTextMaterializer->inlineVisualDeclarations(...)
         );
         $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier,
             new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session),
@@ -440,15 +446,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->createNavigationStyleProjectionContext(),
             $this->styleResolver
         );
-        $this->svgMaterializer = new SvgMaterializer($this, $this->session, $this->sourceElementClassifier,
-            $this->styleResolver,
-            $this->runtime
-        );
         $capturedDisclosureDialogs = new Elements\CapturedDisclosureDialog($this->styleResolver);
         $this->standaloneBreaks = new Elements\StandaloneBreakLowering($this, $this->styleResolver);
         $flankedSeparators = new Elements\FlankedSeparatorLowering($this, $this->styleResolver, $this->sourceElementClassifier);
         $this->sourceVisibility = new Style\SourceElementVisibility($this->styleResolver);
-        $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
         $this->structuralRichTextContainers = new Elements\StructuralRichTextContainerLowering($this, $this, $this->richTextMaterializer, $this->styleResolver);
         $this->richTextStylingHooks = new RichTextStylingHookNormalizer($this->styleResolver, $this->richTextMaterializer, $this->session, $this->sourceElementClassifier);
         $inlineFlows = new Elements\InlineFlowLowering($this, $this, $this->styleResolver, $this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime);
@@ -1966,10 +1967,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // ADR 0005 slice 5: a folded box's declarations now belong to its child.
         foreach ( $classification['folds'] as $id => $fold ) {
-            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'semantic' => $fold['semantic'] ?? false);
+            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'identity' => $fold['identity']);
             $this->foldChildObservations[(string) $fold['child']] = $tree['nodes'][$fold['child']]['viewports'] ?? array();
         }
-        $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => !empty($node['link_carrier'])))));
+        $this->session->markLinkCarrierBoxTreeNodes(array_map('strval', array_keys(array_filter($classification['nodes'], static fn (array $node): bool => isset($node['identity']['link'])))));
         $this->session->recordBoxTreeFolds($classification['folds']);
         $this->session->overrideBoxTreeObservations($classification['observations']);
         $this->session->collapseBoxTreeNodes(array_map('strval', array_keys($children)));
@@ -2163,31 +2164,22 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
 
-    /**
-     * A box folded for its viewport entrance ({@see BoxTreeClassifier}) hands
-     * the entrance, its id and inline motion variables to the child that takes its place: the child's
-     * block renders both on its root, where the replayed entrance and the
-     * state rules keyed on that id find it.
-     *
-     * @return list<string> The attributes the child received.
-     */
-    private function handEntranceToFoldChild(DOMElement $box, DOMElement $child): array
+    /** Native text and passive SVG image roots render entrance identity. */
+    public static function rendersFoldEntrance(DOMElement $child): bool
     {
-        if ( !$box->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $child->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $child->hasAttribute('id') ) {
-            return array();
-        }
-        $handed = array();
-        foreach ( array(CaptureEvidence::VIEWPORT_ENTRANCE, 'id') as $name ) {
-            if ( $box->hasAttribute($name) ) {
-                $child->setAttribute($name, $box->getAttribute($name));
-                $handed[] = $name;
+        if (in_array(strtolower($child->tagName), array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true)) return true;
+        if ('div' === strtolower($child->tagName)) {
+            $elements = array();
+            foreach ($child->childNodes as $node) {
+                if ($node instanceof DOMElement) $elements[] = $node;
+                elseif ('' !== trim($node->textContent)) return false;
             }
+            return 1 === count($elements) && 'svg' === strtolower($elements[0]->tagName)
+                && self::rendersFoldEntrance($elements[0]);
         }
-        if ( '' !== trim($box->getAttribute('style')) ) {
-            $child->setAttribute('style', rtrim($child->getAttribute('style'), "; \t\n\r\0\x0B") . ';' . $box->getAttribute('style'));
-            $handed[] = 'style';
-        }
-        return $handed;
+        return 'svg' === strtolower($child->tagName)
+            && Support\SvgMaterializer::isPassiveSvgMarkup($child)
+            && !SourceDom::isDefinitionsOnlySvg($child);
     }
 
     /** The source child that replaces a neutral box, or null when the box is kept. */
@@ -2284,6 +2276,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $boxId = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
             $childId = $neutralChild->getAttribute(BoxTree::NODE_ATTRIBUTE);
             if ( $boxId !== ($this->foldedInto[$childId]['from'] ?? null) ) {
+                // A neutral SVG host can sit between the entrance handoff and
+                // the image leaf. Its identity must reach the rendered root.
+                if ($element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) && self::rendersFoldEntrance($neutralChild)) {
+                    foreach ($element->attributes as $attribute) {
+                        if (in_array($attribute->name, array('id', CaptureEvidence::VIEWPORT_ENTRANCE), true)
+                            || \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
+                            $neutralChild->setAttribute($attribute->name, $attribute->value);
+                        }
+                    }
+                    $motion = array_filter(Style\SourceDeclarations::inline($element), static fn (string $name): bool => str_starts_with(strtolower($name), '--motion-'), ARRAY_FILTER_USE_KEY);
+                    $neutralChild->setAttribute('style', $neutralChild->getAttribute('style') . ';' . $this->styleResolver->cssDeclarationString($motion));
+                }
                 return $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
             }
             // A folded box's declarations survive only in its child's box-tree
@@ -2292,21 +2296,29 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // so the box keeps its own block and rule instead.
             $before = $fallbacks;
             $childStyle = $neutralChild->hasAttribute('style') ? $neutralChild->getAttribute('style') : null;
-            $handed = $this->handEntranceToFoldChild($element, $neutralChild);
+            $identity = $this->foldedInto[$childId]['identity'];
+            if ($element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) && self::rendersFoldEntrance($neutralChild)) {
+                foreach ($element->attributes as $attribute) {
+                    if (in_array($attribute->name, array('id', CaptureEvidence::VIEWPORT_ENTRANCE), true)
+                        || \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
+                        $identity['attributes'][$attribute->name] = $attribute->value;
+                    }
+                }
+                $motion = array_filter(Style\SourceDeclarations::inline($element), static fn (string $name): bool => str_starts_with(strtolower($name), '--motion-'), ARRAY_FILTER_USE_KEY);
+                $identity['attributes']['style'] = $neutralChild->getAttribute('style') . ';' . $this->styleResolver->cssDeclarationString($motion);
+            }
+            $handed = array_keys($identity['attributes'] ?? array());
+            foreach ($identity['attributes'] ?? array() as $name => $value) $neutralChild->setAttribute($name, $value);
             $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
-            $semantic = $this->foldedInto[$childId]['semantic'] ?? false;
+            $semantic = isset($identity['tagName']);
             if ( (!$semantic && null === $block) || (null !== $block && $this->foldCarried($boxId, $block)
                 && (!$semantic || 'core/group' === ($block['blockName'] ?? null))) ) {
                 if ($semantic) {
                     $attrs = $block['attrs'];
-                    $attrs['tagName'] = strtolower($element->tagName);
+                    $attrs['tagName'] = $identity['tagName'];
                     unset($attrs['anchor']);
-                    if ($element->hasAttribute('id')) $attrs['anchor'] = $element->getAttribute('id');
-                    foreach ($element->attributes as $attribute) {
-                        if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute->name)) {
-                            $attrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][$attribute->name] = $attribute->value;
-                        }
-                    }
+                    if (null !== $identity['anchor']) $attrs['anchor'] = $identity['anchor'];
+                    foreach ($identity['runtime'] as $name => $value) $attrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][$name] = $value;
                     $block = array_replace($block, $this->blockFactory->create('core/group', $attrs, $block['innerBlocks']));
                 }
                 return $block;

@@ -2095,7 +2095,40 @@ final class StyleResolver implements ElementPresentationResolver
     /** Carry box spacing lost on a display:contents synthetic image figure. */
     public function syntheticFlexImageBoxClassName(DOMElement $image): string
     {
-        return $this->inlineGeometry()->syntheticFlexImageBoxClassName($image);
+        return $this->inlineGeometry()->syntheticFlexImageBoxClassName(
+            $image,
+            $this->imageAutoWidthResolvesToIntrinsicWidth($image) ? array( 'width' ) : array()
+        );
+    }
+
+    /**
+     * An authored `width:auto` that only restates the image's natural width.
+     *
+     * With no width/height attribute and no constrained height axis or ratio,
+     * a replaced element's `width:auto` resolves to its intrinsic width once
+     * loaded. WordPress renders the attachment's own width/height attributes,
+     * which already say that width before the bitmap arrives. Restating
+     * `width:auto` would override those attributes and leave a lazy image
+     * without a used size (0x0) until it loads.
+     */
+    public function imageAutoWidthResolvesToIntrinsicWidth(DOMElement $image): bool
+    {
+        if ( 'img' !== strtolower($image->tagName) || $image->hasAttribute('width') || $image->hasAttribute('height') ) {
+            return false;
+        }
+        $declarations = $this->imageShapeDeclarations($image);
+        if ( ! isset($declarations['width']) || 'auto' !== CssValueInspector::comparable(CssValueInspector::withoutImportant((string) $declarations['width']['value'])) ) {
+            return false;
+        }
+        if ( $this->imageAxisVariesByViewport($image, 'width') ) {
+            return false;
+        }
+        foreach ( array( 'height', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
+            if ( '' !== $this->comparableImageShapeConstraintValue($declarations, $property) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -2371,6 +2404,10 @@ final class StyleResolver implements ElementPresentationResolver
         foreach (array('width', 'min-width', 'max-width') as $property) {
             if ('width' === $property) {
                 if ('' !== $nativeWidth || $this->imageAxisVariesByViewport($image, $property)) {
+                    continue;
+                }
+                if ($this->imageAutoWidthResolvesToIntrinsicWidth($image)) {
+                    // The rendered width attribute already states this box.
                     continue;
                 }
                 if ($widthResolvesToAuto || $this->imageWidthFollowsClampedHeight($image, $declarations)) {
@@ -7382,6 +7419,31 @@ final class StyleResolver implements ElementPresentationResolver
             return true;
         }
         return false;
+    }
+
+    /**
+     * The `data-*` attributes this element's `::before`/`::after` generated
+     * content reads through `attr()`, in any viewport. An element that
+     * lowers to a new carrier must keep these, or its generated content
+     * resolves to an empty string.
+     *
+     * @return list<string> Lowercase attribute names the element carries.
+     */
+    public function generatedContentDataAttributes(DOMElement $element): array
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $names = array();
+        foreach ($state->pseudoElementRules() as $rule) {
+            $content = $rule['declarations']['content'] ?? null;
+            if (!is_string($content) || !in_array((string) ($rule['pseudo'] ?? ''), array('before', 'after'), true)
+                || !preg_match_all('/\battr\(\s*(data-[a-z0-9_.-]+)/i', $content, $matches)
+                || !$state->matches($element, (string) $rule['selector'])) continue;
+            foreach ($matches[1] as $name) {
+                $name = strtolower($name);
+                if ($element->hasAttribute($name)) $names[$name] = true;
+            }
+        }
+        return array_keys($names);
     }
 
     public function specificityResolvedSvgCascadeValue(DOMElement $element, string $property): ?string

@@ -107,7 +107,7 @@ final class BoxTreeStyleProjector
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
-        $consumed = $inlineSupports ? $this->mapInlineSupports($attrs, $base, $keys, $observations, $blockName) : array();
+        $consumed = $inlineSupports ? $this->mapInlineSupports($attrs, $base, $keys, $observations, $blockName, $bands) : array();
         $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
@@ -122,9 +122,10 @@ final class BoxTreeStyleProjector
      * @param array<string, mixed> $attrs
      * @param array<string, string> $base
      * @param list<string> $keys
+     * @param array<int|string, array<string, string>> $bands Lifted author @media values by max-width.
      * @return array<string, string>
      */
-    private function mapInlineSupports(array &$attrs, array $base, array $keys, array $observations, string $blockName): array
+    private function mapInlineSupports(array &$attrs, array $base, array $keys, array $observations, string $blockName, array $bands = array()): array
     {
         // A block the runtime has no metadata for (a generated block, whose
         // save builds its markup by hand) declares no style supports, so it
@@ -137,9 +138,12 @@ final class BoxTreeStyleProjector
         // Never resurrect authored values for observed (including inherited) properties.
         $unobserved = array_diff_key($existingDeclarations, $observations[$baseKey]['used_styles']);
         // Block attributes serialize inline and beat every @media carrier rule,
-        // so only a value observed identically in every viewport may become one.
-        // A varying property stays entirely in the carrier: base rule plus deltas.
-        $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations): bool {
+        // so only a value observed identically in every viewport, with no lifted
+        // author band, may become one. A varying property stays entirely in the
+        // carrier: base rule plus deltas.
+        $banded = array_fill_keys(array_keys(array_merge(...array_values($bands))), true);
+        $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations, $banded): bool {
+            if (isset($banded[$property])) return false;
             foreach ($keys as $key) {
                 if (($observations[$key]['used_styles'][$property] ?? null) !== $value) return false;
             }
@@ -398,6 +402,15 @@ final class BoxTreeStyleProjector
         // browser's `:visited` and `:active` colours, by declaring none.
         if ('a' === strtolower($tagName) && array(self::UA_LINK_COLOR) === array_values(array_unique(array_map(static fn(array $observation): string => (string) ($observation['used_styles']['color'] ?? ''), $observations)))) $yielding = array();
         $properties = array_flip(self::INLINE_TYPOGRAPHY) + $yielding;
+        // An inline the source lays out as a box (a flex item, an inline
+        // block) keeps its box declarations on itself: on the nested RichText
+        // mark they would apply to an inline run, or not at all.
+        foreach ($observations as $observation) {
+            if (!in_array(strtolower((string) ($observation['used_styles']['display'] ?? 'inline')), array('inline', 'contents', 'none', ''), true)) {
+                $properties += array_flip(self::INLINE_BOX);
+                break;
+            }
+        }
         $typography = array();
         foreach ($observations as $key => $observation) $typography[$key] = array('used_styles' => array_intersect_key($observation['used_styles'], $properties));
         $keys = array_keys($typography);
@@ -409,6 +422,10 @@ final class BoxTreeStyleProjector
             $parent = is_array($parent) ? $parent : null;
             $used = $typography[$key]['used_styles'];
             $status[$key] = $this->pruner->classify(array_diff_key($used, $yielding), $parent) + $this->pruner->classify(array_intersect_key($used, $yielding), $parent, '', $tagName);
+            // A RichText inline has no user-agent margin or padding.
+            foreach (self::INLINE_BOX as $property) {
+                if (in_array(trim((string) ($used[$property] ?? '')), array('0', '0px'), true)) $status[$key][$property] = BoxTreeDeclarationPruner::INITIAL;
+            }
             $declarations[$key] = $this->kept($used, $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties), $typography, $parents);
@@ -508,7 +525,10 @@ final class BoxTreeStyleProjector
      * Inherited typography an inline can set apart from its block. Colour
      * joins only for an element that computes its own ({@see self::inlineCarrier()}).
      */
-    private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
+    public const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
+
+    /** Box declarations an inline laid out as a box carries ({@see self::inlineCarrier()}). */
+    private const INLINE_BOX = array('text-align', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
 
     /**
      * Author intent proven at every capture (BoxTreeFluidIntent) replaces

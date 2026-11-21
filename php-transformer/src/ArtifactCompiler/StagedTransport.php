@@ -23,6 +23,7 @@ trait StagedTransport
 {
     /** Deterministic work counters for staged regression tests. */
     private int $stagePartitionCount = 0;
+    private int $sharedShellCompilationCount = 0;
 
     /**
      * Prepare the immutable, serializable shared portion of an artifact.
@@ -36,7 +37,7 @@ trait StagedTransport
      */
     public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
-        return $this->cssRuleTrees->run(fn () => $this->prepareSharedWithCssRuleTrees($artifact, $payloadReader));
+        return \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::run(fn () => $this->cssRuleTrees->run(fn () => $this->prepareSharedWithCssRuleTrees($artifact, $payloadReader)));
     }
 
     private function prepareSharedWithCssRuleTrees(array $artifact, ?PayloadReader $payloadReader = null): array
@@ -48,7 +49,7 @@ trait StagedTransport
         $partition = $this->stagePartition($artifact, 'shared');
         $entryPath = (string) ($partition['entrypoints'][0] ?? '');
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
-        $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($sharedArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $sharedArtifact['files'] = $normalized['files'];
         $this->retainSharedCssRuleTrees($normalized['files']);
@@ -147,7 +148,7 @@ trait StagedTransport
     private function pagePlanFromPartition(array $partition, array $sharedPlan, string $pageId): array
     {
         $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
-        $normalized = (new ArtifactNormalizer())->normalize($pageArtifact);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($pageArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $pageArtifact['files'] = $normalized['files'];
 
@@ -651,6 +652,7 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $sourceCssBytes = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
+        $selectorEvidence = 'shared' === $scope ? $this->selectorEvidence($normalized['files']) : array();
         $projection = (new CaptureProjection())->project($normalized['files']);
         $capturedDialogs = $projection['captured_dialogs'];
         $rawFiles = $projection['files'];
@@ -722,6 +724,7 @@ trait StagedTransport
             'identity' => $identity,
             'source_paths' => $sourcePaths,
             'source_css_bytes' => $sourceCssBytes,
+            'site_selector_evidence' => $selectorEvidence,
             'canonical_source_hash' => $normalized['source_hash'],
             'canonical_bytes' => $normalized['bytes'],
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
@@ -879,7 +882,7 @@ trait StagedTransport
         $partition = $this->stagePartition($hydratedArtifact, $scope, $pageId);
         $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
         $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
-        $normalized = (new ArtifactNormalizer())->normalize($planArtifact);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($planArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $planArtifact['files'] = $normalized['files'];
         $plan = array(
@@ -1199,7 +1202,7 @@ trait StagedTransport
     private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
     {
         return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
-            'site_selector_evidence' => $this->selectorEvidence((new ArtifactNormalizer())->normalize($artifact)['files']),
+            'site_selector_evidence' => $partition['site_selector_evidence'],
             'entry_path' => $entryPath,
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),

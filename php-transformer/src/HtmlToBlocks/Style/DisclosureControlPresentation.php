@@ -58,11 +58,138 @@ final class DisclosureControlPresentation
      * icon is carried from it, and the row's gap travels with the icon so the
      * label wraps where it did in the source.
      *
-     * @return array{className: string, iconSvg: string}
+     * `iconPosition` is `left` when the source renders its toggle icon before
+     * the label, and empty otherwise (core's default, the inline end).
+     *
+     * @return array{className: string, iconSvg: string, iconPosition: string}
      */
     public function accordionToggle(DOMElement $control, ?DOMElement $row = null): array
     {
-        return $this->disclosureControlPresentation($control, 'blocks-engine-accordion-toggle-', $row);
+        $toggle = $this->disclosureControlPresentation($control, 'blocks-engine-accordion-toggle-', $row);
+        $toggle['iconPosition'] = $this->accordionIconPosition($control, $row);
+
+        return $toggle;
+    }
+
+    /**
+     * Which side of the label the source toggle renders its icon on.
+     *
+     * The icon is the first rendered SVG, `aria-hidden` element or `icon`
+     * classed element in the control (or else its header row) that holds no
+     * label text. Its visual order against the label is resolved where the
+     * two branch apart: a flex row orders them by `order` and DOM position,
+     * reversed by `row-reverse`; inline content orders them by DOM position.
+     * Returns `left` only when the icon is proven to precede the label.
+     */
+    private function accordionIconPosition(DOMElement $control, ?DOMElement $row): string
+    {
+        $glyph = '/^[\s+−–—×✕⌄⌃›‹❯❮]*$/u';
+        foreach ( array( $control, $row ) as $scope ) {
+            if ( ! $scope instanceof DOMElement ) {
+                continue;
+            }
+            $label = null;
+            $xpath = new \DOMXPath($scope->ownerDocument ?? new \DOMDocument());
+            foreach ( $xpath->query('.//text()', $scope) ?: array() as $text ) {
+                if ( 1 === preg_match($glyph, (string) $text->textContent) ) {
+                    continue;
+                }
+                $hidden = false;
+                for ( $node = $text->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                    $hidden = $hidden || 'true' === $node->getAttribute('aria-hidden') || in_array(strtolower($node->tagName), array( 'svg', 'script', 'style', 'template' ), true);
+                    if ( $node->isSameNode($scope) ) {
+                        break;
+                    }
+                }
+                if ( ! $hidden ) {
+                    $label = $text;
+                    break;
+                }
+            }
+            if ( null === $label ) {
+                return '';
+            }
+            $icon = null;
+            foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+                if ( ! $candidate instanceof DOMElement
+                    || self::nodeContains($candidate, $label)
+                    || 1 !== preg_match($glyph, $candidate->textContent)
+                    || CssValueInspector::hidesBox($this->styles->resolvedPresentationDeclarations($candidate))
+                ) {
+                    continue;
+                }
+                if ( 'svg' === strtolower($candidate->tagName)
+                    || 'true' === $candidate->getAttribute('aria-hidden')
+                    || 1 === preg_match('/(?:^|[\s_-])icon(?:$|[\s_-])/i', $candidate->getAttribute('class'))
+                ) {
+                    $icon = $candidate;
+                    break;
+                }
+            }
+            if ( null === $icon ) {
+                continue;
+            }
+            $iconBranch = $icon;
+            while ( $iconBranch->parentNode instanceof DOMElement && ! self::nodeContains($iconBranch->parentNode, $label) ) {
+                $iconBranch = $iconBranch->parentNode;
+            }
+            $branchRoot = $iconBranch->parentNode;
+            if ( ! $branchRoot instanceof DOMElement ) {
+                return '';
+            }
+            $labelBranch = $label;
+            while ( $labelBranch->parentNode instanceof DOMElement && ! $labelBranch->parentNode->isSameNode($branchRoot) ) {
+                $labelBranch = $labelBranch->parentNode;
+            }
+            $iconFirstInDom = false;
+            for ( $node = $iconBranch->nextSibling; null !== $node; $node = $node->nextSibling ) {
+                $iconFirstInDom = $iconFirstInDom || $node->isSameNode($labelBranch);
+            }
+            $declarations = $this->styles->resolvedPresentationDeclarations($branchRoot);
+            $display = CssValueInspector::declared($declarations, 'display');
+            if ( in_array($display, array( 'flex', 'inline-flex' ), true) ) {
+                $direction = CssValueInspector::declared($declarations, 'flex-direction');
+                if ( ! in_array($direction, array( '', 'row', 'row-reverse' ), true) ) {
+                    return '';
+                }
+                $order = fn (\DOMNode $node): int => $node instanceof DOMElement
+                    ? (int) CssValueInspector::declared($this->styles->resolvedPresentationDeclarations($node), 'order')
+                    : 0;
+                $iconOrder = $order($iconBranch);
+                $labelOrder = $order($labelBranch);
+                $iconFirst = $iconOrder === $labelOrder ? $iconFirstInDom : $iconOrder < $labelOrder;
+
+                return $iconFirst !== ( 'row-reverse' === $direction ) ? 'left' : '';
+            }
+            // Outside a flex row, only inline-level siblings sit side by side.
+            foreach ( array( $iconBranch, $labelBranch ) as $branch ) {
+                if ( ! $branch instanceof DOMElement ) {
+                    continue;
+                }
+                $branchDisplay = CssValueInspector::declared($this->styles->resolvedPresentationDeclarations($branch), 'display');
+                $inline = '' === $branchDisplay
+                    ? in_array(strtolower($branch->tagName), array( 'span', 'svg', 'i', 'img', 'b', 'strong', 'em', 'small', 'a' ), true)
+                    : in_array($branchDisplay, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid' ), true);
+                if ( ! $inline ) {
+                    return '';
+                }
+            }
+
+            return $iconFirstInDom ? 'left' : '';
+        }
+
+        return '';
+    }
+
+    private static function nodeContains(DOMElement $ancestor, \DOMNode $node): bool
+    {
+        for ( $current = $node->parentNode; null !== $current; $current = $current->parentNode ) {
+            if ( $current->isSameNode($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -271,7 +398,7 @@ final class DisclosureControlPresentation
             $declarations = $this->styles->resolvedPresentationDeclarations($node);
             $display = strtolower(trim((string) ($declarations['display'] ?? '')));
             $direction = CssValueInspector::declared($declarations, 'flex-direction') ?: 'row';
-            if ( in_array($display, array('flex', 'inline-flex'), true) && in_array($direction, array('row', ''), true) ) {
+            if ( in_array($display, array('flex', 'inline-flex'), true) && in_array($direction, array('row', 'row-reverse', ''), true) ) {
                 $gap = trim((string) ($declarations['column-gap'] ?? ''));
                 if ( '' === $gap ) {
                     $parts = SourceDom::tokens((string) ($declarations['gap'] ?? ''));

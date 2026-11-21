@@ -630,7 +630,18 @@ final class AuthorStylesheetProjector
                 && 'auto' === trim(str_replace('!important', '', $value)), ARRAY_FILTER_USE_BOTH);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
-        $svgLeaf = $this->svgImageLeafOwnership($prelude, $body, $declarations, $svgImagePrelude, $context);
+        // A positioned subject that moved to the synthetic figure makes that
+        // figure the out-of-flow box. It keeps the authored width and height,
+        // so percentages still resolve against the containing block, and the
+        // leaf fills it: restating them on the leaf would resolve a stretched
+        // `preserveAspectRatio="none"` height against the figure's automatic
+        // height and fall back to the viewBox ratio.
+        $svgFigureBox = '' !== $svgImagePrelude
+            && in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true)
+            && ! $this->everySubjectStaysOnImage($prelude, $context)
+            ? array_intersect_key($declarations, array( 'width' => true, 'height' => true ))
+            : array();
+        $svgLeaf = $this->svgImageLeafOwnership($prelude, $body, array_diff_key($declarations, $svgFigureBox), $svgImagePrelude, $context);
         $body = $svgLeaf['body'];
         $imageRule = '' === $imagePrelude
             ? ''
@@ -667,9 +678,10 @@ final class AuthorStylesheetProjector
         // Keep the normal bridge defaults, then the authored replaced-box
         // declarations at this rule's cascade position. Do not promote them
         // above SvgMaterializer's inline-geometry carrier or replay SVG paint.
+        $svgLeafDeclarations = $this->styleResolver->cssDeclarationString(array_diff_key($this->imageApplicableSvgDeclarations($declarations), $svgFigureBox));
         $svgImageRule = '' === $svgImagePrelude
             ? ''
-            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true, ! $this->everySubjectStaysOnImage($prelude, $context)) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}'
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true, ! $this->everySubjectStaysOnImage($prelude, $context)) . ('' === $svgLeafDeclarations ? '' : ';' . $svgLeafDeclarations) . '}'
                 . $this->lineImageFigureRule($svgImagePrelude, $declarations, $context);
         $svgImageRule .= $this->flexItemImageBoxRule(
             $prelude,
@@ -1718,8 +1730,16 @@ final class AuthorStylesheetProjector
     {
         $projected = $this->selectors->projectControlSelector($selector, $parsed, $marker, $context);
         // Generated button style variations can carry later important declarations.
-        // Keep the source-owned control selector specific to its exact target.
-        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ').' . $marker . '.' . $marker, $projected);
+        // Keep the source-owned control selector specific to its exact target:
+        // two class weights on the marker's carrier. Every carrier of a control
+        // marker also carries the control role class (EngineMarker::ROLE_KINDS),
+        // so the role class repeats for that weight, as in
+        // nativeButtonControlTarget(). The arm then differs from the other
+        // carriers' arms only inside `:where()`, so the site-wide sheet folds
+        // them into one marker list instead of one arm per carrier.
+        $role = EngineMarker::roleClass($marker);
+        $weight = '' !== $role ? '.' . $role . '.' . $role : '.' . $marker . '.' . $marker;
+        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ')' . $weight, $projected);
     }
 
     /**
@@ -2894,12 +2914,13 @@ final class AuthorStylesheetProjector
         }
         $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
 
-        // Explicit img subjects naming only positioned images move to the
-        // figure too, so it can own their out-of-flow source box.
-        if ( 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0))) ) {
+        // Explicit img (or materialized svg) subjects naming only positioned
+        // images move to the figure too, so it can own their out-of-flow
+        // source box.
+        if ( 1 === preg_match('/^(img|svg)\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)), $type) ) {
             $matches = $this->selectors->matchingSourceElements($selector, $parsed, $context);
             if ( array() !== $matches && array() === array_filter($matches, fn (DOMElement $element): bool =>
-                'img' !== strtolower($element->tagName)
+                strtolower($type[1]) !== strtolower($element->tagName)
                 || ! in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array('absolute', 'fixed'), true)) ) {
                 return false;
             }

@@ -272,16 +272,19 @@ final class DesignUsageCollector
      * reference viewport (a desktop-only hero beside its phone copy) renders
      * its headings there, at the size usage reads for every heading. Record
      * those heading observations so their rendered sizes get a preset, while
-     * the resting document alone keeps weighting the usage scale.
+     * the resting document alone keeps weighting the usage scale. Class-list
+     * observations are not usage weight: they prove what an author class
+     * renders where it is shown, so text in that subtree can still bind its
+     * class paint to native block support instead of staying CSS-owned.
      *
      * @param array<string,mixed> $parent
      * @param array<string,string> $declarations
      */
     private function walkReferenceHeadings(DOMElement $element, array $parent, array $declarations): void
     {
-        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements);
+        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->elements);
         $this->walkVisible($element, $parent, $declarations, strtolower($element->tagName));
-        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements] = $usage;
+        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->elements] = $usage;
     }
 
     /** Whether a media rule that applies at the desktop reference viewport overrides a resting `display: none`. */

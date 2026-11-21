@@ -149,6 +149,37 @@ final class BoxTreeDeclarationPruner
     );
 
     /**
+     * Wrapper declarations constrained by a block's generated structure.
+     * Cover's absolute image and overlay need a containing block and clipping,
+     * and its content position aligns the inner container only in Core's flex
+     * layout (the source children's percentage sizes resolve against that
+     * container, not the cover). Source values outside these sets must yield
+     * to Core, not undo it.
+     */
+    private const BLOCK_STRUCTURAL_VALUES = array(
+        'core/cover' => array(
+            'display' => array('flex', 'none'),
+            'position' => array('relative', 'absolute', 'fixed', 'sticky'),
+            'overflow' => array('hidden', 'clip', 'auto', 'scroll'),
+            'overflow-x' => array('hidden', 'clip', 'auto', 'scroll'),
+            'overflow-y' => array('hidden', 'clip', 'auto', 'scroll'),
+        ),
+    );
+
+    /**
+     * Paint already represented by the block's own image and gradient layers.
+     * Cover owns these layers, so replaying them on its wrapper paints twice
+     * and can request the unrewritten source image URL.
+     */
+    private const BLOCK_CONSUMED_PROPERTIES = array(
+        'core/cover' => array(
+            'background-image', 'background-size', 'background-position',
+            'background-position-x', 'background-position-y', 'background-repeat',
+            'background-clip', 'background-origin', 'background-attachment', 'background-blend-mode',
+        ),
+    );
+
+    /**
      * Box sides whose default is zero on these blocks' emitted elements in
      * every context a box-tree carrier lands in (the author stylesheet is not
      * shipped there). The user agent gives the elements no padding and no
@@ -314,7 +345,13 @@ final class BoxTreeDeclarationPruner
         $ownDefaults = array_fill_keys(array_merge(self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), self::BLOCK_INHERITED_DEFAULTS[$blockName] ?? array()), true);
         $zeroDefault = self::zeroDefaultSides($styles, $blockName, $tagName);
         $result = array();
+        $structural = self::BLOCK_STRUCTURAL_VALUES[$blockName] ?? array();
+        $consumed = array_fill_keys(self::BLOCK_CONSUMED_PROPERTIES[$blockName] ?? array(), true);
         foreach ($styles as $property => $value) {
+            if (isset($consumed[$property]) || (isset($structural[$property]) && !in_array(strtolower(trim((string) $value)), $structural[$property], true))) {
+                $result[$property] = self::NOT_APPLICABLE;
+                continue;
+            }
             $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
             if (self::KEPT === $result[$property] && isset($zeroDefault[$property]) && in_array(trim((string) $value), array('0', '0px'), true)) $result[$property] = self::INITIAL;
         }

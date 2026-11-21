@@ -53,6 +53,16 @@ $out = ( new HtmlTransformer() )->transform(
 $css = $cssOf($out);
 $assert(! preg_match('/wp-block-buttons\{width:320px/', $css), 'inline-level buttons do not take a sized ancestor width', $css);
 
+// A flex card ends the block-flow walk even when its class is a generated
+// CSS-in-JS name, so a product card button keeps its card instead of taking
+// the carousel track width beyond it.
+$out = ( new HtmlTransformer() )->transform(
+    '<style>.css-1k0woj{display:flex;flex-direction:column;align-items:center}.cta{margin-top:16px}.cta a{display:block;padding:10px 20px;background:#444;color:#fff}</style>'
+    . '<main><div style="width:1059px;display:flex"><div style="flex:1 1 0%;width:33.3333%"><div class="css-1k0woj"><div class="cta"><a href="/cart?add=1">Add to Cart</a></div></div></div></div></main>'
+)->toArray();
+$css = $cssOf($out);
+$assert(! preg_match('/wp-block-buttons\{width:1059px/', $css), 'a flex card button does not take the track width beyond its card', $css);
+
 if ( $failures > 0 ) {
     exit(1);
 }

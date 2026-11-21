@@ -39,10 +39,53 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
     $text = static fn ( string $label ): string => trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $label ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
     // An edited menu no longer has the recorded items; it keeps its own.
     if ( count( $items ) !== count( $presentation ) ) return $inner_blocks;
+    // Remove recorded top-level extras before replaying positional presentation.
+    // WP_Block_List preserves stored WP_Block instances (and their context).
+    if ( array_filter( $presentation, static fn ( $own ): bool => is_array( $own ) && ! empty( $own['omit'] ) ) ) {
+    // Importers rewrite entity URLs to permalinks: a trailing slash or the
+    // site's absolute origin still names the recorded destination.
+    $site_host = strtolower( (string) parse_url( home_url( '/' ), PHP_URL_HOST ) );
+    $destination = static function ( string $url ) use ( $site_host ): string {
+        $url = trim( $url );
+        $parts = parse_url( $url );
+        if ( ! is_array( $parts ) || isset( $parts['fragment'] ) ) return $url;
+        $host = strtolower( (string) ( $parts['host'] ?? '' ) );
+        if ( '' !== $host && $host !== $site_host ) return '//' . $host . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' ) . '/' . trim( (string) ( $parts['path'] ?? '' ), '/' ) . ( isset( $parts['query'] ) ? '?' . $parts['query'] : '' );
+        if ( '' === $host && ( isset( $parts['scheme'] ) || '/' !== ( $url[0] ?? '' ) ) ) return $url;
+        return '/' . trim( (string) ( $parts['path'] ?? '' ), '/' ) . ( isset( $parts['query'] ) ? '?' . $parts['query'] : '' );
+    };
+    $kept = array();
+    $kept_presentation = array();
+    $position = 0;
+    foreach ( $inner_blocks as $block ) {
+        $descendants = array();
+        $visit = static function ( $node ) use ( &$visit, &$descendants ): void {
+            if ( in_array( $node->name, array( 'core/navigation-link', 'core/navigation-submenu' ), true ) ) $descendants[] = $node;
+            foreach ( $node->inner_blocks as $child ) $visit( $child );
+        };
+        $visit( $block );
+        $length = count( $descendants );
+        $own = $presentation[ $position ] ?? array();
+        $attrs = $block->parsed_block['attrs'] ?? array();
+        $omit = ! empty( $own['omit'] ) && isset( $own['label'], $own['omitUrl'] )
+            && $text( (string) ( $attrs['label'] ?? '' ) ) === $own['label']
+            && $destination( (string) ( $attrs['url'] ?? '' ) ) === $destination( (string) $own['omitUrl'] );
+        if ( ! $omit ) {
+            $kept[] = $block;
+            array_push( $kept_presentation, ...array_slice( $presentation, $position, $length ) );
+        }
+        $position += $length;
+    }
+    $inner_blocks = new WP_Block_List( $kept );
+    $presentation = $kept_presentation;
+    $items = array();
+    $collect( $inner_blocks );
+    }
     $document = __DOCUMENT_ID__;
     $served = apply_filters( 'blocks_engine_served_route', is_front_page() ? '/' : ( 0 !== $document && 'page' === get_post_type( $document ) ? '/' . trim( (string) get_page_uri( $document ), '/' ) : null ), $document );
     foreach ( $items as $position => $block ) {
         $own = is_array( $presentation[ $position ] ) ? $presentation[ $position ] : array();
+        if ( ! empty( $own['omit'] ) ) continue; // Owner edits fail open, with entity presentation.
         $attrs = $block->parsed_block['attrs'] ?? array();
         // The recorded presentation holds the state the item was captured in.
         // Served in the other state, the item keeps the entity's presentation,
@@ -50,7 +93,8 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         $url = is_string( $attrs['url'] ?? null ) ? trim( $attrs['url'] ) : '';
         $current = str_contains( (string) ( $attrs['className'] ?? '' ), 'blocks-engine-current-navigation-item' )
             || ( null !== $served && '' !== $url && '/' === $url[0] && ( 1 === strlen( $url ) || '/' !== $url[1] ) && ! str_contains( $url, '#' ) && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served );
-        if ( $current !== ! empty( $own['current'] ) ) continue;
+        // An item recorded as its reference's own pre-fold entity presentation renders in either state.
+        if ( $current !== ! empty( $own['current'] ) && empty( $own['entity'] ) ) continue;
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
         if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) $attrs['metadata']['blocksEngineNavigationAnchor'] = $own['blocksEngineNavigationAnchor'];

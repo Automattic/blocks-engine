@@ -1169,7 +1169,7 @@ JS;
             }
         }
 
-        [$presentation, $initialSlide] = $this->slidePresentation($element, $list, $items, $pagerItems, $capturedGallery, $styleResolver);
+        [$presentation, $initialSlide, $visibleSlides] = $this->slidePresentation($element, $list, $items, $pagerItems, $capturedGallery, $styleResolver);
 
         $bullets = $this->bulletControls($element, $list, count($slides));
         $showDots = $paginationCount >= 2 || $this->hasSlideIndexControl($element) || count($this->paginationControls($element)) >= 2 || array() !== $bullets;
@@ -1257,7 +1257,7 @@ JS;
             'previousControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['previous'], $styleResolver) : array(),
             'nextControlPresentation' => $sourceControls['next'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['next'], $styleResolver) : array(),
             'nextControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['next'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['next'], $styleResolver) : array(),
-            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
+            'itemsPerView' => 'slideshow' === $presentation ? 1 : ($visibleSlides > 0 ? min(6, $visibleSlides) : min(4, count($slides))),
             'wrap' => $hasPrevious && $hasNext,
             'presentation' => $presentation,
             'slideCount' => count($slides),
@@ -1544,14 +1544,15 @@ JS;
      *
      * @param array<int, DOMElement> $items
      * @param array<int, DOMElement> $pagerItems
-     * @return array{0: string, 1: int}
+     * @return array{0: string, 1: int, 2: int} Presentation, initial slide and the source's visible track slide count (0 when unknown).
      */
     private function slidePresentation(DOMElement $element, DOMElement $list, array $items, array $pagerItems, bool $capturedGallery, StyleResolver $styleResolver): array
     {
         $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        $namedSlideshow = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity);
+        $presentation = 'track';
         if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
             $visible = 0;
             $hidden = 0;
@@ -1603,8 +1604,20 @@ JS;
             $presentation = 'slideshow';
             $initialSlide = $opaque[0];
         }
+        // Several frames exposed together while the rest are hidden from
+        // assistive technology is a multi-up track viewport, not a stage.
+        $exposedTogether = count(array_filter($items, static fn (DOMElement $item): bool => 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))));
+        $visibleCount = 1 < $exposedTogether && count($exposed) === $exposedTogether && $exposedTogether < count($items) ? $exposedTogether : 0;
+        if ( 0 === $visibleCount && count($exposed) < count($items) ) {
+            $visibleCount = $this->translatedTrackWindowCount($element, $list, array_values($exposed), count($items));
+        }
+        // A slideshow name (a `__slideshow-holder` wrapper around a track) is
+        // only a hint; a measured multi-up track window outweighs it.
+        if ( $namedSlideshow && 0 === $visibleCount ) {
+            $presentation = 'slideshow';
+        }
         foreach ( $items as $index => $item ) {
-            if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
+            if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && 0 === $visibleCount && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
                 $presentation = 'slideshow';
             }
             if ( ('slideshow' === $presentation && 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))) || str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ) {
@@ -1615,7 +1628,83 @@ JS;
             $presentation = 'slideshow';
             $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute(CaptureEvidence::GALLERY_INITIAL)));
         }
-        return array($presentation, $initialSlide);
+        return array($presentation, $initialSlide, 'track' === $presentation ? $visibleCount : 0);
+    }
+
+    /**
+     * How many exposed slides a translated track window shows. Slides that
+     * are not hidden from assistive technology, while their siblings are,
+     * form the rendered window; each sits at an inline horizontal translate
+     * on one regular pitch, and the window starts at offset zero. Offsets
+     * inside the clipping holder are on view. Without a measured holder, a
+     * leading buffer (slides at negative offsets) is mirrored by the same
+     * number of trailing buffer slides past the window's end.
+     *
+     * A rotating track parks recycled slides at a far sentinel offset (well
+     * beyond every slide's pitch from the window origin). A parked slide that
+     * is still exposed is not part of the measured window; it stands in for
+     * the trailing buffer slide it is being recycled into.
+     *
+     * @param list<DOMElement> $exposed
+     * @return int The visible slide count, or 0 when the geometry is not a regular track window.
+     */
+    private function translatedTrackWindowCount(DOMElement $element, DOMElement $list, array $exposed, int $slideCount): int
+    {
+        if ( count($exposed) < 2 ) {
+            return 0;
+        }
+        $offsets = array();
+        foreach ( $exposed as $item ) {
+            $transform = strtolower(SourceDeclarations::inline($item)['transform'] ?? '');
+            if ( 1 !== preg_match('/^translate(?:3d|x)?\(\s*(-?\d+(?:\.\d+)?)px(?:\s*,\s*-?0(?:\.0+)?(?:px)?){0,2}\s*\)$/D', trim($transform), $match) ) {
+                return 0;
+            }
+            $offsets[] = (float) $match[1];
+        }
+        sort($offsets);
+        $pitch = 0.0;
+        foreach ( $offsets as $index => $offset ) {
+            $gap = $index > 0 ? $offset - $offsets[$index - 1] : 0.0;
+            if ( $gap >= 1.0 && (0.0 === $pitch || $gap < $pitch) ) {
+                $pitch = $gap;
+            }
+        }
+        if ( $pitch < 1.0 ) {
+            return 0;
+        }
+        $reach = max($slideCount, count($offsets)) * $pitch;
+        $placed = array_values(array_filter($offsets, static fn (float $offset): bool => abs($offset) <= $reach));
+        $parked = count($offsets) - count($placed);
+        $offsets = $placed;
+        if ( count($offsets) < 2 ) {
+            return 0;
+        }
+        $hasOrigin = false;
+        foreach ( $offsets as $index => $offset ) {
+            $hasOrigin = $hasOrigin || abs($offset) < 1.0;
+            if ( $index > 0 && abs($offset - $offsets[$index - 1] - $pitch) > 1.0 ) {
+                return 0;
+            }
+        }
+        if ( ! $hasOrigin ) {
+            return 0;
+        }
+        $holderWidth = 0.0;
+        for ( $node = $list; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 1 === preg_match('/^(\d+(?:\.\d+)?)px$/D', trim(strtolower(SourceDeclarations::inline($node)['width'] ?? '')), $width) ) {
+                $holderWidth = (float) $width[1];
+                break;
+            }
+            if ( $node === $element ) {
+                break;
+            }
+        }
+        $leading = count(array_filter($offsets, static fn (float $offset): bool => $offset < 0.0));
+        $inView = $holderWidth > 0.0
+            ? count(array_filter($offsets, static fn (float $offset): bool => $offset >= 0.0 && $offset < $holderWidth))
+            : count($offsets) + $parked - 2 * $leading;
+
+        return $inView >= 2 ? $inView : 0;
     }
 
     /** Whether any element selects a slide by its numeric index. */
@@ -1896,11 +1985,68 @@ JS;
         if (array() === $groups) {
             return '';
         }
+        $groups = array_merge($this->splitControlPairSegments($root, $previous, $next, $groups), array_values($groups));
+        $order = array();
+        foreach ($root->getElementsByTagName('*') as $index => $node) {
+            $order[spl_object_id($node)] = $index;
+        }
+        usort($groups, static fn (array $left, array $right): int => ($order[spl_object_id($left['root'])] ?? 0) <=> ($order[spl_object_id($right['root'])] ?? 0));
         $markup = '';
         foreach ($groups as $group) {
             $markup .= $this->serializeControlTopologyNode($group['root'], $group['controls'], $styleResolver);
         }
         return $markup;
+    }
+
+    /**
+     * A breakpoint copy of the previous/next pair whose arrows sit in
+     * separate side wrappers (one each side of the slides) has no container
+     * of its own, so it joins no control group. Each of those arrows keeps
+     * its own outermost wrapper that holds no other control and no slide
+     * content, beside the grouped pair, so the copy that shows at this
+     * breakpoint still steps the track.
+     *
+     * @param list<DOMElement> $previous
+     * @param list<DOMElement> $next
+     * @param array<int, array{root: DOMElement, controls: array<int, array{element: DOMElement, next: bool}>}> $groups
+     * @return list<array{root: DOMElement, controls: array<int, array{element: DOMElement, next: bool}>}>
+     */
+    private function splitControlPairSegments(DOMElement $root, array $previous, array $next, array $groups): array
+    {
+        $grouped = static function (DOMElement $control) use ($groups): bool {
+            foreach ($groups as $group) {
+                if (isset($group['controls'][spl_object_id($control)])) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        $loosePrevious = array_values(array_filter($previous, static fn (DOMElement $control): bool => !$grouped($control)));
+        $looseNext = array_values(array_filter($next, static fn (DOMElement $control): bool => !$grouped($control)));
+        if (1 !== count($loosePrevious) || 1 !== count($looseNext)) {
+            return array();
+        }
+        $controls = array_merge($previous, $next);
+        $segments = array();
+        foreach (array(array($loosePrevious[0], false), array($looseNext[0], true)) as [$control, $isNext]) {
+            $wrapper = $control;
+            for ($parent = $control->parentNode; $parent instanceof DOMElement && $parent !== $root; $parent = $parent->parentNode) {
+                if (0 < $parent->getElementsByTagName('img')->length || 0 < $parent->getElementsByTagName('li')->length) {
+                    break;
+                }
+                foreach ($controls as $other) {
+                    if ($other !== $control && $this->containsNode($parent, $other)) {
+                        break 2;
+                    }
+                }
+                $wrapper = $parent;
+            }
+            $segments[] = array(
+                'root' => $wrapper,
+                'controls' => array(spl_object_id($control) => array('element' => $control, 'next' => $isNext)),
+            );
+        }
+        return $segments;
     }
 
     /** @param array<int, array{element: DOMElement, next: bool}> $controls */

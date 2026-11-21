@@ -694,6 +694,17 @@ final class GeneratedBlockStyleProjector
         // responsive cross-axis stretching. Intrinsic widths resolved at the
         // reference viewport must not pin it when that parent becomes a column.
         $hasWidth = array() !== ($this->styleResolver->authorDeclaredPropertyValues($control, array('width'))['width'] ?? array());
+        // The flex-row fills below size the link's border box to its carrier.
+        // A content-box source anchor without an authored size renders the
+        // same border box, but the native link rule restates that content
+        // box, which would add the padding a second time on both axes.
+        $sizeAxes = array('width', 'height', 'min-height', 'max-height');
+        $authoredSizes = array_merge(
+            array_merge(...array_values($this->styleResolver->authorDeclaredPropertyValues($control, $sizeAxes)) ?: array(array())),
+            array_map(CssValueInspector::comparable(...), array_values(array_intersect_key(SourceDeclarations::parse($control->getAttribute('style')), array_flip($sizeAxes))))
+        );
+        $fillsBorderBox = ! $hasWidth
+            && array() === array_diff($authoredSizes, array('auto', 'none', '0', 'initial', 'unset'));
         $parentDisplays = array((string) ($parentStyle['display'] ?? ''));
         if ( $parent instanceof DOMElement ) {
             $parentDisplays = array_merge($parentDisplays, array_values($this->styleResolver->conditionalDisplayRules($parent)));
@@ -736,7 +747,7 @@ final class GeneratedBlockStyleProjector
                 . $button . '>.wp-block-button__link{word-break:normal}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
                 . ($isGrid ? $button . '{width:100%}' : '')
-                . ($isFlex ? $button . '{' . (! $isColumn || $stretchesCrossAxis ? 'width:100%!important;' : '') . 'height:100%}' . $link . '{' . (! $hasWidth && (! $isColumn || $stretchesCrossAxis) ? 'width:100%!important;' : '') . 'height:100%}' : '')
+                . ($isFlex ? $button . '{' . (! $isColumn || $stretchesCrossAxis ? 'width:100%!important;' : '') . 'height:100%}' . $link . '{' . ($fillsBorderBox ? 'box-sizing:border-box!important;' : '') . (! $hasWidth && (! $isColumn || $stretchesCrossAxis) ? 'width:100%!important;' : '') . 'height:100%}' : '')
                 . $stretchRule
         );
     }
@@ -1057,7 +1068,7 @@ final class GeneratedBlockStyleProjector
             return '';
         }
         for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $declarations = $this->styleResolver->structuralPresentationDeclarations($ancestor);
             $width = CssValueInspector::declared($declarations, 'width');
             if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
                 return $width;

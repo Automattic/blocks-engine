@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ContentOnlySectionProjection;
 
 /** Measures bounded editability risks independently of visual-parity evidence. */
 final class EditabilityReport
@@ -145,6 +146,24 @@ final class EditabilityReport
     {
         if (!is_array($designSystem['metrics'] ?? null)) return $report;
         $report['design_system'] = array('schema' => (string) ($designSystem['schema'] ?? ''), 'metrics' => $designSystem['metrics']);
+        return $report;
+    }
+
+    /**
+     * Page sections the site plan locked as contentOnly, per document and in
+     * total. Measured on final plan pages: the lock is a site-plan projection.
+     *
+     * @param array<string,mixed> $report @param array<int,array<string,mixed>> $pages @return array<string,mixed>
+     */
+    public function withContentOnlySections(array $report, array $pages): array
+    {
+        $bySource = array();
+        foreach ($pages as $page) if (is_array($page) && is_string($page['source_path'] ?? null)) $bySource[$page['source_path']] = ContentOnlySectionProjection::count(array($page));
+        if (is_array($report['documents'] ?? null)) foreach ($report['documents'] as &$document) {
+            if (is_array($document['metrics'] ?? null) && isset($bySource[$document['source_path'] ?? ''])) $document['metrics']['content_only_section_count'] = $bySource[$document['source_path']];
+        }
+        unset($document);
+        if (is_array($report['metrics'] ?? null)) $report['metrics']['content_only_section_count'] = array_sum($bySource);
         return $report;
     }
 
