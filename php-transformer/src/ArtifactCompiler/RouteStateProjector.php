@@ -1195,6 +1195,11 @@ final class RouteStateProjector
      */
     private static function classMeaning(array $readings): string
     {
+        // A rule restated later under the same condition and selector wins
+        // wherever the earlier copy would, so only the last copy reads.
+        $last = array();
+        foreach ($readings as $position => $reading) $last[implode("\0", $reading)] = $position;
+        $readings = array_values(array_intersect_key($readings, array_flip($last)));
         $ordered = hash('sha256', implode("\n", array_map(static fn(array $reading): string => implode("\0", $reading), $readings)));
         $parsed = array(); $names = array();
         foreach ($readings as [$condition, $read, $style]) {
