@@ -249,20 +249,27 @@ final class SharedChromeStylesheets
     }
 
     /**
-     * Authored chrome hooks that the routes rendering their chrome declare
+     * Chrome hooks that the routes rendering their chrome declare
      * differently: the same selector, in the same media and at-rule context,
      * carries other declarations on another route. A route lacking the rule
      * altogether does not conflict; the lifted rule still styles it.
      *
+     * Generated markers count too. A source-equal menu keeps one stable
+     * instance marker on every route, while each route projects the values
+     * its own context selects onto it (`.home header nav a` against
+     * `header nav a`). One global rule cannot hold both values.
+     *
      * @param array<int,array<string,mixed>> $assets
      * @param array{class:array<string,true>,id:array<string,true>} $authored
-     * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>} $hookRoutes
-     * @return array{class:array<string,true>,id:array<string,true>}
+     * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>,marker?:array<string,array<string,true>>} $hookRoutes
+     * @param array<string,true> $markers Generated classes the shared parts carry.
+     * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}
      */
-    private static function routeVaryingChromeHooks(array $assets, array $authored, array $hookRoutes): array
+    private static function routeVaryingChromeHooks(array $assets, array $authored, array $hookRoutes, array $markers = array()): array
     {
-        $varying = array('class' => array(), 'id' => array());
-        if (array() === $authored['class'] && array() === $authored['id']) return $varying;
+        $varying = array('class' => array(), 'id' => array(), 'marker' => array());
+        $markers = array_intersect_key($markers, $hookRoutes['marker'] ?? array());
+        if (array() === $authored['class'] && array() === $authored['id'] && array() === $markers) return $varying;
         $allRoutes = array();
         foreach ($hookRoutes as $names) foreach ($names as $routes) $allRoutes += $routes;
         if (count($allRoutes) < 2) return $varying;
@@ -274,10 +281,14 @@ final class SharedChromeStylesheets
             if (array() === $routes) $routes = array_column($asset['scopes'] ?? array(), 'source_path');
             $routes = array() === $routes ? array_keys($allRoutes) : array_values(array_unique(array_map('strval', $routes)));
             $media = (string) ($asset['media'] ?? '');
-            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use ($authored, $routes, $media, &$declared, &$hooks): void {
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use ($authored, $markers, $routes, $media, &$declared, &$hooks): void {
                 if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', CssSelectorCompoundInspector::positiveSelector($prelude), $matches, PREG_SET_ORDER)) return;
                 $named = array();
                 foreach ($matches as $match) {
+                    if ('.' === $match[1] && isset($markers[$match[2]])) {
+                        $named['marker:' . $match[2]] = array('marker', $match[2]);
+                        continue;
+                    }
                     $hook = self::selectorHook($match[1], $match[2]);
                     if (null !== $hook && isset($authored[$hook[0]][$hook[1]])) $named[$hook[0] . ':' . $hook[1]] = $hook;
                 }
@@ -1081,7 +1092,7 @@ final class SharedChromeStylesheets
         // A template frame still surrounds route content. Its hooks are not
         // detached chrome: keep their rules in the authored route cascade,
         // just as before shell extraction moved the frame out of the page.
-        $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
+        $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements, $classes);
         foreach ($parts as $part) {
             if ('page-frame' !== ($part['slug'] ?? null)) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
@@ -1234,7 +1245,7 @@ final class SharedChromeStylesheets
         $detachedRoots = array();
         $inheritedContexts = array();
         $chromeElements = array();
-        $hookRoutes = array('class' => array(), 'id' => array());
+        $hookRoutes = array('class' => array(), 'id' => array(), 'marker' => array());
         $detachedHooks = array('class' => array(), 'id' => array());
         $hasSharedNavigation = false;
         foreach ($parts as $part) {
@@ -1280,7 +1291,7 @@ final class SharedChromeStylesheets
                 $authored['class'] += $element['class'];
                 $authored['id'] += $element['id'];
                 $chromeElements[] = $element;
-                foreach (array('class', 'id') as $kind) foreach (array_keys($element[$kind]) as $name) foreach ($sources as $source) $hookRoutes[$kind][$name][(string) $source] = true;
+                foreach (array('class', 'id', 'marker') as $kind) foreach (array_keys($element[$kind]) as $name) foreach ($sources as $source) $hookRoutes[$kind][$name][(string) $source] = true;
             }
             $ancestors = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()));
             $context['class'] += $ancestors['class'];
@@ -1322,11 +1333,12 @@ final class SharedChromeStylesheets
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
      * @param array{class:array<string,true>,id:array<string,true>} $authored
-     * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>} $hookRoutes
+     * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>,marker:array<string,array<string,true>>} $hookRoutes
      * @param list<array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}> $chromeElements
+     * @param array<string,true> $markers Generated classes the shared parts carry.
      * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}
      */
-    private static function routeKeptHooks(array $assets, array $pages, array $authored, array $hookRoutes, array $chromeElements): array
+    private static function routeKeptHooks(array $assets, array $pages, array $authored, array $hookRoutes, array $chromeElements, array $markers = array()): array
     {
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
@@ -1342,7 +1354,7 @@ final class SharedChromeStylesheets
         // carries route state, such as where each route's own layout places
         // the part. One global rule cannot declare both, so it stays with the
         // route as well.
-        foreach (self::routeVaryingChromeHooks($assets, $authored, $hookRoutes) as $kind => $names) $routeHooks[$kind] += $names;
+        foreach (self::routeVaryingChromeHooks($assets, $authored, $hookRoutes, $markers) as $kind => $names) $routeHooks[$kind] += $names;
         // Rules for a hook no lifted selector can name (an escaped class) stay
         // with the route as well.
         foreach ($authored as $kind => $names) {
