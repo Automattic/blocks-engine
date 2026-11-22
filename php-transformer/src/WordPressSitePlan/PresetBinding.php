@@ -261,7 +261,6 @@ final class PresetBinding
     private ?float $rootPx = null;
 
     /** Whether author class rules are retired for the document being bound. */
-    private bool $engineOwnedStyles = false;
 
     /** Bodies of unconditional-state rules that style core button links. @var list<string> */
     private array $buttonLinkBodies = array();
@@ -272,9 +271,8 @@ final class PresetBinding
     /**
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
-     * @param list<string> $engineOwnedSources Documents whose author stylesheets retire to engine carriers.
      */
-    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array(), private readonly array $engineOwnedSources = array())
+    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array())
     {
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
@@ -426,12 +424,10 @@ final class PresetBinding
     {
         if (!str_contains($markup, '<!-- wp:')) return $markup;
         $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
-        $this->engineOwnedStyles = in_array($source, $this->engineOwnedSources, true);
         try {
             return $this->bindMarkup($markup);
         } finally {
             $this->rootPx = $this->siteRootPx;
-            $this->engineOwnedStyles = false;
         }
     }
 
@@ -1236,9 +1232,6 @@ final class PresetBinding
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
             if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
             $literal = $style->typography->{$key} ?? null;
-            // Supplemental block tokens were not part of static-cascade usage.
-            // Keep the captured declaration's priority: a size preset class is
-            // !important and would mask the box-tree's mobile delta rules.
             $supplemental = 'fontSize' === $key ? $this->system->fontSizes : $this->system->fontFamilies;
             foreach ($supplemental as $preset) {
                 if (0 !== $preset['weight'] || !is_string($literal) || isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
@@ -2368,7 +2361,6 @@ final class PresetBinding
     {
         // Source classes remain analysis evidence, but their ordinary rules
         // are not delivered on captured routes. They cannot replace inline paint.
-        if ($this->engineOwnedStyles) return false;
         $button = 'button' === $name;
         if (!$button && (!in_array($name, self::CLASS_RENDERED_BLOCKS, true) || !in_array($property, array('color', 'border-color'), true))) return false;
         $color = CssColor::parse($this->resolve($literal));

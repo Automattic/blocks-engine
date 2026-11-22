@@ -26,10 +26,6 @@ add_filter( 'render_block_core/image', static function ( string $content, array 
     $attributes = array_fill_keys( array( 'id', 'class', 'style', 'data-*', 'xmlns', 'xmlns:xlink', 'width', 'height', 'viewbox', 'preserveaspectratio', 'role', 'aria-hidden', 'aria-label', 'focusable', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-miterlimit', 'opacity', 'clip-path', 'clip-rule', 'mask', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'points', 'transform', 'vector-effect' ), true );
     $svg = trim( wp_kses( $source['svg'], array_fill_keys( array( 'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'title', 'desc' ), $attributes ) ) );
     if ( ! str_starts_with( $svg, '<svg' ) ) return $content;
-    // Match the original inline root, not Core's figure: an extra wrapper
-    // changes child selectors, grid placement and inherited paint. The figure
-    // stood for that root, so its geometry carriers, which on a box-tree route
-    // are the root's only styles, move onto it.
     $figure = new WP_HTML_Tag_Processor( $content );
     $carriers = $figure->next_tag() ? array_filter( preg_split( '/\s+/', (string) $figure->get_attribute( 'class' ) ), static fn ( string $class ): bool => str_starts_with( $class, 'be-inline-geometry-' ) ) : array();
     if ( array() !== $carriers ) {

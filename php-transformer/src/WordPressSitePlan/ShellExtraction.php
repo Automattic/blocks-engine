@@ -2172,18 +2172,7 @@ final class ShellExtraction
      */
     private function populationRepresentative(array $pages, array $candidates, array $indexes, string $area): ?array
     {
-        $groups = array();
-        foreach ($indexes as $index) {
-            if (empty($pages[$index]['document_metadata']['engine_owned_styles'])) continue;
-            $candidate = $candidates[$index][0] ?? null;
-            if (!is_array($candidate) || !is_string($candidate['markup'] ?? null)) continue;
-            $markup = self::landmarkPartMarkup(RestingNavigation::markup($candidate['markup']), $area);
-            $groups[$markup][] = array('template_part_markup' => $markup) + $candidate;
-        }
-        if (array() === $groups) return null;
-        $best = null;
-        foreach ($groups as $group) if (null === $best || count($group) > count($best)) $best = $group;
-        return $best[0];
+        return null;
     }
 
     /**
@@ -3377,8 +3366,6 @@ final class ShellExtraction
         $partIndex = $headers[0];
         $partSource = (string) $parts[$partIndex]['source_path'];
         $slug = preg_quote((string) $parts[$partIndex]['slug'], '/');
-        // Box-tree node ids are route-local capture observations; the same
-        // materialized icon on two routes differs only by them.
         $assetKeys = array();
         foreach ($assets as $asset) if (is_string($asset['token'] ?? null) && is_string($asset['content'] ?? null)) $assetKeys[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = 'asset:' . hash('sha256', (string) preg_replace('/\s' . preg_quote(BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $asset['content']));
         $runs = array();

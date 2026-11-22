@@ -500,7 +500,7 @@ final class AuthoredFormControlBlockConverter
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),
             'ariaLabel' => SourceDom::attr($button, 'aria-label'),
-            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class'), $this->presentation->boxTreeElementCarrier($button, true)),
+            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class')),
             'style' => SourceDom::attr($button, 'style'),
             'text' => '' === $text && array() !== $contentParts ? '' : $this->metadataBuilder->submitText($button, 'Submit'),
             'contentParts' => $contentParts,
@@ -688,7 +688,7 @@ final class AuthoredFormControlBlockConverter
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),
             'ariaLabel' => $ariaLabel,
-            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class'), $this->presentation->boxTreeElementCarrier($button, true)),
+            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class')),
             'style' => SourceDom::attr($button, 'style'),
             'text' => array() === $parts ? trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '') : '',
             'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers($projected),
@@ -713,13 +713,6 @@ final class AuthoredFormControlBlockConverter
         if (!$projected instanceof DOMElement || $projected->isSameNode($control)) {
             $projected = $control->cloneNode(true);
             if (!$projected instanceof DOMElement) return $control;
-        }
-        $sources = iterator_to_array($control->getElementsByTagName('*'), false);
-        $targets = iterator_to_array($projected->getElementsByTagName('*'), false);
-        if (count($sources) !== count($targets)) return $projected;
-        foreach ($sources as $index => $source) {
-            $carrier = $this->presentation->boxTreeElementCarrier($source);
-            if ('' !== $carrier) $targets[$index]->setAttribute('class', SourceDom::mergeClassNames($targets[$index]->getAttribute('class'), $carrier));
         }
         return $projected;
     }

@@ -529,8 +529,7 @@ final class WrapperCoalescer
      */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( $this->boxTreeClassifierOwnsWrappers()
-            || ($this->preservesScriptStateWrapper)($element)
+        if ( ($this->preservesScriptStateWrapper)($element)
             || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes'])
             || $this->isLayoutGeometryCorrectiveTarget($element) ) {
             return null;
@@ -675,16 +674,6 @@ final class WrapperCoalescer
     }
 
     /**
-     * On a box-tree evidence route the ADR 0005 classifier alone decides which
-     * source boxes collapse (HtmlCompilation drops neutral boxes before they
-     * convert), so no selector-survival heuristic folds a wrapper here.
-     */
-    private function boxTreeClassifierOwnsWrappers(): bool
-    {
-        return array() !== $this->session->boxTreeViewports();
-    }
-
-    /**
      * Runs the same three disqualification phases, in the same
      * short-circuiting order, that the original single boolean expression
      * evaluated — so a disqualification reason here changes nothing about
@@ -695,9 +684,6 @@ final class WrapperCoalescer
      */
     private function coalescingResolution(DOMElement $element, array $childBlock): array
     {
-        if ($this->boxTreeClassifierOwnsWrappers()) {
-            return array('disposition' => WrapperDisposition::preserve('box_tree_classified'), 'proof' => null, 'attrs' => array(), 'source_child' => null);
-        }
         $proof = $this->layoutGeometryProofFor($element);
         $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
         $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);
@@ -1281,7 +1267,6 @@ final class WrapperCoalescer
      */
     public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
     {
-        if ($this->boxTreeClassifierOwnsWrappers()) return null;
         $proof = $this->layoutGeometryProofFor($element);
         if (null === $proof || $this->isLayoutGeometryCorrectiveTarget($element) || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         // A declined coalesce discards this conversion and the caller converts

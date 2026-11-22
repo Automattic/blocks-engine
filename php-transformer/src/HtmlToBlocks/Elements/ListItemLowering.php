@@ -140,15 +140,6 @@ final class ListItemLowering
             $content->removeChild($directList);
         }
         // A render-neutral sole paragraph is the item's own text.
-        if ( null !== $this->listStructure->neutralItemParagraph($item) ) {
-            foreach ( $content->childNodes as $child ) {
-                if ( $child instanceof DOMElement ) {
-                    SourceDom::unwrapElement($child);
-                    break;
-                }
-            }
-        }
-
         // Wrapped rich HTML remains inside core/list-item content so its authored
         // topology survives. Materialize every source-tag marker that author CSS
         // rewrites, not just nested list leaves.

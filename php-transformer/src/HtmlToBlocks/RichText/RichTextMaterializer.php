@@ -389,19 +389,6 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         $declarations = array_intersect_key($declarations, $allowed);
-        // With box-tree evidence the author stylesheet is not shipped (ADR
-        // 0005), so the author custom properties a carried value reads are
-        // undefined on the route: `font-family:var(--font-heading)` would be
-        // invalid at computed-value time and outrank the evidence carrier.
-        // Carry the value it resolves to in the source instead.
-        if ( array() !== $this->session->boxTreeViewports() ) {
-            foreach ( $declarations as $property => $value ) {
-                $declarations[$property] = $this->styleResolver->customProperties->resolve((string) $value, $element);
-            }
-        }
-        // The source inline's custom properties feed the author rules and
-        // carried values that style it (`font-family: var(--font)`); the
-        // carrier replaces its inline style, so it must define them too.
         $declarations += $this->styleResolver->consumedInlineCustomProperties($element, $declarations);
         if ( ! SourceDom::hasAncestorTag($element, array( 'header' )) ) {
             unset($declarations['place-items']);

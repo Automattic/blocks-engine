@@ -118,10 +118,9 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        // A box-tree carrier on a button's link owns that button's look.
         $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
         $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents), array_values(array_column(array_filter($documents, static fn(array $document): bool => !empty($document['document_metadata']['engine_owned_styles'])), 'source_path')));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $this->surfaces = TemplateSurfaces::select($documents);
@@ -257,7 +256,7 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem, array_column(array_filter($pages, static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles'])), 'source_path'));
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
@@ -310,7 +309,6 @@ final class SitePlanRun
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $this->references);
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
-        $assets = EvidenceRouteStylesheets::retire($assets, $pages, array_merge($parts, $frameParts));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shellDeclarations;
@@ -722,12 +720,11 @@ final class SitePlanRun
      */
     private function withRepeatedBlockStyles(array $pages, array $parts, array $frameParts, array $assets, array $runtimeDeclarations, array $theme): array
     {
-        $owned = array() !== $pages && array() === array_filter($pages, static fn(array $page): bool => empty($page['document_metadata']['engine_owned_styles']));
         $documents = array();
         foreach (array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts) as $set => $rows) {
             foreach ($rows as $index => $row) {
                 if (!is_string($row['canonical_block_markup'] ?? null)) continue;
-                $documents[$set . ':' . $index] = array('markup' => $row['canonical_block_markup'], 'strippable' => 'pages' === $set ? !empty($row['document_metadata']['engine_owned_styles']) : $owned);
+                $documents[$set . ':' . $index] = array('markup' => $row['canonical_block_markup'], 'strippable' => false);
             }
         }
         $anchors = array();

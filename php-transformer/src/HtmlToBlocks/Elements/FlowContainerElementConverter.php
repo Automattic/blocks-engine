@@ -31,8 +31,6 @@ final class FlowContainerElementConverter implements ElementConverter
 {
     private readonly NavigationPattern $navigationPattern;
 
-    private readonly CapturedImageFrameLowering $imageFrames;
-
     /** @var \WeakMap<\DOMDocument, array<string, true>> */
     private \WeakMap $controllerIds;
 
@@ -58,12 +56,10 @@ final class FlowContainerElementConverter implements ElementConverter
         private readonly ReadableFormControlBlockConverter $readableControls,
         private readonly AuthoredMarqueeRecognizer $marquees,
         private readonly AuthoredCarouselBlockGenerator $carousels,
-        private readonly EmptyVisualSpacerLowering $emptyVisualSpacers,
-        private readonly InFlowImageFrameLowering $inFlowImageFrames
+        private readonly EmptyVisualSpacerLowering $emptyVisualSpacers
     )
     {
         $this->navigationPattern = new NavigationPattern($this->createBlock);
-        $this->imageFrames = new CapturedImageFrameLowering($this->session, $this->runtimeIslands, $this->imageLowering);
         $this->controllerIds = new \WeakMap();
     }
 
@@ -182,13 +178,6 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);
         }
-        // A block box its lone in-flow image fills exactly is that image's
-        // figure, not a Group around it.
-        $framedImage = $this->inFlowImageFrames->block($element);
-        if ( null !== $framedImage ) {
-            return ConversionOutcome::handled($framedImage);
-        }
-
         // A form is a semantic runtime boundary. Convert nested children before
         // text and layout recognizers can flatten it into static presentation.
         if ( $this->hasInlineFormWrapper($element) ) {
@@ -271,14 +260,6 @@ final class FlowContainerElementConverter implements ElementConverter
         $cover = $this->context->recognizePatterns($element, $fallbacks, array( CoverPattern::class ));
         if ( null !== $cover ) {
             return ConversionOutcome::handled($cover);
-        }
-
-        // A box the capture proves is its sole image's box is that image's figure.
-        if ( 'div' === $tagName ) {
-            $image = $this->imageFrames->blockFromElement($element);
-            if ( null !== $image ) {
-                return ConversionOutcome::handled($image);
-            }
         }
 
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))

@@ -88,7 +88,6 @@ final class NavigationPatternContext
         // particular inset and its logical forms) survive that filtering.
         $geometry = $this->styleResolver->inlineGeometryClassName($element);
         if ('' !== $geometry) $markers[] = $geometry;
-        $markers[] = $this->styleResolver->boxTreeElementCarrier($element);
         return $markers;
     }
 
@@ -1490,11 +1489,10 @@ final class NavigationPatternContext
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
-            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node)), $this->styleResolver->boxTreeElementCarrier($node)));
+            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
             $rendered[] = array($below, $node);
         }
         // Each box renders again, so the node below it keeps its own box.
-        foreach ($rendered as [$child, $box]) $this->session->unfoldBoxTreeNode($child, $box);
         if (array() !== $boxes) {
             // These carriers exist only at frontend render time. Resolve the
             // link's own cascade too, so a link override beats box inheritance.
@@ -1533,7 +1531,7 @@ final class NavigationPatternContext
             if (!$child instanceof DOMElement) continue;
             if ($child->isSameNode($branch)) { $after = true; continue; }
             if (!in_array(strtolower($child->tagName), array('span', 'div'), true) || $child->childElementCount || '' !== trim($child->textContent ?? '') || $child->hasAttribute('role') || $child->hasAttribute('tabindex')) continue;
-            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child)), $this->styleResolver->boxTreeElementCarrier($child)), 'style' => $child->getAttribute('style'));
+            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child))), 'style' => $child->getAttribute('style'));
         }
         return $result;
     }
@@ -1545,13 +1543,6 @@ final class NavigationPatternContext
      */
     public function observeItemBoxOn(DOMElement $anchor, DOMElement $item): void
     {
-        $this->session->substituteBoxTreeBlockBox($anchor, $item);
-    }
-
-    /** An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}). */
-    public function boxTreeElementCarrier(DOMElement $element): string
-    {
-        return $this->styleResolver->boxTreeElementCarrier($element);
     }
 
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
