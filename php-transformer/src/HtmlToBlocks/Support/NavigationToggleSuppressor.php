@@ -2508,11 +2508,12 @@ final class NavigationToggleSuppressor
      * ancestor that also holds the toggle (a wrapper that holds both cannot
      * be what collapses one behind the other); the menu reads hidden at a
      * width when every link has some element on its path set to `none`. The
-     * toggle side includes its ancestors up to the document body: a shared
-     * mobile-layout wrapper can hide both the toggle and its closed panel
-     * above the source breakpoint. Every width those queries name is a candidate, and
-     * the boundary is the widest candidate at which the menu reads hidden
-     * while it reads visible one pixel wider. When the menu's `display` never
+     * toggle side includes its ancestors up to the document body (or a
+     * captured document variant root): a shared mobile-layout wrapper can
+     * hide both the toggle and its closed panel above the source breakpoint.
+     * Every width those queries name is a candidate, and the boundary is the
+     * widest candidate at which the menu reads hidden while it reads visible
+     * one pixel wider. When the menu's `display` never
      * switches (a panel hidden by a transform, a clip or an off-canvas
      * offset), the toggle's own visibility is the fallback: the widest width
      * at which the toggle shows but is gone one pixel wider.
@@ -2546,10 +2547,15 @@ final class NavigationToggleSuppressor
 
             return $displays[ $id ];
         };
+        // A captured document variant root switches the whole document by
+        // width; that switch is the route's, not this navigation's, so the
+        // walk stops there like the body (as the default-viewport reading
+        // does). Otherwise one header reads a different boundary on each
+        // route the capture split at a different width.
         $pathAbove = static function (DOMElement $start, callable $stop): array {
             $path = array();
             for ( $node = $start; $node instanceof DOMElement; $node = $node->parentNode ) {
-                if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) || $stop($node) ) {
+                if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) || SourceDom::isDocumentVariantRoot($node) || $stop($node) ) {
                     break;
                 }
                 $path[] = $node;
