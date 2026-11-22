@@ -232,10 +232,16 @@ $centeredFlex = array_filter(
     static fn (array $rule): bool => ! $rule['important'] && str_contains($rule['body'], 'justify-content:center')
 );
 
+// One shared carrier serves both: assert the markup, not a rule per element.
+preg_match('/\\.(be-inline-geometry-[a-f0-9]{16})\\{[^}]*justify-content:center/', $flexTextCss, $centeredCarrier);
+$flexTextMarkup = (string) ($flexText['serialized_blocks'] ?? '');
 $assert(
-    2 === count($centeredFlex),
+    1 === count($centeredFlex)
+        && isset($centeredCarrier[1])
+        && 1 === preg_match('/<p\\b[^>]*class="[^"]*\\b' . ($centeredCarrier[1] ?? 'none') . '\\b/', $flexTextMarkup)
+        && 1 === preg_match('/<ul\\b[^>]*class="[^"]*\\b' . ($centeredCarrier[1] ?? 'none') . '\\b/', $flexTextMarkup),
     'author-resolved flex: both the flex <p> and the flex <ul> carry their inline justify-content',
-    $flexTextCss
+    $flexTextCss . "\n" . $flexTextMarkup
 );
 $assert(
     '' === $importantWith($flexTextRules, 'justify-content:center'),

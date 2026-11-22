@@ -123,6 +123,36 @@ final class LayoutGeometryState
         ) ?? $this->rules[$className];
     }
 
+    /**
+     * Publish declaration addresses only after all element-scoped mutations.
+     * Keep rule order, conditions, pseudos and selector specificity in the
+     * signature; equal base declarations alone do not make equal carriers.
+     *
+     * @return array<string, string>
+     */
+    public function canonicalizeCarriers(): array
+    {
+        $replacements = array();
+        foreach ($this->rules as $className => $rule) {
+            if (! preg_match('/^be-inline-geometry-[a-f0-9]{16}$/', $className)) {
+                continue;
+            }
+            $normalized = str_replace($className, '__geometry__', $rule);
+            $replacements[$className] = 'be-inline-geometry-' . substr(hash('sha256', $normalized), 0, 16);
+        }
+        $rules = array();
+        foreach ($this->rules as $className => $rule) {
+            $rules[$replacements[$className] ?? $className] = strtr($rule, $replacements);
+        }
+        $this->rules = $rules;
+        $boxless = array();
+        foreach ($this->boxlessImageFigureCarriers as $className => $marked) {
+            $boxless[$replacements[$className] ?? $className] = $marked;
+        }
+        $this->boxlessImageFigureCarriers = $boxless;
+        return $replacements;
+    }
+
     public function cssForSerializedBlocks(string $serializedBlocks): string
     {
         // Same token boundaries as the per-rule regex, scanned only once.

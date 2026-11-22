@@ -75,10 +75,15 @@ $sizedFloatRules = array_values(array_filter(
     explode("\n", $floatRules),
     static fn (string $rule): bool => str_contains($rule, 'width:33.28%')
 ));
+// The three identical cells share one carrier: one rule, carried by each cell.
+preg_match('/\\.(be-inline-geometry-[a-f0-9]{16})\\b[^{]*\\{[^}]*width:33\\.28%/', $cssOf($floatRow), $floatCarrier);
+$floatMarkup = (string) ($floatRow['serialized_blocks'] ?? '');
 $assert(
-    3 === count($sizedFloatRules),
+    1 === count($sizedFloatRules)
+        && isset($floatCarrier[1])
+        && 3 === preg_match_all('/class="[^"]*\\b' . ($floatCarrier[1] ?? 'none') . '\\b/', $floatMarkup),
     'each floated cell still carries the width the carrier already supported',
-    $floatRules
+    $floatRules . "\n" . $floatMarkup
 );
 $assert(
     $sizedFloatRules === array_values(array_filter($sizedFloatRules, static fn (string $rule): bool => str_contains($rule, 'float:left'))),
