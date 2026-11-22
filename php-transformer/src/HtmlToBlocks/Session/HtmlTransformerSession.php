@@ -407,10 +407,18 @@ final class HtmlTransformerSession
         $id = $source->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
         if ('' === $id) return;
         $this->boxTreeBlockBoxes[$id] = $box;
-        // The box renders again, so a fold of it into the source (ADR 0005
-        // slice 5) is undone: the source keeps only its own observations.
+        $this->unfoldBoxTreeNode($source, $box);
+    }
+
+    /**
+     * The box renders again, so a fold of it into the child (ADR 0005 slice 5)
+     * is undone: the child keeps only its own observations.
+     */
+    public function unfoldBoxTreeNode(\DOMElement $child, \DOMElement $box): void
+    {
+        $id = $child->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
         $boxId = $box->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
-        if ($boxId === ($this->boxTreeFolds[$id]['from'] ?? null)) {
+        if ('' !== $id && $boxId === ($this->boxTreeFolds[$id]['from'] ?? null)) {
             $this->boxTree['nodes'][$id]['viewports'] = $this->boxTreeFolds[$id]['viewports'];
             unset($this->boxTreeFolds[$id], $this->collapsedBoxTreeNodes[$boxId]);
         }

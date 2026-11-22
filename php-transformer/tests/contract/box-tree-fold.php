@@ -29,14 +29,14 @@ $inset = array('x' => 20, 'y' => 20, 'width' => 360, 'height' => 60);
 $cases = array(
     array('rule' => 'own-sizing', 'parent' => array('display' => 'flex', 'flex-direction' => 'column'),
         'box' => array('padding-top' => '20px', 'padding-right' => '20px', 'padding-bottom' => '20px', 'padding-left' => '20px'),
-        'child_box' => $inset, 'expect' => array('margin-top' => '20px')),
+        'child_box' => $inset, 'expect' => array('padding-top' => '20px')),
     // An equal-box child can share the box's constraint; conflicting ones stay put.
     array('rule' => 'own-sizing', 'box' => array('max-width' => '99999px', 'margin-left' => '20px'),
         'child' => array('max-width' => '99999px', 'box-sizing' => 'border-box'), 'expect' => array('margin-left' => '20px')),
     array('rule' => 'own-sizing', 'refuse' => true, 'refusal' => 'child-own-max-width',
         'box' => array('max-width' => '99999px', 'margin-left' => '20px'), 'child' => array('max-width' => '800px', 'box-sizing' => 'border-box')),
-    // A vertical margin could collapse in a block parent where padding could not.
-    array('rule' => 'own-sizing', 'refuse' => true, 'parent' => array('display' => 'block'),
+    // Padding stays padding and cannot collapse in a block parent.
+    array('rule' => 'own-sizing', 'parent' => array('display' => 'block'),
         'box' => array('padding-top' => '20px', 'padding-right' => '20px', 'padding-bottom' => '20px', 'padding-left' => '20px'),
         'child_box' => $inset),
     array('rule' => 'paint', 'box' => array('background-color' => 'rgb(255, 0, 0)', 'box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px'),

@@ -1467,8 +1467,9 @@ final class NavigationPatternContext
      */
     public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item, bool $submenuParent = false): array
     {
-        $boxes = array();
-        for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
+        $boxes = $rendered = array();
+        $below = $anchor;
+        for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $below = $node, $node = $node->parentNode) {
             $tag = strtolower($node->tagName);
             // A `<label>` holding the link is an inline box like a span; Core's
             // anchor cannot sit inside a label, so it keeps its paint as one.
@@ -1486,7 +1487,10 @@ final class NavigationPatternContext
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
             $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node)), $this->styleResolver->boxTreeElementCarrier($node)));
+            $rendered[] = array($below, $node);
         }
+        // Each box renders again, so the node below it keeps its own box.
+        foreach ($rendered as [$child, $box]) $this->session->unfoldBoxTreeNode($child, $box);
         if (array() !== $boxes) {
             // These carriers exist only at frontend render time. Resolve the
             // link's own cascade too, so a link override beats box inheritance.
