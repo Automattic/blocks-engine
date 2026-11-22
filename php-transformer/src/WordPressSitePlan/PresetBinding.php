@@ -1810,7 +1810,9 @@ final class PresetBinding
                 $slug = $this->exactFontFamilySlug($family);
                 if (null !== $slug) {
                     ++$this->bound;
-                    $fallback = $this->presetHoldsFamily($slug, $family) ? '' : ',' . self::sourcePresets($family);
+                    // Retained CSS can also render without theme.json (previews
+                    // and standalone consumers); keep the source family then.
+                    $fallback = ',' . self::sourcePresets($family);
                     return $parts[0] . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
                         . 'var(--wp--preset--font-family--' . $slug . $fallback . ')' . $important;
                 }
