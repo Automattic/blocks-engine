@@ -353,9 +353,36 @@ final class AuthorSelectorProjectionState
             || 1 === preg_match('/(?:^|\s)(?:current-menu-item|current_page_item|current-menu-ancestor|current-menu-parent|current_page_parent|current_page_ancestor)(?:\s|$)/', $element->getAttribute('class'));
     }
 
+    /** @var array<string, array{current:?string, rest:?string}> */
+    private array $currentNavigationAttributes = array();
+
+    /**
+     * @param array<string,mixed> $current
+     * @param array<string,mixed> $rest
+     */
+    public function markCurrentNavigationAttributes(array $current, array $rest): void
+    {
+        foreach ($current as $name => $value) {
+            if (!str_starts_with($name, 'data-') || str_starts_with($name, 'data-blocks-engine-') || null === $value) continue;
+            $this->currentNavigationAttributes[$name] = array('current' => (string) $value, 'rest' => $rest[$name] ?? null);
+        }
+    }
+
+    /** Remove only proven current data predicates when finding runtime navigation subjects. */
+    public function withoutCurrentNavigationAttributes(string $selector): string
+    {
+        return preg_replace_callback('/\[\s*(data-[a-z0-9_-]+)[^\]]*\]/i', fn(array $match): string => isset($this->currentNavigationAttributes[strtolower($match[1])]) && $this->selectsCurrentNavigationState($match[0]) ? '' : $match[0], $selector) ?? $selector;
+    }
+
     /** Whether a selector addresses the served route's current-item state. */
     public function selectsCurrentNavigationState(string $selector, ?DOMElement $element = null): bool
     {
+        foreach ($this->currentNavigationAttributes as $name => $state) {
+            preg_match_all('/\[\s*' . preg_quote($name, '/') . '\s*(?:=\s*["\']?([^"\'\]\\s]+)["\']?\s*)?\]/i', $selector, $attributes, PREG_SET_ORDER);
+            foreach ($attributes as $attribute) {
+                if (isset($attribute[1]) ? $attribute[1] === $state['current'] : null === $state['rest']) return true;
+            }
+        }
         if (1 === preg_match('/\[\s*(?:aria-current\b|data-status\s*=\s*["\']?active\b)/i', $selector)) return true;
         // Match a CSS escape, not any character: compound selectors such as
         // .item.is-sel name two classes, not one `item.is-sel` class.
@@ -389,6 +416,10 @@ final class AuthorSelectorProjectionState
         // runtime marks current-menu-item; its own submenu's items are not.
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
             return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
+        }
+        if (str_contains($subject, ' .wp-block-navigation-item__label') && !str_contains($subject, ' .wp-block-navigation-item:')) {
+            $anchor = str_replace(' .wp-block-navigation-item__label', ' .wp-block-navigation-item .wp-block-navigation-item__content', $subject);
+            return self::currentNavigationSubject($anchor) . ' .wp-block-navigation-item__label';
         }
         // Every route's served item reaches here with its own position; the
         // runtime current link already names the item, so no position stays.

@@ -339,8 +339,9 @@ final class AuthorSelectorSemanticPreparer
                 $matches = $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed);
                 $navigationOnly = array() !== $matches;
                 foreach ($matches as $element) {
-                    $navigationOnly = $navigationOnly && 'a' === strtolower($element->tagName)
-                        && SourceDom::ancestorElement($element, 'li') instanceof DOMElement;
+                    $navigationOnly = $navigationOnly
+                        && SourceDom::ancestorElement($element, 'nav') instanceof DOMElement
+                        && ('a' === strtolower($element->tagName) || SourceDom::ancestorElement($element, 'li') instanceof DOMElement);
                 }
                 if ($navigationOnly) continue;
             }

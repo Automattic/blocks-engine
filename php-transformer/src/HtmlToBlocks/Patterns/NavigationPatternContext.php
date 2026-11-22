@@ -1020,7 +1020,7 @@ final class NavigationPatternContext
                     if ('class' === $name) $classes = $attribute[2] ?? '';
                     elseif (!str_starts_with($name, 'data-')) return false;
                 }
-                $wrappers[] = $classes;
+                $wrappers[] = implode(' ', array_filter(SourceDom::tokens($classes), static fn(string $class): bool => !str_starts_with($class, 'blocks-engine-')));
                 if (!$collect($item['innerBlocks'] ?? array())) return false;
             }
             return true;

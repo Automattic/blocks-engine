@@ -69,6 +69,9 @@ final class ReusableComponentState
                 $projections->markCurrentNavigationClasses($state['current']['class']);
                 if (array() === ($state['rest']['class'] ?? array())) $projections->markAdditiveCurrentNavigationClasses($state['current']['class']);
             }
+            if (is_array($state) && is_array($state['current'] ?? null)) {
+                $projections->markCurrentNavigationAttributes($state['current'], $state['rest'] ?? array());
+            }
             $node->removeAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
         }
     }
