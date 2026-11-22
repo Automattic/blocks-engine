@@ -1311,6 +1311,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // generated stylesheet as the page's own blocks. Serialized first:
         // serializing resets the runtime diagnostics of the page serialization.
         $timer->start('transform.serialization');
+        // Geometry remains element-addressed throughout lowering. Only now,
+        // after topology and appended-rule mutations, publish shared identities
+        // in every tree (including chrome captured before the page walk).
+        if (! $this->session->usesFallbackReductionMode()) {
+            $geometryIdentity = new Style\DeclarationAddressedClasses();
+            $geometryReplacements = $this->session->layoutGeometryState()->canonicalizeCarriers();
+            $geometryAssets = $this->session->assetMaterializationState()->checkpoint();
+            $geometryReplacements += $geometryIdentity->assetPathReplacements($geometryAssets, $geometryReplacements);
+            $blocks = $geometryIdentity->rewrite($blocks, $geometryReplacements);
+            $fallbacks = $geometryIdentity->rewrite($fallbacks, $geometryReplacements);
+            $shellArtifacts = $geometryIdentity->rewrite($shellArtifacts, $geometryReplacements);
+            $this->session->assetMaterializationState()->restore($geometryIdentity->rewrite($geometryAssets, $geometryReplacements));
+        }
         $readableMarkup = '';
         foreach ($fallbacks as $fallback) {
             if ( is_array($fallback['readable_blocks'] ?? null) && array() !== $fallback['readable_blocks'] ) {
@@ -1399,6 +1412,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $authorStylesheetProjections,
             array_values(array_filter($assets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && (array() === $authorStylesheetProjections || 'author-css' !== ($asset['source'] ?? ''))))
         ));
+        // Projection records can still refer to their original source-bound
+        // geometry names. Rebase those late-produced facts as well.
+        $classReplacements += $geometryReplacements ?? array();
         $classReplacements += $classIdentity->assetPathReplacements($assets, $classReplacements);
         $blocks = $classIdentity->rewrite($blocks, $classReplacements);
         $fallbacks = $classIdentity->rewriteBindings($fallbacks, $serializedBlocks, $classReplacements);
