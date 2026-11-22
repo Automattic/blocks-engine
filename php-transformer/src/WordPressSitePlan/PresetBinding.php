@@ -1254,6 +1254,22 @@ final class PresetBinding
                 // not need a matching class rule to prove its resting value.
                 if (isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
                 $literal = $style->typography->{$key} ?? null;
+                // A class-owned button family has no inline declaration to
+                // rewrite. Hand the exact, invariant stack to the block, but
+                // only when a preset class cannot mask state/important rules.
+                // Sizes stay inline: their relative units and reset semantics
+                // are not interchangeable with an important preset class.
+                if ('fontFamily' === $key && null === $literal) {
+                    $family = $observed[$property] ?? null;
+                    $slug = $this->presetSlug($property, null, $family);
+                    if (null !== $slug && is_string($family) && $this->presetHoldsFamily($slug, $family)
+                        && $this->safe($property, $tokens, array(sprintf($presetClass, $slug)), false, false, $familyReason, false, true)) {
+                        $attributes->{$attribute} = $slug;
+                        $d->addClasses[] = sprintf($presetClass, $slug);
+                        ++$d->bound;
+                    }
+                    continue;
+                }
                 $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? ('fontSize' === $key ? $this->exactFontSizeSlug($this->resolve($literal)) : $this->presetSlug($property, $literal, null)) : null;
                 if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $d->declarations, $property, $literal)) ++$d->bound;
                 continue;
@@ -2154,7 +2170,7 @@ final class PresetBinding
         return true;
     }
 
-    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false): bool
+    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false, bool $preservesStyleText = false): bool
     {
         $finalClasses = $tokens;
         foreach ($addedClasses as $class) $finalClasses['class:' . $class] = true;
@@ -2162,7 +2178,9 @@ final class PresetBinding
             $reason = 'state_variant';
             if (!$statesRendered && $this->stateMatches($family, $tokens)) return false;
             $reason = 'style_selector';
-            foreach ($this->styleTextRules[$family] ?? array() as $rule) {
+            // A class-only handoff leaves style="..." byte-for-byte intact,
+            // including the presence/absence tested by reset selectors.
+            foreach ($preservesStyleText ? array() : ($this->styleTextRules[$family] ?? array()) as $rule) {
                 // A shared engine class is not enough to make a selector for
                 // another element type read this element's style attribute.
                 $tags = array_values(array_filter($rule['tokens'] ?? array(), static fn(string $token): bool => str_starts_with($token, 'tag:')));
