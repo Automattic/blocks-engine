@@ -82,6 +82,10 @@ $again = $compile($artifact + array('class_namespace' => 'acme'));
 $assert($published['plan_identity'] === $again['plan_identity'], 'Publishing is deterministic.');
 $map = $published[ClassPublisher::MAP_KEY] ?? null;
 $assert(is_array($map) && array() !== $map, 'The published plan exposes its name map.');
+$assert($internal['quality']['metrics']['engine_class_token_share'] > 0, 'The fixture contains generated class tokens.');
+$assert($published['quality']['metrics']['engine_class_token_share'] > 0, 'Publishing does not erase generated class provenance in the token share.');
+$metricPlan = array('pages' => array(array('canonical_block_markup' => '<p class="acme-paragraph author">Text</p>')), ClassPublisher::MAP_KEY => array('blocks-engine-synthetic-paragraph' => 'acme-paragraph'));
+$assert(0.5 === \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\UnreferencedEngineClasses::metrics($metricPlan)['engine_class_token_share'], 'Published generated tokens count, but unrelated author tokens do not.');
 $assert(!array_filter($published['diagnostics'], static fn (array $diagnostic): bool => ClassPublisher::DIAGNOSTIC === ($diagnostic['code'] ?? null)), 'The fixture publishes without falling back.');
 
 // No engine token or digest is left in shipped content or CSS.

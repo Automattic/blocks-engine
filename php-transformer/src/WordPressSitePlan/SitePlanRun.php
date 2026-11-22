@@ -361,6 +361,7 @@ final class SitePlanRun
         $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
         $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);
         $this->timer?->start('compose.site_plan.asset_writes');
+        $assets = StylesheetScopes::canonicalize($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments));
         $routes = RouteTable::forPages($pages);
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));

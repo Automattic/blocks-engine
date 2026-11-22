@@ -2128,7 +2128,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('An asset scope does not match its canonical document.')": {
+      "InvalidArgumentException(sprintf('An asset scope does not match its canonical document: scope %s; document scope %s.',json_encode($scope,JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE),null===$canonical?'missing':json_encode($canonical,JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE)))": {
         "class": "integrity",
         "count": 1
       },
