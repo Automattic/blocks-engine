@@ -2891,7 +2891,20 @@ final class AuthorStylesheetProjector
         }
         $fillBody = array() === $fill ? '' : ';' . implode(';', $fill);
         if ( count($moved) === count($selectors) ) {
-            return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
+            $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
+            // The bridge restates the ratio on the replaced image, where the
+            // source declared it. Left on the auto-height figure as well, it
+            // would size that box itself and ignore a definite image height
+            // from another rule (`.grid img{height:260px}` beside `.photo
+            // {aspect-ratio:1}` squares the figure, not the image).
+            if ( isset($declarations['aspect-ratio']) ) {
+                $figurePrelude = implode(',', array_unique(array_map(
+                    static fn (string $arm): string => (string) preg_replace('/\s*>\s*(?:a\s*>\s*)?img\s*$/i', '', $arm),
+                    CssValueSplitter::splitTopLevel($imagePrelude, array(','))
+                )));
+                $rule .= $figurePrelude . '{aspect-ratio:auto' . (str_contains($declarations['aspect-ratio'], '!important') ? '!important' : '') . '}';
+            }
+            return $rule;
         }
         $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false, false, array() !== $moved) . '}';
         $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
