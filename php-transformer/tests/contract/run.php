@@ -1000,10 +1000,10 @@ $navIconResult = ( new HtmlTransformer() )->transform(
 $navIconMarkup = (string) ($navIconResult['serialized_blocks'] ?? '');
 $navIconCss = implode("\n", array_column($navIconResult['assets'] ?? array(), 'content'));
 $assert('core/navigation' === ($navIconResult['blocks'][0]['blockName'] ?? null), 'icon-only anchors inside a nav landmark stay native navigation');
-$assert(str_contains($navIconMarkup, '"label":"Facebook"') && str_contains($navIconMarkup, '"label":"Twitter"'), 'icon-only navigation links keep their accessible name as the saved label');
+$assert(str_contains($navIconMarkup, 'screen-reader-text') && str_contains($navIconMarkup, 'Facebook') && str_contains($navIconMarkup, 'Twitter'), 'icon-only navigation links keep their accessible name as a hidden saved label');
 $assert(1 === preg_match('/blocks-engine-navigation-link-icon-[a-f0-9]{12}/', $navIconMarkup), 'icon-only navigation links carry an opaque icon marker');
 $assert(str_contains($navIconCss, 'background-image:url("data:image/svg+xml,') && str_contains($navIconCss, 'width:23px;height:23px'), 'recovered navigation icons project the source artwork at its source box');
-$assert(str_contains($navIconCss, 'font-size:0') && ! str_contains($navIconCss, 'visibility:hidden;background-image'), 'recovered navigation icons collapse the label without removing it from the accessibility tree');
+$assert(str_contains($navIconMarkup, 'screen-reader-text') && ! str_contains($navIconCss, 'visibility:hidden;background-image'), 'recovered navigation icons hide the label without removing it from the accessibility tree');
 $navTextLinks = ( new HtmlTransformer() )->transform(
     '<nav class="main-nav" aria-label="Main"><a href="/work">Work</a><a href="/about">About</a></nav>'
 )->toArray();

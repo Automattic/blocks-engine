@@ -38,7 +38,9 @@ if (null !== $profiler) {
 $output = array('serialized_blocks' => $result['serialized_blocks'], 'site_plan' => $result['site_plan'] ?? $result['source_reports']['wordpress_site_plan'] ?? null);
 $hash = hash('sha256', serialize($output));
 if ('--contract' === ($argv[1] ?? '')) {
-    if ('68bf279b3e2e156dfb086e58e2bc14412cf916513b60b020c66acc0033361b83' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
+    // Sprite-use admission changes the emitted navigation runtime, even for
+    // text-only menus; blocks and navigation entities remain unchanged.
+    if ('8e8ce8bbdba0d2142ca830fea3652a2167d74a00e02fec22d953f35ec8319d92' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
 } elseif (isset($argv[1])) {
     $encoded = json_encode($output, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     if (is_file($argv[1]) && file_get_contents($argv[1]) !== $encoded) throw new RuntimeException('Compile output differs from baseline');

@@ -1607,22 +1607,41 @@ final class NavigationPatternContext
     {
         if (!$this->svgMaterializer instanceof SvgMaterializer) return array();
         $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement));
-        if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return array();
-        $svg = $children[0];
+        if (1 !== count($children)) return array();
+        $root = $children[0];
+        $svg = $root;
+        while (in_array(strtolower($svg->tagName), array('div', 'span'), true) && '' === trim($svg->textContent ?? '')) {
+            $nested = array_values(array_filter(iterator_to_array($svg->childNodes), static fn($node): bool => $node instanceof DOMElement));
+            if (1 !== count($nested)) return array();
+            $svg = $nested[0];
+        }
+        if ('svg' !== strtolower($svg->tagName)) return array();
         $leading = '';
         $trailing = '';
         $seen = false;
         foreach ($anchor->childNodes as $node) {
-            if ($node->isSameNode($svg)) $seen = true;
+            if ($node->isSameNode($root)) $seen = true;
             elseif ($node instanceof \DOMText) $seen ? $trailing .= $node->textContent : $leading .= $node->textContent;
         }
         // Text before the icon would reorder around it at render time.
         if ('' !== trim($leading)) return array();
         $labelVisible = '' !== trim($trailing);
-        if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return array();
+        // Sprite uses are passive references, not embedded documents. Validate
+        // their URL separately, then apply the normal SVG admission policy to
+        // a clone with local references (without changing source evidence).
+        $passive = $svg->cloneNode(true);
+        foreach ($passive->getElementsByTagName('use') as $use) {
+            foreach (array('href', 'xlink:href') as $attribute) {
+                if (!$use->hasAttribute($attribute)) continue;
+                $reference = trim($use->getAttribute($attribute));
+                if (!str_starts_with($reference, '#') && !preg_match('~^(?:(?:https?:)?//[^/\s<>]+)?/[^\s<>]*\.svg#[^\s<>]+$~iD', $reference)) return array();
+                $use->setAttribute($attribute, '#icon');
+            }
+        }
+        if (!SvgMaterializer::isPassiveSvgMarkup($passive) || !SourceDom::svgHasDrawableContent($passive)) return array();
         $nodes = array($svg);
         foreach ($svg->getElementsByTagName('*') as $node) {
-            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return array();
+            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'use'), true)) return array();
             $nodes[] = $node;
         }
         $subjects = array();
@@ -1633,6 +1652,9 @@ final class NavigationPatternContext
         }
         $markup = $this->svgMaterializer->inlineSvgMarkup($svg);
         if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return array();
+        if (!$root->isSameNode($svg)) {
+            $markup = str_replace(SourceDom::outerHtml($svg), $markup, SourceDom::safeFallbackHtml($root));
+        }
         foreach ($subjects as [$path, $marker]) $this->pendingNavigationSubjects[$path] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $marker);
         return $labelVisible ? array('svg' => $markup, 'labelVisible' => true) : array('svg' => $markup);
     }
