@@ -1808,7 +1808,11 @@ final class PresetBinding
             if (null !== $familyOffset) {
                 $family = substr($value, $familyOffset);
                 $slug = $this->exactFontFamilySlug($family);
-                if (null !== $slug) {
+                // A primary-family match is insufficient: when that face is
+                // unavailable, the preset's fallback stack determines paint.
+                // The var() fallback only protects against a missing preset,
+                // not a defined preset with a different stack.
+                if (null !== $slug && $this->presetHoldsFamily($slug, $this->resolve($family))) {
                     ++$this->bound;
                     // Retained CSS can also render without theme.json (previews
                     // and standalone consumers); keep the source family then.
