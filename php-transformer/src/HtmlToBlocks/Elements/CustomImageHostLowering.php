@@ -102,7 +102,7 @@ final class CustomImageHostLowering implements ElementConverter
         if (null === $link
             && (! $hasPicture || $this->isNeutralPictureBox($host, $picture, $image))
             && ! $this->hasCropFocusThatCoreImageCannotCarry($image)
-            && $this->hostBoxIsCapturedImageBox($host, $image)) {
+            && $this->imageFillsHost($host, $image)) {
             $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($host->tagName));
             $figure = $this->imageLowering->convertImage($image, $host, $hasPicture ? $picture : null);
             if (null !== $figure && 'core/image' === $figure['blockName']) {
@@ -190,40 +190,6 @@ final class CustomImageHostLowering implements ElementConverter
                 return false;
             }
         }
-        return true;
-    }
-
-    /**
-     * Whether box-tree evidence observed the host and its image with the same
-     * border box at every captured viewport, so the host contributes no
-     * geometry of its own beyond the box the image already fills.
-     */
-    private function hostBoxIsCapturedImageBox(DOMElement $host, DOMElement $image): bool
-    {
-        $hostObservations = $this->session->boxTreeEvidence($host);
-        $imageObservations = $this->session->boxTreeEvidence($image);
-        if (array() === $hostObservations && array() === $imageObservations) {
-            // An unobserved copy (a device island) has no captured boxes; the
-            // authored cascade must then prove the image fills the host.
-            return $this->imageFillsHost($host, $image);
-        }
-        if (array() === $hostObservations || array_keys($hostObservations) !== array_keys($imageObservations)) {
-            return false;
-        }
-        foreach ($hostObservations as $viewport => $observation) {
-            $hostBox = $observation['border_box'] ?? null;
-            $imageBox = $imageObservations[$viewport]['border_box'] ?? null;
-            if (! is_array($hostBox) || ! is_array($imageBox)) {
-                return false;
-            }
-            foreach (array('x', 'y', 'width', 'height') as $axis) {
-                if (! is_numeric($hostBox[$axis] ?? null) || ! is_numeric($imageBox[$axis] ?? null)
-                    || abs((float) $hostBox[$axis] - (float) $imageBox[$axis]) >= 1.0) {
-                    return false;
-                }
-            }
-        }
-
         return true;
     }
 

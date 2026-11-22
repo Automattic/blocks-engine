@@ -371,22 +371,8 @@ PHP;
         if (array() !== $lookup['templates']) $lines[] = "    \$blocks_engine_design_scope = is_singular( 'post' ) && is_string( \$blocks_engine_design_template = get_page_template_slug( get_queried_object_id() ) ) ? ( " . BootstrapData::literal($lookup['templates']) . '[ $blocks_engine_design_template ] ?? -1 ) : -1;';
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
-        $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
-        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
-        // A post replays its design's sequence (see stylesheetEnqueues()), so
-        // the posts of one design share one route row, selected by template,
-        // instead of one identity-tested row per imported post.
+        if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
         $routeRows = $routeKeys = array();
-        foreach ($evidencePages as $page) {
-            $scope = PageStylesheets::documentScope($page);
-            $key = $page['source_path'];
-            if ('post' === $scope['kind']) {
-                $scope = array('kind' => 'post_template', 'template' => $page['route_template'] ?? 'single', 'source_path' => $page['source_path']);
-                $key = "post_template\0" . $scope['template'];
-            }
-            $routeKeys[$page['source_path']] = $key;
-            $routeRows[$key] ??= array('condition' => self::bootstrapScopeCondition($scope, true), 'styles' => array(), 'handles' => array());
-        }
         // The route table sits where the first route instance falls in the
         // stylesheet order, so sheets ordered ahead of the author CSS (the
         // engine reset sheets that also declare the cascade layer order) keep
@@ -889,7 +875,6 @@ PHP;
     public static function stylesheetDelivery(array $assets, array $pages, array $rootDocuments = array()): array
     {
         $routes = array();
-        foreach (array_merge($pages, $rootDocuments) as $page) if (!empty($page['document_metadata']['engine_owned_styles'])) $routes[(string) $page['source_path']] = true;
         $importLoaded = self::importLoadedStylesheets($assets);
         $enqueues = array();
         foreach (self::stylesheetEnqueues($assets, $pages, $rootDocuments) as $enqueue) {

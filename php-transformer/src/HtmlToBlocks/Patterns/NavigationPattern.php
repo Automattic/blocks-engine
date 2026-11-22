@@ -3643,7 +3643,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationContext->observeItemBoxOn($anchor, $item);
             // Boxes that render again undo their folds before the anchor reads its box.
             $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
-            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
+            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit
@@ -4103,7 +4103,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         return (string) array_key_first($colors);
     }
 
-
     /**
      * Carry inheritable anchor paint and typography through core's dynamic link.
      * The anchor's own box travels separately, as a marker class the projector
@@ -4542,7 +4541,6 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         return MenuVocabulary::containsCurrentStateToken(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
     }
-
 
     /**
      * A signalled submenu can be paired with a text label or a link carrier.

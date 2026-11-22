@@ -539,24 +539,6 @@ final class DesignSystem
         return null === $slug ? null : array('slug' => $slug, 'percent' => $percent);
     }
 
-    /**
-     * The system without the button element styles some `core/button` in
-     * the markup would take from them. An element style reaches every
-     * button that does not carry its own value; the usage it comes from
-     * only covers buttons that render a fill, so an outlined button that
-     * converts to `core/button` would otherwise be painted. A button value
-     * stays only when every button block owns that field. Dominant look
-     * fields are checked independently, including shape and spacing; matching
-     * inherited typography and core's outline fill also establish ownership.
-     *
-     * A button restyled from box-tree evidence carries its look in a carrier
-     * rule on its link instead of block attributes. That rule outranks the
-     * element style, so each field its unconditional declarations set is
-     * owned exactly as the matching attribute would own it.
-     *
-     * @param list<string> $markups Every page's block markup.
-     * @param list<string> $stylesheets Stylesheets the pages load, read for button link carriers.
-     */
     public function withButtonElementsOwnedBy(array $markups, array $stylesheets = array()): self
     {
         if (!isset($this->elements['button'])) return $this;
@@ -626,16 +608,6 @@ final class DesignSystem
         return array_values(array_filter(preg_split('/\s+/', is_string($attributes['className'] ?? null) ? $attributes['className'] : '') ?: array(), static fn(string $class): bool => '' !== $class));
     }
 
-    /**
-     * Unconditional rules that style a button link through its block's class
-     * (`.c.c>a.wp-block-button__link`) or its core/buttons' class
-     * (`.c.c>.wp-block-button>a.wp-block-button__link`), the two shapes a
-     * box-tree carrier takes on button blocks. Media, state and pseudo rules
-     * only refine a look, so they do not establish ownership.
-     *
-     * @param list<string> $stylesheets
-     * @return list<array{classes: list<string>, group: bool, properties: list<string>}>
-     */
     private static function buttonLinkCarriers(array $stylesheets): array
     {
         $carriers = array();
@@ -679,28 +651,6 @@ final class DesignSystem
         return array_keys($properties);
     }
 
-    /**
-     * The system with an exact preset for every literal font size and font
-     * family a block carries in `style.typography` that no preset renders.
-     *
-     * Usage reads the static author cascade, but a block can also carry the
-     * typography the browser rendered for its source node (box-tree evidence
-     * of a font the static cascade cannot resolve, such as a size computed
-     * from a viewport scaling factor). Those values are rendered text all
-     * the same, and without a token they stay literals outside the editable
-     * design system. Like heading sizes, they are additive: the established
-     * scale, its names and its roles are unchanged, and each new token is the
-     * exact value, so binding never changes a rendered font.
-     *
-     * A fluid size (`clamp(42px,6.5vw,84px)`) built only from absolute and
-     * viewport lengths renders the same for every block at a given viewport,
-     * whatever its parent, so it is one exact token too (fluidFontSize()).
-     * Its preset has no single pixel size (`px` 0), so an absolute literal
-     * never resolves to it through fontSizeSlug(); only the identical value
-     * binds to it.
-     *
-     * @param list<string> $markups Every page's block markup.
-     */
     public function withBlockTypography(array $markups): self
     {
         $sizes = $families = $fluid = array();
@@ -799,28 +749,6 @@ final class DesignSystem
         return array(min($absolute), max($absolute));
     }
 
-    /**
-     * The system with exact tokens for distinct opaque literal colours a block
-     * carries as its `style.color` text or background. A near shade of an
-     * existing preset (within COLOR_CONSOLIDATION_DISTANCE) does not re-enter
-     * the palette and keeps its exact literal on the block: safecss strips a
-     * relative colour from a block's inline style, and a preset attribute
-     * would repaint it. It is recorded in nearShades so stylesheet rules
-     * painting it derive it from that preset (nearShadeColor()).
-     *
-     * Like withBlockTypography(), this covers the colour the browser rendered
-     * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
-     * or `color(srgb …)` the static cascade cannot resolve). Those colours are
-     * painted all the same, and without a token they stay literals outside the
-     * editable palette. Each new token (`accent-N` after the usage-ranked
-     * ones, most used first) is the exact 8-bit colour, so binding never
-     * changes what renders. It carries BLOCK_COLOR_ROLE: it binds only that
-     * block literal, inline and in place (blockColorSlug()), never a
-     * stylesheet, a class-driven value or an element style, which keep the
-     * cascade the usage-ranked palette established.
-     *
-     * @param list<string> $markups Every page's block markup.
-     */
     public function withBlockColors(array $markups): self
     {
         $counts = array();

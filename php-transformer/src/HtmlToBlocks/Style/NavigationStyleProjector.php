@@ -84,17 +84,7 @@ final class NavigationStyleProjector
             $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
             $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
         );
-        // Repairs that name only engine markup ship in their own engine-owned
-        // sheet: a route that retires author selectors (box-tree evidence)
-        // must still deliver them, or Gutenberg loses the selectable boxes
-        // and placeholders they restore (issue #5920).
         $engineRules = array();
-        // A box-tree carrier makes core/image's synthetic figure boxless so
-        // the source image keeps its own layout box on the front end. That
-        // figure is the block root Gutenberg focuses to select the image, and
-        // a `display:contents` element cannot take focus: a click on the image
-        // selected the enclosing group, with no Replace control (issue #5920).
-        // Give exactly those figures a block box in the editor only.
         $boxlessFigures = $this->session->layoutGeometryState()->boxlessImageFigureCarriersFor($serializedBlocks);
         if ( array() !== $boxlessFigures ) {
             $engineRules[] = ':root .editor-styles-wrapper figure.wp-block-image:is(' . implode(',', array_map(static fn(string $class): string => '.' . $class, $boxlessFigures)) . '):not([hidden]){display:block}';
@@ -112,13 +102,6 @@ final class NavigationStyleProjector
             $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
             $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){visibility:visible!important}';
-            // Restoring a box changes layout, so limit it to the carriers an
-            // author rule actually removes. Forcing every image carrier to
-            // `display:block` dropped flex centring from icon badges the
-            // source never hides, whenever any unrelated rule hid anything.
-            // Selectors from author sheets stay with the author-coupled
-            // repairs; box-tree evidence restates a hidden source box on its
-            // geometry carrier class, which is engine markup.
             foreach ( self::hiddenImageCarrierBoxRules(
                 array( $this->session->authorStyleAnalysis()->combinedCss(), $projectedAuthorCss, $this->editorAnchorProjectionCss($projectedAuthorCss) ),
                 $image
@@ -1733,7 +1716,6 @@ final class NavigationStyleProjector
             static fn (string $state): bool => isset($matched[$state])
         ));
     }
-
 
     /**
      * Restore icon-only navigation artwork core/navigation-link cannot save.

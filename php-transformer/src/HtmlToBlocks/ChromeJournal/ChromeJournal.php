@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -55,7 +54,7 @@ final class ChromeJournal
         // The source path enters a key only where the subtree resolves links
         // against it; the page HTML through the prepared subtree and its
         // context; box observations per subtree element.
-        unset($options['source'], $options['declarative_state_html'], $options['box_tree'], $options['chrome_journal']);
+        unset($options['source'], $options['declarative_state_html'], $options['chrome_journal']);
         $options = array_filter($options, static fn (mixed $option): bool => !is_object($option));
         ksort($options);
         // Inline CSS names the page as its source. Key relative URLs by
@@ -147,10 +146,6 @@ final class ChromeJournal
                 $relative = $relative || ('' !== $value && 1 !== preg_match('~^(?:[a-z][a-z0-9+.-]*:|/|#)~i', $value));
             }
         }
-        $boxes = array();
-        if (array() !== $this->session->boxTreeViewports()) {
-            foreach (self::elements($element) as $node) if ($node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $boxes[] = $this->session->boxTreeEvidence($node);
-        }
         return hash('sha256', serialize(array(
             $this->pageDigest,
             $css,
@@ -162,7 +157,6 @@ final class ChromeJournal
             str_contains($sourcePath, '/') ? strtok($sourcePath, '/') : '',
             $relative ? dirname($sourcePath) : '',
             $links,
-            $boxes,
         )));
     }
 
@@ -192,22 +186,7 @@ final class ChromeJournal
         foreach (self::elements($element) as $index => $node) $indexes[$node] = $index;
         $encoded = self::encodeElements(array('delta' => $delta, 'fallbacks' => $fallbacks, 'block' => $block), $indexes);
         if (null === $encoded) return null;
-        $nodeIds = array();
-        foreach ($attributes as $index => $original) {
-            if (!isset($original[BoxTree::NODE_ATTRIBUTE])) continue;
-            $id = $original[BoxTree::NODE_ATTRIBUTE];
-            if ('' === $id || array_key_exists($id, $nodeIds)) return null;
-            $nodeIds[$id] = $index;
-        }
-        foreach ($element->ownerDocument->getElementsByTagName('*') as $node) {
-            if (isset($indexes[$node]) || !$node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
-            $id = $node->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            if ('' === $id || array_key_exists($id, $nodeIds)) return null;
-            // References outside the recorded subtree cannot be rebased safely.
-            $nodeIds[$id] = null;
-        }
         return $encoded + array(
-            'node_ids' => $nodeIds,
             'bound_markers' => self::boundMarkers($before, $element->getNodePath(), serialize($encoded)),
             'dom' => $dom,
             'root_path' => $element->getNodePath(),
@@ -230,19 +209,8 @@ final class ChromeJournal
         $xpath = new \DOMXPath($element->ownerDocument);
         $markers = array();
         $missing = false;
-        $nodeIds = array();
-        foreach ($journal['node_ids'] ?? array() as $id => $index) {
-            $target = null !== $index ? ($elements[$index] ?? null) : null;
-            $nodeIds[$id] = $target?->getAttribute(BoxTree::NODE_ATTRIBUTE) ?: null;
-        }
-        $nodePattern = array() === $nodeIds ? null : '~(?<![a-zA-Z0-9_-])(?:' . implode('|', array_map(static fn (string $id): string => preg_quote($id, '~'), array_keys($nodeIds))) . ')(?![a-zA-Z0-9_-])~';
-        $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath, $nodeIds, $nodePattern): mixed {
+        $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath): mixed {
             if (is_string($value)) {
-                if (null !== $nodePattern) $value = preg_replace_callback($nodePattern, static function (array $match) use ($nodeIds, &$missing): string {
-                    $replacement = $nodeIds[$match[0]];
-                    if (null === $replacement) $missing = true;
-                    return $replacement ?? $match[0];
-                }, $value);
                 if ($value === $journal['source_path']) return $targetPath;
                 if (str_starts_with($value, $journal['root_path'])) $value = $rootPath . substr($value, strlen($journal['root_path']));
                 return array() === $markers ? $value : strtr($value, $markers);

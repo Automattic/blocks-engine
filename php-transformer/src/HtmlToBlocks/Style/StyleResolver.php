@@ -811,90 +811,6 @@ final class StyleResolver implements ElementPresentationResolver
             && 'nowrap' === $wrap;
     }
 
-    /**
-     * With box-tree evidence the author stylesheet is not shipped (ADR 0005),
-     * so an inline inside RichText (a list item's link, a span in a heading)
-     * keeps its observed typography only through an engine carrier. The
-     * RichText root is the block itself, restyled with the block.
-     *
-     * @param list<DOMElement> $sources Source elements, the RichText root first.
-     * @param list<DOMElement> $targets Their serialization clones, in the same order.
-     */
-    private function restyleRichTextInlines(array $sources, array $targets): void
-    {
-        $viewports = $this->session->boxTreeViewports();
-        if (array() === $viewports) return;
-        $projector = null;
-        foreach (array_slice($sources, 1, null, true) as $index => $source) {
-            $target = $targets[$index] ?? null;
-            $parent = $source->parentNode;
-            if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
-            $observations = $this->session->boxTreeEvidence($source);
-            $parents = $this->session->boxTreeParentEvidence($source, $parent);
-            if (array() === $observations || array() === $parents) continue;
-            $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
-            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid, $target->tagName);
-            if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
-        }
-    }
-
-    /**
-     * A phrasing element that is the only content of a boxless block (the
-     * inline-layout carrier paragraph) as RichText: its descendants are
-     * restyled as in any RichText, and the element itself, the box the
-     * source laid out, takes every captured declaration through a box-tree
-     * carrier ({@see self::boxTreeElementCarrier()}). Null without evidence
-     * for the element.
-     */
-    public function boxTreeBoxlessContent(DOMElement $element): ?DOMElement
-    {
-        if (!$element->parentNode instanceof DOMElement || array() === $this->session->boxTreeEvidence($element)) return null;
-        $clone = $this->richTextSerializationSource($element);
-        $class = $this->boxTreeElementCarrier($element);
-        if ('' !== $class) $clone->setAttribute('class', SourceDom::mergeClassNames($clone->getAttribute('class'), $class));
-        return $clone;
-    }
-
-    /**
-     * With box-tree evidence the author stylesheet is not shipped (ADR 0005),
-     * so an observed element the output keeps as source markup inside a
-     * block, rather than as a block or a RichText inline, keeps its rendered
-     * box only through an engine carrier: a navigation item's label boxes and
-     * label, or an authored control's icon wrapper and artwork. Saved
-     * markup keeps every source element, so its source parent is the box it
-     * inherits from in the output too. A block that saves its own source
-     * markup (an authored control) restyles its own box the same way, but
-     * inherits from its nearest ancestor that emits a box: boxes collapsed
-     * into their child (ADR 0005 neutral and folded) emit none.
-     *
-     * @param bool $block Whether the source element is the block itself.
-     * @return string The carrier class, or '' off an evidence route or when nothing differs.
-     */
-    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string
-    {
-        $viewports = $this->session->boxTreeViewports();
-        if (array() === $viewports) return '';
-        $observations = $this->session->boxTreeEvidence($source);
-        if (array() === $observations) return '';
-        $parent = $block ? $this->session->boxTreeOutputParent($source) : $source->parentNode;
-        $parents = $parent instanceof DOMElement ? $this->session->boxTreeEvidence($parent) : array();
-        $intent = new BoxTreeFluidIntent();
-        $pseudoFluid = array();
-        foreach (array('before', 'after') as $pseudo) {
-            $pseudoFluid[$pseudo] = $intent->liftPseudo($source, $this, $observations, $viewports, $pseudo);
-        }
-        return (new BoxTreeStyleProjector())->elementCarrier(
-            $observations,
-            $viewports,
-            $this->session->layoutGeometryState(),
-            $parents,
-            strtolower($source->tagName),
-            $intent->lift($source, $this, $observations, $viewports, $parents),
-            $pseudoFluid,
-            $this->session->boxTreeCurrentPaint($source)
-        );
-    }
-
     /** Preserve authored inline CSS except typography already supplied by the parent. */
     public function serializedInlineStyle(DOMElement $element): string
     {
@@ -932,7 +848,6 @@ final class StyleResolver implements ElementPresentationResolver
         // and pre-line content must retain its meaningful line endings.
         $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
         $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
-        $this->restyleRichTextInlines($sources, $targets);
         foreach ($sources as $index => $source) {
             $collapse = '';
             for ($ancestor = $source; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
@@ -1314,15 +1229,6 @@ final class StyleResolver implements ElementPresentationResolver
         if (isset(SourceDeclarations::inline($element)['font-size'])) {
             return '';
         }
-        // With box-tree evidence the author stylesheet is not shipped (ADR
-        // 0005) and the box-tree carrier owns font-size, lifting the author's
-        // breakpoint variants itself. This rescue restates author rules after
-        // that carrier: it would outrank it, and read author custom properties
-        // the route never defines.
-        if (array() !== $this->session->boxTreeViewports()) {
-            return '';
-        }
-
         $hasConditionalFontSize = false;
         foreach ($this->session->sourceStyleResolutionState()->conditionalRules() as $rule) {
             if (isset($rule['declarations']['font-size'])) {
@@ -1547,7 +1453,6 @@ final class StyleResolver implements ElementPresentationResolver
 
         return $entries;
     }
-
 
     /**
      * @return list<array{value: string, queries: list<string>, layer: string|null, layerRank: int|null, important: bool, order: int, specificity: array<int, int>}>
@@ -1819,7 +1724,6 @@ final class StyleResolver implements ElementPresentationResolver
 
         return true;
     }
-
 
     /**
      * @param array<string, string> $inline
@@ -6894,13 +6798,6 @@ final class StyleResolver implements ElementPresentationResolver
         return false;
     }
 
-
-
-
-
-
-
-
     /** A parent selector's box declarations need a box on the lowered child. */
     public function sourceChildHasParentBoxStyling(DOMElement $element): bool
     {
@@ -6980,7 +6877,6 @@ final class StyleResolver implements ElementPresentationResolver
         }
         return array_keys($states);
     }
-
 
     /**
      * Whether a selector targets a pseudo-state or pseudo-element rather than the

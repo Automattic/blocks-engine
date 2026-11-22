@@ -656,12 +656,6 @@ trait StagedTransport
         $projection = (new CaptureProjection())->project($normalized['files']);
         $capturedDialogs = $projection['captured_dialogs'];
         $rawFiles = $projection['files'];
-        // Box-tree identity is proven against the captured source bytes, which
-        // the projections above rewrite; keep what this normalization accepted.
-        $canonicalBoxTrees = array();
-        foreach ($normalized['files'] as $file) {
-            if ('html' === $file['kind'] && array() !== ($file['box_tree'] ?? array())) $canonicalBoxTrees[$file['path']] = $file['box_tree'];
-        }
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
         foreach ($rawFiles as &$file) {
@@ -686,19 +680,6 @@ trait StagedTransport
                 ? $ownership['scope']
                 : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
-            // Route-local evidence must travel only with its source page, not
-            // become a stale shared sidecar in every other page worker.
-            if (preg_match('~(?:^|/)box-tree/.+\.json$~D', $path)) {
-                $boxTree = json_decode((string) ($file['content'] ?? ''), true, 32);
-                if (is_array($boxTree) && is_string($boxTree['source_path'] ?? null)) {
-                    foreach ($rawFiles as $sourceFile) {
-                        if ($boxTree['source_path'] !== ($sourceFile['path'] ?? null)) continue;
-                        $fileScope = 'page';
-                        $filePageId = $sourceFile['metadata']['compilation']['id'] ?? $sourceFile['path'];
-                        break;
-                    }
-                }
-            }
             if ('page' === $fileScope) $pages[$filePageId][] = $file;
             else $shared[] = $file;
         }
@@ -728,37 +709,18 @@ trait StagedTransport
             'canonical_source_hash' => $normalized['source_hash'],
             'canonical_bytes' => $normalized['bytes'],
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
-            'canonical_box_trees' => $canonicalBoxTrees,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
             'captured_dialogs' => $capturedDialogs,
         );
     }
 
-    /**
-     * Re-apply the whole-artifact normalization's identity to a stage
-     * envelope's normalization. Stage files are already projected, so their
-     * provenance hashes and box-tree intake would otherwise describe the
-     * projected bytes: projected route state no longer matches a sidecar's
-     * captured source hash, and the empty result would silently replace the
-     * accepted evidence. Box-tree intake and its diagnostics stay owned by the
-     * canonical normalization, exactly as in inline compilation.
-     *
-     * @param array<string,mixed> $normalized
-     * @param array<string,mixed> $partition
-     * @return array<string,mixed>
-     */
     private static function withCanonicalIdentity(array $normalized, array $partition): array
     {
         foreach ($normalized['files'] as &$file) {
             if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
-            if ('html' === $file['kind']) $file['box_tree'] = $partition['canonical_box_trees'][$file['path']] ?? array();
         }
         unset($file);
-        $normalized['diagnostics'] = array_values(array_filter(
-            $normalized['diagnostics'],
-            static fn(array $diagnostic): bool => !str_starts_with((string) ($diagnostic['code'] ?? ''), 'box_tree_')
-        ));
         return $normalized;
     }
 

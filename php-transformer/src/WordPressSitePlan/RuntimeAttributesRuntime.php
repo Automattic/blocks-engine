@@ -40,10 +40,6 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
     if ( 'core/group' === ( $block['blockName'] ?? '' ) && is_array( $box ) ) {
         $processor = new WP_HTML_Tag_Processor( $content );
         if ( $processor->next_tag() ) {
-            // Keep projection identities: route CSS can address these markers
-            // even though the published box sheds Core's group chrome. Geometry
-            // carriers are this box's own styles; on a box-tree route, where
-            // the author sheet is retired, they are its only styles.
             $classes = preg_split( '/\s+/', (string) $processor->get_attribute( 'class' ) );
             $markers = array_filter( $classes, static fn ( string $class ): bool => str_starts_with( $class, 'blocks-engine-' ) || str_starts_with( $class, 'be-inline-geometry-' ) );
             $box['class'] = trim( ( $box['class'] ?? '' ) . ' ' . implode( ' ', $markers ) );

@@ -1,8 +1,6 @@
 <?php
 declare(strict_types=1);
 
-// Exercises box-tree decisions, which are opt-in (#7352).
-putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -25,24 +23,6 @@ foreach (array('first', 'second') as $slug) {
     $add('journal/' . $slug . '.html', '/journal/' . $slug, '<h1>' . ucfirst($slug) . '</h1><div class="item-copy"><p>Full story ' . $slug . '.</p></div><a href="/category/notes">Notes</a>', array('post_type' => 'post'));
 }
 $add('category/notes.html', '/category/notes', '<h1>Notes</h1><article><h2><a href="/journal/first">First</a></h2><p>First summary.</p></article><article><h2><a href="/journal/second">Second</a></h2><p>Second summary.</p></article>');
-$template = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 64, JSON_THROW_ON_ERROR);
-foreach ($files as &$file) {
-    if (!is_array($file) || 'index.html' !== $file['path']) continue;
-    $nodes = $stack = array();
-    $count = 0;
-    $file['content'] = preg_replace_callback('/<(\/?)([a-z][a-z0-9]*)([^>]*)>/i', static function (array $match) use (&$nodes, &$stack, &$count): string {
-        if ('/' === $match[1]) { array_pop($stack); return $match[0]; }
-        $id = 'n' . ++$count;
-        $nodes[$id] = array('children' => array());
-        if (array() !== $stack) $nodes[end($stack)]['children'][] = $id;
-        if ('link' !== strtolower($match[2])) $stack[] = $id;
-        return '<' . $match[2] . ' data-blocks-engine-node-id="' . $id . '"' . $match[3] . '>';
-    }, $file['content']);
-    foreach ($nodes as &$node) $node['viewports'] = $template['nodes']['n7']['viewports'];
-    unset($node);
-    $files['box-tree/index.json'] = json_encode(array('schema' => $template['schema'], 'source_path' => 'index.html', 'source_hash' => hash('sha256', $file['content']), 'viewports' => $template['viewports'], 'nodes' => $nodes), JSON_THROW_ON_ERROR);
-}
-unset($file);
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
 if (!isset($result['source_reports']['wordpress_site_plan'])) throw new RuntimeException(json_encode($result['diagnostics']));
 $plan = $result['source_reports']['wordpress_site_plan'];
@@ -57,7 +37,8 @@ foreach ($plan['assets'] as $asset) {
     if ('engine-support' === $asset['source'] && array('journal/first.html', 'journal/second.html') === array_column($asset['scopes'], 'source_path')) $sharedSupport[] = $asset;
 }
 $assert(array() !== $sharedSupport, 'Collection items share route-specific support resources.');
-$assert(array() !== $archiveScopes, 'The native archive retains stylesheet ownership.');
+// Global author stylesheets also serve the native archive without route scopes.
+$assert(array() !== $archiveScopes || array() !== array_filter($plan['assets'], static fn(array $asset): bool => 'site.css' === ($asset['source_path'] ?? null)), 'The native archive retains its author stylesheet.');
 foreach ($archiveScopes as $scope) $assert('archive' === $scope['kind'], 'No temporary archive page scope ships.');
 // Validation still rejects stale and missing owners, with enough context to
 // diagnose either case without instrumenting the importer.

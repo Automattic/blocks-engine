@@ -1,5 +1,7 @@
 # Reduce source structure from the captured box tree; ship only engine-owned styles
 
+**Status: Superseded by [#7370](https://github.com/Automattic/blocks-engine/issues/7370).** On eight frozen corpus sites, enabling one box-tree decision family at a time produced no additional passing cells beyond run-to-run noise. With all families enabled, agency, bizcasual, bolt-lumen, replit-zach, sdnunca and base44 fell to zero passing cells (without box trees: 2, 12, 1, 3, 11 and 18–21); dropping author stylesheets alone caused the same collapse. Box-tree consumption is therefore removed entirely; sidecars remain capture-only evidence and capture identity is stripped from output.
+
 Captured sites become block trees shaped by what the browser rendered, not by the
 source markup's nesting. Every wrapper that renders nothing of its own collapses, and
 the imported theme carries only styles the engine generates: block attributes,

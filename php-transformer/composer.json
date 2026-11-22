@@ -77,7 +77,6 @@
     "test:inherited-alignment-lone-link-browser": "node tests/unit/inherited-alignment-lone-link-browser.mjs",
     "test:search-input-group-browser": "node tests/unit/search-input-group-browser.mjs",
     "test:sibling-link-lists-browser": "node tests/contract/sibling-link-lists-browser.mjs",
-    "test:box-tree-link-child-carriers-browser": "node tests/contract/box-tree-link-child-carriers-browser.mjs",
     "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",
     "test:navigation-opener-inherited-font-browser": "node tests/contract/navigation-opener-inherited-font-browser.mjs",
     "test:root-absolute-sprite-links-browser": "node tests/contract/root-absolute-sprite-links-browser.mjs",
