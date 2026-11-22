@@ -189,6 +189,9 @@ final class ClassPublisher
             $semantic = isset($occurrences[$token]) ? self::semantic($occurrences[$token], $namespace) : '';
             if ('' === $semantic) $semantic = self::internalSemantic($token, $namespace);
             $name = $namespace . '-' . $semantic;
+            // Classes that share evidence read apart by their own role first.
+            if (isset($taken[$name])) $semantic = self::roleSemantic($semantic, self::internalSemantic($token, $namespace), $namespace);
+            $name = $namespace . '-' . $semantic;
             for ($suffix = 2; isset($taken[$name]); ++$suffix) $name = $namespace . '-' . $semantic . '-' . $suffix;
             $taken[$name] = true;
             $map[$token] = $name;
@@ -417,6 +420,14 @@ final class ClassPublisher
         $top = max($counts);
         foreach ($counts as $semantic => $count) if ($top === $count) return self::bounded((string) $semantic, $namespace);
         return '';
+    }
+
+    /** Evidence qualified by the role an engine class names, without repeating words. */
+    private static function roleSemantic(string $semantic, string $role, string $namespace): string
+    {
+        $words = explode('-', $semantic);
+        $extra = array_values(array_filter(explode('-', $role), static fn (string $word): bool => !in_array($word, $words, true) && !in_array($word, array('native', 'navigation', 'style'), true)));
+        return array() === $extra ? $semantic : self::bounded($semantic . '-' . implode('-', $extra), $namespace);
     }
 
     /** A class only stylesheets or runtimes name reads as what it is for. */
