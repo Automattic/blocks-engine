@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005 slice 5: a single-child box that is load-bearing only through its
 // own declarations folds them into its child, proved by geometry at every
 // captured viewport. One fold and one refusal per rule.

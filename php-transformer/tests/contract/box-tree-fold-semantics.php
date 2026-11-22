@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // Semantic section roots can share their sole equal-box Group boundary.
 require __DIR__ . '/../../vendor/autoload.php';
 

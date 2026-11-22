@@ -18,6 +18,13 @@ final class BoxTree
     public const NODE_ATTRIBUTE = 'data-blocks-engine-node-id';
     public const MAX_NODES = 100000;
     public const MAX_VIEWPORTS = 8;
+    /**
+     * Box-tree intake is withheld unless this environment variable is "1".
+     * Applying captured observations made every frozen corpus import worse
+     * than the same capture without them (#7352); each decision is re-enabled
+     * only once it is proven no worse than authored styling (#7345).
+     */
+    public const INTAKE_ENV = 'BLOCKS_ENGINE_BOX_TREE_INTAKE';
     public const MAX_BYTES = 33554432;
     public const MOTION_PROPERTIES = array('animation-name', 'transition-property', 'transition-duration');
     /**
@@ -70,6 +77,11 @@ final class BoxTree
     public static function authoredAttributes(DOMElement $element): array
     {
         return array_values(array_filter(iterator_to_array($element->attributes), static fn (\DOMAttr $attribute): bool => ! self::isEvidenceAttribute($attribute->name)));
+    }
+
+    public static function intakeEnabled(): bool
+    {
+        return '1' === getenv(self::INTAKE_ENV);
     }
 
     /** Sidecars are compiler evidence, regardless of their declared role. */

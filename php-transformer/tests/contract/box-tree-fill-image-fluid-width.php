@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005 §4 slice 3b on the filled image frame (#7209). An image that fills
 // its grid cell (`.photo img{width:100%}`) lowers to a core/image whose
 // figure is display:contents, and its box-tree carrier targets the `img`.

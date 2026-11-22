@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // Image placeholders emit `<span class="aspect-square …"><img class="absolute
 // inset-0 h-full w-full object-cover"></span>`. When the capture proves the
 // image covers the frame exactly, the frame is the image's own box: one

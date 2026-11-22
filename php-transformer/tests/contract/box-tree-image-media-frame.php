@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // Card media are authored as `<div class="media"><img class="zoom"></div>`:
 // the box sets the ratio, clips and paints, and an in-flow image fills it.
 // When the capture proves the image's border box is the box's at every

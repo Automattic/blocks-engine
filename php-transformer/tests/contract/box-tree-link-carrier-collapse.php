@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005: a text-less whole-element link wrapper whose box the capture proves
 // equal to its sole child is load-bearing only through its link. Once that
 // link moves onto the wrapped image, the anchor emits no Group of its own, so

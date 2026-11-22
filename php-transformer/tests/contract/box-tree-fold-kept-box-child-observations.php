@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005 slice 5: when a folded box keeps its block because its child's
 // block cannot carry the box's declarations, the child no longer receives
 // them. A captured dialog trigger (an icon link that opens a dialog) lowers to

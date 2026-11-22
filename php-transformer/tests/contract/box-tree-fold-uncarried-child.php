@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005 slice 5: a folded box's declarations move onto its sole child, so
 // they survive only when that child's block is restyled from box-tree
 // evidence. A child a pattern converts on its own (an icon link becomes an
