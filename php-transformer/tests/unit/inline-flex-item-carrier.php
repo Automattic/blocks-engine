@@ -94,8 +94,10 @@ $assert(
     '' !== $basisRule ? $basisRule : $rowCss
 );
 $assert(
-    2 === count(array_filter($rowRules, static fn (string $rule): bool => str_contains($rule, 'flex:1 1 20rem !important'))),
-    'flex shorthand: both authored columns carry the shorthand, not just the first',
+    1 === count(array_filter($rowRules, static fn (string $rule): bool => str_contains($rule, 'flex:1 1 20rem !important')))
+        && preg_match('/\.(be-inline-geometry-[a-f0-9]+)\{[^}]*flex:1 1 20rem/', $rowCss, $basisCarrier)
+        && 2 === preg_match_all('/<div class="wp-block-group [^"]*\b' . $basisCarrier[1] . '\b/', (string) ($row['serialized_blocks'] ?? '')),
+    'flex shorthand: both authored columns carry the one shared shorthand rule, not just the first',
     $rowCss
 );
 
