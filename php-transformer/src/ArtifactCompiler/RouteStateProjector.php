@@ -786,7 +786,7 @@ final class RouteStateProjector
                 foreach (self::classes($element) as $class) $worn[$class] = true;
             }
         }
-        $sheetRules = array();
+        $sheetRules = array(); $namedHere = array();
         foreach (array_keys($documents) as $index) {
             // Each class's rules in this document's own sheets, in order.
             $rules = array(); $unaliasable = array();
@@ -814,6 +814,7 @@ final class RouteStateProjector
                 foreach ($sheetRules[$sheet][0] as $class => $read) $rules[$class] = array_merge($rules[$class] ?? array(), $read);
                 $unaliasable += $sheetRules[$sheet][1];
             }
+            $namedHere[$index] = array_fill_keys(array_keys($rules), true) + $unaliasable;
             foreach ($rules as $class => $meaning) {
                 // Engine-minted classes (re-ingested control bindings) are no route vocabulary.
                 if (str_starts_with($class, 'blocks-engine-') || isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
@@ -835,10 +836,19 @@ final class RouteStateProjector
             foreach (reset($routes) as $class) if (count($readings[$class]) > 1) $unstable[$meaning] = true;
         }
         if (array() === $unstable) return $files;
+        // A class with one meaning wherever a sheet names it reads as nothing
+        // on a route whose own sheets never name it: wearing its alias there
+        // changes nothing, and keeps that chrome equal to the other routes'.
+        $aligned = array();
+        foreach ($readings as $class => $classMeanings) {
+            if (1 === count($classMeanings) && isset($unstable[array_key_first($classMeanings)])) $aligned[$class] = 'route-class-' . substr((string) array_key_first($classMeanings), 0, 12);
+        }
         $sheetAliases = array();
-        foreach ($meanings as $index => $classes) {
+        foreach (array_keys($documents) as $index) {
+            $classes = $meanings[$index] ?? array();
             $aliases = array();
             foreach ($classes as $class => $meaning) if (isset($unstable[$meaning])) $aliases[$class] = 'route-class-' . substr($meaning, 0, 12);
+            foreach ($aligned as $class => $alias) if (!isset($namedHere[$index][$class])) $aliases[$class] = $alias;
             if (array() === $aliases) continue;
             $used = array();
             foreach ($scoped[$index] ?? array() as $element) {
