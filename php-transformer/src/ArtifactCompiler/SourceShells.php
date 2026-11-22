@@ -226,6 +226,10 @@ final class SourceShells
                 else $node->setAttribute($attribute, $value);
             }
         }
+        // Reuse the cross-route resting bindings across the entire shell,
+        // including menus without a current item in this capture. Keep their
+        // runtime binding so the shared source still restores current paint.
+        if ($dom->documentElement instanceof \DOMElement) RouteStateProjector::withRestingNavigation($dom->documentElement);
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
         foreach ($xpath->query('//*[@class]') ?: array() as $node) {
