@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityShimCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationBoundaryCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -588,7 +589,7 @@ final class SitePlanRun
             // Captured fluid lengths ship as the source runtime spelled them
             // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
             // that spelling, so it is written once at its smallest form.
-            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
+            $compacted = $compactor->compactStylesheet(CssDeclarationBoundaryCompactor::stylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content']))));
             // Inline source sheets are projected like linked ones: a motion
             // or state rule restated per subject ships its block once.
             if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
