@@ -1902,6 +1902,10 @@ final class PresetBinding
             return self::sourcePresets($parts[0]) . ':' . $mix . $important;
         }
         if (null === $slug) return $declaration;
+        // As with font shorthand, a primary-face match does not establish
+        // fallback parity. A var() fallback cannot protect against a defined
+        // preset whose stack differs from the source declaration.
+        if ('font-family' === $kind && !$this->presetHoldsFamily($slug, $this->resolve($value))) return $declaration;
         // Root-relative units on the root element resolve against the initial
         // font size, not the document's root, so such a preset would rescale it.
         if ($rootSelector && 'font-size' === $kind && self::rootRelativePreset($this->system->fontSizes, $slug)) return $declaration;
