@@ -202,7 +202,37 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
             return false;
         }
 
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || $this->responsiveStylesheetOwnsWrapperBox($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || $this->responsiveStylesheetOwnsWrapperBox($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) || $this->tagMarkerOwnsWrapperBox($element) );
+    }
+
+    /**
+     * A wrapper styled only through a type or combinator selector
+     * (`.card>div{aspect-ratio:16/9;overflow:hidden}`) has no class boundary
+     * and no presentation attributes: the stylesheet projector rewrites that
+     * rule onto the tag marker carried by whichever block represents this
+     * element. Eliding the wrapper leaves the marker without a carrier, so
+     * the rule's box (ratio, clip, padding, paint) silently disappears.
+     * Zero lengths, `display:block` and a bare `position:relative` are
+     * resets, not an owned box (a containing block is owned by the
+     * positioned-descendant policies).
+     */
+    private function tagMarkerOwnsWrapperBox(DOMElement $element): bool
+    {
+        if ( '' === $this->session->authorSelectorProjectionState()->tagMarker(strtolower($element->tagName)) ) {
+            return false;
+        }
+        foreach ( $this->emptyVisualTopologyEvidence($element) as $evidence ) {
+            foreach ( $evidence['declarations'] as $property => $value ) {
+                $value = CssValueInspector::comparable($value);
+                if ( preg_match('/^-?0(?:\.0+)?(?:[a-z%]+)?(?:\s+-?0(?:\.0+)?(?:[a-z%]+)?)*$/', $value)
+                    || ('display' === $property && in_array($value, array( 'block', 'flow-root' ), true))
+                    || ('position' === $property && 'relative' === $value) ) {
+                    continue;
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
