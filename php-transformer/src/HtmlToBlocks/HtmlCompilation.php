@@ -2610,13 +2610,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // is built from these attributes and so carries them too.
         $attrs = $this->session->authorSelectorProjectionState()->withRichTextCarrierAttrs($attrs);
 
-        return $this->sourceInterItemSpaces->apply($this->blockMaterializer->materialize(
+        $block = $this->blockMaterializer->materialize(
             $name,
             $attrs,
             $innerBlocks,
             $sourceMaterializationFacts,
             $this->session->transformationProvenanceState()
-        ), $sourceElement);
+        );
+        return $this->sourceInterItemSpaces->apply($block, $sourceElement);
     }
 
     /**
