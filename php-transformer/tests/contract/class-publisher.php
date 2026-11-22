@@ -109,6 +109,11 @@ foreach ($map as $engine => $name) {
     if (isset($carried[$name])) $assert(1 === preg_match('/\.' . preg_quote($name, '/') . '(?![A-Za-z0-9_-])/', $delivered), 'Delivered CSS still selects ' . $name . '.');
 }
 $assert(isset($carried['hero']) && in_array('acme-paragraph', $map, true), 'Source classes stay and engine classes are named from their evidence.');
+preg_match_all('/"className":"([^"]*)"/', $publishedContent, $classLists);
+foreach ($classLists[1] as $list) {
+    $tokens = explode(' ', $list);
+    foreach ($tokens as $token) if (1 === preg_match('/^(acme-.+)-\\d+$/', $token, $base) && in_array($base[1], $tokens, true)) $assert(false, 'Classes sharing evidence on one element read apart by role, not number: ' . $list);
+}
 foreach ($map as $engine => $name) if (str_starts_with($engine, 'be-inline-geometry-')) $assert(1 !== preg_match('/^acme-.*-[a-f0-9]{6,}$/', $name), 'Geometry carriers take readable names: ' . $name);
 
 // One engine class has one name site-wide: the shared header ships once,
