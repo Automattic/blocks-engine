@@ -1254,6 +1254,22 @@ final class PresetBinding
                 // not need a matching class rule to prove its resting value.
                 if (isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
                 $literal = $style->typography->{$key} ?? null;
+                // A class-owned button family has no inline declaration to
+                // rewrite. Hand the exact, invariant stack to the block, but
+                // only when a preset class cannot mask state/important rules.
+                // Sizes stay inline: their relative units and reset semantics
+                // are not interchangeable with an important preset class.
+                if ('fontFamily' === $key && null === $literal) {
+                    $family = $observed[$property] ?? null;
+                    $slug = $this->presetSlug($property, null, $family);
+                    if (null !== $slug && is_string($family) && $this->presetHoldsFamily($slug, $family)
+                        && $this->safe($property, $tokens, array(sprintf($presetClass, $slug)), false, false, $familyReason, false, true)) {
+                        $attributes->{$attribute} = $slug;
+                        $d->addClasses[] = sprintf($presetClass, $slug);
+                        ++$d->bound;
+                    }
+                    continue;
+                }
                 $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? ('fontSize' === $key ? $this->exactFontSizeSlug($this->resolve($literal)) : $this->presetSlug($property, $literal, null)) : null;
                 if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $d->declarations, $property, $literal)) ++$d->bound;
                 continue;
@@ -1402,10 +1418,10 @@ final class PresetBinding
      *   {.band{background:rgb(from var(--wp--preset--color--base) calc(r - 8)
      *   calc(g - 8) calc(b - 11))}}`. Both paint the source shade until the
      *   representative is edited; the derived value then follows it.
-     * - A font size binds only when it is the preset's own length, and a
-     *   font family only when it is the preset's own stack, so no fallback
-     *   or rounding changes what renders. Font-shorthand custom properties
-     *   bind only an exactly matching complete stack, in place, leaving the
+     * - A font size binds only when it is the preset's own length.
+     *   Font-family longhands bind by primary family, retaining a differing
+     *   source stack as the fallback. Shorthands and font-shorthand custom
+     *   properties require an exactly matching complete stack, leaving the
      *   rest of the shorthand literal.
      * - A rem length is measured at the root of the documents that load the
      *   sheet (`$sources`), and names no token when they render different
@@ -1801,6 +1817,27 @@ final class PresetBinding
             $value = trim(substr($value, 0, -strlen($match[0])));
         }
         if ('' === $value) return $declaration;
+        if ('font' === $property) {
+            // Bind only the family tail: expanding the shorthand into longhands
+            // would lose its resets and could change the source cascade.
+            CssFontShorthand::expand($value, true, $familyOffset);
+            if (null !== $familyOffset) {
+                $family = substr($value, $familyOffset);
+                $slug = $this->exactFontFamilySlug($family);
+                // A primary-family match is insufficient: when that face is
+                // unavailable, the preset's fallback stack determines paint.
+                // The var() fallback only protects against a missing preset,
+                // not a defined preset with a different stack.
+                if (null !== $slug && $this->presetHoldsFamily($slug, $this->resolve($family))) {
+                    ++$this->bound;
+                    // Retained CSS can also render without theme.json (previews
+                    // and standalone consumers); keep the source family then.
+                    $fallback = ',' . self::sourcePresets($family);
+                    return $parts[0] . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
+                        . 'var(--wp--preset--font-family--' . $slug . $fallback . ')' . $important;
+                }
+            }
+        }
         if (str_starts_with($property, '--')) {
             CssFontShorthand::expand($value, false, $familyOffset);
             // Without a shorthand prefix, the whole value may be a family stack.
@@ -2133,7 +2170,7 @@ final class PresetBinding
         return true;
     }
 
-    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false): bool
+    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false, bool $preservesStyleText = false): bool
     {
         $finalClasses = $tokens;
         foreach ($addedClasses as $class) $finalClasses['class:' . $class] = true;
@@ -2141,7 +2178,9 @@ final class PresetBinding
             $reason = 'state_variant';
             if (!$statesRendered && $this->stateMatches($family, $tokens)) return false;
             $reason = 'style_selector';
-            foreach ($this->styleTextRules[$family] ?? array() as $rule) {
+            // A class-only handoff leaves style="..." byte-for-byte intact,
+            // including the presence/absence tested by reset selectors.
+            foreach ($preservesStyleText ? array() : ($this->styleTextRules[$family] ?? array()) as $rule) {
                 // A shared engine class is not enough to make a selector for
                 // another element type read this element's style attribute.
                 $tags = array_values(array_filter($rule['tokens'] ?? array(), static fn(string $token): bool => str_starts_with($token, 'tag:')));
