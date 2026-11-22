@@ -84,6 +84,18 @@ $wixLifted = 'font-size:max(0.5px, 0.1875 * (clamp(0px, 100 * 1vw * 1, min(9999p
 // 402px capture, so the narrow expression is banded at 1023px.
 $wixLiftedNarrow = 'font-size:max(0.5px, 0.1875 * (clamp(0px, 100 * 1vw * 1, min(700px, 99999999999px)) - 0px))';
 $cases = array(
+    'an author alignment band survives inherited pruning at the narrow capture' => array(
+        'main{text-align:start}h1{text-align:center}@media(max-width:1023px){h1{text-align:start}}',
+        array('n5.text-align' => array('start', 'start'), 'n6.text-align' => array('center', 'start')),
+        array('text-align:center', '@media (max-width:1023px){', 'text-align:start'),
+        array('text-align:inherit', '@media (max-width:402px){'),
+    ),
+    'an author alignment band not explaining the narrow capture stays captured' => array(
+        'main{text-align:left}h1{text-align:center}@media(max-width:1023px){h1{text-align:start}}',
+        array('n5.text-align' => array('left', 'left'), 'n6.text-align' => array('center', 'left')),
+        array('text-align:center', 'text-align:inherit', '@media (max-width:402px){'),
+        array('@media (max-width:1023px){'),
+    ),
     'vw font-size reproducing both captures lifts' => array(
         'h1{font-size:5.2vw}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:5.2vw'), array('font-size:75px', 'font-size:20.9px'),
     ),

@@ -534,10 +534,10 @@ final class BoxTreeStyleProjector
      * Author intent proven at every capture (BoxTreeFluidIntent) replaces
      * the frozen pixels in every capture, so it needs no capture delta;
      * where the author switches it, its bands follow the author's own
-     * breakpoints. Do not resurrect properties pruned at any viewport, except
-     * a switched keyword (`visibility`) whose lift explains every capture,
-     * pruned ones included: without its base value a narrower band could
-     * not switch it back.
+     * breakpoints. A proven author switch may include a value pruned as
+     * initial or inherited: without its base value a narrower band could
+     * not switch it back. Otherwise do not resurrect pruned properties,
+     * except for the proven keyword, grid-line and layout-height lifts.
      *
      * A lifted base value that restates the property's initial value (or
      * cannot apply to the box) in every capture's context is not declared at
@@ -566,12 +566,13 @@ final class BoxTreeStyleProjector
                     ++$kept;
                     continue;
                 }
-                // A proven author switch can include an initial value that
-                // the pruner omitted (unitless zero minimums, media-only order).
+                // BoxTreeFluidIntent already proved the author switch against
+                // every capture. Initial or inherited pruning does not veto it:
+                // the band still explains the observed value at that width.
                 $used = $observations[$key]['used_styles'] ?? array();
                 $parent = $parents[$key]['used_styles'] ?? null;
                 $reason = $this->pruner->classify($used, is_array($parent) ? $parent : null, $blockName, $tagName)[$property] ?? null;
-                if (count($propertyBands) > 1 && BoxTreeDeclarationPruner::INITIAL === $reason) continue;
+                if (count($propertyBands) > 1 && in_array($reason, array(BoxTreeDeclarationPruner::INITIAL, BoxTreeDeclarationPruner::INHERITED), true)) continue;
                 if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property]) && !$layoutHeight) continue 2;
             }
             if (0 === $kept) continue;
