@@ -1801,6 +1801,21 @@ final class PresetBinding
             $value = trim(substr($value, 0, -strlen($match[0])));
         }
         if ('' === $value) return $declaration;
+        if ('font' === $property) {
+            // Bind only the family tail: expanding the shorthand into longhands
+            // would lose its resets and could change the source cascade.
+            CssFontShorthand::expand($value, true, $familyOffset);
+            if (null !== $familyOffset) {
+                $family = substr($value, $familyOffset);
+                $slug = $this->exactFontFamilySlug($family);
+                if (null !== $slug) {
+                    ++$this->bound;
+                    $fallback = $this->presetHoldsFamily($slug, $family) ? '' : ',' . self::sourcePresets($family);
+                    return $parts[0] . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
+                        . 'var(--wp--preset--font-family--' . $slug . $fallback . ')' . $important;
+                }
+            }
+        }
         if (str_starts_with($property, '--')) {
             CssFontShorthand::expand($value, false, $familyOffset);
             // Without a shorthand prefix, the whole value may be a family stack.
