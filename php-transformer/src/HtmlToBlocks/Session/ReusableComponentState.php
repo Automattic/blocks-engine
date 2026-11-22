@@ -65,7 +65,10 @@ final class ReusableComponentState
             // Publish the cross-route proof before lowering any menu. A menu
             // with no current item cannot rediscover this state from its peers.
             $state = json_decode($this->restingNavigation[$node], true);
-            if (is_array($state) && is_array($state['current']['class'] ?? null)) $projections->markCurrentNavigationClasses($state['current']['class']);
+            if (is_array($state) && is_array($state['current']['class'] ?? null)) {
+                $projections->markCurrentNavigationClasses($state['current']['class']);
+                if (array() === ($state['rest']['class'] ?? array())) $projections->markAdditiveCurrentNavigationClasses($state['current']['class']);
+            }
             $node->removeAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
         }
     }

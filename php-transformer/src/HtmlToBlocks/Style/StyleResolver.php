@@ -287,6 +287,14 @@ final class StyleResolver implements ElementPresentationResolver
             'layout'    => $this->inlineGeometry()->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
+        // Purely additive, cross-route current hooks cannot be frozen into a
+        // block's className. Selector projection restores their runtime paint;
+        // class swaps retain their resting half and existing item-level logic.
+        if (isset($attrs['className'])) {
+            $attrs['className'] = implode(' ', array_filter(SourceDom::tokens($attrs['className']), fn(string $class): bool => !$this->session->authorSelectorProjectionState()->isAdditiveCurrentNavigationClass($class)));
+            if ('' === $attrs['className']) unset($attrs['className']);
+        }
+
         if ( array() !== $nativeGridPlacement['placement'] ) {
             $style = ArrayField::array($attrs, 'style');
             // The keys are core's child layout values

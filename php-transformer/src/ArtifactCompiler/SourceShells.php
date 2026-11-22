@@ -226,10 +226,20 @@ final class SourceShells
                 else $node->setAttribute($attribute, $value);
             }
         }
-        // Reuse the cross-route resting bindings across the entire shell,
-        // including menus without a current item in this capture. Keep their
-        // runtime binding so the shared source still restores current paint.
-        if ($dom->documentElement instanceof \DOMElement) RouteStateProjector::withRestingNavigation($dom->documentElement);
+        // Only cross-route proven current classes are incidental here. Resting
+        // projection also changes attributes and bindings whose differences
+        // must remain structural (for example hidden or unanchored menus).
+        // Class swaps still use the item-level comparison below: deleting only
+        // one half would make a resting item's authored classes significant.
+        // Emission (ignoreViewportEntrance=false) keeps the original evidence.
+        foreach ($ignoreViewportEntrance ? ($xpath->query('//*[@' . RouteStateProjector::RESTING_STATE_ATTRIBUTE . ']') ?: array()) : array() as $node) {
+            if (!$node instanceof \DOMElement) continue;
+            $state = json_decode($node->getAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE), true);
+            if (!is_array($state) || !is_array($state['current']['class'] ?? null) || array() !== ($state['rest']['class'] ?? array())) continue;
+            $classes = array_values(array_diff(SourceDom::tokens($node->getAttribute('class')), $state['current']['class']));
+            if (array() === $classes) $node->removeAttribute('class');
+            else $node->setAttribute('class', implode(' ', $classes));
+        }
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
         foreach ($xpath->query('//*[@class]') ?: array() as $node) {

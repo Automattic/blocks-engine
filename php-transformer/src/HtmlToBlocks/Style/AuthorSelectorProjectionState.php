@@ -323,6 +323,20 @@ final class AuthorSelectorProjectionState
         return false;
     }
 
+    /** @var array<string,true> */
+    private array $additiveCurrentNavigationClasses = array();
+
+    /** @param list<string> $classes */
+    public function markAdditiveCurrentNavigationClasses(array $classes): void
+    {
+        foreach ($classes as $class) $this->additiveCurrentNavigationClasses[$class] = true;
+    }
+
+    public function isAdditiveCurrentNavigationClass(string $class): bool
+    {
+        return isset($this->additiveCurrentNavigationClasses[$class]);
+    }
+
     public function isCurrentNavigationClass(string $class, ?DOMElement $element = null): bool
     {
         if ('page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class)) {
