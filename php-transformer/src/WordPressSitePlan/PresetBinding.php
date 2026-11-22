@@ -1418,10 +1418,10 @@ final class PresetBinding
      *   {.band{background:rgb(from var(--wp--preset--color--base) calc(r - 8)
      *   calc(g - 8) calc(b - 11))}}`. Both paint the source shade until the
      *   representative is edited; the derived value then follows it.
-     * - A font size binds only when it is the preset's own length, and a
-     *   font family only when it is the preset's own stack, so no fallback
-     *   or rounding changes what renders. Font-shorthand custom properties
-     *   bind only an exactly matching complete stack, in place, leaving the
+     * - A font size binds only when it is the preset's own length.
+     *   Font-family longhands bind by primary family, retaining a differing
+     *   source stack as the fallback. Shorthands and font-shorthand custom
+     *   properties require an exactly matching complete stack, leaving the
      *   rest of the shorthand literal.
      * - A rem length is measured at the root of the documents that load the
      *   sheet (`$sources`), and names no token when they render different
@@ -1902,10 +1902,6 @@ final class PresetBinding
             return self::sourcePresets($parts[0]) . ':' . $mix . $important;
         }
         if (null === $slug) return $declaration;
-        // As with font shorthand, a primary-face match does not establish
-        // fallback parity. A var() fallback cannot protect against a defined
-        // preset whose stack differs from the source declaration.
-        if ('font-family' === $kind && !$this->presetHoldsFamily($slug, $this->resolve($value))) return $declaration;
         // Root-relative units on the root element resolve against the initial
         // font size, not the document's root, so such a preset would rescale it.
         if ($rootSelector && 'font-size' === $kind && self::rootRelativePreset($this->system->fontSizes, $slug)) return $declaration;
