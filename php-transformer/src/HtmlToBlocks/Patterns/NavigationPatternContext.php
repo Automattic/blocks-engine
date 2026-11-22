@@ -1026,7 +1026,11 @@ final class NavigationPatternContext
             return true;
         };
         if (!$collect($block['innerBlocks'] ?? array()) || count($wrappers) < 2 || 1 !== count(array_unique($wrappers))) return array();
-        $authored = array_values(array_filter(SourceDom::tokens($wrappers[0]), static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-')));
+        // Attribute-selector projections can also decorate the source span.
+        // Compare authored classes only on both sides; subject binding below
+        // carries those projected rules to Core's label without data attributes.
+        $isAuthored = static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-');
+        $authored = array_values(array_filter(SourceDom::tokens($wrappers[0]), $isAuthored));
         if (array() === $authored) return array();
         sort($authored);
         $paths = array();
@@ -1034,7 +1038,7 @@ final class NavigationPatternContext
             $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement || '' !== trim($node->textContent ?? '')));
             $span = $children[0] ?? null;
             if (1 !== count($children) || !$span instanceof DOMElement || 'span' !== strtolower($span->tagName) || 0 !== $span->childElementCount || $span->hasAttribute('style')) continue;
-            $classes = array_values(array_unique(array_filter(SourceDom::tokens($span->getAttribute('class')), static fn(string $class): bool => '' !== $class)));
+            $classes = array_values(array_unique(array_filter(SourceDom::tokens($span->getAttribute('class')), $isAuthored)));
             sort($classes);
             if ($classes === $authored) $paths[] = $span->getNodePath() ?? '';
         }

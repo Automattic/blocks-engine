@@ -334,6 +334,8 @@ final class AuthorSelectorProjector
      */
     private function projectSelectorArms(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): array
     {
+        $labelState = $this->projectNavigationLabelAncestorState($selector, $context);
+        if (null !== $labelState) return $labelState;
         if ( $context->selectorProjections->retainsRuntimeOwnedSelector($selector)
             || $this->isNativeCoreNavigationSelector($selector, $context) ) {
             return array(trim($selector));
@@ -706,6 +708,37 @@ final class AuthorSelectorProjector
             }
         }
         return null;
+    }
+
+    /** @return list<string>|null */
+    private function projectNavigationLabelAncestorState(string $selector, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $selector = trim($selector);
+        // An interaction on the source item is outside the static matcher's
+        // subset. Resolve its resting subjects, but keep the state live on
+        // Core's item rather than freezing it into the lifted label's paint.
+        if (1 !== preg_match('/^(.*):(hover|focus-within|active)\s+([^>+~]+)$/', $selector, $state)) return null;
+        $resting = $state[1] . ' ' . $state[3];
+        preg_match('/(::?(?:after|before))$/i', $resting, $pseudo);
+        $suffix = $pseudo[1] ?? '';
+        if ('' !== $suffix) $resting = substr($resting, 0, -strlen($suffix));
+        $parsed = $context->sourceStyles->parsedSelector($resting);
+        $ancestorParsed = $context->sourceStyles->parsedSelector($state[1]);
+        if (!$parsed['supported'] || !$ancestorParsed['supported']) return null;
+        $ancestors = $this->matchingSourceElements($state[1], $ancestorParsed, $context);
+        $matches = $this->matchingSourceElements($resting, $parsed, $context);
+        $arms = array();
+        foreach ($matches as $element) {
+            $target = $context->selectorProjections->navigationSubject($context->authorStyles->sourcePath($element));
+            if (!str_ends_with($target, ' .wp-block-navigation-item__label')) return null;
+            $item = $element->parentNode;
+            while ($item instanceof DOMElement && 'li' !== strtolower($item->tagName)) $item = $item->parentNode;
+            if (!$item instanceof DOMElement || !in_array($item, $ancestors, true)) return null;
+            $arms[] = ':root ' . substr($target, 0, -strlen(' .wp-block-navigation-item__label'))
+                . ' .wp-block-navigation-item:' . $state[2] . '>.wp-block-navigation-item__content>.wp-block-navigation-item__label'
+                . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+        }
+        return array() === $arms ? null : array_values(array_unique($arms));
     }
 
     /**
