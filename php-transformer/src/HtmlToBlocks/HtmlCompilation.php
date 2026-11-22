@@ -1271,7 +1271,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->session->installCapturedGlyphColors(CapturedGlyphColor::detach($body));
-        $this->session->reusableComponentState()->liftRestingNavigation($body);
+        $this->session->reusableComponentState()->liftRestingNavigation($body, $this->session->authorSelectorProjectionState());
         if ( QuirksModeSource::isQuirksMode($html) ) {
             QuirksModeSource::normalize(
                 $body,

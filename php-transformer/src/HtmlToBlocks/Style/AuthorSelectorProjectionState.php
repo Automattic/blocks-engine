@@ -316,11 +316,25 @@ final class AuthorSelectorProjectionState
     public function selectsRestingNavigationState(string $selector): bool
     {
         if (array() === $this->restingNavigationClasses || $this->selectsCurrentNavigationState($selector)) return false;
-        preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
+        preg_match_all('/\.((?:\\\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
             if (isset($this->restingNavigationClasses[stripslashes($class)])) return true;
         }
         return false;
+    }
+
+    /** @var array<string,true> */
+    private array $additiveCurrentNavigationClasses = array();
+
+    /** @param list<string> $classes */
+    public function markAdditiveCurrentNavigationClasses(array $classes): void
+    {
+        foreach ($classes as $class) $this->additiveCurrentNavigationClasses[$class] = true;
+    }
+
+    public function isAdditiveCurrentNavigationClass(string $class): bool
+    {
+        return isset($this->additiveCurrentNavigationClasses[$class]);
     }
 
     public function isCurrentNavigationClass(string $class, ?DOMElement $element = null): bool
@@ -343,7 +357,9 @@ final class AuthorSelectorProjectionState
     public function selectsCurrentNavigationState(string $selector, ?DOMElement $element = null): bool
     {
         if (1 === preg_match('/\[\s*(?:aria-current\b|data-status\s*=\s*["\']?active\b)/i', $selector)) return true;
-        preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
+        // Match a CSS escape, not any character: compound selectors such as
+        // .item.is-sel name two classes, not one `item.is-sel` class.
+        preg_match_all('/\.((?:\\\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
             // Recognize class-only router state before a captured current item
             // has been visited. Otherwise its conditional paint alone creates
