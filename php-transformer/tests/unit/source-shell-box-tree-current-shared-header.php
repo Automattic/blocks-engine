@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // Menu cards emit `<div class="aspect-[16/9] overflow-hidden bg-secondary">
 // <img class="h-full w-full hover:scale-105"></div>`: an in-flow image filling
 // a clipping frame. When the capture proves the image's border box is the

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // Site builders paint a section's background with an unpainted layer that
 // covers the section and one empty child that fills the layer with a colour:
 // `<div class="bg-layer"><div id="…" class="bg"></div></div>`. When the

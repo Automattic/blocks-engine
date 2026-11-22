@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // A long text page under a global reset (`*{margin:0;padding:0}`) keeps the
 // vertical zero margins of every paragraph, list item and heading over the
 // user agent's 1em (#7099). Repeated on each block they are one block-type

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005 slice 5: a folded box hands its placement to its sole child. When
 // that child filled the box (`width:100%` of a box whose border box it was),
 // the box's own fluid width (`width:91.72%` under a breakpoint, as a Wix

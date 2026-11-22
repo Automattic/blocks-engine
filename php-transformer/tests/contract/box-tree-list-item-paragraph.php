@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // Site builders emit `<ul><li><p>text</p></li></ul>` (Wix rich text). When the
 // capture proves the paragraph renders as its list item's own text (no box of
 // its own, the item's geometry and text styles), the list is a native

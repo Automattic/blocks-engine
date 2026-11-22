@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005 slice 5: a box whose only load-bearing signal besides foldable
 // declarations is a captured viewport entrance (a Wix rich-text wrapper that
 // fades in) folds into its sole text child. The entrance is a runtime handle,

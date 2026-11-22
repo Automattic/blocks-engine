@@ -95,3 +95,12 @@ the selectors, is the ground truth for what each element contributes.
   breaks descendant selectors and recreates the oscillation this decision rejects.
   Slice 3 accepts pixel values at the captured viewports; lifting fluid intent
   and interaction selectors follows separately in slice 3b.
+
+## Status update: intake is opt-in (#7352)
+
+Applied box-tree decisions made every frozen corpus import worse than the
+same capture without box-tree evidence. Intake is therefore withheld unless
+`BLOCKS_ENGINE_BOX_TREE_INTAKE=1`. The default import equals the import
+without sidecars and reports `box_tree_withheld`. Tests that exercise these
+decisions opt in explicitly. Per #7345, each decision returns to the default
+path only when the corpus replay shows it is no worse than authored styling.

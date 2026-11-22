@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 /**
  * A shared header's current-link paint is route state. Each route marks its
  * own link current and paints it with an underline; the one header part that

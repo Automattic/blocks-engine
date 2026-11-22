@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // A long text page captured with every box side reset (`* { margin: 0;
 // padding: 0 }` plus a bottom margin per paragraph) must not restate the
 // zero padding and inline margins on each paragraph, heading and list: the

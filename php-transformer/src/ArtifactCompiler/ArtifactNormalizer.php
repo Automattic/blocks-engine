@@ -378,7 +378,7 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
-        $boxTrees = BoxTreeReport::read($files);
+        $boxTrees = \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::intakeEnabled() ? BoxTreeReport::read($files) : self::withheldBoxTrees($files);
         $diagnostics = array_merge($diagnostics, $boxTrees['diagnostics']);
         foreach ($files as &$file) {
             if ('html' === $file['kind']) $file['box_tree'] = $boxTrees['trees'][$file['path']] ?? array();
@@ -436,6 +436,20 @@ final class ArtifactNormalizer
      * @param array<array-key,array<string,mixed>> $files
      * @return array<array-key,array<string,mixed>>
      */
+    /**
+     * Box-tree intake is off by default (#7352): the import is the import of
+     * the same capture without sidecars, and the withheld evidence is
+     * reported rather than silently ignored.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array{trees:array<string,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+    private static function withheldBoxTrees(array $files): array
+    {
+        $count = count(array_filter($files, static fn (array $file): bool => \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath((string) ($file['path'] ?? ''))));
+        return array('trees' => array(), 'diagnostics' => 0 === $count ? array() : array(ArtifactDiagnostics::make('box_tree_withheld', 'info', 'Box-tree evidence is withheld; conversion uses authored styling.', array('sidecars' => $count, 'opt_in' => \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::INTAKE_ENV . '=1'))));
+    }
+
     public static function reportsBeforeSidecars(array $files): array
     {
         $normalizer = new self();

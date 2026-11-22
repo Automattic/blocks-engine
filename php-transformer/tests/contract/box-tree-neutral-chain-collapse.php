@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // ADR 0005 slice 4: on an evidence route, a box the classifier marks neutral
 // emits no block and its child takes its place. A painting sibling is kept.
 require __DIR__ . '/../../vendor/autoload.php';

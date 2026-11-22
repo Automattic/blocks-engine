@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Exercises box-tree decisions, which are opt-in (#7352).
+putenv('BLOCKS_ENGINE_BOX_TREE_INTAKE=1');
+
 // A builder root (Wix's `_root_1w52m_1`) is a one-cell grid placed in its
 // section, holding one container that fills it: the container's grid lines
 // name the root's only cell and the root's `max-width: 99999px` bounds the
