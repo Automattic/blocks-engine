@@ -1071,10 +1071,50 @@ final class StyleResolver implements ElementPresentationResolver
             foreach ($facts as $property => $fact) {
                 if ('' !== $condition && isset($groups[''][$property]) && !CssCascade::wins($fact, $groups[''][$property])) unset($facts[$property]);
             }
+            // A conditional group stating nothing, or behind a style query
+            // no ancestor can satisfy, carries no presentation.
+            if ('' !== $condition && (array() === $facts || !$this->styleQueriesCanHold($element, $condition))) continue;
             uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
             $result[$condition] = array_map(static fn(array $fact): string => $fact['value'], $facts);
         }
         return $result;
+    }
+
+    /**
+     * Whether every unnamed custom-property style query in a condition stack
+     * can hold for an element. Such a query reads the property on the
+     * element's parent, which inherits it; when neither a rule matching an
+     * ancestor nor an ancestor's inline style declares it, and no `@property`
+     * registers an initial value, the property is unset and the query fails.
+     */
+    private function styleQueriesCanHold(DOMElement $element, string $conditions): bool
+    {
+        if (!str_contains($conditions, 'style(')) return true;
+        $author = $this->session->authorStyleAnalysis();
+        foreach (explode('{', $conditions) as $condition) {
+            if (1 !== preg_match('/^@container\s+style\(\s*(--[A-Za-z0-9_-]+)\s*:[^()]*\)\s*$/i', trim($condition), $query)) continue;
+            $name = $query[1];
+            if (preg_match('/@property\s+' . preg_quote($name, '/') . '(?![A-Za-z0-9_-])/', $this->session->sourceStyleResolutionState()->formLayoutCss())) continue;
+            $ancestors = array();
+            for ($node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+                if (array_key_exists($name, SourceDeclarations::inline($node))) continue 2;
+                $ancestors[] = $node;
+            }
+            foreach ($author->styleRules() as $rule) {
+                if (!array_key_exists($name, $rule['declarations'] ?? array())) continue;
+                foreach ($rule['selectors'] ?? array() as $record) {
+                    $selector = (string) ($record['selector'] ?? '');
+                    if ('' === $selector) continue;
+                    foreach ($ancestors as $ancestor) {
+                        $match = $author->selectorMatchCache()->matches($ancestor, $selector, $record['parsed'] ?? array());
+                        // A selector the matcher cannot read may still declare it.
+                        if (!($match['supported'] ?? false) || ($match['matches'] ?? false)) continue 4;
+                    }
+                }
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
