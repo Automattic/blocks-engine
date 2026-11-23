@@ -325,9 +325,24 @@ final class SharedChromeStylesheets
     private static function selectorTargetsAuthoredChrome(string $selector, array $authored, array $context): bool
     {
         $positive = CssSelectorCompoundInspector::positiveSelector($selector);
-        if (str_contains($positive, '\\')) return false;
-        if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', $positive, $matches, PREG_SET_ORDER)) return false;
+        // Escaped utility hooks (for example responsive classes) are still
+        // authored chrome hooks. Consume known identifiers before the simple
+        // token scan; otherwise their partial names look route-owned and all
+        // generated control visibility rules get stranded on the source page.
         $owned = false;
+        if (str_contains($positive, '\\')) {
+            foreach (array('class' => '.', 'id' => '#') as $kind => $sigil) {
+                foreach (array_keys($authored[$kind] + $context[$kind]) as $name) {
+                    $escaped = CssIdent::escape((string) $name);
+                    if ($escaped === $name) continue;
+                    $pattern = '/' . preg_quote($sigil . $escaped, '/') . '(?![\\w-]|\\\\)/';
+                    $positive = preg_replace($pattern, '', $positive, -1, $count) ?? $positive;
+                    if ($count > 0 && isset($authored[$kind][$name])) $owned = true;
+                }
+            }
+        }
+        if (str_contains($positive, '\\')) return false;
+        if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', $positive, $matches, PREG_SET_ORDER)) return $owned;
         foreach ($matches as $match) {
             $hook = self::selectorHook($match[1], $match[2]);
             if (null === $hook) continue;
