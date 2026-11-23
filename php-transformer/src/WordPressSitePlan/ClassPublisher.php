@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use InvalidArgumentException;
@@ -37,6 +38,11 @@ use InvalidArgumentException;
  * name is part of a contract this pass cannot see into, so it keeps its
  * internal name. When the published plan would not validate, the plan ships
  * unpublished with a finding instead.
+ *
+ * The engine-free guard ClassAttributeSelectorProjection puts on an authored
+ * class attribute predicate names the engine prefix, not a class: it
+ * publishes as the namespace prefix, and the classes it tests are decided so
+ * it still excludes exactly the elements it excluded (engineFreeGuard()).
  */
 final class ClassPublisher
 {
@@ -62,6 +68,9 @@ final class ClassPublisher
     private const LANDMARKS = array('header', 'footer', 'main', 'nav', 'aside', 'section', 'article', 'form');
 
     private const SEMANTIC_MAX = 40;
+
+    /** The key of the plan metric that counts the classes kept internal, by reason. */
+    public const PIN_METRIC = 'class_publish_pins';
 
     /** Markup groups whose block content ships. */
     private const UNIT_GROUPS = array('pages', 'template_parts', 'templates', 'synced_patterns', 'menus', 'taxonomy_entities', 'author_entities');
@@ -128,10 +137,11 @@ final class ClassPublisher
 
         // What names engine classes outside block content.
         $cssText = implode("\n", array_merge($stylesheets, $themeCss));
+        $publishedCss = implode("\n", array_merge(array_diff_key($stylesheets, array_filter($plan['assets'], static fn (array $asset): bool => isset($published[$asset['source_path'] ?? '']))), $themeCss));
         $cssClasses = self::selectorClasses($cssText);
         $runtimeText = $bootstrap . "\n" . implode("\n", $scripts);
         $pinned = self::idents((string) json_encode(array($plan['runtime_declarations'], $plan['runtime_records'] ?? array(), $plan['runtime_entity_records'], $plan['theme']['document_roots'] ?? array(), $plan['visual_repair'], array_column($plan['pages'], 'document_metadata'), array_column($plan['template_parts'], 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
-        $predicates = self::predicates($cssText . "\n" . $runtimeText);
+        $predicates = self::predicates(ClassAttributeSelectorProjection::withoutEngineFree($cssText . "\n" . $runtimeText));
 
         // What block content carries.
         $occurrences = array();
@@ -161,11 +171,21 @@ final class ClassPublisher
             if (1 === preg_match(self::ENGINE_CLASS, $class)) $order[$class] ??= count($order);
             else $taken[$class] = true;
         }
+        $pins = array('runtime_contract' => count(array_intersect_key($pinned, $order)), 'class_predicate' => 0, 'engine_free_guard' => 0);
         foreach ($order as $token => $_) {
-            if (self::predicateNames($token, $predicates)) $pinned[$token] = true;
+            if (!isset($pinned[$token]) && self::predicateNames($token, $predicates)) {
+                $pinned[$token] = true;
+                ++$pins['class_predicate'];
+            }
         }
         $referenced = $cssClasses + self::idents($runtimeText) + $outside + $pinned;
         $drop = self::droppable($markups, array_diff_key($listed, $referenced));
+        $guarded = array_values(array_filter(UnreferencedEngineClasses::predicates($cssText . "\n" . $runtimeText), static fn (array $predicate): bool => array() !== $predicate['excluded']));
+        $before = count($pinned);
+        $guard = '/' . ClassAttributeSelectorProjection::ENGINE_FREE_GUARD . '/';
+        $prefixes = self::engineFreeGuard($markups, $guarded, $namespace, $order, preg_match_all($guard, $cssText . "\n" . $runtimeText) === preg_match_all($guard, $publishedCss), $drop, $pinned);
+        $pins['engine_free_guard'] = count($pinned) - $before;
+        $publishCss = static fn (string $css, array $map): string => ClassAttributeSelectorProjection::publishedEngineFree(self::renamedSelectors($css, $map), $prefixes);
 
         // One name for each class that stays, in first-occurrence order. A
         // specificity shim matches nothing by construction, whatever names it.
@@ -194,13 +214,14 @@ final class ClassPublisher
             $taken[$name] = true;
             $map[$token] = $name;
         }
+        $plan['quality']['metrics'][self::PIN_METRIC] = $pins;
         if (array() === $map && array() === $drop) return $plan + array(self::MAP_KEY => array());
 
         $rewrite = static fn (string $markup): string => self::renamedMarkup(UnreferencedEngineClasses::without($markup, $drop), $map);
         $plan = self::withMarkup($plan, $markups, $rewrite);
         foreach ($plan['assets'] as $index => $asset) {
             if (isset($published[$asset['source_path'] ?? ''])) continue;
-            if (isset($stylesheets[$index])) $content = self::renamedSelectors($asset['content'], $map);
+            if (isset($stylesheets[$index])) $content = $publishCss($asset['content'], $map);
             elseif (isset($scripts[$index])) $content = self::renamed($asset['content'], $map);
             else continue;
             if ($content !== $asset['content']) $plan['assets'][$index] = CompiledAssets::withRewrittenTextContent($asset, $content);
@@ -213,9 +234,9 @@ final class ClassPublisher
             $published_data = match (true) {
                 in_array($write['kind'] ?? null, array('theme_template', 'theme_template_part'), true) => $rewrite($data),
                 'theme_asset' === ($write['kind'] ?? null) && isset($published[$write['source_path'] ?? '']) => $data,
-                'theme_asset' === ($write['kind'] ?? null) && 'css' === ($kinds[$target] ?? null) => self::renamedSelectors($data, $map),
+                'theme_asset' === ($write['kind'] ?? null) && 'css' === ($kinds[$target] ?? null) => $publishCss($data, $map),
                 'theme_asset' === ($write['kind'] ?? null) && 'js' === ($kinds[$target] ?? null) => self::renamed($data, $map),
-                'theme.json' === $target => self::publishedThemeJson($data, $map),
+                'theme.json' === $target => self::publishedThemeJson($data, static fn (string $css): string => $publishCss($css, $map)),
                 'functions.php' === $target => self::publishedBootstrap($data, $map, $namespace),
                 default => $data,
             };
@@ -470,6 +491,72 @@ final class ClassPublisher
         return $candidates;
     }
 
+    /**
+     * The prefixes the published engine-free guard excludes, with `$drop` and
+     * `$pinned` adjusted so every guarded predicate matches exactly the class
+     * lists it matched.
+     *
+     * A published name always carries the namespace prefix, so the restated
+     * guard excludes every list that keeps a renamed class. A list whose match
+     * would change gets back the classes this pass would drop from it, or else
+     * keeps the internal names of its renamed classes (a `be-*` class on a
+     * list that carried no `blocks-engine-*` one). An internal name a tested
+     * list still carries keeps the engine prefix in the guard. When the guard
+     * cannot be restated (a class already reads as the namespace, or a guard
+     * ships in bytes this pass does not rewrite), it keeps the engine prefix
+     * and so does every list it would otherwise decide differently.
+     *
+     * @param array<string,string> $markups
+     * @param list<array{operator:string,value:string,insensitive:bool,excluded:list<string>}> $guarded
+     * @param array<string,int> $named Engine classes this pass decides.
+     * @param array<string,true> $drop
+     * @param array<string,true> $pinned
+     * @return list<string>
+     */
+    private static function engineFreeGuard(array $markups, array $guarded, string $namespace, array $named, bool $rewritable, array &$drop, array &$pinned): array
+    {
+        $engine = ClassAttributeSelectorProjection::ENGINE_TOKEN_PREFIX;
+        $prefix = $namespace . '-';
+        $guarded = array_values(array_filter($guarded, static fn (array $predicate): bool => array($engine) === $predicate['excluded']));
+        $lists = array();
+        foreach ($markups as $markup) foreach (self::classLists($markup) as $list) $lists[$list['value']] = self::tokens($list['value']);
+        $published = static function (string $token) use (&$drop, &$pinned, $named, $prefix): ?string {
+            if (isset($drop[$token])) return null;
+            return isset($named[$token]) && !isset($pinned[$token]) ? $prefix : $token;
+        };
+        foreach ($rewritable ? array(array($prefix, $engine), array($engine)) : array(array($engine)) as $prefixes) {
+            do {
+                $changed = false;
+                $restated = true;
+                foreach ($lists as $value => $tokens) {
+                    $after = implode(' ', array_filter(array_map($published, $tokens), 'is_string'));
+                    foreach ($guarded as $predicate) {
+                        if (UnreferencedEngineClasses::matches($predicate, (string) $value) === UnreferencedEngineClasses::matches(array('excluded' => $prefixes) + $predicate, $after)) continue;
+                        $undropped = array_intersect_key($drop, array_flip($tokens));
+                        $renamed = array_filter($tokens, static fn (string $token): bool => $prefix === $published($token));
+                        if (array() !== $undropped) $drop = array_diff_key($drop, $undropped);
+                        elseif (array() !== $renamed) $pinned += array_fill_keys($renamed, true);
+                        else $restated = false;
+                        $changed = $changed || array() !== $undropped || array() !== $renamed;
+                        break;
+                    }
+                    if (!$restated) break;
+                }
+            } while ($changed && $restated);
+            if (!$restated) continue;
+            if (array($engine) === $prefixes) return $prefixes;
+            // The engine prefix stays while a list the guarded predicate tests
+            // keeps an internal name and no published one.
+            foreach ($lists as $tokens) {
+                $after = implode(' ', array_filter(array_map($published, $tokens), 'is_string'));
+                if (!str_contains($after, $engine) || str_contains($after, $prefix)) continue;
+                foreach ($guarded as $predicate) if (UnreferencedEngineClasses::matches(array('excluded' => array()) + $predicate, $after)) return $prefixes;
+            }
+            return array($prefix);
+        }
+        return array($engine);
+    }
+
     /** @param list<string> $predicates */
     private static function predicateNames(string $token, array $predicates): bool
     {
@@ -709,16 +796,16 @@ final class ClassPublisher
         return $css;
     }
 
-    /** @param array<string,string> $map */
-    private static function publishedThemeJson(string $data, array $map): string
+    /** @param callable(string):string $publish */
+    private static function publishedThemeJson(string $data, callable $publish): string
     {
         $theme = json_decode($data);
         if (!$theme instanceof \stdClass || !isset($theme->styles)) return $data;
         $changed = false;
-        $walk = static function (object|array $node) use (&$walk, &$changed, $map): object|array {
+        $walk = static function (object|array $node) use (&$walk, &$changed, $publish): object|array {
             foreach ($node as $key => $value) {
                 if ('css' === $key && is_string($value)) {
-                    $published = self::renamedSelectors($value, $map);
+                    $published = $publish($value);
                     $changed = $changed || $published !== $value;
                     $value = $published;
                 } elseif (is_object($value) || is_array($value)) {

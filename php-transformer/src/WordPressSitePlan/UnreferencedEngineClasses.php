@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
@@ -39,8 +40,12 @@ final class UnreferencedEngineClasses
     /** Block comment attributes; WordPress escapes `--` and quotes in their JSON. */
     private const BLOCK_COMMENT = '/<!--\s+wp:[a-z0-9\/-]+\s+\{.*?\}\s+\/?-->/s';
 
-    /** Class attribute predicates that test the whole attribute text. */
-    private const CLASS_PREDICATE = '/\[\s*class\s*([*^$|]?)=\s*(?:"([^"\\\\]*)"|\'([^\'\\\\]*)\'|([A-Za-z0-9_-]+))\s*([iIsS])?\s*\]/';
+    /**
+     * Class attribute predicates that test the whole attribute text, each
+     * with the engine-free guard that may follow it: the guard is part of
+     * the predicate, not one of its own.
+     */
+    private const CLASS_PREDICATE = '/\[\s*class\s*([*^$|]?)=\s*(?:"([^"\\\\]*)"|\'([^\'\\\\]*)\'|([A-Za-z0-9_-]+))\s*([iIsS])?\s*\](?:' . ClassAttributeSelectorProjection::ENGINE_FREE_GUARD . ')?/';
 
     /**
      * Everything the plan delivers beside the markup that may name a class:
@@ -279,19 +284,25 @@ final class UnreferencedEngineClasses
         }, $markup) ?? $markup;
     }
 
-    /** @return list<array{operator:string,value:string,insensitive:bool}> */
-    private static function predicates(string $references): array
+    /**
+     * The class attribute predicates `$text` names. A predicate an
+     * engine-free guard follows lists the prefixes the guard excludes.
+     *
+     * @return list<array{operator:string,value:string,insensitive:bool,excluded:list<string>}>
+     */
+    public static function predicates(string $text): array
     {
-        if (!str_contains($references, 'class') || !preg_match_all(self::CLASS_PREDICATE, $references, $matches, PREG_SET_ORDER)) return array();
+        if (!str_contains($text, 'class') || !preg_match_all(self::CLASS_PREDICATE, $text, $matches, PREG_SET_ORDER)) return array();
         $predicates = array();
         foreach ($matches as $match) {
             $value = ($match[2] ?? '') . ($match[3] ?? '') . ($match[4] ?? '');
-            $predicates[$match[1] . "\0" . $value . "\0" . strtolower($match[5] ?? '')] = array('operator' => $match[1], 'value' => $value, 'insensitive' => 'i' === strtolower($match[5] ?? ''));
+            $excluded = ClassAttributeSelectorProjection::engineFreePrefixes($match[6] ?? '');
+            $predicates[$match[1] . "\0" . $value . "\0" . strtolower($match[5] ?? '') . "\0" . implode(' ', $excluded)] = array('operator' => $match[1], 'value' => $value, 'insensitive' => 'i' === strtolower($match[5] ?? ''), 'excluded' => $excluded);
         }
         return array_values($predicates);
     }
 
-    /** @param list<array{operator:string,value:string,insensitive:bool}> $predicates */
+    /** @param list<array{operator:string,value:string,insensitive:bool,excluded:list<string>}> $predicates */
     private static function sameMatches(array $predicates, string $before, string $after): bool
     {
         foreach ($predicates as $predicate) {
@@ -300,9 +311,15 @@ final class UnreferencedEngineClasses
         return true;
     }
 
-    /** @param array{operator:string,value:string,insensitive:bool} $predicate */
-    private static function matches(array $predicate, string $text): bool
+    /**
+     * Whether a class attribute with text `$text` satisfies the predicate,
+     * its guard included.
+     *
+     * @param array{operator:string,value:string,insensitive:bool,excluded:list<string>} $predicate
+     */
+    public static function matches(array $predicate, string $text): bool
     {
+        foreach ($predicate['excluded'] as $prefix) if (str_contains($text, $prefix)) return false;
         $value = $predicate['value'];
         if ($predicate['insensitive']) {
             $value = strtolower($value);

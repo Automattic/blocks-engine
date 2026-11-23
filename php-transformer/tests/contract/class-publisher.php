@@ -221,6 +221,45 @@ $assert(array() === $foldGroups->invoke(null, array(), array('be-a' => 0, 'be-b'
 $numeric = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>[class*="1"]{color:red}.box{display:flex;gap:20px;padding:10px}</style><main><div class="box" style="transform:translateX(4px)"><p>Left</p><p>Right</p></div></main>')) + array('class_namespace' => 'acme'));
 $assert(is_array($numeric[ClassPublisher::MAP_KEY] ?? null), 'A numeric class attribute selector still compiles a published plan.');
 
+// A class attribute selector carries the engine-free guard
+// (`:where(:not([class*="blocks-engine-"]))`) on its authored arm. The guard
+// names a prefix, not a class: engine classes still publish, the guard is
+// restated in the namespace, and every element the authored arm matched it
+// still matches, no other.
+$guardCss = '.hero span{color:red}.hero p{margin:0 0 8px}[class*=rich-text]{letter-spacing:1px}[class$=__text]{text-transform:uppercase}';
+$guardPage = static fn (string $title): string => '<!doctype html><html><head><title>' . $title . '</title><link rel="stylesheet" href="site.css"></head><body><main><section id="about" class="hero">'
+    . '<h2 class="rich-text__title">About <span class="x">us</span></h2><p class="wixui-rich-text__text">Text</p><p class="rich-text-lede" style="transform:translateX(4px)">Lede</p></section>'
+    . '<div class="plain"><p id="note" class="note__text">Story ' . $title . '</p></div></main></body></html>';
+$guardArtifact = array('entrypoint' => 'index.html', 'files' => array('site.css' => $guardCss, 'index.html' => $guardPage('Home'), 'about.html' => $guardPage('About')));
+$guardInternal = $compile($guardArtifact);
+$guardPublished = $compile($guardArtifact + array('class_namespace' => 'acme'));
+$guardRule = '/\[class([*^$|]?)=([A-Za-z0-9_-]+)\]:where\(((?::not\(\[class\*="[A-Za-z0-9_-]+"\]\))+)\)/';
+$authoredArms = static function (string $css) use ($guardRule): array {
+    preg_match_all($guardRule, $css, $rules, PREG_SET_ORDER);
+    return array_map(static fn (array $rule): array => array($rule[1], $rule[2], preg_match_all('/\*="([^"]+)"/', $rule[3], $excluded) ? $excluded[1] : array()), $rules);
+};
+$armMatches = static function (array $arm, string $classes): bool {
+    [$operator, $value, $excluded] = $arm;
+    foreach ($excluded as $prefix) if (str_contains($classes, $prefix)) return false;
+    return match ($operator) { '*' => str_contains($classes, $value), '$' => str_ends_with($classes, $value), '^' => str_starts_with($classes, $value), default => $classes === $value };
+};
+$internalArms = $authoredArms($stylesheets($guardInternal));
+$publishedArms = $authoredArms($stylesheets($guardPublished));
+$assert(2 === count($internalArms) && array('blocks-engine-') === $internalArms[0][2], 'The fixture ships guarded class attribute selectors.');
+$assert(2 === count($publishedArms) && array('acme-') === $publishedArms[0][2] && array('acme-') === $publishedArms[1][2], 'The guard is restated in the namespace.');
+$assert(!str_contains($stylesheets($guardPublished), '[class*="blocks-engine-"]'), 'No published guard names the engine prefix.');
+$guardMap = $guardPublished[ClassPublisher::MAP_KEY];
+$assert(array() !== array_filter(array_keys($guardMap), static fn (string $class): bool => str_starts_with($class, 'blocks-engine-')), 'The guard does not pin every blocks-engine class.');
+$assert(!str_contains($content($guardPublished), 'blocks-engine-subject'), 'Classes nothing names are still removed under the guard.');
+foreach (array('pages', 'template_parts') as $group) foreach ($guardInternal[$group] as $index => $unit) {
+    preg_match_all('/\sclass="([^"]*)"/', $unit['canonical_block_markup'], $before);
+    preg_match_all('/\sclass="([^"]*)"/', $guardPublished[$group][$index]['canonical_block_markup'], $after);
+    $assert(count($before[1]) === count($after[1]), 'Publishing keeps every class attribute.');
+    foreach ($before[1] as $element => $classes) foreach ($internalArms as $rule => $arm) {
+        $assert($armMatches($arm, $classes) === $armMatches($publishedArms[$rule], $after[1][$element]), 'The authored arm matches the same elements once published: "' . $classes . '" -> "' . $after[1][$element] . '".');
+    }
+}
+
 $bootstrapMethod = new ReflectionMethod(ClassPublisher::class, 'publishedBootstrap');
 $runtimeFixture = $bootstrapMethod->invoke(null, "<?php\nfunction folded_runtime_probe( \$class ) { return str_starts_with( \$class, 'be-inline-geometry-' ); }\n", array('be-inline-geometry-example' => 'fold-hook', 'blocks-engine-example' => 'fold-hook'), 'fold-test');
 eval(substr($runtimeFixture, 6));

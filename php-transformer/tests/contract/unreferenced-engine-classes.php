@@ -77,4 +77,12 @@ foreach (array('content' => $editorRule, 'content_base64' => base64_encode($edit
 $assert(array($subject => true) === UnreferencedEngineClasses::unreferenced($editorMarkup, UnreferencedEngineClasses::references(array($frontend))), 'The same class is dropped once no delivered asset names it.');
 $unread = array('kind' => 'css', 'stylesheet_target' => 'editor', 'payload_reference' => array('sha256' => str_repeat('0', 64)));
 $assert(array() === UnreferencedEngineClasses::unreferenced($editorMarkup, UnreferencedEngineClasses::references(array($frontend, $unread))), 'Nothing is dropped while a delivered stylesheet cannot be read.');
+// The engine-free guard a class attribute selector carries is part of that
+// predicate: a class may go when the guarded predicate tests its list the same
+// either way, and stays when dropping it would let the predicate match.
+$span = EngineMarker::subjectTagClass('span');
+$guardMarkup = array('<p class="lede ' . $span . '">Lede</p>', '<p class="caption__text ' . $span . '">Caption</p>');
+$guarded = static fn (string $predicate): ?string => UnreferencedEngineClasses::references(array(array('kind' => 'css', 'content' => ':is(' . $predicate . ':where(:not([class*="blocks-engine-"])),.x){color:red}')));
+$assert(array($span => true) === UnreferencedEngineClasses::unreferenced($guardMarkup, $guarded('[class*=card]')), 'A guarded predicate no list satisfies keeps no class.');
+$assert(array() === UnreferencedEngineClasses::unreferenced($guardMarkup, $guarded('[class$=__text]')), 'A class whose removal would let a guarded predicate match stays.');
 echo "unreferenced-engine-classes contract passed\n";
