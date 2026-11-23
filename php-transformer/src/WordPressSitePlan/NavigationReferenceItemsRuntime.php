@@ -94,7 +94,22 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         $current = str_contains( (string) ( $attrs['className'] ?? '' ), 'blocks-engine-current-navigation-item' )
             || ( null !== $served && '' !== $url && '/' === $url[0] && ( 1 === strlen( $url ) || '/' !== $url[1] ) && ! str_contains( $url, '#' ) && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served );
         // An item recorded as its reference's own pre-fold entity presentation renders in either state.
-        if ( $current !== ! empty( $own['current'] ) && empty( $own['entity'] ) ) continue;
+        if ( $current !== ! empty( $own['current'] ) && empty( $own['entity'] ) ) {
+            // Captured resting and served current, the item still renders its
+            // reference's design: anchor boxes, siblings and label markup are
+            // styled only by that design's stylesheet, while the entity's
+            // classes carry the state its current rules complete. The two
+            // agree when the entity's copy is this reference's design.
+            if ( ! $current || ! empty( $own['current'] ) ) continue;
+            if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) {
+                $entity_anchor = is_array( $attrs['metadata']['blocksEngineNavigationAnchor'] ?? null ) ? $attrs['metadata']['blocksEngineNavigationAnchor'] : array();
+                $attrs['metadata']['blocksEngineNavigationAnchor'] = array_diff_key( $own['blocksEngineNavigationAnchor'], array( 'className' => true, 'style' => true ) ) + array_intersect_key( $entity_anchor, array( 'className' => true, 'style' => true ) );
+            }
+            if ( is_string( $own['label'] ?? null ) && is_string( $attrs['label'] ?? null ) && $text( $own['label'] ) === $text( $attrs['label'] ) ) $attrs['label'] = $own['label'];
+            $block->parsed_block['attrs'] = $attrs;
+            unset( $block->attributes );
+            continue;
+        }
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
         if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) $attrs['metadata']['blocksEngineNavigationAnchor'] = $own['blocksEngineNavigationAnchor'];
