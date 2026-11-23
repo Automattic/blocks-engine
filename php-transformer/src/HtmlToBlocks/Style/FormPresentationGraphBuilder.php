@@ -8,6 +8,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -635,6 +637,7 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
+                if ('control' === $role) $matched = self::withoutParentStackingMargins($matched);
                 if ('control' === $role && $element->parentNode instanceof DOMElement
                     && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
                     $parent = $this->matched($element->parentNode, $analysis['rules']);
@@ -1688,6 +1691,59 @@ final class FormPresentationGraphBuilder
         foreach ($conditional as &$facts) $facts = $this->shorthandCascade($facts, $base);
         unset($facts);
         return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /**
+     * Margins a parent hands to its items through a child-combinator rule
+     * whose subject is purely positional (`:where(.space-y-4>:not(:last-child))`,
+     * `.stack > *`). They space the item slot in the parent's flow, not the
+     * control: a provider wraps each field, the wrapper takes that slot, and
+     * the parent's rule spaces the wrapper. Carried onto the control as well,
+     * the margin opens a second gap inside every field.
+     *
+     * @param array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} $matched
+     * @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}
+     */
+    private static function withoutParentStackingMargins(array $matched): array
+    {
+        $filter = static function (array $facts): array {
+            foreach ( $facts as $property => $fact ) {
+                if ( str_starts_with((string) $property, 'margin') && is_string($fact['selector'] ?? null) && self::isParentStackingSelector($fact['selector']) ) unset($facts[$property]);
+            }
+            return $facts;
+        };
+        $matched['base'] = $filter($matched['base']);
+        foreach ( $matched['conditional'] as $encoded => $facts ) {
+            $matched['conditional'][$encoded] = $filter($facts);
+            if ( array() === $matched['conditional'][$encoded] ) unset($matched['conditional'][$encoded]);
+        }
+        return $matched;
+    }
+
+    private static function isParentStackingSelector(string $selector): bool
+    {
+        $selector = trim($selector);
+        // Unwrap a whole-selector `:where(...)` / `:is(...)` holding one complex selector.
+        while ( 1 === preg_match('/^:(?:where|is)\(/i', $selector) && str_ends_with($selector, ')') ) {
+            $open = strpos($selector, '(');
+            $depth = 0;
+            $close = null;
+            for ( $i = $open, $length = strlen($selector); $i < $length; ++$i ) {
+                if ( '\\' === $selector[$i] ) { ++$i; continue; }
+                if ( '(' === $selector[$i] ) ++$depth;
+                elseif ( ')' === $selector[$i] && 0 === --$depth ) { $close = $i; break; }
+            }
+            if ( $close !== strlen($selector) - 1 ) break;
+            $inner = trim(substr($selector, $open + 1, $close - $open - 1));
+            $list = CssStylesheetTransformer::splitSelectorList($inner);
+            if ( null === $list || 1 !== count($list) ) return false;
+            $selector = $inner;
+        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        $count = count($tokens['compounds']);
+        if ( ! $tokens['supported'] || $count < 2 || '>' !== trim($tokens['combinators'][$count - 2] ?? '') ) return false;
+        $structural = ':(?:first|last|only)-child|:nth(?:-last)?-child\([^()]*\)';
+        return 1 === preg_match('/^(?:\*|(?:\*?(?:' . $structural . '|:not\((?:' . $structural . '|\[hidden\])\))+))$/i', trim($tokens['rightmost_compound']));
     }
 
     /** A winning shorthand resets weaker longhands on the same source element. */
