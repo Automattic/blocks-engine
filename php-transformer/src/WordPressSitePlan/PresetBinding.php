@@ -107,6 +107,12 @@ final class PresetBinding
      */
     private const TYPE_SELECTOR = '/^((?:-?[a-z_]|--)[\w-]*)/i';
 
+    /** Elements whose user-agent style sets their own font-family instead of inheriting it. */
+    private const FONT_RESET_TAGS = array('button', 'input', 'select', 'textarea', 'code', 'kbd', 'samp', 'pre');
+
+    /** FONT_RESET_TAGS that block markup always serializes (form controls render server-side). */
+    private const OWN_FONT_PHRASING_TAGS = array('code', 'kbd', 'samp', 'pre');
+
     /** Blocks whose colour, font-size and spacing support serializes on the wrapper. */
     private const WRAPPER_BLOCKS = array('paragraph', 'heading', 'group', 'cover', 'columns', 'column', 'list', 'list-item', 'quote', 'buttons');
 
@@ -239,8 +245,14 @@ final class PresetBinding
     private bool $themeDefaultsReady = false;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
-    /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string}> */
+    /** Author font rules that may compete with a heading default. @var list<array{selector:string,value:?string,inherits:bool,unconditional:bool}> */
     private array $fontRules = array();
+    /** @var array<string,true>|null OWN_FONT_PHRASING_TAGS the documents render; null when unknown. */
+    private ?array $renderedOwnFontTags = null;
+    /** The theme's button element font family, resolved from its preset. */
+    private ?string $buttonFontDefault = null;
+    /** Memo of hasInheritedFontCompetitor() for the current theme defaults. */
+    private ?bool $inheritedFontCompetitor = null;
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
     /** @var array<string,array<string,string>> Unconditional root values by selector and stylesheet scope. */
@@ -272,8 +284,21 @@ final class PresetBinding
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
      */
-    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array())
+    /**
+     * @param list<string>|null $markups Block markup of every document, when
+     *                                   known: tells which phrasing elements with their own font
+     *                                   (`code`, `kbd`, ...) the site renders.
+     */
+    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array(), ?array $markups = null)
     {
+        if (null !== $markups) {
+            $this->renderedOwnFontTags = array();
+            foreach ($markups as $markup) {
+                if (preg_match_all('/<(' . implode('|', self::OWN_FONT_PHRASING_TAGS) . ')\b/i', $markup, $tags)) {
+                    foreach ($tags[1] as $tag) $this->renderedOwnFontTags[strtolower($tag)] = true;
+                }
+            }
+        }
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
@@ -289,10 +314,15 @@ final class PresetBinding
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
                 if (null !== $font || null !== $shorthand || str_contains($body, '{')) {
+                    // `font: inherit` (a reset's form controls) passes the
+                    // parent's font on rather than introducing one.
+                    $inheritsKeyword = static fn(?string $value): bool => null === $value || in_array(strtolower(trim($value)), array('inherit', 'unset'), true);
+                    $inherits = !str_contains($body, '{') && $inheritsKeyword($font) && $inheritsKeyword($shorthand);
+                    $unconditional = array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                         // Unconditional element defaults yield in bindStylesheet().
                         if (array() === $ancestors && preg_match('/^(?:body|h[1-6])$/i', trim($selector))) continue;
-                        $this->fontRules[] = array('selector' => $selector, 'value' => null !== $shorthand || str_contains($body, '{') ? null : $font);
+                        $this->fontRules[] = array('selector' => $selector, 'value' => null !== $shorthand || str_contains($body, '{') ? null : $font, 'inherits' => $inherits, 'unconditional' => $unconditional);
                     }
                 }
                 if (array() === $ancestors) {
@@ -360,8 +390,11 @@ final class PresetBinding
     public function useThemeDefaults(array $theme): void
     {
         $this->themeDefaultsReady = true;
-        $this->fontDefaults = $this->fontDefaultSlugs = array();
+        $this->inheritedFontCompetitor = null;
+        $button = $theme['styles']['elements']['button']['typography']['fontFamily'] ?? null;
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+        $this->buttonFontDefault = is_string($button) ? ($families[str_replace('var:preset|font-family|', '', $button)] ?? $button) : null;
+        $this->fontDefaults = $this->fontDefaultSlugs = array();
         $styles = $theme['styles'] ?? array();
         $this->bodyColorDefaults = array();
         $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
@@ -1478,6 +1511,25 @@ final class PresetBinding
                     // heading element font yields it to Global Styles, as
                     // the plain `h1` rule does above.
                     $kept = self::declarationText(array_values(array_filter(self::declarations($kept), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                } elseif (!str_contains($subject = self::subjectCompound($selector), '::') && 1 !== preg_match('/^(?:html|:root|:host)(?![\w-])|\.editor-styles-wrapper(?![\w-])/i', $subject) && !(preg_match(self::TYPE_SELECTOR, $subject, $subjectType) && in_array(strtolower($subjectType[1]), self::FONT_RESET_TAGS, true))
+                    && $this->rendersDefaultFont('body', $rawValue) && !$this->hasInheritedFontCompetitor()) {
+                    // The rule restates the root Global Styles font, and no
+                    // other author font can sit between its elements and
+                    // body: they inherit that font, so the rule yields it
+                    // to Global Styles. Targets that would render another
+                    // font without it keep it (rootFontKeepers()); a rule
+                    // on elements with their own font (`code`, `button`)
+                    // is what gives them the root font, so it stays. The
+                    // root element's own font stays too: it is what body
+                    // inherits where editor-only defaults out-weigh Global
+                    // Styles on the canvas body.
+                    $keepers = $this->rootFontKeepers($rawValue);
+                    $kept = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                    if (array() !== $keepers) {
+                        if ('' !== $kept) $rules[] = array('prelude' => $selector, 'body' => $kept);
+                        $kept = 'font-family:' . $rawValue;
+                        $selector .= ':where(' . implode(',', $keepers) . ')';
+                    }
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
                     foreach ($this->fontDefaults as $target => $font) {
@@ -1672,6 +1724,75 @@ final class PresetBinding
             $matched = true;
         }
         return $matched;
+    }
+
+    /**
+     * Whether some author font other than the root Global Styles font can
+     * reach an element by inheritance. Rules whose subject never holds block
+     * text (headings, code, form controls, button links, pseudo-elements),
+     * rules restating the root font and `font: inherit` resets cannot; any
+     * other font rule, including shorthand, conditional or nested ones,
+     * conservatively can.
+     */
+    private function hasInheritedFontCompetitor(): bool
+    {
+        return $this->inheritedFontCompetitor ??= $this->findInheritedFontCompetitor();
+    }
+
+    private function findInheritedFontCompetitor(): bool
+    {
+        foreach ($this->fontRules as $rule) {
+            if ($rule['inherits'] || (null !== $rule['value'] && $this->rendersDefaultFont('body', $rule['value']))) continue;
+            $subject = self::subjectCompound($rule['selector']);
+            // A button's link holds its label's inline text, never blocks.
+            if (str_contains($subject, '::') || 1 === preg_match('/\.wp-block-button__link(?![\w-])/', $subject)) continue;
+            if (preg_match(self::TYPE_SELECTOR, $subject, $match) && in_array(strtolower($match[1]), array_merge(array('html', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), self::FONT_RESET_TAGS), true)) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Targets of a rule restating the root font that would not render it
+     * once the rule yields: headings whose element default differs, and
+     * elements with their own font (form controls, code, button links)
+     * that the site renders, unless the author or theme already gives them
+     * the root font.
+     *
+     * @return list<string> Type and class selectors to keep the font on.
+     */
+    private function rootFontKeepers(string $value): array
+    {
+        $keepers = array();
+        foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
+            if (!$this->rendersDefaultFont($tag, $value) || $this->hasCompetingFont($tag)) $keepers[] = $tag;
+        }
+        foreach (self::FONT_RESET_TAGS as $tag) {
+            // A phrasing element no document renders cannot carry the rule's classes.
+            if (null !== $this->renderedOwnFontTags && in_array($tag, self::OWN_FONT_PHRASING_TAGS, true) && !isset($this->renderedOwnFontTags[$tag])) continue;
+            if (!$this->tagRendersRootFont($tag)) $keepers[] = $tag;
+        }
+        $button = $this->buttonFontDefault;
+        if (null !== $button && !in_array(strtolower(trim($button)), array('inherit', 'unset'), true) && !$this->sameFont($button, $this->fontDefaults['body'] ?? '')) $keepers[] = '.wp-block-button__link';
+        return $keepers;
+    }
+
+    /**
+     * Whether an unconditional author rule gives every `$tag` element the
+     * root font (`button{font:inherit}`, or a stack restating it), and no
+     * other rule on that type gives it another font.
+     */
+    private function tagRendersRootFont(string $tag): bool
+    {
+        $covered = false;
+        foreach ($this->fontRules as $rule) {
+            if (!preg_match(self::TYPE_SELECTOR, self::subjectCompound($rule['selector']), $match) || strtolower($match[1]) !== $tag) continue;
+            $root = $rule['inherits'] || (null !== $rule['value'] && $this->rendersDefaultFont('body', $rule['value']));
+            if (!$root) return false;
+            // `code:not(.weight)`: engine specificity guards still select every element.
+            if ($rule['unconditional'] && strtolower(trim((string) preg_replace('/:not\([^()]*\)/', '', $rule['selector']))) === $tag) $covered = true;
+        }
+        return $covered;
     }
 
     private function inheritsFont(string $html, string $value): bool
