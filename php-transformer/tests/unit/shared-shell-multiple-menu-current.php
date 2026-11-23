@@ -4,9 +4,15 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 foreach (array(
+    array('pseudo' => ':after', 'base' => 'item', 'current' => 'data-selected', 'selector' => '.item[data-selected] .lbl'),
+    array('pseudo' => ':after', 'base' => 'item', 'current' => 'is-current', 'selector' => '.item.is-current .lbl'),
+    array('pseudo' => '::before', 'base' => 'item', 'current' => 'data-selected', 'selector' => '.item[data-selected] .lbl'),
+    array('pseudo' => '::before', 'base' => 'item', 'current' => 'is-current', 'selector' => '.item.is-current .lbl'),
     array('base' => 'it', 'current' => 'data-selected', 'selector' => '[data-selected]'),
     array('base' => 'item', 'current' => 'is-sel', 'selector' => '.item.is-sel'),
     array('base' => 'ptLEUT eP1KVV x0UOau wixui-dropdown-menu__item', 'current' => 'WB5Q35', 'selector' => '.ptLEUT.WB5Q35,.ptLEUT[data-preview=selected]'),
@@ -32,9 +38,20 @@ if ('data-selected' === $fixture['current']) {
             . $link('About', '/about/', false) . $link('Contact', '/contact/', false) . '</ul></nav></header><main><h1>' . $current . '</h1></main></body></html>';
     }
 }
+if (isset($fixture['pseudo'])) {
+    $files = array('assets/site.css' => '.menu{display:flex;list-style:none}.lbl{position:relative}.lbl' . $fixture['pseudo'] . '{content:"";display:none}' . $fixture['selector'] . $fixture['pseudo'] . '{display:block}');
+    foreach (array('index.html' => 'Home', 'services/index.html' => 'Services', 'services/a/index.html' => 'Service A', 'services/b/index.html' => 'Service B') as $path => $current) {
+        $selected = 'Services' === $current;
+        $marker = 'data-selected' === $fixture['current'] ? ($selected ? ' data-selected="true"' : '') : '';
+        $parent = '<div class="item' . ($selected && '' === $marker ? ' is-current' : '') . '"' . $marker . '><a href="/services/"' . ($selected ? ' aria-current="page"' : '') . '><div class="lbl">Services</div></a></div>';
+        $children = '';
+        foreach (array('a' => 'Service A', 'b' => 'Service B') as $slug => $label) $children .= '<li><a href="/services/' . $slug . '/"' . ($current === $label ? ' aria-current="page"' : '') . '>' . $label . '</a></li>';
+        $files[$path] = '<!doctype html><html><head><title>' . $current . '</title><link rel="stylesheet" href="/assets/site.css"></head><body><header><nav><ul class="menu"><li>' . $parent . '<div><ul>' . $children . '</ul></div></li></ul></nav></header><main><h1>' . $current . '</h1></main><footer>Footer</footer></body></html>';
+    }
+}
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
-$assert(1 === count($headers), 'All three routes share one header.');
+$assert(1 === count($headers), 'All routes share one header: ' . $fixture['selector']);
 $headerMarkup = $headers[0]['canonical_block_markup'];
 $assert(!str_contains($headerMarkup, $fixture['current']), 'Captured current classes must not pin the shared header to one route.');
 if ('WB5Q35' === $fixture['current']) {
@@ -53,7 +70,7 @@ $sources = array_keys($headers[0]['provenance']['sources']);
 sort($sources);
 $expected = array_values(array_filter(array_keys($files), static fn(string $path): bool => str_ends_with($path, '.html')));
 sort($expected);
-$assert($expected === $sources, 'The shared part covers all three source routes.');
+$assert($expected === $sources, 'The shared part covers every source route.');
 foreach ($plan['pages'] as $page) {
     $assert(!str_contains($page['canonical_block_markup'], '<header'), $page['source_path'] . ' must not retain an inline header.');
 }
@@ -62,6 +79,37 @@ foreach ($plan['templates'] as $template) {
 }
 $css = implode('\n', array_column($plan['assets'], 'content'));
 preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $rules, PREG_SET_ORDER);
+if (isset($fixture['pseudo'])) {
+    $selected = array();
+    foreach ($rules as [, $selector, $declarations]) {
+        if ('display:block' !== trim($declarations, ';') || !str_contains($selector, 'blocks-engine-navigation-')) continue;
+        $assert(str_contains($selector, $fixture['pseudo']), 'Selected generated content retains its pseudo-element.');
+        $assert(str_contains($selector, '[aria-current="page"]') || str_contains($selector, '.current-menu-item'), 'Selected pseudo paint requires a runtime current item: ' . $selector);
+        $assert(str_contains($selector, '.wp-block-navigation-item__label'), 'Selected pseudo paint addresses the native label.');
+        $assert(!str_contains($selector, ':nth-child('), 'Selected pseudo paint is not frozen to a captured position.');
+        $selected[] = $selector;
+    }
+    $assert(array() !== $selected, 'Selected pseudo-element paint survives extraction.');
+    $menus = implode('', array_column($plan['menus'], 'block_markup'));
+    $assert(str_contains($menus, 'navigation-submenu') && str_contains($menus, 'lbl'), 'The submenu parent retains its authored label wrapper.');
+    preg_match('/blocks-engine-navigation-instance-[a-f0-9]+-\d+/', $headerMarkup, $instance);
+    $assert(isset($instance[0]), 'The shared menu has a stable runtime instance.');
+    preg_match_all('/\.((?:be-r-)[a-f0-9]+)/', implode('', $selected), $rootClasses);
+    foreach (array('/', '/services/', '/services/a/', '/services/b/') as $route) {
+        $dom = new DOMDocument();
+        $dom->loadHTML('<html class="' . implode(' ', array_unique($rootClasses[1])) . '"><body><nav class="wp-block-navigation ' . $instance[0] . '"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item wp-block-navigation-submenu' . ('/services/' === $route ? ' current-menu-item' : '') . '"><a class="wp-block-navigation-item__content"' . ('/services/' === $route ? ' aria-current="page"' : '') . '><span class="wp-block-navigation-item__label"><span id="label" class="lbl">Services</span></span></a></li></ul></nav></body></html>');
+        $applies = false;
+        foreach ($selected as $selectorList) foreach (CssStylesheetTransformer::splitSelectorList($selectorList) ?? array() as $selector) {
+            $host = CssSelectorMatcher::pseudoElementHost($selector);
+            $assert(null !== $host, 'Selected rule has a matchable pseudo-element host.');
+            $match = CssSelectorMatcher::matches($dom->getElementById('label'), $host['parsed']);
+            $assert($match['supported'], 'Runtime selected host is supported by the matcher.');
+            $applies = $applies || $match['matches'];
+        }
+        $assert(('/services/' === $route) === $applies, 'Selected pseudo paint follows the current Services label, not its resting copy: ' . $route);
+    }
+    continue;
+}
 $currentSelectors = '';
 $selectedColor = ''; $selectedRadius = '';
 foreach ($rules as [, $selector, $declarations]) {
