@@ -120,8 +120,9 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
         $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents), $markups);
+        $usageBySource = DesignSystem::usageBySource($documents);
+        $this->designSystem = DesignSystem::fromUsage($usageBySource)?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups)->withBlockNearShades($markups, $usageBySource);
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, $usageBySource, $markups);
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $this->surfaces = TemplateSurfaces::select($documents);

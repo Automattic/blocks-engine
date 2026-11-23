@@ -238,6 +238,21 @@ foreach (array('font-size--large:31px', 'spacing--40:19px', 'font-family--body:G
     $assert(str_contains($sharedPresetCss, '--be--source--preset--' . $preset), 'non-colour source presets are isolated too: ' . $preset);
 }
 $roleSlug = '/^(?:base|contrast|primary|secondary|accent-\d+)$/';
+// A near shade a block paints as text adds a token whose value derives it
+// from its representative (DesignSystem::withBlockNearShades()): no
+// independent colour. $independent keeps the palette's own colours, and
+// $paint evaluates a derived token's value against the palette.
+$derivedShade = static fn(string $slug, string $color): bool => 1 === preg_match('/-shade-[a-p]{6}$/', $slug) && str_starts_with($color, 'rgb(from var(--wp--preset--color--');
+$independent = static fn(array $palette): array => array_filter($palette, static fn(string $color, string $slug): bool => !$derivedShade($slug, $color), ARRAY_FILTER_USE_BOTH);
+$paint = static function (string $color, array $palette): ?string {
+    if (1 !== preg_match('/^rgb\(from var\(--wp--preset--color--([a-z0-9-]+)\) (.*)\)$/', $color, $match)) return CssColor::hex($color);
+    $base = CssColor::parse((string) ($palette[$match[1]] ?? ''));
+    if (null === $base) return null;
+    preg_match_all('/([rgb])(?= |$)|calc\(([rgb]) ([+-]) (\d+)\)/', $match[2], $parts, PREG_SET_ORDER);
+    $rgb = array();
+    foreach ($parts as $i => $part) $rgb[] = max(0, min(255, (int) round($base[$i]) + ('' === ($part[3] ?? '') ? 0 : ('+' === $part[3] ? 1 : -1) * (int) $part[4])));
+    return vsprintf('#%02x%02x%02x', $rgb);
+};
 $sizeSlug = '/^(?:medium|(?:x{0,5}-)?small|(?:x{0,5}-)?large)$/';
 
 // Fixtures: utility classes, custom-property tokens, plain CSS, and compiled
@@ -253,7 +268,7 @@ foreach ($unusedFamilies as $fixture => $unusedFamily) {
     $slugs = array_column($palette, 'slug');
     $assert(count($palette) >= 5, "$fixture: palette has at least 5 colours (" . count($palette) . ')');
     $assert(in_array('base', $slugs, true) && in_array('contrast', $slugs, true), "$fixture: palette names base and contrast");
-    $assert(array() === array_filter($slugs, static fn(string $slug): bool => 1 !== preg_match($roleSlug, $slug)), "$fixture: every colour slug is a role name");
+    $assert(array() === array_filter(array_keys($independent(array_column($palette, 'color', 'slug'))), static fn(string $slug): bool => 1 !== preg_match($roleSlug, $slug)), "$fixture: every independent colour slug is a role name");
     $assert(count($slugs) === count(array_unique(array_map('strtolower', array_column($palette, 'color')))), "$fixture: palette colours are distinct");
     $sizes = $theme['settings']['typography']['fontSizes'] ?? array();
     $assert(count($sizes) >= 4 && count($sizes) <= 8, "$fixture: type scale has 4-8 steps (" . count($sizes) . ')');
@@ -634,14 +649,16 @@ $accentPalette = array_column($accentTheme['settings']['color']['palette'] ?? ar
 $cyan = (string) array_search('#22d3ee', $accentPalette, true);
 $accentSystem = $accentPlan['theme']['design_system'] ?? array();
 $accentLiterals = $accentSystem['literal_colors'] ?? array();
-$assert(1 === preg_match($roleSlug, $cyan) && 12 === count($accentPalette) && array() === array_intersect($accentLiterals, $accentPalette), 'near-duplicate-neutrals-small-accent: the accent keeps a token while near greys are omitted (' . json_encode($accentPalette) . ')');
+$assert(1 === preg_match($roleSlug, $cyan) && 12 === count($independent($accentPalette)) && array() === array_intersect($accentLiterals, $accentPalette), 'near-duplicate-neutrals-small-accent: the accent keeps a token while near greys are omitted (' . json_encode($accentPalette) . ')');
 $assert(array() === array_diff(array('#212121', '#424242', '#646464', '#858585', '#a6a6a6', '#cbcbcb'), $accentLiterals) && 6 === ($accentSystem['metrics']['literal_color_count'] ?? null), 'near-duplicate-neutrals-small-accent: six near greys stay local rather than becoming duplicate presets (' . json_encode($accentLiterals) . ')');
 $accentMarkup = implode('', array_column($accentPlan['pages'], 'canonical_block_markup'));
 $classColors = array('g1' => '#1a1a1a', 'g1b' => '#212121', 'g2' => '#3a3a3a', 'g2b' => '#424242', 'g3' => '#5c5c5c', 'g3b' => '#646464', 'g4' => '#7d7d7d', 'g4b' => '#858585', 'g5' => '#9e9e9e', 'g5b' => '#a6a6a6', 'g6' => '#c4c4c4', 'g6b' => '#cbcbcb');
 $literalBindings = array();
 foreach ($classColors as $class => $hex) {
     preg_match('/"className":"' . $class . '","textColor":"([a-z0-9-]+)"/', $accentMarkup, $bound);
-    $expected = in_array($hex, $accentLiterals, true) ? null : (string) array_search($hex, $accentPalette, true);
+    // A grey with no token of its own names its derived near-shade token,
+    // which paints its exact value at the default palette.
+    $expected = in_array($hex, $accentLiterals, true) ? (string) array_key_first(array_filter($accentPalette, static fn(string $color, string $slug): bool => $derivedShade($slug, $color) && $hex === $paint($color, $accentPalette), ARRAY_FILTER_USE_BOTH)) : (string) array_search($hex, $accentPalette, true);
     if (($bound[1] ?? null) !== $expected) $literalBindings[$class] = array('expected' => $expected, 'bound' => $bound[1] ?? null);
 }
 $assert(array() === $literalBindings, 'near-duplicate-neutrals-small-accent: each grey binds to the token of its exact value, and a grey with no token keeps its literal (' . json_encode($literalBindings) . ')');
@@ -656,7 +673,7 @@ $assert('#2f855a' === ($heavyPalette['accent-2'] ?? null) && '#34d399' === ($hea
 $heavySystem = $heavyPlan['theme']['design_system'] ?? array();
 $heavyLiterals = $heavySystem['literal_colors'] ?? array();
 sort($heavyLiterals);
-$assert('#f7fafc' === ($heavyPalette['base'] ?? null) && 13 === count($heavyPalette) && (CssColor::distance('#ffffff', '#f7fafc') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'heavy-near-shade-tiny-accents: the palette omits white, a near shade of base (' . json_encode($heavyPalette) . ')');
+$assert('#f7fafc' === ($heavyPalette['base'] ?? null) && 13 === count($independent($heavyPalette)) && (CssColor::distance('#ffffff', '#f7fafc') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'heavy-near-shade-tiny-accents: the palette omits white, a near shade of base (' . json_encode($heavyPalette) . ')');
 $assert(false === array_search('#ffffff', $heavyPalette, true), 'heavy-near-shade-tiny-accents: the heavily painted near shade of base does not get a duplicate token (' . json_encode($heavyPalette) . ')');
 $assert(array('#ffffff') === $heavyLiterals && 1 === ($heavySystem['metrics']['literal_color_count'] ?? null), 'heavy-near-shade-tiny-accents: only white stays local; tiny distinct accents still receive tokens (' . json_encode($heavySystem['literal_colors'] ?? null) . ')');
 $heavyMarkup = implode('', array_column($heavyPlan['pages'], 'canonical_block_markup'));
@@ -706,8 +723,8 @@ foreach (array('dark-hero-headings' => false, 'dark-hero-headings control' => tr
     $heroPalette = array_column($heroTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
     $heroElements = $heroTheme['styles']['elements'] ?? array();
     $assert('var:preset|color|base' === ($heroTheme['styles']['color']['background'] ?? null) && '#f6f8fa' === ($heroPalette['base'] ?? null), "$label: the root background is the light base (" . json_encode($heroTheme['styles']['color'] ?? null) . ')');
-    $blockColor = static function (array $attributes) use ($heroPalette): ?string {
-        if (isset($attributes['textColor'])) return $heroPalette[(string) $attributes['textColor']] ?? '?';
+    $blockColor = static function (array $attributes) use ($heroPalette, $paint): ?string {
+        if (isset($attributes['textColor'])) return $paint($heroPalette[(string) $attributes['textColor']] ?? '?', $heroPalette) ?? '?';
         return isset($attributes['style']['color']['text']) ? CssColor::hex((string) $attributes['style']['color']['text']) : null;
     };
     $h1Colors = array();

@@ -36,7 +36,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   palette and moves with the representative when the palette is edited
  *   (#3043, #6754). Block attributes never carry a derivation: WordPress's
  *   safecss strips relative colours and color-mix() from inline styles, so
- *   a block-level near shade keeps its exact literal.
+ *   a block's near-shade text names a derived token whose value is the
+ *   derivation (withBlockNearShades()), and other block-level near shades
+ *   keep their exact literal.
  *
  *   Grouping selects distinct palette entries: opaque colours within
  *   CIE76 ΔE*ab 2.3 (one just-noticeable difference) form a family, and
@@ -117,6 +119,8 @@ final class DesignSystem
     public const PRIMARY_COLORS = 12;
     /** Role of the exact tokens withBlockColors() adds for block-only colours. */
     public const BLOCK_COLOR_ROLE = 'block';
+    /** Role of the derived tokens withBlockNearShades() adds for near shades blocks paint as text. */
+    public const NEAR_SHADE_ROLE = 'near-shade';
     public const MAX_FONT_SIZES = 8;
     public const MAX_SPACING = 10;
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
@@ -786,6 +790,88 @@ final class DesignSystem
         }
         ksort($nearShades, SORT_STRING);
         return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $nearShades);
+    }
+
+    /**
+     * The system with a derived palette token for each near shade a block
+     * paints as text: an inline text colour in block markup, or the colour
+     * an author class list renders (usage `class_styles`). The token's value
+     * is the shade's stylesheet derivation (nearShadeColor()), so at the
+     * default palette the block paints the exact source shade and the shade
+     * follows its representative when the palette is edited; the palette
+     * gains no independent colour. Without it the block's text stays painted
+     * by imported CSS that neither the block's colour support nor Global
+     * Styles reaches. Text only: background and border shades keep their
+     * stylesheet derivation. Bound through blockNearShadeSlug().
+     *
+     * @param list<string> $markups
+     * @param array<string,array<string,mixed>> $usageBySource
+     */
+    public function withBlockNearShades(array $markups, array $usageBySource): self
+    {
+        $values = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = json_decode($json, true);
+                $text = is_array($attributes) ? ($attributes['style']['color']['text'] ?? null) : null;
+                if (is_string($text)) $values[] = $text;
+            }
+        }
+        foreach ($usageBySource as $usage) {
+            foreach (ArrayField::array($usage, 'class_styles') as $row) {
+                foreach ((array) ($row['properties']['color'] ?? array()) as $observation) {
+                    array_push($values, ...explode(';', (string) $observation));
+                }
+            }
+        }
+        $colors = $this->colors;
+        $known = array_fill_keys(array_column($colors, 'slug'), true);
+        $added = array();
+        foreach ($values as $value) {
+            $hex = $this->nearShadeHex($value);
+            $slug = null === $hex ? null : $this->nearShadeSlug($hex);
+            if (null === $slug || isset($known[$slug]) || isset($added[$slug])) continue;
+            $representative = (string) $this->color((string) $this->stylesheetColorSlug($this->nearShades[$hex]));
+            $added[$slug] = array('slug' => $slug, 'name' => self::colorName($representative) . ' Shade', 'color' => (string) $this->nearShadeColor($hex), 'role' => self::NEAR_SHADE_ROLE, 'weight' => 0);
+        }
+        if (array() === $added) return $this;
+        ksort($added, SORT_STRING);
+        array_push($colors, ...array_values($added));
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
+    }
+
+    /**
+     * Slug of the derived near-shade token (withBlockNearShades()) that
+     * paints exactly this opaque colour, or null. Block text colour only:
+     * stylesheets keep the literal and its relative-colour derivation.
+     */
+    public function blockNearShadeSlug(string $value): ?string
+    {
+        $hex = $this->nearShadeHex($value);
+        $slug = null === $hex ? null : $this->nearShadeSlug($hex);
+        return null !== $slug && isset($this->colorIndex()['slug'][$slug]) && self::NEAR_SHADE_ROLE === $this->colors[$this->colorIndex()['slug'][$slug]]['role'] ? $slug : null;
+    }
+
+    /** Opaque hex of a near shade the palette omits, or null. */
+    private function nearShadeHex(string $value): ?string
+    {
+        if (str_contains($value, 'var(') || !CssColor::opaque($value)) return null;
+        $hex = CssColor::hex($value);
+        return null !== $hex && isset($this->nearShades[$hex]) && null === $this->colorSlug($hex) ? $hex : null;
+    }
+
+    /**
+     * `<representative slug>-shade-<hex as letters>`: Gutenberg kebab-cases
+     * preset slugs, splitting digit/letter boundaries, so the hex is spelled
+     * with letters only and core's class agrees with the compiler's.
+     */
+    private function nearShadeSlug(string $hex): ?string
+    {
+        $representative = $this->nearShades[$hex] ?? null;
+        $base = null === $representative ? null : $this->stylesheetColorSlug($representative);
+        if (null === $base || null === $this->nearShadeColor($hex)) return null;
+        return $base . '-shade-' . strtr(ltrim($hex, '#'), '0123456789abcdef', 'abcdefghijklmnop');
     }
 
     /**

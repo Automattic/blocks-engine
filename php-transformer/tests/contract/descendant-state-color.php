@@ -36,11 +36,12 @@ foreach (array('control' => str_replace($hover, '', $html), 'descendant' => $htm
         $assert(is_string($slug) && $slug === ($attributes['textColor'] ?? null), $case . ': distinct section text still binds to its exact preset.');
         $assert(!isset($attributes['style']['color']['text']), $case . ': bound text has no literal override.');
     } else {
-    // This near-white shade is intentionally local, not a duplicate palette
-    // entry. A descendant hover must neither block it nor change its paint:
-    // the section's own `.contact` rule paints it, so the block leaves it to
-    // that class instead of repeating it as a literal.
-    $assert(!isset($palette['#faf7f2']) && !isset($attributes['textColor']), $case . ': near-white text does not bind to a nearby preset.');
+    // This near-white shade is not an independent palette entry. A
+    // descendant hover must neither block it nor change its paint: the
+    // block names the shade's derived token, whose value restates it from
+    // its representative preset, and the `.contact` rule keeps the literal.
+    $shade = array_search($attributes['textColor'] ?? null, $palette, true);
+    $assert(!isset($palette['#faf7f2']) && is_string($shade) && str_starts_with($shade, 'rgb(from var(--wp--preset--color--'), $case . ': near-white text binds to its derived near-shade token, not a nearby preset.');
     $assert(!isset($attributes['style']['color']['text']) && 1 === preg_match('/\.contact\b[^{,]*\{[^}]*color:\s*(?:rgb\(250, ?247, ?242\)|#faf7f2)/i', $css), $case . ': section keeps its exact local text color through its author class.');
     }
     $assert(0 === $plan['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], $case . ': no unrelated state refusal.');
