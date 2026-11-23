@@ -75,6 +75,14 @@ it.
   runs the suite and parity fixtures; `composer lint` runs PHPCS and PHPStan.
 - A test earns its place by failing without the change and passing with it,
   through the public interface (`HtmlTransformer`, `ArtifactCompiler`).
+- Cover each behavior once. A regression in a behavior that already has a
+  table-driven test becomes a new row there, not a new script; see
+  `tests/unit/selector-pruning.php` for the pattern. Every script pays its own
+  process startup and compile.
+- `tests/run.php` runs `BLOCKS_ENGINE_TEST_JOBS` scripts at once, else one per
+  CPU available to the process (affinity and cgroup quota); `--jobs=N`
+  overrides both. `BLOCKS_ENGINE_TEST_OPCACHE=1` opts children into a shared
+  opcache file cache (off by default: each child maps its own opcache memory).
 - Parity fixtures in `tests/fixtures/parity` pin end-to-end output. When a
   change alters output, update the fixture and explain the difference in the
   pull request.
