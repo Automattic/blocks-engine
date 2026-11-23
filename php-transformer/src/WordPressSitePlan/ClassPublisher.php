@@ -488,7 +488,8 @@ final class ClassPublisher
             $value = ($match[1] ?? '') . ($match[2] ?? '') . ($match[3] ?? '');
             if ('' !== trim($value)) $values[$value] = true;
         }
-        return array_keys($values);
+        // Numeric-string keys become ints; restore strings for str_contains().
+        return array_map('strval', array_keys($values));
     }
 
     /** @return array<string,true> */
