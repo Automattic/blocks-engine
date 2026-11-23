@@ -2157,17 +2157,19 @@ final class AuthorSelectorProjector
             return null;
         }
         $start = (int) $rightmost['start'];
-        // The carrier re-parents the subject, so sibling-indexed pseudo-classes
-        // would be evaluated against different siblings than in the source.
-        if ( 1 === preg_match('/:(?:first|last|only|nth)-|:nth-/i', substr($selector, $start)) ) {
+        // The carrier re-parents the subject: inside it the subject is an only
+        // child, while the carrier takes the subject's place among the source
+        // siblings. Child-indexed pseudo-classes therefore move to the carrier.
+        $sibling = self::splitChildIndexedPseudoClasses(substr($selector, $start));
+        if ( null === $sibling ) {
             return null;
         }
+        [ $subject, $position ] = $sibling;
         $arms = array();
         $classes = $itemSlot ? array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) : array(AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS);
         foreach ( $classes as $class ) {
-            $carrier = ':where(.' . $class . ')';
+            $carrier = ':where(.' . $class . ')' . $position;
             $prefix = substr($selector, 0, $start);
-            $subject = substr($selector, $start);
             $projected = $prefix . $carrier . '>' . $subject;
             if ( ! $this->matchesEmittedMarkup($projected, $context->emittedMarkup) ) continue;
             // The same subject predicate guards the item slot: unrelated
@@ -2175,6 +2177,51 @@ final class AuthorSelectorProjector
             $arms[] = $itemSlot ? $prefix . $carrier . ':has(>' . $subject . ')' : $projected;
         }
         return array() === $arms ? null : implode(',', $arms);
+    }
+
+    /**
+     * Split a compound into its remainder and its top-level child-indexed
+     * pseudo-classes (`:first-child`, `:last-child`, `:only-child`,
+     * `:nth-child()`, `:nth-last-child()`). Null when the compound depends on
+     * its own type or on a sibling filter (`*-of-type`, `:nth-child(… of S)`),
+     * which a carrier of another tag and class cannot stand in for.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    private static function splitChildIndexedPseudoClasses(string $compound): ?array
+    {
+        $rest = '';
+        $position = '';
+        $state = CssSyntaxScanner::state();
+        for ( $offset = 0, $length = strlen($compound); $offset < $length; ) {
+            if ( ':' === $compound[$offset] && 0 === $state['parens'] && 0 === $state['brackets'] && '' === $state['quote']
+                && 1 === preg_match('/\G:(?!:)([a-z-]+)(\()?/i', $compound, $match, 0, $offset) ) {
+                $name = strtolower($match[1]);
+                if ( str_ends_with($name, '-of-type') ) {
+                    return null;
+                }
+                if ( in_array($name, array( 'first-child', 'last-child', 'only-child', 'nth-child', 'nth-last-child' ), true) ) {
+                    $end = $offset + strlen($match[0]);
+                    if ( isset($match[2]) ) {
+                        $close = CssSyntaxScanner::matchingClose($compound, $end - 1);
+                        if ( null === $close || 1 === preg_match('/\sof\s/i', substr($compound, $end, $close - $end)) ) {
+                            return null;
+                        }
+                        $end = $close + 1;
+                    }
+                    $position .= substr($compound, $offset, $end - $offset);
+                    $offset = $end;
+                    continue;
+                }
+            }
+            $next = CssSyntaxScanner::consume($compound, $offset, $state);
+            if ( null === $next ) {
+                return null;
+            }
+            $rest .= substr($compound, $offset, $next - $offset);
+            $offset = $next;
+        }
+        return array( '' === $rest ? '*' : $rest, $position );
     }
 
     /** Project child edges to retained anchors even when the rule addresses a descendant. */

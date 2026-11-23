@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use DOMElement;
 
@@ -237,7 +238,24 @@ final class ButtonLinkDispatcher
 
         // Source class identity, and the inherited presentation it resolves
         // to, belong to the saved link {@see LoweredLinkHost}.
-        return LoweredLinkHost::attributes($attrs, $anchor);
+        return LoweredLinkHost::attributes($attrs, $anchor, $this->isBoxedAuthorLayoutItem($anchor));
+    }
+
+    /**
+     * Whether the anchor is an item of an author flex or grid container that
+     * stays a box inside its host: no own display (the host marks it block,
+     * as the item was blockified) or a non-inline box display.
+     */
+    private function isBoxedAuthorLayoutItem(DOMElement $anchor): bool
+    {
+        $parent = $anchor->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->context->structuralPresentationDeclarations($parent)['display'] ?? ''));
+        $ownDisplay = CssValueInspector::comparable((string) ($this->context->structuralPresentationDeclarations($anchor)['display'] ?? ''));
+        return in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true)
+            && ! in_array($ownDisplay, array( 'inline', 'contents', 'none' ), true);
     }
 
     private function isPositionedFragmentLink(DOMElement $anchor): bool
