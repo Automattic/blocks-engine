@@ -352,7 +352,9 @@ final class SitePlanRun
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
         // Article chrome moves shared post chrome out of each post body, which
         // shifts the page-owned blocks after it. Rebase their runtime anchors.
-        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $paginationOwners);
+        // Taxonomy archive sources now live in template units, not pages;
+        // include those documents so their bindings retain an emitted anchor.
+        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates, $templates), $paginationOwners);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         // Related-section queries are registered while article chrome is factored.
         $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
