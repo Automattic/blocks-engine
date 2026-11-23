@@ -62,3 +62,35 @@ function box_tree_fixture_sidecar(string $sourcePath, string $html, array $nodes
     );
     return array('path' => '' !== $path ? $path : 'box-tree/' . preg_replace('/\.html$/', '', $sourcePath) . '.json', 'kind' => 'json', 'content' => (string) json_encode($tree, JSON_THROW_ON_ERROR));
 }
+
+/**
+ * Re-encodes a v2 sidecar as compact `blocks-engine/box-tree/v3`, as
+ * data-liberation-agent exports it: every `used_styles` object, including
+ * each pseudo-element's, becomes an index into one shared `styles` table.
+ *
+ * @param array{path: string, kind: string, content: string} $sidecar
+ * @return array{path: string, kind: string, content: string}
+ */
+function box_tree_fixture_v3(array $sidecar): array
+{
+    $tree = json_decode($sidecar['content'], true, 512, JSON_THROW_ON_ERROR);
+    $styles = array();
+    $index = static function (array $style) use (&$styles): int {
+        $position = array_search($style, $styles, true);
+        if (false !== $position) return (int) $position;
+        $styles[] = $style;
+        return count($styles) - 1;
+    };
+    foreach ($tree['nodes'] as $id => $node) {
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $observation['used_styles'] = $index($observation['used_styles']);
+            foreach ($observation['pseudo'] ?? array() as $pseudo => $pseudoObservation) {
+                $observation['pseudo'][$pseudo]['used_styles'] = $index($pseudoObservation['used_styles']);
+            }
+            $tree['nodes'][$id]['viewports'][$viewport] = $observation;
+        }
+    }
+    $tree['schema'] = BoxTree::SCHEMA_V3;
+    $tree['styles'] = $styles;
+    return array('path' => $sidecar['path'], 'kind' => $sidecar['kind'], 'content' => (string) json_encode($tree, JSON_THROW_ON_ERROR));
+}

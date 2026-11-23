@@ -10,7 +10,8 @@ use DOMText;
 
 /**
  * Reads one route's box-tree evidence (`box-tree/<route>.json`, schema
- * `blocks-engine/box-tree/v2`) and answers, for a source wrapper, whether
+ * `blocks-engine/box-tree/v2` or compact v3, read through
+ * {@see BoxTree::read()}) and answers, for a source wrapper, whether
  * its box is geometry-neutral at every captured viewport (ADR 0006, slice 1).
  *
  * Source elements map to evidence nodes by `data-blocks-engine-node-id`. An
@@ -19,16 +20,17 @@ use DOMText;
  * only; it never reaches compiled output.
  *
  * A wrapper is `neutral` when at every viewport it is visible, paints nothing,
- * clips nothing, is static (or relative with auto insets and no out-of-flow
+ * clips nothing, is static (or relative with inert offsets and no out-of-flow
  * descendant whose containing block it is), does not float, stack or animate,
- * and its single element child's border box equals its own. A relative
- * wrapper with a non-auto inset is `inset_only`. Every other answer is
+ * and its single element child's border box equals its own. Offsets are read
+ * as `getComputedStyle` reports them, resolved to px, so `auto` and `0px` are
+ * both inert; a static wrapper's offsets apply to nothing and are ignored.
+ * A relative wrapper with a non-zero offset moves its box and is
  * `load_bearing`. Each answer carries the first failing reason.
  */
 final class BoxTreeWrapperEvidence
 {
     public const NEUTRAL = 'neutral';
-    public const INSET_ONLY = 'inset_only';
     public const LOAD_BEARING = 'load_bearing';
 
     /** Border boxes within this many CSS pixels are equal. */
@@ -46,7 +48,8 @@ final class BoxTreeWrapperEvidence
     /** @param array<string, mixed> $tree A decoded box-tree sidecar, or an empty array. */
     public function __construct(array $tree = array())
     {
-        if (BoxTree::SCHEMA !== ($tree['schema'] ?? null) || ! is_array($tree['viewports'] ?? null) || ! is_array($tree['nodes'] ?? null)) return;
+        $tree = BoxTree::read($tree);
+        if (null === $tree || ! is_array($tree['viewports'] ?? null) || ! is_array($tree['nodes'] ?? null)) return;
         $viewports = array();
         foreach ($tree['viewports'] as $name => $viewport) {
             if (! is_string($name) || '' === $name || ! is_array($viewport)) return;
@@ -91,7 +94,6 @@ final class BoxTreeWrapperEvidence
         $childNode = $this->node($child);
         if (null === $childNode) return self::answer(self::LOAD_BEARING, 'child_no_evidence');
 
-        $inset = null;
         foreach ($this->viewports as $viewport) {
             $observation = self::observation($node, $viewport);
             $childObservation = self::observation($childNode, $viewport);
@@ -108,7 +110,8 @@ final class BoxTreeWrapperEvidence
             $position = self::style($styles, 'position');
             if ('relative' === $position) {
                 foreach (array('top', 'right', 'bottom', 'left') as $side) {
-                    if ('auto' !== self::style($styles, $side)) $inset ??= $side;
+                    $offset = self::style($styles, $side);
+                    if ('auto' !== $offset && ! self::zeroLength($offset)) return self::answer(self::LOAD_BEARING, 'inset:' . $side);
                 }
                 if ($this->containsOutOfFlowFor($wrapper, $viewport)) return self::answer(self::LOAD_BEARING, 'containing_block');
             } elseif ('static' !== $position) {
@@ -116,7 +119,6 @@ final class BoxTreeWrapperEvidence
             }
             if (! self::sameBox($box, $childObservation['border_box'])) return self::answer(self::LOAD_BEARING, 'child_box_differs:' . $viewport);
         }
-        if (null !== $inset) return self::answer(self::INSET_ONLY, 'inset:' . $inset);
         return self::answer(self::NEUTRAL, 'neutral');
     }
 

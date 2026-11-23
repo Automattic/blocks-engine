@@ -7,8 +7,9 @@ declare(strict_types=1);
  * One table drives the evidence reader and the compiler together. A wrapper
  * proven neutral at every captured viewport folds into its child even though
  * an author child-combinator rule stops matching, and that rule is restated
- * on an engine-owned carrier. Each refusal reason (paint, containing block,
- * inset, hidden at one viewport, unequal child box, missing evidence) keeps
+ * on an engine-owned carrier. Resolved `0px` offsets, and any offset on a
+ * static box, are inert. Each refusal reason (paint, containing block,
+ * non-zero inset, hidden at one viewport, unequal child box, missing evidence) keeps
  * the wrapper and converts exactly as without evidence. Capture identity
  * never reaches the output.
  */
@@ -47,7 +48,11 @@ $cases = array(
         'w' => array('box' => $box, 'styles' => array('position' => 'relative')),
         'p1' => array('styles' => array('position' => 'absolute')),
     )), BoxTreeWrapperEvidence::LOAD_BEARING, 'containing_block'),
-    'inset' => array(array_replace($neutral, array('w' => array('box' => $box, 'styles' => array('position' => 'relative', 'top' => '10px')))), BoxTreeWrapperEvidence::INSET_ONLY, 'inset:top'),
+    'inset' => array(array_replace($neutral, array('w' => array('box' => $box, 'styles' => array('position' => 'relative', 'top' => '10px')))), BoxTreeWrapperEvidence::LOAD_BEARING, 'inset:top'),
+    // getComputedStyle resolves a positioned element's `auto` offsets to px.
+    'relative with resolved zero offsets' => array(array_replace($neutral, array('w' => array('box' => $box, 'styles' => array('position' => 'relative', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px')))), BoxTreeWrapperEvidence::NEUTRAL, 'neutral'),
+    // A static box's offsets apply to nothing.
+    'static with offsets' => array(array_replace($neutral, array('w' => array('box' => $box, 'styles' => array('top' => '12px', 'left' => '-4px')))), BoxTreeWrapperEvidence::NEUTRAL, 'neutral'),
     'hidden at one viewport' => array(array_replace($neutral, array('w' => array('box' => $box, 'viewports' => array('mobile' => array('box' => array(0, 0, 0, 0), 'styles' => array('display' => 'none')))))), BoxTreeWrapperEvidence::LOAD_BEARING, 'hidden:mobile'),
     'unequal child box' => array(array_replace($neutral, array('c' => array('box' => array(8, 120, 1400, 200)))), BoxTreeWrapperEvidence::LOAD_BEARING, 'child_box_differs:desktop'),
     'missing evidence' => array(array('c' => array('box' => $box), 'p1' => array(), 'p2' => array()), BoxTreeWrapperEvidence::LOAD_BEARING, 'no_evidence'),

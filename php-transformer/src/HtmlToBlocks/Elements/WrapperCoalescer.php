@@ -568,7 +568,9 @@ final class WrapperCoalescer
      * classes and id move onto its only child; every author declaration whose
      * match the fold changes is pinned on an engine-owned carrier for the node
      * it applied to. An id moves only off a wrapper that is no shell edge and
-     * no reference target; a data attribute only when nothing consumes it.
+     * no reference target; a leaf with its own id keeps it, and the wrapper's
+     * unaddressed id is dropped unless it equals the leaf's. A data attribute
+     * moves only when nothing consumes it.
      * Runtime, interactivity, structure and motion guards still apply, and
      * repeated siblings fold alike. A wrapper without neutral evidence, or
      * one the proof cannot cover, stays: without evidence nothing changes.
@@ -622,15 +624,25 @@ final class WrapperCoalescer
         $childClasses = array_fill_keys(SourceDom::tokens((string) ($childAttrs['className'] ?? '')), true);
         $mergedClasses = SourceDom::classNames($element);
         foreach (array_slice($wrappers, 1) as $intermediate) {
-            if ('' !== trim(SourceDom::attr($intermediate, 'id')) || ! $evidence->isNeutral($intermediate)) return null;
+            if (! $evidence->isNeutral($intermediate)) return null;
+            // An intermediate's id is dropped; only an unaddressed one may go.
+            $intermediateId = trim(SourceDom::attr($intermediate, 'id'));
+            if ('' !== $intermediateId && $this->isReferenceTarget($intermediate, $intermediateId)) return null;
             foreach (SourceDom::classNames($intermediate) as $class) {
                 if (isset($childClasses[$class])) $mergedClasses[] = $class;
             }
         }
+        // The leaf keeps its own id and anchor. The wrapper's id moves onto a
+        // leaf that has neither; otherwise it is dropped, which only an id
+        // nothing addresses may be (reference targets were refused above, and
+        // the proof restates every author rule whose match the drop changes).
+        // An id equal to the leaf's would collide, so that wrapper stays.
         $transferredId = '';
         if ('' !== $wrapperId) {
-            if ('' !== trim(SourceDom::attr($leaf, 'id')) || '' !== trim((string) ($childAttrs['anchor'] ?? ''))) return null;
-            $transferredId = $wrapperId;
+            $leafId = trim(SourceDom::attr($leaf, 'id'));
+            $leafAnchor = trim((string) ($childAttrs['anchor'] ?? ''));
+            if ($wrapperId === $leafId || $wrapperId === $leafAnchor) return null;
+            if ('' === $leafId && '' === $leafAnchor) $transferredId = $wrapperId;
         }
 
         $proof = (new ResolvedWrapperComposition($this->session))->prove($wrappers, $leaf, $transferredId, implode(' ', $mergedClasses), $evidence->sizeTransfersTo($leaf));
@@ -693,17 +705,35 @@ final class WrapperCoalescer
     {
         $document = $element->ownerDocument;
         if (! $document instanceof DOMDocument) return true;
-        foreach ($document->getElementsByTagName('*') as $node) {
-            foreach (array('href', 'xlink:href', 'action', 'formaction') as $attribute) {
-                $value = trim($node->getAttribute($attribute));
-                if ('' !== $value && str_ends_with(rawurldecode($value), '#' . $id)) return true;
+        $this->referencedIds ??= new \WeakMap();
+        if (! isset($this->referencedIds[$document])) {
+            // One scan per document: Wix gives every element an id.
+            $fragments = array();
+            $tokens = array();
+            foreach ($document->getElementsByTagName('*') as $node) {
+                foreach (array('href', 'xlink:href', 'action', 'formaction') as $attribute) {
+                    $value = trim($node->getAttribute($attribute));
+                    $value = rawurldecode($value);
+                    if (str_contains($value, '#')) $fragments[] = $value;
+                }
+                foreach (array('for', 'form', 'list', 'headers', 'aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'aria-flowto', 'aria-activedescendant', 'aria-details', 'aria-errormessage', 'popovertarget', 'commandfor') as $attribute) {
+                    foreach (preg_split('/\s+/', trim($node->getAttribute($attribute))) ?: array() as $token) {
+                        if ('' !== $token) $tokens[$token] = true;
+                    }
+                }
             }
-            foreach (array('for', 'form', 'list', 'headers', 'aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'aria-flowto', 'aria-activedescendant', 'aria-details', 'aria-errormessage', 'popovertarget', 'commandfor') as $attribute) {
-                if (in_array($id, preg_split('/\s+/', trim($node->getAttribute($attribute))) ?: array(), true)) return true;
-            }
+            $this->referencedIds[$document] = array('fragments' => $fragments, 'tokens' => $tokens);
+        }
+        $references = $this->referencedIds[$document];
+        if (isset($references['tokens'][$id])) return true;
+        foreach ($references['fragments'] as $fragment) {
+            if (str_ends_with($fragment, '#' . $id)) return true;
         }
         return false;
     }
+
+    /** @var \WeakMap<DOMDocument, array{fragments: list<string>, tokens: array<string, true>}>|null */
+    private ?\WeakMap $referencedIds = null;
 
     /**
      * Whether a data attribute on the wrapper is consumed: an author or
