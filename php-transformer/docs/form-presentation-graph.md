@@ -36,6 +36,8 @@ Submit control metadata optionally exports `control_carrier_classes`, an ordered
 
 Control metadata in `generic/forms/v1` also carries source presentation hooks outside this graph. `description` is the resolved field helper text. When exactly one description element resolves, `description_classes` is its ordered list of class tokens (bounded to 16), for example `["sub", "hidden-util"]`; a resolved element without classes yields `[]`. With no resolved description or ambiguous candidates, the key is absent. Consumers can use these tokens to preserve visually hidden helper copy instead of rendering it visibly. Existing label hooks (`label_class` and button `label_classes`) are unchanged; unlike those space-separated strings, `description_classes` is a token array. This additive metadata does not change block output.
 
+A button control's `text` is its accessible name: `aria-label`, then `title`, then its content. When an author names the button apart from what it paints (`<button aria-label="Request email updates">↗</button>`), the metadata also carries `visible_text`, the caption the source renders (text of `aria-hidden` glyphs included; hidden, visually hidden and nested-control subtrees excluded), and `accessible_name`, equal to `text`. Consumers render `visible_text` as the caption and keep `accessible_name` for assistive technology (`aria-label`). Both keys are absent when the caption is the name or the button paints no text, so consumers fall back to `text`. `label_classes` and `label_parts` describe the rendered caption.
+
 ```php
 array{
   schema: 'generic/computed-form-presentation/v2',
