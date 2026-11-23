@@ -52,8 +52,6 @@ final class ClassPublisher
 
     private const HTML_CLASS = '/(\sclass=")([^"]*)(")/';
 
-    private const COMMENT_CLASS = '/"(?:className|class)":"([^"]*)"/';
-
     /** A block delimiter or a start tag carrying a class attribute, in document order. */
     private const MARKUP_EVENT = '/<!--\s+(\/?)wp:([a-z0-9\/-]+)(?:\s+(\{.*?\}))?\s+(\/?)-->|<([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*?\sclass="([^"]*)"/s';
 
@@ -569,11 +567,9 @@ final class ClassPublisher
     /** @param array<string,string> $map */
     private static function renamedMarkup(string $markup, array $map): string
     {
+        $markup = BlockCommentClasses::rewrite($markup, static fn (string $value): string => implode(' ', array_unique(self::tokens(self::renamed($value, $map)))));
         $markup = self::renamed($markup, $map);
-        return preg_replace_callback('/(\\sclass=")([^"]*)(")|("(?:className|class)":")([^"]*)(")/', static function (array $match): string {
-            if ('' !== ($match[1] ?? '')) return $match[1] . implode(' ', array_unique(self::tokens($match[2]))) . $match[3];
-            return $match[4] . implode(' ', array_unique(self::tokens($match[5]))) . $match[6];
-        }, $markup) ?? $markup;
+        return preg_replace_callback(self::HTML_CLASS, static fn (array $match): string => $match[1] . implode(' ', array_unique(self::tokens($match[2]))) . $match[3], $markup) ?? $markup;
     }
 
     /**
@@ -778,13 +774,13 @@ final class ClassPublisher
     {
         $lists = array();
         if (preg_match_all(self::HTML_CLASS, $markup, $matches)) foreach ($matches[2] as $value) $lists[] = array('context' => 'html', 'value' => html_entity_decode($value, ENT_QUOTES | ENT_HTML5));
-        if (preg_match_all(self::COMMENT_CLASS, $markup, $matches)) foreach ($matches[1] as $value) $lists[] = array('context' => 'comment', 'value' => $value);
+        foreach (BlockCommentClasses::values($markup) as $value) $lists[] = array('context' => 'comment', 'value' => $value);
         return $lists;
     }
 
     private static function withoutClassLists(string $markup): string
     {
-        return (string) preg_replace(array(self::HTML_CLASS, self::COMMENT_CLASS), '', $markup);
+        return (string) preg_replace(self::HTML_CLASS, '', BlockCommentClasses::rewrite($markup, static fn (string $value): string => ''));
     }
 
     /** @return list<string> */
