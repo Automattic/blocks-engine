@@ -94,7 +94,7 @@ final class RenderEquivalentMarkup
                 $declarations['grid-column'] = $lines[1] . ' / ' . $lines[3];
                 continue;
             }
-            $declarations[$property] = preg_replace('/\s+/', ' ', $value);
+            $declarations[$property] = preg_replace('/\s+/', ' ', str_starts_with($property, '--') ? $value : self::serializedNumbers($value));
         }
         foreach ($declarations as $property => $value) {
             if (in_array($property, array('grid-row', 'grid-column'), true)) $declarations[$property] = preg_replace('/\s*\/\s*/', ' / ', $value);
@@ -106,6 +106,26 @@ final class RenderEquivalentMarkup
         foreach ($names as $name) foreach ($names as $other) if ($name !== $other && str_starts_with($other, $name . '-')) $overlap = true;
         if (!$overlap) ksort($declarations, SORT_STRING);
         return implode(';', array_map(static fn (string $property, string $value): string => $property . ':' . $value, array_keys($declarations), $declarations));
+    }
+
+    /**
+     * Numbers as a browser serializes a style it parsed: at most six
+     * significant digits. A server writes `padding-bottom:119.5260663507109%`;
+     * the same element rendered by the client reads back `119.526%`. Custom
+     * properties keep their tokens verbatim, so they are left alone.
+     */
+    private static function serializedNumbers(string $value): string
+    {
+        if (str_contains($value, '"') || str_contains($value, "'") || 1 === preg_match('/\burl\(/i', $value)) return $value;
+        return preg_replace_callback('/(?<![\w.#-])([+-]?)(\d*\.\d+|\d+\.?\d*)(?![\d.])(?=[a-z%]|[^\w-]|$)/i', static function (array $match): string {
+            $digits = strlen(ltrim(str_replace('.', '', $match[2]), '0'));
+            if ($digits <= 6 || !str_contains($match[2], '.')) return $match[0];
+            $number = (float) $match[2];
+            if (0.0 === $number) return $match[0];
+            $rounded = round($number, max(0, 5 - (int) floor(log10($number))));
+            $text = rtrim(rtrim(sprintf('%.10F', $rounded), '0'), '.');
+            return $match[1] . $text;
+        }, $value) ?? $value;
     }
 
     /** @return list<string> */
