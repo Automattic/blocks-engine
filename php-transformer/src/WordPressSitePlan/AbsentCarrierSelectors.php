@@ -72,14 +72,18 @@ final class AbsentCarrierSelectors
     /**
      * The stylesheet without selector arms that require a class `$pattern`
      * matches (see {@see live()}); a rule left with no arm is dropped.
+     * `$pattern` is a regex, or a predicate over selector text for class
+     * sets too large to compile into one regex.
+     *
+     * @param string|\Closure(string):bool $pattern
      */
-    public static function withoutArmsRequiring(string $css, string $pattern): string
+    public static function withoutArmsRequiring(string $css, string|\Closure $pattern): string
     {
-        if (1 !== preg_match($pattern, $css)) return $css;
+        if (!self::requires($pattern, $css)) return $css;
         return (new CssStylesheetTransformer())->transformStyleRules(
             $css,
             static function (string $prelude, string $body) use ($pattern): string {
-                if (1 !== preg_match($pattern, $prelude)) return $prelude . '{' . $body . '}';
+                if (!self::requires($pattern, $prelude)) return $prelude . '{' . $body . '}';
                 $arms = CssStylesheetTransformer::splitSelectorList($prelude);
                 if (null === $arms) return $prelude . '{' . $body . '}';
                 $kept = array();
@@ -102,8 +106,10 @@ final class AbsentCarrierSelectors
      * arguments, and quoted text, never decide pruning. An `:is()`
      * alternative is only dropped when the remaining ones weigh as much, so
      * the arm keeps its specificity.
+     *
+     * @param string|\Closure(string):bool $pattern
      */
-    private static function live(string $selector, string $pattern, string &$requiredOut = ''): ?string
+    private static function live(string $selector, string|\Closure $pattern, string &$requiredOut = ''): ?string
     {
         $live = '';
         $required = '';
@@ -170,9 +176,15 @@ final class AbsentCarrierSelectors
             }
             $live .= $match[0] . implode(',', $alive) . ')';
         }
-        if (1 === preg_match($pattern, $required)) return null;
+        if (self::requires($pattern, $required)) return null;
         $requiredOut = $required;
         return $live;
+    }
+
+    /** @param string|\Closure(string):bool $pattern */
+    private static function requires(string|\Closure $pattern, string $text): bool
+    {
+        return is_string($pattern) ? 1 === preg_match($pattern, $text) : $pattern($text);
     }
 
     /** @param list<string> $alternatives @return array{ids:int,classes:int,types:int}|null The weight of an `:is()` over them. */
