@@ -290,7 +290,9 @@ final class StyleResolver implements ElementPresentationResolver
         // Purely additive, cross-route current hooks cannot be frozen into a
         // block's className. Selector projection restores their runtime paint;
         // class swaps retain their resting half and existing item-level logic.
-        if (isset($attrs['className'])) {
+        // The proof is per navigation item: the same utility authored on
+        // body content (a price in `text-primary`) is not route state.
+        if (isset($attrs['className']) && $this->session->reusableComponentState()->carriesRestingNavigation($element)) {
             $attrs['className'] = implode(' ', array_filter(SourceDom::tokens($attrs['className']), fn(string $class): bool => !$this->session->authorSelectorProjectionState()->isAdditiveCurrentNavigationClass($class)));
             if ('' === $attrs['className']) unset($attrs['className']);
         }
