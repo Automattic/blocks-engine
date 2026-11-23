@@ -26,6 +26,13 @@ final class CaptureEvidence
     /** Unsupported component marker; removed only when its owning evidence is projected. */
     public const UNSUPPORTED = 'data-blocks-engine-capture-unsupported';
 
+    /**
+     * On a `<picture>`'s `<img>`: the rendition the browser rendered at the
+     * capture viewport (an absolute or capture-relative URL, like `src`). It
+     * resolves the picture's source selection; never emitted.
+     */
+    public const CURRENT_SOURCE = 'data-blocks-engine-capture-current-src';
+
     /** On `<html>`: `wordpress` when capture restored core runtime emoji images to text. */
     public const RUNTIME_EMOJI = 'data-blocks-engine-capture-runtime-emoji';
 

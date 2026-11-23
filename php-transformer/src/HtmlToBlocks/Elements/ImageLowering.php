@@ -787,7 +787,10 @@ final class ImageLowering
         $loading       = in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '';
         $fetchpriority = strtolower(trim(SourceDom::attr($image, 'fetchpriority')));
         $fetchpriority = in_array($fetchpriority, array( 'high', 'low', 'auto' ), true) ? $fetchpriority : '';
-        if ( null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) ) {
+        // A captured rendition is the browser's resolved selection: there is
+        // nothing left to replay but the loading hints.
+        $rendered = null !== $picture && '' !== SourceDom::capturedPictureRendition($image);
+        if ( $rendered || (null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset'))) ) {
             if ( '' === $loading && '' === $fetchpriority ) {
                 return array();
             }
