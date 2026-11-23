@@ -653,13 +653,15 @@ final class RouteStateProjector
             $stylesheets ??= self::stylesheets($files);
             foreach ($varying as $token) {
                 foreach ($nodes as $index => $node) {
-                    if (in_array($token, $sets[$index], true) && !self::restsWithoutClass($token, $sets[$index], $stylesheets)) continue 2;
+                    if (in_array($token, $sets[$index], true) && !self::restsWithoutClass($token, $sets[$index], $stylesheets, $node)) continue 2;
                 }
                 foreach ($nodes as $index => $node) {
                     if (!in_array($token, $sets[$index], true)) continue;
                     $sets[$index] = array_values(array_diff($sets[$index], array($token)));
-                    if (array() === $sets[$index]) $node->removeAttribute('class');
-                    else $node->setAttribute('class', implode(' ', $sets[$index]));
+                    // Only the token leaves; the rest keep their spelling (a builder may repeat one).
+                    $kept = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => $class !== $token));
+                    if (array() === $kept) $node->removeAttribute('class');
+                    else $node->setAttribute('class', implode(' ', $kept));
                     $changed[$index] = true;
                 }
             }
@@ -966,14 +968,17 @@ final class RouteStateProjector
     /**
      * Whether an element with `$classes` renders the same at rest without
      * `$token`. At least one rule must name the token, and each of its
-     * selectors must either require a class the element lacks or apply only
-     * transition timing.
+     * selectors must either require a class the element lacks, apply only
+     * transition timing, or restate a property's initial value (a component
+     * root's `box-shadow:none`) that no other rule or inline style gives the
+     * element, so the element computes that value with or without it.
      *
      * @param list<string> $classes
      * @param list<string> $stylesheets
      */
-    private static function restsWithoutClass(string $token, array $classes, array $stylesheets): bool
+    private static function restsWithoutClass(string $token, array $classes, array $stylesheets, ?DOMElement $element = null): bool
     {
+        $resets = array();
         $pattern = '/\.' . preg_quote($token, '/') . '(?![A-Za-z0-9_\x{80}-\x{10FFFF}-])/u';
         $named = false;
         foreach ($stylesheets as $css) {
@@ -999,11 +1004,101 @@ final class RouteStateProjector
                     }
                     if ($unmatched) continue;
                     $timingOnly ??= self::setsOnlyTransitionTiming($rule['body']);
-                    if (!$timingOnly) return false;
+                    if ($timingOnly) continue;
+                    $initial = null === $element ? null : self::initialValueProperties($rule['body']);
+                    if (null === $initial) return false;
+                    $resets += $initial;
                 }
             }
         }
-        return $named;
+        return $named && (array() === $resets || self::onlyResetsState($token, array_keys($resets), $stylesheets, $element));
+    }
+
+    /**
+     * Whether a selector's subject compound can select the element at rest:
+     * it requires no class, id or type the element lacks, and no user-action
+     * state (`:hover`, `:focus`). An `:is()` or `:where()` of simple
+     * alternatives needs one of them to fit; any other functional
+     * pseudo-class can match without what it names.
+     */
+    private static function subjectCanMatch(string $selector, DOMElement $element): bool
+    {
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        $compound = $tokens['supported'] ? (string) end($tokens['compounds']) : (string) preg_replace('/^.*[\s>+~]/s', '', $selector);
+        if (preg_match('/:(?:hover|active|focus(?:-visible|-within)?)(?![A-Za-z-])/i', $compound)) return false;
+        if (preg_match_all('/:(?:is|where)\(([^()]*)\)/i', $compound, $groups)) {
+            foreach ($groups[1] as $group) {
+                $fits = false;
+                foreach (explode(',', $group) as $alternative) if (self::subjectCanMatch(trim($alternative), $element)) { $fits = true; break; }
+                if (!$fits) return false;
+            }
+        }
+        $compound = (string) preg_replace('/::?[A-Za-z-]+(?:\((?:[^()]|\([^()]*\))*\))?/', '', $compound);
+        if (preg_match('/^([A-Za-z][A-Za-z0-9-]*)/', $compound, $type) && strtolower($type[1]) !== strtolower($element->tagName)) return false;
+        preg_match_all('/\.(-?[A-Za-z_\x{80}-\x{10FFFF}][A-Za-z0-9_\x{80}-\x{10FFFF}-]*)/u', $compound, $classes);
+        if (array() !== array_diff($classes[1], self::classes($element))) return false;
+        preg_match_all('/#(-?[A-Za-z_\x{80}-\x{10FFFF}][A-Za-z0-9_\x{80}-\x{10FFFF}-]*)/u', $compound, $ids);
+        foreach ($ids[1] as $id) if ($id !== $element->getAttribute('id')) return false;
+        return true;
+    }
+
+    /**
+     * Non-inherited properties whose initial value a component's own sheet
+     * commonly restates on its root. Only these keywords are read; anything
+     * else means the rule may change how the element renders.
+     */
+    private const INITIAL_VALUES = array(
+        'box-shadow' => 'none', 'filter' => 'none', 'backdrop-filter' => 'none', 'transform' => 'none',
+        'clip-path' => 'none', 'mask-image' => 'none', 'background-image' => 'none', 'outline-style' => 'none',
+    );
+
+    /**
+     * The properties a rule body sets, when it sets each of them only to its
+     * initial value (with or without `!important`); null otherwise.
+     *
+     * @return array<string, true>|null
+     */
+    private static function initialValueProperties(string $body): ?array
+    {
+        $properties = array();
+        foreach (explode(';', $body) as $declaration) {
+            if ('' === trim($declaration)) continue;
+            $colon = strpos($declaration, ':');
+            if (false === $colon) return null;
+            $property = strtolower(trim(substr($declaration, 0, $colon)));
+            $value = strtolower(trim((string) preg_replace('/!\s*important\s*$/i', '', substr($declaration, $colon + 1))));
+            if (!isset(self::INITIAL_VALUES[$property]) || (self::INITIAL_VALUES[$property] !== $value && 'initial' !== $value)) return null;
+            $properties[$property] = true;
+        }
+        return array() === $properties ? null : $properties;
+    }
+
+    /**
+     * Whether nothing but rules naming `$token` gives the element any of
+     * `$properties`: no inline declaration, and no other rule whose selector
+     * matches it. A selector the matcher cannot read may match, so it counts.
+     *
+     * @param list<string> $properties
+     * @param list<string> $stylesheets
+     */
+    private static function onlyResetsState(string $token, array $properties, array $stylesheets, ?DOMElement $element): bool
+    {
+        if (null === $element) return false;
+        $property = '/(?<![A-Za-z0-9-])(?:' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), $properties)) . ')\s*:/i';
+        if (preg_match($property, $element->getAttribute('style'))) return false;
+        $named = '/\.' . preg_quote($token, '/') . '(?![A-Za-z0-9_\x{80}-\x{10FFFF}-])/u';
+        foreach ($stylesheets as $css) {
+            if (!preg_match($property, $css)) continue;
+            foreach (self::styleRules($css) as $rule) {
+                if (null === $rule['body'] || !preg_match($property, $rule['body']) || preg_match($named, $rule['prelude'])) continue;
+                foreach (CssStylesheetTransformer::splitSelectorList($rule['prelude']) ?? array($rule['prelude']) as $selector) {
+                    if (!self::subjectCanMatch(trim($selector), $element)) continue;
+                    $parsed = CssSelectorMatcher::parse(trim($selector));
+                    if (!($parsed['supported'] ?? false) || array() !== CssSelectorMatcher::filterMatching(array($element), $parsed, true)) return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
