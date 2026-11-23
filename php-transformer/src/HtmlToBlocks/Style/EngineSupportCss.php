@@ -696,6 +696,14 @@ final class EngineSupportCss
             // navigation: its content keeps the source box and paint.
             $parts[] = ':root :where(a.' . FallbackEmitter::LINK_CONTENTS_CLASS . '){display:contents;color:inherit;text-decoration:inherit}';
         }
+        if ( 1 === preg_match('/<input\b[^>]*\btype\s*=\s*["\']?date["\'\s>\/]/i', $serializedBlocks) ) {
+            // A source date control hands off to the provider's date field,
+            // which prints a visible "YYYY-MM-DD" format hint the source never
+            // painted. Its description link (aria-describedby) survives
+            // display:none; the hints row stops boxing so other hints stay put.
+            $parts[] = '.grunion-field-wrap .contact-form__field-hints:has(>.contact-form__field-format){display:contents}'
+                . "\n" . '.grunion-field-wrap .contact-form__field-hints>.contact-form__field-format{display:none}';
+        }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
             // because a content-wrapping link was pushed into the block. It
