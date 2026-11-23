@@ -81,8 +81,8 @@ it.
   process startup and compile.
 - `tests/run.php` runs `BLOCKS_ENGINE_TEST_JOBS` scripts at once, else one per
   CPU available to the process (affinity and cgroup quota); `--jobs=N`
-  overrides both. Children share an opcache file cache
-  (`BLOCKS_ENGINE_TEST_OPCACHE=0` turns it off).
+  overrides both. `BLOCKS_ENGINE_TEST_OPCACHE=1` opts children into a shared
+  opcache file cache (off by default: each child maps its own opcache memory).
 - Parity fixtures in `tests/fixtures/parity` pin end-to-end output. When a
   change alters output, update the fixture and explain the difference in the
   pull request.

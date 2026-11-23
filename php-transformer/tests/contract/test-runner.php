@@ -85,11 +85,11 @@ try {
 
     // A script edited after it was cached must run as edited, not from the cache.
     $write('a-pass.php', 'exit(9);', 30);
-    [$code, $output] = $run(array());
+    [$code, $output] = $run(array(), array('BLOCKS_ENGINE_TEST_OPCACHE' => '1'));
     $check(1 === $code && str_contains($output, "FAIL {$dir}/a-pass.php"), "Edited script must not be served from the opcache file cache:\n{$output}");
 
-    [$code, $output] = $run(array(), array('BLOCKS_ENGINE_TEST_OPCACHE' => '0'));
-    $check(1 === $code && str_contains($output, 'opcache file cache off'), "BLOCKS_ENGINE_TEST_OPCACHE=0 disables the cache:\n{$output}");
+    [$code, $output] = $run(array());
+    $check(1 === $code && str_contains($output, 'opcache file cache off'), "The opcache file cache is opt-in:\n{$output}");
 
     // With an affinity mask of 4 CPUs (Linux), the default budget is at most 4.
     if ( PHP_OS_FAMILY === 'Linux' && '' !== trim((string) shell_exec('command -v taskset 2>/dev/null')) && TestJobBudget::availableCpus() >= 4 ) {

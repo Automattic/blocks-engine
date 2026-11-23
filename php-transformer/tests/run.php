@@ -13,10 +13,11 @@
  * mask and cgroup quota, not the host count); see TestJobBudget.
  *
  * Every script still runs in its own process, so a fatal error or exit in one
- * cannot hide another's failure. To cut the per-process startup cost, children
- * share an opcache file cache: the autoloader and source classes compile once
- * per change instead of once per script. Set BLOCKS_ENGINE_TEST_OPCACHE=0 to
- * turn the cache off.
+ * cannot hide another's failure. Set BLOCKS_ENGINE_TEST_OPCACHE=1 to have
+ * children share an opcache file cache, so the autoloader and source classes
+ * compile once per change instead of once per script. It is opt-in because
+ * every child also maps its own opcache shared memory, which exhausts memory
+ * on small CI runners.
  */
 
 declare(strict_types=1);
@@ -67,7 +68,7 @@ $scaling = array_values(array_filter($tests, static fn (string $test): bool => s
 function child_php_command(string $root): array
 {
     $command = array(PHP_BINARY);
-    if ( '0' === getenv('BLOCKS_ENGINE_TEST_OPCACHE') || !extension_loaded('Zend OPcache') ) {
+    if ( '1' !== getenv('BLOCKS_ENGINE_TEST_OPCACHE') || !extension_loaded('Zend OPcache') ) {
         return $command;
     }
     $cache = sys_get_temp_dir() . '/blocks-engine-test-opcache-' . md5($root . PHP_VERSION);
