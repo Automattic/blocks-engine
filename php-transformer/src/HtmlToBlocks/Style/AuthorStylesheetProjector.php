@@ -1162,20 +1162,24 @@ final class AuthorStylesheetProjector
         // let that author selector also space the invented box. Selectors that
         // name their subject (or reset every element) cannot double it.
         $providerShell = false;
+        $authoredShell = false;
         foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
-            $positionalChild = self::isPositionalChildSelector($parsed);
+            if ( ! self::isPositionalChildSelector($parsed) ) {
+                continue;
+            }
             foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
-                $form = $positionalChild ? SourceDom::ancestorElement($element, 'form') : null;
+                $form = SourceDom::ancestorElement($element, 'form');
                 if ( null !== $form && FormControlClassifier::isDataEntryControl($element) && array() !== FormDispatcher::hostRenderedClasses($form) ) {
                     $providerShell = true;
                 }
                 // An authored use of the same class still owns its margins.
                 if ( in_array('grunion-field-wrap', SourceDom::tokens($element->getAttribute('class')), true) ) {
-                    return $projected;
+                    $authoredShell = true;
                 }
             }
         }
+        $providerShell = $providerShell && ! $authoredShell;
         $selectors = CssStylesheetTransformer::splitSelectorList($projected);
         if ( null === $selectors ) {
             return $projected;
