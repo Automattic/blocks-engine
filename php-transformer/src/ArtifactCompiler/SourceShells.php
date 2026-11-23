@@ -235,7 +235,11 @@ final class SourceShells
         foreach ($ignoreViewportEntrance ? ($xpath->query('//*[@' . RouteStateProjector::RESTING_STATE_ATTRIBUTE . ']') ?: array()) : array() as $node) {
             if (!$node instanceof \DOMElement) continue;
             $state = json_decode($node->getAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE), true);
-            if (!is_array($state) || !is_array($state['current']['class'] ?? null) || array() !== ($state['rest']['class'] ?? array())) continue;
+            if (!is_array($state)) continue;
+            foreach ($state['current'] ?? array() as $name => $value) {
+                if (str_starts_with($name, 'data-') && !str_starts_with($name, 'data-blocks-engine-') && null !== $value && null === ($state['rest'][$name] ?? null)) $node->removeAttribute($name);
+            }
+            if (!is_array($state['current']['class'] ?? null) || array() !== ($state['rest']['class'] ?? array())) continue;
             $classes = array_values(array_diff(SourceDom::tokens($node->getAttribute('class')), $state['current']['class']));
             if (array() === $classes) $node->removeAttribute('class');
             else $node->setAttribute('class', implode(' ', $classes));

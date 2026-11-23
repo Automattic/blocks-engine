@@ -392,6 +392,16 @@ final class AuthorSelectorProjector
             return $arms;
         }
         $matches = $this->matchingSourceElements($selector, $parsed, $context);
+        $restingSelector = trim($context->selectorProjections->withoutCurrentNavigationAttributes($selector));
+        if ($restingSelector !== trim($selector)) {
+            // An attribute-only ancestor still owns an element at rest.
+            $restingSelector = preg_replace('/^\s+/', '* ', $context->selectorProjections->withoutCurrentNavigationAttributes($selector)) ?? $restingSelector;
+            if ('' === trim($restingSelector)) $restingSelector = '*';
+            $restingParsed = $context->sourceStyles->parsedSelector($restingSelector);
+            if ($restingParsed['supported']) foreach ($this->matchingSourceElements($restingSelector, $restingParsed, $context) as $candidate) {
+                if ('' !== $context->selectorProjections->navigationSubject($context->authorStyles->sourcePath($candidate)) && !in_array($candidate, $matches, true)) $matches[] = $candidate;
+            }
+        }
         foreach ($matches as $element) {
             if ($context->selectorProjections->isRetainedAuthoredControl($element->getNodePath() ?? '')
                 && !($parsed['compounds'][count($parsed['compounds']) - 1]['universal'] ?? false)) {
