@@ -494,21 +494,49 @@ final class VisualIframeBlockGenerator
      * Whether a frame covers its positioned containing block under every
      * author rule, so that ancestor box (a percentage-padding ratio box, or a
      * sized wrapper) owns its size rather than the frame itself.
+     *
+     * The provider embed replaces the frame with core's oEmbed markup, so
+     * frames whose source carries playback parameters or non-default
+     * restrictions, or whose fill depends on a fixed position, a size
+     * attribute or a viewport-specific offset, keep the source-sized frame.
      */
     private function fillsContainingBlock(DOMElement $iframe, StyleResolver $styleResolver): bool
     {
-        if ( ! $styleResolver->positionedLayerCoversContainingBlock($iframe) ) {
+        if ( ! $styleResolver->positionedLayerCoversContainingBlock($iframe) || ! $this->providerEmbedKeepsFrameBehavior($iframe) ) {
             return false;
         }
-        $declared = $styleResolver->authorDeclaredPropertyValues($iframe, array( 'position', 'width', 'height' ));
+        $declared = $styleResolver->authorDeclaredPropertyValues($iframe, array( 'position', 'width', 'height', 'top', 'right', 'bottom', 'left', 'inset' ));
+        if ( array() === ( $declared['width'] ?? array() ) || array() === ( $declared['height'] ?? array() ) ) {
+            return false;
+        }
+        $zero = static fn (string $value): bool => CssValueInspector::isZeroLength($value);
         foreach ( $declared as $property => $values ) {
-            $accepted = 'position' === $property ? array( 'absolute', 'fixed' ) : array( '100%' );
-            if ( array() !== array_diff($values, $accepted) ) {
-                return false;
+            foreach ( $values as $value ) {
+                $accepted = match ($property) {
+                    'position' => 'absolute' === $value,
+                    'width', 'height' => '100%' === $value,
+                    'top', 'left' => $zero($value),
+                    'right', 'bottom' => 'auto' === $value || $zero($value),
+                    'inset' => array() === array_filter(CssValueInspector::expandBoxShorthand($value), static fn (string $side): bool => ! $zero($side)),
+                    default => true,
+                };
+                if ( ! $accepted ) {
+                    return false;
+                }
             }
         }
 
         return true;
+    }
+
+    /** Whether core's oEmbed frame behaves as the source frame: no playback parameters, sandbox or non-default referrer policy. */
+    private function providerEmbedKeepsFrameBehavior(DOMElement $iframe): bool
+    {
+        $referrerPolicy = strtolower(trim($iframe->getAttribute('referrerpolicy')));
+
+        return '' === (string) parse_url($iframe->getAttribute('src'), PHP_URL_QUERY)
+            && ! $iframe->hasAttribute('sandbox')
+            && in_array($referrerPolicy, array( '', 'strict-origin-when-cross-origin' ), true);
     }
 
     /**

@@ -32,4 +32,27 @@ $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? 
 $conditional = str_replace('iframe{border:none}', 'iframe{border:none}@media(max-width:600px){.movie iframe{position:static;height:300px}}', $source);
 $conditionalEmbed = $find((new HtmlTransformer())->transform($conditional)->toArray()['blocks']);
 $assert(null !== $conditionalEmbed && isset($conditionalEmbed['attrs']['metadata']['blocksEngineIframe']), 'Conditionally in-flow frames keep their source-sized frame.');
+
+// The standard embed code's default referrer policy is what core's frame uses too.
+$defaultPolicy = str_replace('allowfullscreen=""', 'allowfullscreen="" referrerpolicy="strict-origin-when-cross-origin"', $source);
+$defaultPolicyEmbed = $find((new HtmlTransformer())->transform($defaultPolicy)->toArray()['blocks']);
+$assert(null !== $defaultPolicyEmbed && 'youtube' === ($defaultPolicyEmbed['attrs']['providerNameSlug'] ?? ''), 'A default referrer policy still takes the provider path.');
+
+$keepsFrame = array(
+    'playback parameters' => str_replace('embed/demo123"', 'embed/demo123?start=90"', $source),
+    'a sandbox' => str_replace('allowfullscreen=""', 'allowfullscreen="" sandbox="allow-scripts"', $source),
+    'a stricter referrer policy' => str_replace('allowfullscreen=""', 'allowfullscreen="" referrerpolicy="no-referrer"', $source),
+    'a fixed position' => str_replace('iframe{border:none}', 'iframe{border:none}.movie iframe{position:fixed}', $source),
+    'size attributes under zero insets' => str_replace(
+        array( '.movie div,.movie iframe{position:absolute;top:0;left:0;display:block;width:100%;height:100%}', 'width="100%" height="444"' ),
+        array( '.movie div{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.movie iframe{position:absolute;inset:0}', 'width="320" height="180"' ),
+        $source
+    ),
+    'a viewport-specific offset' => str_replace('iframe{border:none}', 'iframe{border:none}@media(max-width:600px){.movie iframe{top:30px}}', $source),
+);
+foreach ( $keepsFrame as $case => $html ) {
+    $embed = $find((new HtmlTransformer())->transform($html)->toArray()['blocks']);
+    $classes = explode(' ', (string) ($embed['attrs']['className'] ?? ''));
+    $assert(null === $embed || ! in_array('blocks-engine-fill-embed-figure', $classes, true), "A frame with {$case} keeps the source-sized frame.");
+}
 echo "PASS: ratio-box provider iframe\n";
