@@ -212,6 +212,17 @@ final class EngineSupportCss
                 // instead of its intrinsic aspect ratio.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS) ) {
+            // The source frame covered its positioned containing block, which
+            // the converted ancestors keep. The figure takes over that layer,
+            // and core's wrapper and the oEmbed iframe fill it.
+            $fill = ':root :where(figure.' . SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS . ')';
+            $parts[] = $fill . '{position:absolute;top:0;left:0;width:100%;height:100%}'
+                // The editor positions every block root relative to itself.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS . '.wp-block-embed{position:absolute}'
+                . $fill . '>.wp-block-embed__wrapper{height:100%}'
+                . $fill . '>.wp-block-embed__wrapper iframe{display:block;width:100%;height:100%}';
+        }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
         }

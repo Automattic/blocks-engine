@@ -2204,6 +2204,31 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * An absolutely positioned box whose extent is its containing block's:
+     * all four insets pinned to zero, or a full width and height from a
+     * pinned top-left corner.
+     */
+    public function positionedLayerCoversContainingBlock(DOMElement $element): bool
+    {
+        $declarations = $this->structuralPresentationDeclarations($element);
+        if ( ! in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::declared($declarations, 'inset'));
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $index => $side ) {
+            $value = CssValueInspector::declared($declarations, $side);
+            $sides[ $index ] = '' === $value ? $sides[ $index ] : $value;
+        }
+        $zero = static fn (string $value): bool => '' !== $value && CssValueInspector::isZeroLength($value);
+        if ( 4 === count(array_filter($sides, $zero)) ) {
+            return true;
+        }
+        return $zero($sides[0]) && $zero($sides[3])
+            && '100%' === CssValueInspector::declared($declarations, 'width')
+            && '100%' === CssValueInspector::declared($declarations, 'height');
+    }
+
+    /**
      * A source image laid out as a flex or grid item. Its core/image figure
      * becomes `display:contents` so the image keeps that item box.
      */
