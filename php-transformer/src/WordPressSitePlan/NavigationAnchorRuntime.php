@@ -77,10 +77,10 @@ $blocks_engine_navigation_anchor = static function ( string $content, array $blo
     }
     $content = $processor->get_updated_html();
     if ( is_string( $presentation['svg'] ?? null ) && '' !== $presentation['svg'] ) {
-        $attributes = array_fill_keys( array( 'xmlns', 'width', 'height', 'viewbox', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'points', 'transform', 'class', 'style' ), true );
-        $svg = wp_kses( $presentation['svg'], array_fill_keys( array( 'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon' ), $attributes ) );
-        if ( str_starts_with( $svg, '<svg' ) ) {
-            $svg = preg_replace( '/^<svg\b/', '<svg aria-hidden="true" focusable="false"', $svg, 1 );
+        $attributes = array_fill_keys( array( 'xmlns', 'xmlns:xlink', 'href', 'xlink:href', 'width', 'height', 'viewbox', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'points', 'transform', 'class', 'style' ), true );
+        $svg = wp_kses( $presentation['svg'], array_fill_keys( array( 'svg', 'div', 'span', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'use' ), $attributes ) );
+        if ( str_contains( $svg, '<svg' ) ) {
+            $svg = preg_replace( '/<svg\b/', '<svg aria-hidden="true" focusable="false"', $svg, 1 );
             // An icon-only anchor's label is its hidden accessible name; an
             // icon beside visible text keeps that text painted after it.
             $visible = true === ( $presentation['labelVisible'] ?? null );

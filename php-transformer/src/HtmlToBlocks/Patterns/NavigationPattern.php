@@ -3241,9 +3241,19 @@ final class NavigationPattern implements PatternRecognizerInterface
         // carry it as anchor presentation so the runtime renders it before the
         // label. An icon-only anchor hides its label (the accessible name); a
         // leading icon beside visible text keeps the label painted.
-        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? array()) : array();
-        if (array() !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor'] += $artwork;
-        else $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
+        $iconMarker = $navigationContext?->linkIconMarker($anchor) ?? '';
+        $artwork = '' === $iconMarker || (isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) && $anchor->firstElementChild instanceof DOMElement && 'svg' === strtolower($anchor->firstElementChild->tagName))
+            ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? array()) : array();
+        if (array() !== $artwork) {
+            $linkAttrs['metadata']['blocksEngineNavigationAnchor'] = ($linkAttrs['metadata']['blocksEngineNavigationAnchor'] ?? array()) + $artwork;
+        }
+        else {
+            $marker = $iconMarker;
+            $linkAttrs = $this->withClassName($linkAttrs, $marker);
+        }
+        if ('' !== trim($anchor->getAttribute('aria-label')) && '' === trim($anchor->textContent ?? '') && (array() !== $artwork || '' !== $iconMarker)) {
+            $linkAttrs['label'] = SourceDom::visuallyHiddenLabel(html_entity_decode(strip_tags($linkAttrs['label']), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        }
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
     }

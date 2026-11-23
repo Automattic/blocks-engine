@@ -186,6 +186,13 @@ final class NavigationEntityProjection
                 if (in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) {
                     $result[] = array(
                         'block' => $block['blockName'],
+                        // Artwork is source structure, not interchangeable
+                        // presentation. Equal destinations do not make a header
+                        // icon and a content sprite the same navigation item.
+                        ... (isset($attrs['metadata']['blocksEngineNavigationAnchor']['svg']) ? array(
+                            'artwork' => preg_replace('/\sblocks-engine-[a-z0-9-]+/', '', (string) $attrs['metadata']['blocksEngineNavigationAnchor']['svg']),
+                            'artworkCarrier' => preg_replace('/(?:^|\s)blocks-engine-[a-z0-9-]+/', '', (string) ($attrs['className'] ?? '')),
+                        ) : array()),
                         'label' => self::labelText((string) ($attrs['label'] ?? '')),
                         'url' => (string) ($attrs['url'] ?? ''),
                         'kind' => (string) ($attrs['kind'] ?? 'custom'),
