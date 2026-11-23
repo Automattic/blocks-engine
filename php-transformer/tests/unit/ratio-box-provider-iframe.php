@@ -43,6 +43,8 @@ $keepsFrame = array(
     'a sandbox' => str_replace('allowfullscreen=""', 'allowfullscreen="" sandbox="allow-scripts"', $source),
     'a stricter referrer policy' => str_replace('allowfullscreen=""', 'allowfullscreen="" referrerpolicy="no-referrer"', $source),
     'a fixed position' => str_replace('iframe{border:none}', 'iframe{border:none}.movie iframe{position:fixed}', $source),
+    'an inline fixed position' => str_replace('allowfullscreen=""', 'allowfullscreen="" style="position:fixed"', $source),
+    'lazy playback parameters' => str_replace('src="https://www.youtube.com/embed/demo123"', 'src="about:blank" data-src="https://www.youtube.com/embed/demo123?start=90"', $source),
     'size attributes under zero insets' => str_replace(
         array( '.movie div,.movie iframe{position:absolute;top:0;left:0;display:block;width:100%;height:100%}', 'width="100%" height="444"' ),
         array( '.movie div{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.movie iframe{position:absolute;inset:0}', 'width="320" height="180"' ),

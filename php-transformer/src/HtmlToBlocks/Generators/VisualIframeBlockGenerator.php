@@ -100,7 +100,7 @@ final class VisualIframeBlockGenerator
         // except an inline fill at a core embed ratio, which core/embed draws as is.
         // Hidden frames also keep their native element so source hiding selectors still apply.
         $fluidRatio = '' === $providerNameSlug ? null : $this->fluidAspectRatio($surface, $styleResolver);
-        $fillsContainingBlock = '' !== $providerNameSlug && null === $fluidRatio && $this->fillsContainingBlock($surface, $styleResolver);
+        $fillsContainingBlock = '' !== $providerNameSlug && null === $fluidRatio && $this->fillsContainingBlock($surface, $url, $styleResolver);
         $sourceSized = null === $fluidRatio && ! $fillsContainingBlock && $this->sourceOwnsIframeGeometry($surface, $styleResolver);
         if ( '' !== $providerNameSlug && ! $sourceSized && ! $sourceElementStartsHidden($surface) ) {
             $embedAttrs = array_merge($styleResolver->presentationAttributes($surface), array(
@@ -500,9 +500,10 @@ final class VisualIframeBlockGenerator
      * restrictions, or whose fill depends on a fixed position, a size
      * attribute or a viewport-specific offset, keep the source-sized frame.
      */
-    private function fillsContainingBlock(DOMElement $iframe, StyleResolver $styleResolver): bool
+    private function fillsContainingBlock(DOMElement $iframe, string $url, StyleResolver $styleResolver): bool
     {
-        if ( ! $styleResolver->positionedLayerCoversContainingBlock($iframe) || ! $this->providerEmbedKeepsFrameBehavior($iframe) ) {
+        if ( ! $styleResolver->positionedLayerCoversContainingBlock($iframe) || ! $this->providerEmbedKeepsFrameBehavior($iframe, $url)
+            || 'absolute' !== CssValueInspector::declared($styleResolver->structuralPresentationDeclarations($iframe), 'position') ) {
             return false;
         }
         $declared = $styleResolver->authorDeclaredPropertyValues($iframe, array( 'position', 'width', 'height', 'top', 'right', 'bottom', 'left', 'inset' ));
@@ -530,11 +531,11 @@ final class VisualIframeBlockGenerator
     }
 
     /** Whether core's oEmbed frame behaves as the source frame: no playback parameters, sandbox or non-default referrer policy. */
-    private function providerEmbedKeepsFrameBehavior(DOMElement $iframe): bool
+    private function providerEmbedKeepsFrameBehavior(DOMElement $iframe, string $url): bool
     {
         $referrerPolicy = strtolower(trim($iframe->getAttribute('referrerpolicy')));
 
-        return '' === (string) parse_url($iframe->getAttribute('src'), PHP_URL_QUERY)
+        return '' === (string) parse_url($url, PHP_URL_QUERY)
             && ! $iframe->hasAttribute('sandbox')
             && in_array($referrerPolicy, array( '', 'strict-origin-when-cross-origin' ), true);
     }
