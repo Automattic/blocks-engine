@@ -117,7 +117,8 @@ final class LinkWrapperPropagator
      * The wrapper's own colour counts only when it is owned by the wrapper's
      * identity (an inline style, a class, id or attribute selector). That
      * identity stays on the container block the wrapper became, so the rebuilt
-     * bare anchor loses it; a colour reaching the wrapper by type alone still
+     * bare anchor loses it, including an explicit `color:inherit` that opts out
+     * of generic link paint; a colour reaching the wrapper by type alone still
      * reaches the rebuilt anchor, and no repaint is owed. Text sitting directly
      * in the anchor is unpainted from within, so a wrapper that holds any is
      * left exactly as it is.
@@ -158,13 +159,16 @@ final class LinkWrapperPropagator
     private function wrapperIdentityOwnsTextColor(DOMElement $anchor): bool
     {
         $inline = SourceDeclarations::inline($anchor);
-        if ( $this->isPaintedColor((string) ($inline['color'] ?? '')) ) {
+        if ( '' !== trim((string) ($inline['color'] ?? '')) ) {
             return true;
         }
         $declarations = SourceDeclarations::parse(
             $this->styleResolver->controlSurfaceResolvedStyle($anchor)
         );
-        if ( ! $this->isPaintedColor((string) ($declarations['color'] ?? '')) ) {
+        // An explicit inheritance/reset value is still presentation owned by
+        // this identity. It stays on the replacement container, while the new
+        // bare anchor would otherwise pick up the site's generic link colour.
+        if ( '' === trim((string) ($declarations['color'] ?? '')) ) {
             return false;
         }
         list( $ids, $classes ) = $this->styleResolver->authorNormalDeclarationSpecificity($anchor, array( 'color' ));
