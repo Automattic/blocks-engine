@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
@@ -786,7 +787,7 @@ final class RouteStateProjector
                 foreach (self::classes($element) as $class) $worn[$class] = true;
             }
         }
-        $sheetRules = array(); $namedHere = array();
+        $sheetRules = array(); $namedHere = array(); $classRules = array();
         foreach (array_keys($documents) as $index) {
             // Each class's rules in this document's own sheets, in order.
             $rules = array(); $unaliasable = array();
@@ -805,8 +806,8 @@ final class RouteStateProjector
                                 }
                                 if (!$alone) { $sheetRules[$sheet][1][$class] = true; continue; }
                                 // Copies keep each route's own scope, so the slot only lets equal rules meet.
-                                $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", trim($selector)));
-                                $sheetRules[$sheet][0][$class][] = array(implode("\0", $ancestors), $read, RenderEquivalentMarkup::canonicalStyle($body));
+                                $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", self::selectorReading($selector)));
+                                $sheetRules[$sheet][0][$class][] = array(implode("\0", $ancestors), $read, RenderEquivalentMarkup::canonicalStyle($body), trim($selector));
                             }
                         }
                     });
@@ -818,7 +819,28 @@ final class RouteStateProjector
             foreach ($rules as $class => $meaning) {
                 // Engine-minted classes (re-ingested control bindings) are no route vocabulary.
                 if (str_starts_with($class, 'blocks-engine-') || isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
-                $meanings[$index][$class] = self::classMeaning($meaning);
+                $classRules[$index][$class] = $meaning;
+                $meanings[$index][$class] = self::classMeaning(self::ruleReadings($meaning));
+            }
+        }
+        // A rule that selects nothing in a document says nothing there about
+        // what its class means. Copies of one panel carry different dead
+        // rules (states it is not in, parts it does not render) depending on
+        // which route captured them, so a class read differently across
+        // routes is read again from the rules its document can apply.
+        $classReadings = array();
+        foreach ($meanings as $classes) foreach ($classes as $class => $meaning) $classReadings[$class][$meaning] = true;
+        $elements = array();
+        foreach ($classRules as $index => $classes) {
+            foreach ($classes as $class => $rules) {
+                if (count($classReadings[$class]) < 2) continue;
+                $elements[$index] ??= iterator_to_array($documents[$index]->getElementsByTagName('*'));
+                $live = array_values(array_filter($rules, static function (array $rule) use ($elements, $index): bool {
+                    $selector = CssSelectorMatcher::parse($rule[3]);
+                    // A selector the matcher cannot read may still apply.
+                    return !($selector['supported'] ?? false) || array() !== CssSelectorMatcher::filterMatching($elements[$index], $selector, true);
+                }));
+                if (array() !== $live) $meanings[$index][$class] = self::classMeaning(self::ruleReadings($live));
             }
         }
         $names = array(); $readings = array();
@@ -1190,6 +1212,34 @@ final class RouteStateProjector
         }
 
         return $count;
+    }
+
+    /**
+     * A selector as it reads, not as it is spelled: a minifier that drops the
+     * quotes around an identifier attribute value (`[fill=currentColor]`) or
+     * the spaces around a combinator writes the same selector, and must not
+     * make one route's copy of a rule mean something else than another's.
+     */
+    private static function selectorReading(string $selector): string
+    {
+        $selector = (string) preg_replace_callback('/\[\s*([A-Za-z_-][A-Za-z0-9_:-]*)\s*([~|^$*]?=)\s*(?:"([^"]*)"|\'([^\']*)\'|([^\]\s"\']+))\s*(\s[iIsS])?\s*\]/', static function (array $match): string {
+            $value = '' !== ($match[3] ?? '') ? $match[3] : ('' !== ($match[4] ?? '') ? $match[4] : ($match[5] ?? ''));
+            $value = 1 === preg_match('/^-?[A-Za-z_][A-Za-z0-9_-]*$/', $value) ? $value : '"' . addcslashes($value, '"\\') . '"';
+            return '[' . $match[1] . $match[2] . $value . (isset($match[6]) ? ' ' . strtolower(trim($match[6])) : '') . ']';
+        }, trim($selector));
+        $selector = (string) preg_replace('/\s*([>+~])\s*(?![^\[]*\])/', '$1', $selector);
+        return (string) preg_replace('/\s+/', ' ', $selector);
+    }
+
+    /**
+     * A rule's reading without the selector it was read from.
+     *
+     * @param list<array{0:string,1:string,2:string,3:string}> $rules
+     * @return list<array{0:string,1:string,2:string}>
+     */
+    private static function ruleReadings(array $rules): array
+    {
+        return array_map(static fn(array $rule): array => array($rule[0], $rule[1], $rule[2]), $rules);
     }
 
     /**
