@@ -5600,6 +5600,19 @@ final class StyleResolver implements ElementPresentationResolver
         return $resting + $this->cascadeWinners($state->matchingRules($element, 'static-conditional'), self::DESKTOP_REFERENCE_WIDTH, null, $inline, true);
     }
 
+    /**
+     * classRecipeOrigins() limited to the unconditional rules, which every
+     * resolved element has already matched: a property only a conditional
+     * rule sets has no origin here.
+     *
+     * @return array<string, string>
+     */
+    public function staticRecipeOrigins(DOMElement $element): array
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        return $this->cascadeWinners($state->matchingRules($element, 'static'), self::DESKTOP_REFERENCE_WIDTH, null, SourceDom::attr($element, 'style'), true);
+    }
+
     /** Only a selector that matches the element by itself, with no ancestry or position, defines a portable recipe. */
     private function isClassRecipeSelector(string $selector): bool
     {
