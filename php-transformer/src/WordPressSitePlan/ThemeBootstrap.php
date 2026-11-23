@@ -536,6 +536,9 @@ PHP;
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "        if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
             $lines[] = "        if ( 'post_template' === \$scope['kind'] && 'post' === \$post->post_type && ( 'single' === \$scope['template'] ? '' === get_page_template_slug( \$post->ID ) : \$scope['template'] === get_page_template_slug( \$post->ID ) ) ) { \$matches = true; break; }";
+            if (in_array('post', array_column($scopes, 'kind'), true)) {
+                $lines[] = "        if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
+            }
             $lines[] = "        if ( 'page' === \$scope['kind'] ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
             $lines[] = "    }";
             $lines[] = "    return \$matches;";
@@ -973,16 +976,12 @@ PHP;
         }
         // Replay a design's sequence once, rather than testing the identities
         // of every imported post. Keep source ownership for publication clients.
-        $postTemplates = $representatives = array();
-        foreach ($pages as $page) {
-            if ('post' !== ($page['post_type'] ?? null)) continue;
-            $template = $page['route_template'] ?? 'single';
-            $postTemplates[$page['source_path']] = $template;
-            $representatives[$template] ??= $page['source_path'];
-        }
+        $postTemplates = self::sharedPostStylesheetTemplates($expanded, $pages);
+        $representatives = array();
+        foreach ($postTemplates as $source => $template) $representatives[$template] ??= $source;
         $designScope = static function (array $scope) use ($postTemplates): array {
-            if ('post' !== $scope['kind']) return $scope;
-            return array('kind' => 'post_template', 'template' => $postTemplates[$scope['source_path']] ?? 'single', 'source_path' => $scope['source_path']);
+            if ('post' !== $scope['kind'] || !isset($postTemplates[$scope['source_path']])) return $scope;
+            return array('kind' => 'post_template', 'template' => $postTemplates[$scope['source_path']], 'source_path' => $scope['source_path']);
         };
         $result = array();
         foreach ($expanded as $row) {
@@ -993,6 +992,39 @@ PHP;
             $result[] = $row;
         }
         return $result;
+    }
+
+    /**
+     * A template can lend one post's stylesheet sequence only when every member
+     * agrees on the ordered resources and their delivery conditions. Template
+     * identity alone says nothing about captured route-local presentation.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @param list<array<string,mixed>> $pages
+     * @return array<string,string> Post source paths whose template can share CSS.
+     */
+    private static function sharedPostStylesheetTemplates(array $rows, array $pages): array
+    {
+        $templates = $sequences = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null)) continue;
+            $source = $page['source_path'];
+            $templates[$page['route_template'] ?? 'single'][] = $source;
+            $sequences[$source] = array();
+            foreach ($rows as $row) {
+                if (!empty($row['fallback'])) continue;
+                $scopes = $row['scopes'] ?? array($row['scope']);
+                $owned = isset($row['route']) ? $source === $row['route'] : in_array('global', array_column($scopes, 'kind'), true) || in_array($source, array_column($scopes, 'source_path'), true);
+                if (!$owned) continue;
+                $sequences[$source][] = array($row['asset']['target_path'], $row['media'], $row['asset']['stylesheet_target'] ?? 'both', PageStylesheets::deviceAttributes($row));
+            }
+        }
+        $shared = array();
+        foreach ($templates as $template => $sources) {
+            foreach ($sources as $source) if ($sequences[$source] !== $sequences[$sources[0]]) continue 2;
+            foreach ($sources as $source) $shared[$source] = (string) $template;
+        }
+        return $shared;
     }
 
     /**
@@ -1012,16 +1044,15 @@ PHP;
         $importLoaded = self::importLoadedStylesheets($assets);
         $pages = ArrayField::array($plan, 'pages');
         $bySource = array_column($pages, null, 'source_path');
-        if ('post' === ($bySource[$sourcePath]['post_type'] ?? null)) {
-            $template = $bySource[$sourcePath]['route_template'] ?? 'single';
-            foreach ($pages as $page) if ('post' === ($page['post_type'] ?? null) && $template === ($page['route_template'] ?? 'single')) { $sourcePath = $page['source_path']; break; }
-        }
         $sequence = array();
         foreach (self::stylesheetEnqueues($assets, ArrayField::array($plan, 'pages'), $plan['theme']['document_roots'] ?? array()) as $enqueue) {
             $asset = $enqueue['asset'];
             if (!empty($enqueue['fallback']) || isset($importLoaded[$asset['target_path']])) continue;
             $owned = isset($enqueue['route']) ? $sourcePath === $enqueue['route'] : ('global' === $enqueue['scope']['kind'] || $sourcePath === ($enqueue['scope']['source_path'] ?? null));
             if (isset($enqueue['scopes'])) $owned = in_array('global', array_column($enqueue['scopes'], 'kind'), true) || in_array($sourcePath, array_column($enqueue['scopes'], 'source_path'), true);
+            foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $scope) {
+                if ('post_template' === $scope['kind'] && 'post' === ($bySource[$sourcePath]['post_type'] ?? null) && $scope['template'] === ($bySource[$sourcePath]['route_template'] ?? 'single')) $owned = true;
+            }
             if ($owned) $sequence[] = array('target_path' => (string) $asset['target_path'], 'handle' => (string) $enqueue['handle'], 'media' => (string) $enqueue['media'], 'stylesheet_target' => (string) ($asset['stylesheet_target'] ?? 'both'));
         }
         return $sequence;
