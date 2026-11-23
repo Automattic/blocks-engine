@@ -111,9 +111,11 @@ final class CssSelectorMatcher
 			return $cache[$selector];
 		}
 		$parsed = self::parseUncached($selector);
-		if ( count($cache) < 10000 ) {
-			$cache[$selector] = $parsed;
+		// Past the bound, drop the oldest half instead of freezing the cache.
+		if ( count($cache) >= 10000 ) {
+			$cache = array_slice($cache, 5000, null, true);
 		}
+		$cache[$selector] = $parsed;
 		return $parsed;
 	}
 
