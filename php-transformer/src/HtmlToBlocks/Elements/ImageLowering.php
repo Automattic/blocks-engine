@@ -29,6 +29,7 @@ use DOMElement;
 final class ImageLowering
 {
     public const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
+    public const BACKGROUND_IMAGE_HOST_CLASS = 'blocks-engine-background-image-host';
     public const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
 
     public function __construct(
@@ -193,7 +194,7 @@ final class ImageLowering
         $carrier = $this->session->layoutGeometryState()->allocateCarrier('materialized-background' . "\n" . $rule);
         $this->session->layoutGeometryState()->registerRule($carrier, ':root .' . $carrier . $rule);
         $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier, self::BACKGROUND_IMAGE_HOST_CLASS);
         return $this->blocks->createBlock('core/group', $attrs, array( $image ), $element);
     }
 

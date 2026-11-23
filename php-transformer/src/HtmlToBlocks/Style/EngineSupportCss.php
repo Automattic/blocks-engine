@@ -305,7 +305,11 @@ final class EngineSupportCss
             // Author img selectors can newly match the synthetic leaf. Keep
             // its stacking inside the background figure so it cannot rise
             // above content that painted over the original background.
-            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '){isolation:isolate!important}'
+            // Paint is out of flow even when the host has only min-height.
+            // Low specificity lets authored positioning keep its containing block.
+            $parts[] = ':where(.' . ImageLowering::BACKGROUND_IMAGE_HOST_CLASS . '){position:relative}'
+                . "\n" . ':root .' . ImageLowering::BACKGROUND_IMAGE_HOST_CLASS . '>.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '{position:absolute;inset:0;margin:0}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '){isolation:isolate!important}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
                 // A propagated link has no source box. Size Core's auto-height
