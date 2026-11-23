@@ -39,8 +39,6 @@ final class UnreferencedEngineClasses
     /** Block comment attributes; WordPress escapes `--` and quotes in their JSON. */
     private const BLOCK_COMMENT = '/<!--\s+wp:[a-z0-9\/-]+\s+\{.*?\}\s+\/?-->/s';
 
-    private const COMMENT_CLASS = '/"(className|class)":"([^"]*)"/';
-
     /** Class attribute predicates that test the whole attribute text. */
     private const CLASS_PREDICATE = '/\[\s*class\s*([*^$|]?)=\s*(?:"([^"\\\\]*)"|\'([^\'\\\\]*)\'|([A-Za-z0-9_-]+))\s*([iIsS])?\s*\]/';
 
@@ -249,9 +247,7 @@ final class UnreferencedEngineClasses
     {
         $lists = array();
         if (preg_match_all(self::HTML_CLASS, $markup, $matches)) foreach ($matches[2] as $value) $lists[] = array('context' => 'html', 'value' => html_entity_decode($value, ENT_QUOTES | ENT_HTML5));
-        if (preg_match_all(self::BLOCK_COMMENT, $markup, $comments)) foreach ($comments[0] as $comment) {
-            if (preg_match_all(self::COMMENT_CLASS, $comment, $matches)) foreach ($matches[2] as $value) $lists[] = array('context' => 'comment', 'value' => $value);
-        }
+        foreach (BlockCommentClasses::values($markup) as $value) $lists[] = array('context' => 'comment', 'value' => $value);
         return $lists;
     }
 
@@ -277,10 +273,7 @@ final class UnreferencedEngineClasses
         };
         $markup = preg_replace_callback(self::HTML_CLASS, static fn (array $match): string => $match[1] . $filter($match[2]) . $match[3], $markup) ?? $markup;
         return preg_replace_callback(self::BLOCK_COMMENT, static function (array $comment) use ($filter): string {
-            $rewritten = preg_replace_callback(self::COMMENT_CLASS, static function (array $match) use ($filter): string {
-                $value = $filter($match[2]);
-                return 'className' === $match[1] && '' === $value && '' !== trim($match[2]) ? '"className":null' : '"' . $match[1] . '":"' . $value . '"';
-            }, $comment[0]) ?? $comment[0];
+            $rewritten = BlockCommentClasses::rewrite($comment[0], $filter);
             // An emptied className is no attribute at all.
             return (string) preg_replace(array('/,"className":null(?=[,}])/', '/(?<=\{)"className":null,?/', '/\s\{\}(?=\s+\/?-->)/'), '', $rewritten);
         }, $markup) ?? $markup;
