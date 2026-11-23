@@ -439,6 +439,16 @@ final class AuthorSelectorProjector
             if ( $this->matchesEmittedMarkup($coverChild, $context->emittedMarkup) ) {
                 $arms[] = $coverChild;
             }
+            // A card link pushed down into a block wraps all of that block's
+            // source children in one layout-transparent `<a>`, so the child
+            // edge now passes through it. Follow that one anchor only.
+            $host = rtrim(substr($selector, 0, $start));
+            if ( str_ends_with($host, '>') ) {
+                $linkChild = rtrim(substr($host, 0, -1)) . ':where(.' . SourceBlockAttributeProjector::PROPAGATED_LINK_CLASS . ')>:where(a)>' . substr($selector, $start);
+                if ( $this->matchesEmittedMarkup($linkChild, $context->emittedMarkup) ) {
+                    $arms[] = $linkChild;
+                }
+            }
         }
         $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
         if ( null !== $carrierChild ) {
@@ -1096,6 +1106,14 @@ final class AuthorSelectorProjector
                     continue;
                 }
                 $inlineLayoutCarriers = true;
+                // The carrier is only a candidate: paragraph lowering can keep
+                // the leaf as a RichText run instead (a flex `<p>` whose card
+                // link was pushed down around its children). That run answers
+                // to its marker, not to the carrier's topology or source tag.
+                $marker = $context->selectorProjections->richTextMarker($path);
+                if ( '' !== $marker && 1 === preg_match('/' . preg_quote($marker, '/') . '(?!\d)/', $context->emittedMarkup) ) {
+                    $richTextLeaves[] = $marker;
+                }
                 // Source analysis may add its own markers before stylesheet
                 // projection. Only the emitted paragraph can own this ID;
                 // unpromoted leaves make the additional selector inert.
