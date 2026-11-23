@@ -511,8 +511,45 @@ final class CssSelectorMatcher
             && is_array($compounds[0] ?? null) && self::isSubjectOnlyCompound($compounds[0]);
     }
 
+    /**
+     * Whether a selector reads only its subject and the subject's ancestors:
+     * their tag names, attributes and depth. Every combinator is a descendant
+     * or child combinator and no compound, nested ones included, reads sibling
+     * position, descendants or text. `:root` reads only depth. Two elements
+     * whose ancestor chains carry identical tags and attributes therefore get
+     * the same result, wherever and in whichever document they occur.
+     *
+     * @param array<string, mixed> $selector
+     */
+    public static function dependsOnlyOnAncestors(array $selector): bool
+    {
+        if ( ! ($selector['supported'] ?? false) ) {
+            return false;
+        }
+        return self::isAncestorOnlyComplex($selector['compounds'] ?? null, $selector['combinators'] ?? null);
+    }
+
+    /** @param mixed $compounds @param mixed $combinators */
+    private static function isAncestorOnlyComplex($compounds, $combinators): bool
+    {
+        if ( ! is_array($compounds) || array() === $compounds || ! is_array($combinators) || count($combinators) !== count($compounds) - 1 ) {
+            return false;
+        }
+        foreach ( $combinators as $combinator ) {
+            if ( ' ' !== $combinator && '>' !== $combinator ) {
+                return false;
+            }
+        }
+        foreach ( $compounds as $compound ) {
+            if ( ! is_array($compound) || ! self::isSubjectOnlyCompound($compound, true) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** @param array<string, mixed> $compound */
-    private static function isSubjectOnlyCompound(array $compound): bool
+    private static function isSubjectOnlyCompound(array $compound, bool $ancestors = false): bool
     {
         static $known = array(
             'type' => true, 'universal' => true, 'classes' => true, 'ids' => true, 'attributes' => true,
@@ -526,18 +563,21 @@ final class CssSelectorMatcher
             }
         }
         if ( null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_type'] ?? null)
-            || ! empty($compound['first_child']) || ! empty($compound['last_child']) || ! empty($compound['root'])
+            || ! empty($compound['first_child']) || ! empty($compound['last_child']) || ( ! $ancestors && ! empty($compound['root']) )
         ) {
             return false;
         }
+        $complex = static fn (array $selector): bool => $ancestors
+            ? self::isAncestorOnlyComplex($selector['compounds'] ?? null, $selector['combinators'] ?? null)
+            : self::isSubjectOnlyComplex($selector['compounds'] ?? null, $selector['combinators'] ?? null);
         foreach ( $compound['not'] ?? array() as $negated ) {
-            if ( ! is_array($negated) || ! self::isSubjectOnlyComplex($negated['compounds'] ?? null, $negated['combinators'] ?? null) ) {
+            if ( ! is_array($negated) || ! $complex($negated) ) {
                 return false;
             }
         }
         foreach ( $compound['any'] ?? array() as $group ) {
             foreach ( (is_array($group) ? ($group['alternatives'] ?? null) : null) ?? array(null) as $alternative ) {
-                if ( ! is_array($alternative) || ! self::isSubjectOnlyComplex($alternative['compounds'] ?? null, $alternative['combinators'] ?? null) ) {
+                if ( ! is_array($alternative) || ! $complex($alternative) ) {
                     return false;
                 }
             }
