@@ -105,6 +105,31 @@ path, and the generated block-render filter resolves that identity with WordPres
 date, term, or author link functions. Neither resolution nor archive identity uses
 `REQUEST_URI`. Uncaptured absolute source destinations remain unchanged.
 
+## Date Archives
+
+The additive `date_archives` list declares native date queries at captured source
+routes. Producers emit an empty list when none are proven; consumers of older
+plans may treat an absent list as empty.
+
+```js
+date_archives: [{
+  archive: {
+    source_path: 'posts/archives/2026/10/index.html',
+    source_route: '/posts/archives/2026/10',
+    query: { year: 2026, monthnum: 10 } // optional day: 16
+  }
+}]
+```
+
+The query uses integer WordPress date query variables matching the route suffix.
+Year archives omit `monthnum` and `day`; month archives omit `day`. Sources must
+be captured documents absent from materialized pages, and source paths and
+routes are unique. No captured presentation or post membership is declared:
+consumers serve the source route using WordPress's native date query.
+Date-only month/day routes with at least one dated card linking to another route
+are native archives, as are documents with the existing `archive date` body
+classes. A lone article without an outward dated card remains content.
+
 ## Author Archives
 
 The additive, required `author_entities` list contains at most 256 proven authors:

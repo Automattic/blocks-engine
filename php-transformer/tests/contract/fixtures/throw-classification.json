@@ -1747,6 +1747,16 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/DateArchives.php": {
+      "InvalidArgumentException('WordPress site plan date archive is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan date archives must be a list.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/EntityBindings.php": {
       "InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.')": {
         "class": "integrity",

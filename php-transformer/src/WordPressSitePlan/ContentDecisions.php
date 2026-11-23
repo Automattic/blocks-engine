@@ -454,7 +454,7 @@ final class ContentDecisions
         // entries elsewhere. A dated permalink or a lone article is content.
         if (!is_string($route) || !preg_match('~/[0-9]{4}/(?:0[1-9]|1[0-2])(?:/(?:0[1-9]|[12][0-9]|3[01]))?/?$~', $route)) return false;
         $targets = array_fill_keys(array_diff(self::documentLinkedRoutes($document, $route), array(rtrim($route, '/'))), true);
-        return count(array_filter(self::listingCardDates($document, $route, $targets), static fn(?string $date): bool => null !== $date)) >= 2;
+        return count(array_filter(self::listingCardDates($document, $route, $targets), static fn(?string $date): bool => null !== $date)) >= 1;
     }
 
     /** @param array<string,mixed> $document */
