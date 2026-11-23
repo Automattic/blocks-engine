@@ -183,18 +183,27 @@ final class GeneratedBlockStyleProjector
      */
     private function withContextTextPaint(string $name, array $attrs, DOMElement $sourceElement): array
     {
-        // Paragraphs and headings both support native text paint. An element
-        // lowered to an inline RichText
-        // mark inside the paragraph keeps its paint on that mark, so the
-        // paragraph around it must not repeat it.
+        // A paragraph or a heading. A heading's font already follows its
+        // Global Styles heading element, so only its colour moves: a
+        // contextual colour (`.card h3`) otherwise stays in the projected
+        // rule, where the heading element's colour cannot reach it. An
+        // element lowered to an inline RichText mark inside the paragraph
+        // keeps its paint on that mark, so the paragraph around it must not
+        // repeat it.
         $marker = SourceDom::attr($sourceElement, 'data-blocks-engine-richtext-marker');
-        if ( ! in_array($name, array( 'core/paragraph', 'core/heading' ), true)
+        $heading = 'core/heading' === $name;
+        if ( ( 'core/paragraph' !== $name && ! $heading )
             || ( '' !== $marker && str_contains((string) ( $attrs['content'] ?? '' ), '--blocks-engine-richtext-marker:' . $marker) ) ) {
             return $attrs;
         }
-        // A class on the element does not imply that its winning paint is
-        // class-owned. The property origins below distinguish an element-local
-        // recipe from a contextual winner such as `.card .card-title`.
+        // Only a classless element: one with an author class is identified by
+        // class-list observations, so site-plan preset binding owns its paint
+        // through that class, even when a contextual selector names it
+        // (`.card .card-title`). Handing it off here as well would bind a
+        // second, literal copy of paint the class already carries.
+        if ( $this->hasAuthorClass($sourceElement) ) {
+            return $attrs;
+        }
         // Check the resting declarations before any variant lookup, so a
         // paragraph no rule paints costs no further selector matching.
         $resting = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceElement));
@@ -208,7 +217,7 @@ final class GeneratedBlockStyleProjector
             && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'color') ) {
             $wanted['color'] = array( 'color' );
         }
-        if ( isset($resting['font-family']) && '!context' === ( $origins['font-family'] ?? null ) && ! isset($attrs['fontFamily']) && ! isset($attrs['style']['typography']['fontFamily'])
+        if ( ! $heading && isset($resting['font-family']) && '!context' === ( $origins['font-family'] ?? null ) && ! isset($attrs['fontFamily']) && ! isset($attrs['style']['typography']['fontFamily'])
             && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font')
             && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font-family')
             && ! $this->styleResolver->hasConditionalStyleFamily($sourceElement, 'font') ) {
@@ -241,6 +250,17 @@ final class GeneratedBlockStyleProjector
             }
         }
         return $attrs;
+    }
+
+    /** Whether the source element carries a class its author wrote, as opposed to an engine marker. */
+    private function hasAuthorClass(DOMElement $sourceElement): bool
+    {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($sourceElement, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
