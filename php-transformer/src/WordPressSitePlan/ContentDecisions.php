@@ -437,7 +437,13 @@ final class ContentDecisions
     public static function isDateArchive(array $document): bool
     {
         $classes = DocumentRootContext::bodyClasses($document);
-        return in_array('archive', $classes, true) && in_array('date', $classes, true);
+        if (in_array('archive', $classes, true) && in_array('date', $classes, true)) return true;
+        $route = $document['metadata']['route_path'] ?? PageRoute::fromSource((string) ($document['source_path'] ?? ''), PageRoute::entryRoot(array($document)));
+        // A date-only suffix is an archive only when the document lists dated
+        // entries elsewhere. A dated permalink or a lone article is content.
+        if (!is_string($route) || !preg_match('~/[0-9]{4}/(?:0[1-9]|1[0-2])(?:/(?:0[1-9]|[12][0-9]|3[01]))?/?$~', $route)) return false;
+        $targets = array_fill_keys(array_diff(self::documentLinkedRoutes($document, $route), array(rtrim($route, '/'))), true);
+        return count(array_filter(self::listingCardDates($document, $route, $targets), static fn(?string $date): bool => null !== $date)) >= 2;
     }
 
     /** @param array<string,mixed> $document */
