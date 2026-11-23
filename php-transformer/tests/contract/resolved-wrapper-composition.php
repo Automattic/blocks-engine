@@ -2,15 +2,18 @@
 declare(strict_types=1);
 
 /**
- * Wrapper folding on resolved styles (#7379): a builder-style chain
- * `section#a > div.lane.skin > div.col > p` under a stylesheet with media
- * rules, descendant and child combinators and an `#id` rule folds the padded
- * `.lane` wrapper into the `.col` content group. Their padding, paint, inherited text and every
- * ancestor-scoped declaration still resolve on the merged paragraph at 390
- * and 1440 pixels wide.
+ * Wrapper folding on resolved styles (#7379, ADR 0006 slice 1): a
+ * builder-style chain `section#a > div.lane.skin > div.col > p` under a
+ * stylesheet with media rules, descendant and child combinators and an `#id`
+ * rule. Box-tree evidence proves the positioned, sized and centred `.lane`
+ * geometry-neutral at 390 and 1440 pixels wide, so it folds into the padded,
+ * painted `.col` content group. Padding, paint, inherited text and every
+ * ancestor-scoped declaration still resolve on the merged paragraph at both
+ * widths, and the wrapper's size and centring move onto the merged group.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
+require __DIR__ . '/box-tree-evidence-fixture.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -132,18 +135,29 @@ function rwc_rendered(DOMElement $paragraph, DOMElement $section, array $rules, 
     return array_map('strval', $rendered);
 }
 
-$html = '<section id="a"><div class="lane skin"><div class="col"><p>Hello</p><p>World</p></div></div></section>';
+$html = '<section id="a" data-blocks-engine-node-id="s"><div class="lane skin" data-blocks-engine-node-id="l"><div class="col" data-blocks-engine-node-id="c"><p data-blocks-engine-node-id="p1">Hello</p><p data-blocks-engine-node-id="p2">World</p></div></div></section>';
 $css = 'p{margin:0}'
-    . '.lane{padding:24px;background:#eeeeee}'
-    . '@media (max-width:767px){.lane{padding:8px}}'
+    . '.col{box-sizing:border-box;padding:24px;background:#eeeeee}'
+    . '@media (max-width:767px){.col{padding:8px}}'
+    . '.lane{position:relative;max-width:1200px}'
     . '#a>.lane{margin:0 auto}'
     . '.skin p{line-height:1.8}'
     . '.lane>.col{letter-spacing:1px}'
     . '#a .col{color:#123456}';
 
+$page = '<html><head><link rel="stylesheet" href="s.css"></head><body>' . $html . '</body></html>';
+$box = array('viewports' => array('desktop' => array('box' => array(120, 0, 1200, 160)), 'mobile' => array('box' => array(0, 0, 390, 140))));
+$sidecar = box_tree_fixture_sidecar('index.html', $page, array(
+    's' => array(),
+    'l' => array_replace($box, array('styles' => array('position' => 'relative'))),
+    'c' => array_replace($box, array('styles' => array('box-sizing' => 'border-box', 'background-color' => 'rgb(238, 238, 238)', 'padding-top' => '24px', 'padding-right' => '24px', 'padding-bottom' => '24px', 'padding-left' => '24px'))),
+    'p1' => array(),
+    'p2' => array(),
+));
 $result = (new ArtifactCompiler())->compile(array('files' => array(
-    array('path' => 'index.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="s.css"></head><body>' . $html . '</body></html>'),
+    array('path' => 'index.html', 'kind' => 'html', 'content' => $page),
     array('path' => 's.css', 'kind' => 'css', 'content' => $css),
+    $sidecar,
 )))->toArray();
 
 $output = new DOMDocument();
@@ -166,6 +180,9 @@ foreach ($result['assets'] as $asset) {
     }
 }
 $outputRules = rwc_rules($outputCss);
+rwc_assert(! str_contains($result['serialized_blocks'] . $outputCss, 'data-blocks-engine-node-id'), 'capture identity reached the output');
+$mergedDesktop = rwc_cascade($merged, $outputRules, 1440);
+rwc_assert('1200px' === ($mergedDesktop['max-width'] ?? null) && '0 auto' === ($mergedDesktop['margin'] ?? null) && 'relative' === ($mergedDesktop['position'] ?? null), 'the wrapper size, centring and position did not move onto the merged group: ' . json_encode($mergedDesktop));
 
 $source = new DOMDocument();
 @$source->loadHTML('<html><body>' . $html . '</body></html>');

@@ -2093,12 +2093,9 @@ foreach ( array( 'theme-single-column-width-full', 'theme_single_columns_width_f
     )->toArray();
     $assert('core/group' === ($ordinaryDocument['blocks'][0]['blockName'] ?? ''), 'an unrelated column fragment in ' . $unrelatedColumnClass . ' keeps normal document flow');
     $assert(
-        // The class-only notice wrapper folds onto its paragraph; the
-        // document-final widget keeps its group boundary.
-        array( 'core/group', 'core/paragraph', 'core/group' ) === array_column($ordinaryDocument['blocks'][0]['innerBlocks'] ?? array(), 'blockName'),
+        array( 'core/group', 'core/group', 'core/group' ) === array_column($ordinaryDocument['blocks'][0]['innerBlocks'] ?? array(), 'blockName'),
         'ordinary document children do not become equal-width columns for ' . $unrelatedColumnClass
     );
-    $assert(str_contains((string) ($ordinaryDocument['serialized_blocks'] ?? ''), '<p class="notice">Notice</p>'), 'the folded notice paragraph keeps its source class for ' . $unrelatedColumnClass);
 }
 
 $explicitColumnClass = ( new HtmlTransformer() )->transform(

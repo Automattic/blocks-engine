@@ -44,12 +44,24 @@ final class ResolvedWrapperComposition
     private ?array $conditionsByOrder = null;
 
     /**
+     * Whether box-tree evidence proved every wrapper geometry-neutral at
+     * every captured viewport, and the leaf resolves a moved size to the
+     * border box it already has.
+     */
+    private bool $neutralEvidence = false;
+    private bool $sizeTransfers = false;
+
+    /**
      * @param list<DOMElement> $wrappers The single-child chain above `$leaf`, outermost first.
      * @param string $wrapperClasses The wrapper classes the merged node carries.
+     * @param bool|null $sizeTransfers Null without box-tree evidence. Otherwise every wrapper is proven
+     *        neutral, and whether the leaf resolves a moved size declaration to its own border box.
      * @return array{failure: string}|array{pins: list<array{node: DOMElement, rules: list<array{conditions: list<string>, declarations: array<string, string>}>}>}
      */
-    public function prove(array $wrappers, DOMElement $leaf, string $transferredId, string $wrapperClasses): array
+    public function prove(array $wrappers, DOMElement $leaf, string $transferredId, string $wrapperClasses, ?bool $sizeTransfers = null): array
     {
+        $this->neutralEvidence = null !== $sizeTransfers;
+        $this->sizeTransfers = true === $sizeTransfers;
         $outer = $wrappers[0] ?? null;
         if (! $outer instanceof DOMElement || ! $outer->parentNode instanceof DOMElement) return self::failure('no_wrapper_parent');
         for ($node = $leaf->parentNode, $index = count($wrappers) - 1; $index >= 0; --$index, $node = $node?->parentNode) {
@@ -140,6 +152,9 @@ final class ResolvedWrapperComposition
                     $property = (string) $property;
                     $kind = $this->wrapperDeclarationKind($property, (string) $value, $leafFlexContainer);
                     $family = self::family($property);
+                    // Evidence proves the wrapper's used value inert; the
+                    // authored one must not land on the leaf.
+                    if ('drop-if-lost' === $kind) $kind = $kept ? 'refuse' : 'drop';
                     if ('refuse' === $kind) return 'wrapper_declaration_not_composable:' . $property;
                     if ('drop' === $kind) {
                         // An initial value still competes once it lands on the leaf.
@@ -335,6 +350,22 @@ final class ResolvedWrapperComposition
      */
     private function leafFamilies(DOMElement $leaf, array $before): array
     {
+        // The leaf's own box is read on authored values alone.
+        $neutralEvidence = $this->neutralEvidence;
+        $this->neutralEvidence = false;
+        try {
+            return $this->authoredLeafFamilies($leaf, $before);
+        } finally {
+            $this->neutralEvidence = $neutralEvidence;
+        }
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $before
+     * @return array<string, true>
+     */
+    private function authoredLeafFamilies(DOMElement $leaf, array $before): array
+    {
         $families = array();
         $zeroed = array();
         $declarations = array();
@@ -392,6 +423,12 @@ final class ResolvedWrapperComposition
             if (self::allZero($value)) return 'drop';
             return str_contains($value, 'var(') ? 'refuse' : 'padding';
         }
+        if (preg_match('/^margin(?:-(?:top|right|bottom|left))?$/', $property) && $this->neutralEvidence) {
+            if (self::allZero($value)) return 'drop';
+            // A neutral wrapper's margins place the leaf exactly where they
+            // placed the wrapper, auto inline margins included.
+            return in_array($property, array('margin-top', 'margin-bottom'), true) && str_contains($value, 'auto') || str_contains($value, 'var(') ? 'refuse' : 'retain';
+        }
         if (preg_match('/^margin(?:-(?:top|right|bottom|left))?$/', $property)) {
             // Auto inline margins of an auto-width block resolve to zero. The
             // wrapper has no width of its own when its sizes drop out.
@@ -407,16 +444,20 @@ final class ResolvedWrapperComposition
             return in_array($value, array('0', '0px', 'none', '0 none', 'none 0', 'medium none'), true) ? 'drop' : 'refuse';
         }
         if (preg_match('/^border(?:-(?:top|right|bottom|left))?-color$/', $property)) return 'drop';
+        // A neutral wrapper's size moves onto a leaf that resolves it to the
+        // border box both already share: the leaf takes the wrapper's place,
+        // so the size resolves against the same containing block.
+        $sized = $this->neutralEvidence && $this->sizeTransfers && ! str_contains($value, 'var(') ? 'retain' : 'refuse';
         if (in_array($property, array('width', 'inline-size'), true)) {
             if ('auto' === $value) return 'drop';
-            return '100%' === $value ? 'full-width' : 'refuse';
+            return '100%' === $value ? 'full-width' : $sized;
         }
-        if (in_array($property, array('max-width', 'max-height', 'max-inline-size'), true)) {
+        if (in_array($property, array('max-width', 'max-height', 'max-inline-size', 'max-block-size'), true)) {
             if ('none' === $value) return 'drop';
-            return preg_match('/^(\d+)px$/', $value, $match) && (int) $match[1] >= 10000 ? 'drop' : 'refuse';
+            return preg_match('/^(\d+)px$/', $value, $match) && (int) $match[1] >= 10000 ? 'drop' : $sized;
         }
-        if (in_array($property, array('min-width', 'min-height', 'min-inline-size'), true)) return in_array($value, array('0', '0px', 'auto'), true) ? 'drop' : 'refuse';
-        if ('height' === $property || 'block-size' === $property) return 'auto' === $value ? 'drop' : 'refuse';
+        if (in_array($property, array('min-width', 'min-height', 'min-inline-size', 'min-block-size'), true)) return in_array($value, array('0', '0px', 'auto'), true) ? 'drop' : $sized;
+        if ('height' === $property || 'block-size' === $property) return 'auto' === $value ? 'drop' : $sized;
         // The wrapper's parent lays it out in block flow (structural layout
         // children never reach this proof), where item properties are inert.
         if (preg_match('/^(?:flex|flex-grow|flex-shrink|flex-basis|order|align-self|justify-self|grid-column|grid-row|grid-area|grid-column-start|grid-column-end|grid-row-start|grid-row-end|place-self)$/', $property)) return 'drop';
@@ -427,8 +468,10 @@ final class ResolvedWrapperComposition
         }
         return match ($property) {
             'display' => 'block' === $value ? 'drop' : 'refuse',
-            'position' => 'static' === $value ? 'drop' : 'refuse',
-            'float' => 'none' === $value ? 'drop' : 'refuse',
+            // Evidence proves a relative wrapper's insets auto and that no
+            // out-of-flow descendant uses it as its containing block.
+            'position' => 'static' === $value || ($this->neutralEvidence && 'relative' === $value) ? 'drop' : 'refuse',
+            'float' => 'none' === $value ? 'drop' : ($this->neutralEvidence ? 'drop-if-lost' : 'refuse'),
             'clear' => 'none' === $value ? 'drop' : 'refuse',
             'vertical-align' => 'baseline' === $value ? 'drop' : 'refuse',
             'overflow', 'overflow-x', 'overflow-y' => 'visible' === $value ? 'drop' : 'refuse',

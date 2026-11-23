@@ -561,41 +561,52 @@ final class WrapperCoalescer
     }
 
     /**
-     * Folds a wrapper whose class-merge coalescing failed only on its style
-     * or selector gates, by proving the fold on resolved styles instead
-     * ({@see ResolvedWrapperComposition}). The wrapper's classes and id move
-     * onto its only child; every author declaration whose match the fold
-     * changes is pinned on an engine-owned carrier for the node it applied
-     * to. Identity, runtime, interactivity, data, structure and motion guards
-     * still apply unchanged. A wrapper the proof cannot cover stays.
+     * Folds a wrapper whose class-merge coalescing failed, when box-tree
+     * evidence proves the wrapper geometry-neutral at every captured viewport
+     * ({@see BoxTreeWrapperEvidence}, ADR 0006 slice 1), by proving the fold
+     * on resolved styles ({@see ResolvedWrapperComposition}). The wrapper's
+     * classes and id move onto its only child; every author declaration whose
+     * match the fold changes is pinned on an engine-owned carrier for the node
+     * it applied to. An id moves only off a wrapper that is no shell edge and
+     * no reference target; a data attribute only when nothing consumes it.
+     * Runtime, interactivity, structure and motion guards still apply, and
+     * repeated siblings fold alike. A wrapper without neutral evidence, or
+     * one the proof cannot cover, stays: without evidence nothing changes.
      *
      * @param array<string, mixed> $childBlock
      * @return array<string, mixed>|null
      */
     private function resolvedCompositionCoalescing(DOMElement $element, array $childBlock): ?array
     {
+        $evidence = $this->session->boxTreeWrapperEvidence();
+        if (! $evidence->hasEvidence()) return null;
         $name = (string) ($childBlock['blockName'] ?? '');
         if (! in_array($name, array('core/group', 'core/paragraph', 'core/heading'), true)
             || 'div' !== strtolower($element->tagName)
-            || null !== $this->layoutGeometryProofFor($element)) return null;
+            || null !== $this->layoutGeometryProofFor($element)
+            || ! $evidence->isNeutral($element)) return null;
         $childAttrs = ArrayField::array($childBlock, 'attrs');
         $wrapperId = trim(SourceDom::attr($element, 'id'));
         $checks = array_values(array_filter(
             $this->eligibilityDisqualifications($element, $childBlock, null, false, false),
             // A text leaf accepts the wrapper's identity like a group does;
-            // an id moves onto a child that has none.
-            static fn (array $check): bool => ! in_array($check[0], array('unsupported_child_block_name'), true)
+            // an id moves onto a child that has none. Evidence answers the
+            // wrapper's geometry; the proof below answers its inline style.
+            static fn (array $check): bool => ! in_array($check[0], array('unsupported_child_block_name', 'has_id_attribute', 'has_data_attributes_without_proof', 'non_neutral_geometry_without_proof'), true)
         ));
         if (null !== $this->firstDisqualification($checks)) return null;
+        if ('' !== $wrapperId && $this->isReferenceTarget($element, $wrapperId)) return null;
+        if ($this->hasConsumedDataAttributes($element)) return null;
         // Shell extraction finds page chrome as the group blocks at the
-        // document's edges; a text leaf there must keep its group boundary.
-        if ('core/group' !== $name && $this->isDocumentEdgeWrapper($element)) return null;
+        // document's edges; such a wrapper keeps its group boundary, and an
+        // id there names the shell.
+        if (('core/group' !== $name || '' !== $wrapperId) && $this->isDocumentEdgeWrapper($element)) return null;
         $leaf = $this->resolvedCompositionLeaf($element, $childBlock);
         if (! $leaf instanceof DOMElement
             || $this->sourceElementClassifier->hasMotionStructureToken($leaf)
             || $this->runtimeIslands->isRuntimeDomTarget($leaf)) return null;
         $leafTag = strtolower($leaf->tagName);
-        if ('core/group' !== $name && ! $this->repeatedMembersFoldAlike($element, $leaf)) return null;
+        if (! $this->repeatedMembersFoldAlike($element, $leaf)) return null;
         if (('core/paragraph' === $name && 'p' !== $leafTag)
             || ('core/heading' === $name && ! preg_match('/^h[1-6]$/', $leafTag))
             || ('core/group' === $name && ! in_array($leafTag, array('div', 'section', 'article', 'aside', 'main'), true))) return null;
@@ -611,7 +622,7 @@ final class WrapperCoalescer
         $childClasses = array_fill_keys(SourceDom::tokens((string) ($childAttrs['className'] ?? '')), true);
         $mergedClasses = SourceDom::classNames($element);
         foreach (array_slice($wrappers, 1) as $intermediate) {
-            if ('' !== trim(SourceDom::attr($intermediate, 'id'))) return null;
+            if ('' !== trim(SourceDom::attr($intermediate, 'id')) || ! $evidence->isNeutral($intermediate)) return null;
             foreach (SourceDom::classNames($intermediate) as $class) {
                 if (isset($childClasses[$class])) $mergedClasses[] = $class;
             }
@@ -622,7 +633,7 @@ final class WrapperCoalescer
             $transferredId = $wrapperId;
         }
 
-        $proof = (new ResolvedWrapperComposition($this->session))->prove($wrappers, $leaf, $transferredId, implode(' ', $mergedClasses));
+        $proof = (new ResolvedWrapperComposition($this->session))->prove($wrappers, $leaf, $transferredId, implode(' ', $mergedClasses), $evidence->sizeTransfersTo($leaf));
         if (isset($proof['failure'])) return null;
 
         $leafCarrier = '';
@@ -673,6 +684,54 @@ final class WrapperCoalescer
         return true;
     }
 
+    /**
+     * Whether something in the document points at the wrapper's id: a
+     * fragment link, a label, an ARIA relation or a `<use>` reference. The
+     * wrapper is then an anchor target and keeps its own box.
+     */
+    private function isReferenceTarget(DOMElement $element, string $id): bool
+    {
+        $document = $element->ownerDocument;
+        if (! $document instanceof DOMDocument) return true;
+        foreach ($document->getElementsByTagName('*') as $node) {
+            foreach (array('href', 'xlink:href', 'action', 'formaction') as $attribute) {
+                $value = trim($node->getAttribute($attribute));
+                if ('' !== $value && str_ends_with(rawurldecode($value), '#' . $id)) return true;
+            }
+            foreach (array('for', 'form', 'list', 'headers', 'aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'aria-flowto', 'aria-activedescendant', 'aria-details', 'aria-errormessage', 'popovertarget', 'commandfor') as $attribute) {
+                if (in_array($id, preg_split('/\s+/', trim($node->getAttribute($attribute))) ?: array(), true)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether a data attribute on the wrapper is consumed: an author or
+     * runtime selector tests it, a document script names it, or it is an
+     * engine or capture marker. Unconsumed wrapper data is never emitted.
+     */
+    private function hasConsumedDataAttributes(DOMElement $element): bool
+    {
+        $names = array_keys(SourceDom::safeDataAttributes($element));
+        if (array() === $names) return false;
+        $selectorNames = array();
+        foreach ($this->session->authorStyleAnalysis()->dataAttributeSelectorCompounds() as $entry) {
+            foreach ($entry['names'] as $selectorName) $selectorNames[strtolower((string) $selectorName)] = true;
+        }
+        $runtimeSelectors = implode("\n", array_merge(array_keys($this->session->runtimeSelectorState()->domSelectors()), array_keys($this->session->runtimeSelectorState()->canvasSelectors())));
+        $scripts = '';
+        if ($element->ownerDocument instanceof DOMDocument) {
+            foreach ($element->ownerDocument->getElementsByTagName('script') as $script) $scripts .= $script->textContent . "\n";
+        }
+        foreach ($names as $name) {
+            $name = strtolower((string) $name);
+            if (str_starts_with($name, 'data-blocks-engine') || str_starts_with($name, 'data-be-') || isset($selectorNames[$name]) || str_contains(strtolower($runtimeSelectors), $name)) return true;
+            $datasetKey = lcfirst(str_replace(' ', '', ucwords(str_replace('-', ' ', substr($name, 5)))));
+            if (str_contains($scripts, $name) || ('' !== $datasetKey && str_contains($scripts, $datasetKey))) return true;
+        }
+        return false;
+    }
+
     /** @var \WeakMap<\DOMDocument, array<string, list<DOMElement>>>|null */
     private ?\WeakMap $classSignatureMembers = null;
 
@@ -680,8 +739,8 @@ final class WrapperCoalescer
      * A wrapper repeated elsewhere in the document (same tag and classes)
      * folds only when every member folds the same way: each is a chain of
      * sole-child wrappers of the same length around a leaf with the same tag,
-     * and none sits at a document edge. Otherwise one instance would lose the
-     * group its siblings keep.
+     * none sits at a document edge, and box-tree evidence proves each one
+     * neutral. Otherwise one instance would lose the group its siblings keep.
      */
     private function repeatedMembersFoldAlike(DOMElement $element, DOMElement $leaf): bool
     {
@@ -704,7 +763,7 @@ final class WrapperCoalescer
         }
         foreach ($this->classSignatureMembers[$document][strtolower($element->tagName) . '.' . implode('.', $classes)] ?? array() as $member) {
             if ($member === $element) continue;
-            if ($this->isDocumentEdgeWrapper($member)) return false;
+            if ($this->isDocumentEdgeWrapper($member) || ! $this->session->boxTreeWrapperEvidence()->isNeutral($member)) return false;
             $node = $member;
             for ($i = 0; $i < $depth && $node instanceof DOMElement; ++$i) $node = ($this->soleElementChild)($node);
             if (! $node instanceof DOMElement || strtolower($node->tagName) !== strtolower($leaf->tagName)) return false;
