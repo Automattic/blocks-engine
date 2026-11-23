@@ -50,8 +50,30 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
             }
             $content = $processor->get_updated_html();
             if ( ! empty( $block['attrs']['metadata']['blocksEngineControlLabel'] ) ) {
-                // The nested Core button is an editor-only RichText surface.
+                // The nested Core button is an editor-only RichText surface, but
+                // the settings an author gives it (color, typography, spacing)
+                // style the published control: carry its block-support classes
+                // and inline style onto the native box it collapses into.
+                $label_classes = array();
+                $label_style = '';
+                if ( preg_match( '/<div\b[^>]*>\s*<div\b[^>]*>\s*(<button\b[^>]*>)/', $content, $label_tag ) ) {
+                    $label = new WP_HTML_Tag_Processor( $label_tag[1] );
+                    if ( $label->next_tag() ) {
+                        $label_classes = array_values( array_filter( preg_split( '/\s+/', (string) $label->get_attribute( 'class' ), -1, PREG_SPLIT_NO_EMPTY ), static fn ( string $class ): bool => str_starts_with( $class, 'has-' ) ) );
+                        $label_style = trim( (string) $label->get_attribute( 'style' ) );
+                    }
+                }
                 $content = preg_replace( '/(<div\b[^>]*>)\s*<div\b[^>]*>\s*<button\b[^>]*>([\s\S]*)<\/button>\s*<\/div>\s*(<\/div>\s*)$/', '$1$2$3', $content, 1 );
+                if ( array() !== $label_classes || '' !== $label_style ) {
+                    $published = new WP_HTML_Tag_Processor( $content );
+                    if ( $published->next_tag() ) {
+                        $class = trim( (string) $published->get_attribute( 'class' ) . ' ' . implode( ' ', $label_classes ) );
+                        if ( '' !== $class ) $published->set_attribute( 'class', $class );
+                        $style = rtrim( trim( (string) $published->get_attribute( 'style' ) ), ';' );
+                        if ( '' !== $label_style ) $published->set_attribute( 'style', '' === $style ? $label_style : $style . ';' . $label_style );
+                        $content = $published->get_updated_html();
+                    }
+                }
             }
             if ( 'button' === ( $block['attrs']['metadata']['blocksEngineControlTagName'] ?? null ) ) {
                 // Core's editor keeps a selectable group; the published control
