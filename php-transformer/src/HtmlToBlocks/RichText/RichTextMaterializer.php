@@ -389,6 +389,12 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         $declarations = array_intersect_key($declarations, $allowed);
+        // Core gives [style*="border-color"] a solid border. Preserve CSS's
+        // initial none when only a color was authored; prepend it so any
+        // authored per-side borders still override the default.
+        if ( isset($declarations['border-color']) && ! isset($declarations['border']) && ! isset($declarations['border-style']) ) {
+            $declarations = array( 'border-style' => 'none' ) + $declarations;
+        }
         $declarations += $this->styleResolver->consumedInlineCustomProperties($element, $declarations);
         if ( ! SourceDom::hasAncestorTag($element, array( 'header' )) ) {
             unset($declarations['place-items']);
