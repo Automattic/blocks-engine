@@ -1063,6 +1063,16 @@ final class ArtifactCompiler
             }
         };
 
+        // A shared shell is compiled under only the ancestor context its
+        // members share, so its support states the route-free baseline of the
+        // chrome. Each route's own compilation resolves the same chrome under
+        // that route's full context (a route class on <body> can select other
+        // values) and publishes the same selectors. The baseline therefore
+        // loads first and every route's support refines it; loaded after,
+        // it would override route-specific values with equal specificity.
+        // Identical support bytes may also belong to the evidence page; the
+        // page then merges into the shell's row and both keep their owners.
+        $append($sharedShellAssets, array('scope' => 'shared'));
         $append($entryAssets, $entryOwnership);
         $filesByPath = array_column($files, null, 'path');
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
@@ -1072,9 +1082,6 @@ final class ArtifactCompiler
                 FileOwnership::of($file)
             );
         }
-        // Identical support bytes may already belong to the evidence page.
-        // Merge the shell's consumers too, rather than dropping its ownership.
-        $append($sharedShellAssets, array('scope' => 'shared'));
 
         return $assets;
     }
