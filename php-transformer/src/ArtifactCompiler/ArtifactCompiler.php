@@ -569,6 +569,18 @@ final class ArtifactCompiler
             'artifact' => $this->artifactInputReport($artifact, $normalized, $entryPath, $html, $referenceReports),
         );
         $sourceReports += self::capturedInteractionReports($capturedDialogs);
+        // Companion save functions may reconstruct hooks from attributes.
+        // Carry their declared vocabulary through the existing runtime contract.
+        foreach (array_column($allGeneratedBlocks, null, 'name') as $generated) {
+            if (empty($generated['runtime_class_names'])) continue;
+            $normalized['runtime_declarations'][] = array(
+                'kind' => 'class_contract',
+                'type' => (string) $generated['name'],
+                'source_path' => $entryPath,
+                'payload' => array('schema' => 'blocks-engine/runtime-class-contract/v1', 'classes' => $generated['runtime_class_names']),
+            );
+        }
+        $normalized['runtime_declarations'] = RuntimeDeclarations::normalizeList($normalized['runtime_declarations']);
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], ArrayField::array($entryBlocks, 'document_root_markers'), ArrayField::array($entryBlocks, 'design_usage'));
         $compiledSite['source_css_bytes'] = $normalized['source_css_bytes'];
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;

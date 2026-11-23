@@ -744,6 +744,7 @@ JS;
 
         return array(
             'name' => self::LOCAL_NAME,
+            'runtime_class_names' => self::savedClassNames(),
             'block_json' => array(
                 'apiVersion' => 3,
                 'name' => $blockName,
@@ -768,6 +769,19 @@ JS;
                 'view.js' => array('@wordpress/interactivity'),
             ),
         );
+    }
+
+    /** @return list<string> Classes reconstructed by the companion save function. */
+    private static function savedClassNames(): array
+    {
+        $root = 'blocks-engine-authored-carousel';
+        $classes = array($root);
+        foreach (array('track', 'slideshow', 'src-swap', 'full-bleed', 'thumbnails', 'stage-aspect', 'transition-fade', 'transition-slide', 'source-control-artwork', 'show-status', 'source-control-topology') as $modifier) $classes[] = $root . '--' . $modifier;
+        foreach (range(1, 6) as $items) $classes[] = $root . '--items-' . $items;
+        foreach (array('left', 'right', 'top', 'bottom') as $position) $classes[] = $root . '--thumbnails-' . $position;
+        foreach (array('controls', 'previous', 'next', 'control--oriented', 'viewport', 'track', 'source-stage', 'sequence', 'dot', 'dots', 'playback', 'thumbnails', 'thumbnail', 'status') as $part) $classes[] = $root . '__' . $part;
+        foreach (array('top-left', 'top-right', 'bottom-left', 'bottom-right') as $position) $classes[] = $root . '__playback--' . $position;
+        return $classes;
     }
 
     /** @param array<string, mixed> $attributes @return array{opening: string, closing: string} */
