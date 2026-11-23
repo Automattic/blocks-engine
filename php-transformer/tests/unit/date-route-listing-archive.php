@@ -22,6 +22,8 @@ foreach (array(
     'invalid month' => array('posts/archives/2026/13', $archive, false),
     'undated cards' => array('posts/archives/2026/10', str_replace(array('>2026-10-16<', '>2026-10-17<'), '>Unknown<', $archive), false),
     'single card' => array('posts/archives/2026/10', preg_replace('~  <article[^\n]+Post 2[^\n]+\n~', '', $archive), false),
+    // Image, date and title each link to the entry; the date link wraps the time.
+    'multi-link cards' => array('posts/archives/2026/10', str_replace(array('<time datetime="2026-10-16T14:30:19Z">2026-10-16</time>', '<time datetime="2026-10-17T03:03:01Z">2026-10-17</time>'), array('<a href="/posts/1/index.html"><img src="a.jpg" alt=""></a><a href="/posts/1/index.html"><time datetime="2026-10-16T14:30:19Z">2026-10-16</time></a>', '<a href="/posts/2/index.html"><img src="b.jpg" alt=""></a><a href="/posts/2/index.html"><time datetime="2026-10-17T03:03:01Z">2026-10-17</time></a>'), $archive), true),
     'self links' => array('posts/archives/2026/10', str_replace('/posts/2/index.html', '/posts/archives/2026/10/index.html', $archive), false),
 ) as $name => [$route, $html, $native]) {
     $path = $route . '/index.html';

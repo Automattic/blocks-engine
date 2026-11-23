@@ -135,8 +135,19 @@ final class ContentDecisions
             $cards[$target][] = PublicationDate::fromVisibleText((string) $times->item(0)->textContent);
         }
         $dates = array();
-        foreach ($cards as $target => $found) if (1 === count($found)) $dates[$target] = $found[0];
+        // Several links in one card (image, title, date) name the same entry.
+        foreach ($cards as $target => $found) if (1 === count(array_unique($found))) $dates[$target] = $found[0];
         return $dates;
+    }
+
+    /** Whether a node sits inside a link to a route other than $route. */
+    private static function linksElsewhere(\DOMNode $node, \DOMXPath $xpath, string $route): bool
+    {
+        foreach ($xpath->query('ancestor::a[@href]', $node) ?: array() as $link) {
+            $linked = self::hrefRoute((string) $link->getAttribute('href'), $route);
+            if (null !== $linked && $route !== $linked) return true;
+        }
+        return false;
     }
 
     /**
@@ -551,21 +562,26 @@ final class ContentDecisions
     {
         $rows = array();
         foreach (self::publicationHtmlFragments($html) as $fragment) {
-            // A lone article gives its lone time a stable source slot. Dated
-            // cards linking elsewhere describe those routes, not this document.
-            // Only variation across siblings proves publication evidence;
-            // compare UTC instants, not display text or offset spellings.
+            // An article's lone own time gives it a stable source slot. Times
+            // inside links to other routes (related posts, pagers, dated cards)
+            // describe those routes. Copies of one article (responsive variants)
+            // each carry the same instant; an undated article, a second time or
+            // a disagreement is ambiguous. Only variation across siblings proves
+            // publication evidence; compare UTC instants, not display text or
+            // offset spellings.
             $xpath = new \DOMXPath(HtmlSerialization::parseDocument($fragment));
-            $articles = array();
+            $instants = array();
             foreach ($xpath->query('//article') ?: array() as $article) {
                 $target = self::datedCardTarget($article, $xpath, $route);
-                if (null === $target || $route === $target) $articles[] = $article;
-            }
-            if (1 === count($articles)) {
-                $times = $xpath->query('.//time', $articles[0]);
-                if (1 === $times->length && null !== ($parsed = $timestamp($times->item(0)->getAttribute('datetime')))) {
-                    $dateSlots['article:time:datetime'] = array('text' => $parsed, 'publication_timestamp' => $parsed);
+                if (null !== $target && $route !== $target) continue;
+                $own = array();
+                foreach ($xpath->query('.//time', $article) ?: array() as $time) {
+                    if (!self::linksElsewhere($time, $xpath, $route)) $own[] = $time;
                 }
+                $instants[] = 1 === count($own) ? $timestamp($own[0]->getAttribute('datetime')) : null;
+            }
+            if (array() !== $instants && 1 === count(array_unique($instants)) && null !== ($parsed = $instants[0])) {
+                $dateSlots['article:time:datetime'] = array('text' => $parsed, 'publication_timestamp' => $parsed);
             }
             foreach (HtmlMarkupParser::htmlMarkupNodes($fragment) as $node) {
                 if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
