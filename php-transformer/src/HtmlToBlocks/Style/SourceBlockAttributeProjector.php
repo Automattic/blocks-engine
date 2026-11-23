@@ -54,6 +54,8 @@ final class SourceBlockAttributeProjector
     public const IMAGE_COVERING_LAYER_CLASS = 'blocks-engine-image-covering-layer';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
+    /** A core/embed whose source frame covered its positioned containing block. */
+    public const FILL_EMBED_FIGURE_CLASS = 'blocks-engine-fill-embed-figure';
     /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
     public const EMBED_NORMAL_WHITESPACE_CLASS = 'blocks-engine-embed-normal-whitespace';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
@@ -667,7 +669,7 @@ final class SourceBlockAttributeProjector
     private function laterSiblingIsPositionedLayer(DOMElement $image): bool
     {
         for ( $sibling = $image->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
-            if ( $sibling instanceof DOMElement && $this->positionedLayerCoversContainingBlock($sibling) ) {
+            if ( $sibling instanceof DOMElement && $this->styleResolver->positionedLayerCoversContainingBlock($sibling) ) {
                 return true;
             }
         }
@@ -686,38 +688,13 @@ final class SourceBlockAttributeProjector
         for ( $sibling = $sourceElement->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
             // Re-ingested output has the covered figure, not the bare image.
             if ( $sibling instanceof DOMElement && ( $this->sourceImageFillsParent($sibling) || SourceDom::hasClass($sibling, self::COVERED_FILL_IMAGE_FIGURE_CLASS) ) ) {
-                if ( $this->positionedLayerCoversContainingBlock($sourceElement) ) {
+                if ( $this->styleResolver->positionedLayerCoversContainingBlock($sourceElement) ) {
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::IMAGE_COVERING_LAYER_CLASS);
                 }
                 break;
             }
         }
         return $attrs;
-    }
-
-    /**
-     * An absolutely positioned box whose extent is its containing block's:
-     * all four insets pinned to zero, or a full width and height from a
-     * pinned top-left corner.
-     */
-    private function positionedLayerCoversContainingBlock(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( ! in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-        $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::declared($declarations, 'inset'));
-        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $index => $side ) {
-            $value = CssValueInspector::declared($declarations, $side);
-            $sides[ $index ] = '' === $value ? $sides[ $index ] : $value;
-        }
-        $zero = static fn (string $value): bool => '' !== $value && CssValueInspector::isZeroLength($value);
-        if ( 4 === count(array_filter($sides, $zero)) ) {
-            return true;
-        }
-        return $zero($sides[0]) && $zero($sides[3])
-            && '100%' === CssValueInspector::declared($declarations, 'width')
-            && '100%' === CssValueInspector::declared($declarations, 'height');
     }
 
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
