@@ -759,6 +759,10 @@ final class CssStylesheetTransformer
      */
     private static function layerNames(array $unit): array
     {
+        // Most units name no layer; skip their comment-stripping scans.
+        if ( false === stripos($unit['text'] . implode('', $unit['context']), 'layer') ) {
+            return array();
+        }
         $path = array();
         $names = array();
         foreach ( $unit['context'] as $prelude ) {
@@ -802,12 +806,17 @@ final class CssStylesheetTransformer
             }
         }
         $seen = array();
+        // Every route reconciles against the same shared stylesheet: its
+        // rule keys are derived once per compose pass, keyed on its bytes.
         foreach ( $present as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
-            foreach ( $units as $unit ) {
-                $seen[ self::ruleUnitKey($unit) ] = true;
-            }
+            $seen += CssRuleTreeCache::memo('present-rule-unit-keys', $stylesheet, function () use ($stylesheet): array {
+                $units = $keys = array();
+                $this->collectRuleUnits($stylesheet, array(), $units);
+                foreach ( $units as $unit ) {
+                    $keys[ self::ruleUnitKey($unit) ] = 1;
+                }
+                return $keys;
+            });
         }
         $kept = array();
         $keptProperties = array();
@@ -920,13 +929,19 @@ final class CssStylesheetTransformer
      */
     private static function cascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
     {
-        // Keyframes compete only with keyframes of the same name.
-        if ( 1 === preg_match('/^@(?:-[a-z]+-)?keyframes\s+([^\s{]+)\s*\{/i', ltrim(CssSyntaxScanner::withoutComments($rule)), $keyframes) ) {
-            return array( '@keyframes ' . trim($keyframes[1], '"\'') => true );
-        }
-        $arms = self::cascadeSelectorArms($rule);
-        if ( null === $arms ) {
+        // A shared rule recurs on every route: read its arms once per pass.
+        $arms = CssRuleTreeCache::memo('cascade-target-arms', $rule, static function () use ($rule): array|int {
+            // Keyframes compete only with keyframes of the same name.
+            if ( 1 === preg_match('/^@(?:-[a-z]+-)?keyframes\s+([^\s{]+)\s*\{/i', ltrim(CssSyntaxScanner::withoutComments($rule)), $keyframes) ) {
+                return array( 'keyframes' => '@keyframes ' . trim($keyframes[1], '"\'') );
+            }
+            return self::cascadeSelectorArms($rule) ?? 0;
+        });
+        if ( is_int($arms) ) {
             return null;
+        }
+        if ( isset($arms['keyframes']) ) {
+            return array( $arms['keyframes'] => true );
         }
         $targets = array();
         foreach ( $arms as $arm ) {
@@ -965,8 +980,12 @@ final class CssStylesheetTransformer
     {
         $carriers = array();
         foreach ($markup as $owner => $html) {
-            preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
-            foreach (array_unique($matches[0]) as $marker) $carriers[$marker][$owner] = true;
+            // Each stylesheet path reads the same route markup.
+            $markers = CssRuleTreeCache::memo('page-markers', $html, static function () use ($html): array {
+                preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
+                return array_values(array_unique($matches[0]));
+            });
+            foreach ($markers as $marker) $carriers[$marker][$owner] = true;
         }
         return $carriers;
     }
@@ -1692,6 +1711,12 @@ final class CssStylesheetTransformer
      */
     private static function cascadePropertyFamilies(string $rule): array
     {
+        return array_fill_keys(CssRuleTreeCache::memo('cascade-property-families', $rule, static fn (): array => array_map('strval', array_keys(self::parseCascadePropertyFamilies($rule)))), true);
+    }
+
+    /** @return array<string, true> */
+    private static function parseCascadePropertyFamilies(string $rule): array
+    {
         $brace = strpos($rule, '{');
         if ( false !== $brace && '' === trim(substr(trim($rule), $brace + 1, -1)) ) {
             return array();
@@ -1726,6 +1751,13 @@ final class CssStylesheetTransformer
 
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
     private static function ruleUnitKey(array $unit): string
+    {
+        $source = serialize(array( $unit['context'], $unit['text'] ));
+        return (string) CssRuleTreeCache::memo('rule-unit-key', $source, static fn (): array => array( self::parseRuleUnitKey($unit) ))[0];
+    }
+
+    /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
+    private static function parseRuleUnitKey(array $unit): string
     {
         return md5(implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($unit['text']), true);
     }
