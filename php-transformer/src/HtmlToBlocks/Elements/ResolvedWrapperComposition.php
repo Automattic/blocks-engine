@@ -56,7 +56,8 @@ final class ResolvedWrapperComposition
             if ($node !== $wrappers[$index]) return self::failure('not_a_wrapper_chain');
         }
 
-        $mainCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
+        // Read source matches independently of caches populated during lowering.
+        $mainCache = new CssSelectorMatchCache();
         $nodes = array_merge(array($leaf), SourceDom::descendantElements($leaf));
         $wrapperRules = array();
         foreach ($wrappers as $index => $wrapper) {
@@ -168,10 +169,12 @@ final class ResolvedWrapperComposition
                 if ($kept || array() === $retained) continue;
                 // Pinning resting declarations cannot reproduce a state.
                 if ($rule['state']) return 'lost_state_rule';
+                if ($rule['deviceScoped'] ?? false) return 'lost_device_scoped_wrapper_rule';
                 $wrapperPins[] = array('rule' => $rule, 'declarations' => $retained, 'wrapper' => $index);
             }
         }
         if ($fullWidth && $movesPadding) return 'full_width_wrapper_with_padding';
+        if ($fullWidth && isset($leafFamilies['size'])) return 'full_width_wrapper_around_sized_leaf';
         if ($movesPadding) {
             foreach (array('padding', 'border', 'margin', 'size', 'position', 'background') as $family) {
                 if (isset($leafFamilies[$family])) return 'leaf_box_blocks_padding_transfer:' . $family;
@@ -237,6 +240,7 @@ final class ResolvedWrapperComposition
     {
         if (array() === $rule['declarations']) return null;
         if ($rule['state']) return 'lost_state_rule';
+        if ($rule['deviceScoped'] ?? false) return 'lost_device_scoped_rule';
         $inline = SourceDeclarations::inline($node);
         foreach (array_keys($rule['declarations']) as $property) {
             $family = self::family((string) $property);
@@ -501,6 +505,8 @@ final class ResolvedWrapperComposition
                 'conditions' => $this->conditions((int) $selector['rule_order']),
                 'state' => $state,
                 'pseudo' => $pseudo,
+                // Selector device gates cannot be replaced by a bare carrier.
+                'deviceScoped' => str_contains((string) $selector['selector'], 'capture-device') || str_contains((string) $selector['selector'], 'data-be-d'),
                 'precedence' => $precedence,
             );
         }
