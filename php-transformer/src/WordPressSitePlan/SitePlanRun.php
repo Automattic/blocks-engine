@@ -53,6 +53,7 @@ final class SitePlanRun
     private readonly array $initialRuntimeDeclarations;
     private readonly array $initialRuntimeRecords;
     private readonly array $initialTaxonomyProjection;
+    private readonly array $dateArchives;
 
     /**
      * Post-chrome matching normalizes every nested range of every post, and
@@ -143,13 +144,17 @@ final class SitePlanRun
         // Native date archives are document roots, not materialized pages, but
         // their captured file paths still participate in link resolution.
         $this->entryRoot = PageRoute::entryRoot($compiled['pages']);
+        $dateArchives = array();
         foreach ($compiled['pages'] as $document) {
             if (!ContentDecisions::isDateArchive($document)) continue;
             $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
+            $entity = DateArchives::entity($document['source_path'], $path);
+            if (null !== $entity) $dateArchives[] = $entity;
             $target = '/' . trim($path, '/') . '/';
             $routeSources[$document['source_path']] = $target;
             $routeTargets['/' . trim($path, '/')] = $target;
         }
+        $this->dateArchives = $dateArchives;
         $this->timer?->start('compose.site_plan.pages');
         $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $this->routeMap);
         $this->shellExtraction = new ShellExtraction($this->links);
@@ -469,6 +474,7 @@ final class SitePlanRun
             'operations' => $operations,
             'routes' => $routes,
             'taxonomy_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'taxonomy_term' === $entity['kind'])),
+            'date_archives' => $this->dateArchives,
             'comment_entities' => $commentEntities,
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $this->input->navigationLinks,
