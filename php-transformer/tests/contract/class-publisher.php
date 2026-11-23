@@ -217,6 +217,10 @@ $foldGroups = new ReflectionMethod(ClassPublisher::class, 'folds');
 $assert(array() === $foldGroups->invoke(null, array('be-a' => array(0, 1), 'be-b' => array(0)), array('be-a' => 0, 'be-b' => 1), '.be-a{color:red}.be-b{color:blue}'), 'One extra occurrence in another document prevents folding.');
 $assert(array() === $foldGroups->invoke(null, array(), array('be-a' => 0, 'be-b' => 1), '.be-a{color:red}.be-b{color:blue}'), 'CSS-only hooks have no equal element set to fold.');
 
+// A numeric class attribute predicate (issue #7381) must not break publishing.
+$numeric = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>[class*="1"]{color:red}.box{display:flex;gap:20px;padding:10px}</style><main><div class="box" style="transform:translateX(4px)"><p>Left</p><p>Right</p></div></main>')) + array('class_namespace' => 'acme'));
+$assert(is_array($numeric[ClassPublisher::MAP_KEY] ?? null), 'A numeric class attribute selector still compiles a published plan.');
+
 $bootstrapMethod = new ReflectionMethod(ClassPublisher::class, 'publishedBootstrap');
 $runtimeFixture = $bootstrapMethod->invoke(null, "<?php\nfunction folded_runtime_probe( \$class ) { return str_starts_with( \$class, 'be-inline-geometry-' ); }\n", array('be-inline-geometry-example' => 'fold-hook', 'blocks-engine-example' => 'fold-hook'), 'fold-test');
 eval(substr($runtimeFixture, 6));
