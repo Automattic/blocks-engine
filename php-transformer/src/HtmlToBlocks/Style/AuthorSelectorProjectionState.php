@@ -415,6 +415,10 @@ final class AuthorSelectorProjectionState
         // A URL-less section toggle is current through its item, which the
         // runtime marks current-menu-item; its own submenu's items are not.
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
+            $labelOffset = strpos($subject, ' .wp-block-navigation-item__label');
+            if (false !== $labelOffset) {
+                return self::currentNavigationSubject(substr($subject, 0, $labelOffset)) . substr($subject, $labelOffset);
+            }
             return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
         }
         if (str_contains($subject, ' .wp-block-navigation-item__label') && !str_contains($subject, ' .wp-block-navigation-item:')) {

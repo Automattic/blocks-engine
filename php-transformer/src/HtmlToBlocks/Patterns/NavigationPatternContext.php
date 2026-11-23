@@ -982,6 +982,16 @@ final class NavigationPatternContext
                         : $itemTarget;
                 }
                 $this->session->authorSelectorProjectionState()->installNavigationSubject($path, $target);
+                // A retained text wrapper is inside Core's label, not another
+                // captured semantic subject. Keep its authored class address.
+                $anchor = $this->session->authorStyleAnalysis()->sourceElementAtPath($path);
+                if ($anchor instanceof DOMElement && 'a' === strtolower($anchor->tagName)) {
+                    foreach ($anchor->getElementsByTagName('*') as $label) {
+                        if (0 !== $label->childElementCount) continue;
+                        $classes = array_values(array_filter(SourceDom::tokens($label->getAttribute('class')), static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-')));
+                        if (array() !== $classes) $this->session->authorSelectorProjectionState()->installNavigationSubject($label->getNodePath() ?? '', $target . ' .wp-block-navigation-item__label ' . CssIdent::compoundClassSelector($classes));
+                    }
+                }
                 if (isset($subject['source'])) {
                     // Restore the source anchor's initial stacking below authored
                     // paint, but only when Core really supplies its replacement.
@@ -1214,7 +1224,13 @@ final class NavigationPatternContext
         for ($node = $anchor->parentNode; !$presented && $node instanceof DOMElement && $item instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
             $presented = $this->hasNavigationSubjectPresentation($node);
         }
-        if (!$presented) return '';
+        // Retained label wrappers also need a native subject for conditional
+        // paint, even when the anchor itself has no authored presentation.
+        $labelSubjects = array();
+        foreach ($anchor->getElementsByTagName('*') as $label) {
+            if ('div' === strtolower($label->tagName) && 0 === $label->childElementCount && '' !== trim($label->getAttribute('class'))) $labelSubjects[] = $label;
+        }
+        if (!$presented && array() === $labelSubjects) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'anchor');
         $target = self::itemContentTarget('.wp-block-navigation .wp-block-navigation-item.' . $marker);
         $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => $target, 'source' => SourceDom::elementSelector($anchor));
