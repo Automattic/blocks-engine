@@ -21,4 +21,14 @@ foreach ($pages as $html) {
         throw new RuntimeException('Source display restoration must follow the generic inline reset');
     }
 }
+// A native flex item is flattened onto its link. Its responsive display
+// must beat the same important inline repair, not leave the menu label visible.
+$result = (new HtmlTransformer())->transform(
+    '<style>.row{display:flex}@media(min-width:768px){.desktop-hidden{display:none}}</style>'
+    . '<div class="row"><button class="desktop-hidden">Menu</button></div>'
+)->toArray();
+$css = implode('', array_column(array_filter($result['assets'], static fn(array $a): bool => 'css' === ($a['kind'] ?? '')), 'content'));
+if (!preg_match('/@media[^{}]*768px[^{}]*\\{(?:[^{}]*\\{[^{}]*\\})*[^{}]*wp-block-button__link[^{}]*\\{display:none!important\\}/', $css)) {
+    throw new RuntimeException('Conditional native button display must outrank the flattened-item inline repair');
+}
 echo "Shared button source display: passed\n";

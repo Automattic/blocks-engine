@@ -1692,9 +1692,26 @@ final class AuthorStylesheetProjector
                                 && ! ( $wrapperOwned && $this->resolvesAgainstKeptButtonWrapper($entry['value'], $carrier) )
                         ));
                         if ( array() !== $markers ) {
-                            $key = implode(' ', array_column($markers, 'marker'));
-                            $partitions[$key]['carriers'] = $markers;
-                            $partitions[$key]['declarations'][] = $entry['declaration'];
+                            // Flattened native controls receive an important display
+                            // repair from EngineSupportCss. Authored display must
+                            // outrank that repair, including conditional hiding.
+                            // Keep ordinary controls out of this importance lift.
+                            $display = array('display') === $entry['longhands'];
+                            $displayGroups = $display
+                                ? array(
+                                    array_filter($markers, static fn (array $carrier): bool => $carrier['flattened']),
+                                    array_filter($markers, static fn (array $carrier): bool => ! $carrier['flattened']),
+                                )
+                                : array($markers);
+                            foreach ( $displayGroups as $group ) {
+                                if ( array() === $group ) continue;
+                                $key = implode(' ', array_column($group, 'marker'));
+                                $partitions[$key]['carriers'] = $group;
+                                $importantDisplay = $display && reset($group)['flattened'];
+                                $partitions[$key]['declarations'][] = $importantDisplay
+                                    ? 'display:' . CssValueInspector::withoutImportant($entry['value']) . '!important'
+                                    : $entry['declaration'];
+                            }
                         }
                     }
                     foreach ( $partitions as $key => $partition ) {
