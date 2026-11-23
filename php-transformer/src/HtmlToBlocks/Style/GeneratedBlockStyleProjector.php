@@ -192,6 +192,14 @@ final class GeneratedBlockStyleProjector
             || ( '' !== $marker && str_contains((string) ( $attrs['content'] ?? '' ), '--blocks-engine-richtext-marker:' . $marker) ) ) {
             return $attrs;
         }
+        // Only a classless element: one with an author class is identified by
+        // class-list observations, so site-plan preset binding owns its paint
+        // through that class, even when a contextual selector names it
+        // (`.card .card-title`). Handing it off here as well would bind a
+        // second, literal copy of paint the class already carries.
+        if ( $this->hasAuthorClass($sourceElement) ) {
+            return $attrs;
+        }
         // Check the resting declarations before any variant lookup, so a
         // paragraph no rule paints costs no further selector matching.
         $resting = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceElement));
@@ -238,6 +246,17 @@ final class GeneratedBlockStyleProjector
             }
         }
         return $attrs;
+    }
+
+    /** Whether the source element carries a class its author wrote, as opposed to an engine marker. */
+    private function hasAuthorClass(DOMElement $sourceElement): bool
+    {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($sourceElement, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
