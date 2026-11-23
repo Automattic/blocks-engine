@@ -38,7 +38,7 @@ single-child source wrapper from that evidence, as described in the pull request
 | Site | Visible single-child wrappers | Collapsible | Max source depth if removed |
 |---|---|---|---|
 | Wix demo | 445 | 235 (53%) | 27–28 → 22–23 |
-| Squarespace demo | 1071 | 210 neutral or constant inset; 106 more varying inset | 17–21 → 13–15 |
+| Squarespace demo | 1071 | 610 (57%); 106 more varying inset | 17–21 → 13–15 |
 
 On these sites, `position: relative` and `width` are mostly inert: 121 Wix wrappers are
 `relative`, contain no absolutely positioned descendant, and keep their child's box at every
