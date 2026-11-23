@@ -183,12 +183,16 @@ final class GeneratedBlockStyleProjector
      */
     private function withContextTextPaint(string $name, array $attrs, DOMElement $sourceElement): array
     {
-        // Only a paragraph: a heading's font and colour already follow its
-        // Global Styles element. An element lowered to an inline RichText
-        // mark inside the paragraph keeps its paint on that mark, so the
-        // paragraph around it must not repeat it.
+        // A paragraph or a heading. A heading's font already follows its
+        // Global Styles heading element, so only its colour moves: a
+        // contextual colour (`.card h3`) otherwise stays in the projected
+        // rule, where the heading element's colour cannot reach it. An
+        // element lowered to an inline RichText mark inside the paragraph
+        // keeps its paint on that mark, so the paragraph around it must not
+        // repeat it.
         $marker = SourceDom::attr($sourceElement, 'data-blocks-engine-richtext-marker');
-        if ( 'core/paragraph' !== $name
+        $heading = 'core/heading' === $name;
+        if ( ( 'core/paragraph' !== $name && ! $heading )
             || ( '' !== $marker && str_contains((string) ( $attrs['content'] ?? '' ), '--blocks-engine-richtext-marker:' . $marker) ) ) {
             return $attrs;
         }
@@ -213,7 +217,7 @@ final class GeneratedBlockStyleProjector
             && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'color') ) {
             $wanted['color'] = array( 'color' );
         }
-        if ( isset($resting['font-family']) && '!context' === ( $origins['font-family'] ?? null ) && ! isset($attrs['fontFamily']) && ! isset($attrs['style']['typography']['fontFamily'])
+        if ( ! $heading && isset($resting['font-family']) && '!context' === ( $origins['font-family'] ?? null ) && ! isset($attrs['fontFamily']) && ! isset($attrs['style']['typography']['fontFamily'])
             && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font')
             && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font-family')
             && ! $this->styleResolver->hasConditionalStyleFamily($sourceElement, 'font') ) {

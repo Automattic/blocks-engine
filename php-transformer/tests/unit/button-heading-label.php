@@ -71,7 +71,9 @@ foreach ( $cases as $case => $html ) {
 		$markup
 	);
 	$assert(
-		str_contains($markup, '<!-- wp:heading {"level":3} -->'),
+		// Contextual paint (`.q h3{color}`) may reach native colour support;
+		// the level is what this case pins.
+		1 === preg_match('/<!-- wp:heading \{"level":3[,}]/', $markup),
 		$case . ': the heading keeps its source level',
 		$markup
 	);
