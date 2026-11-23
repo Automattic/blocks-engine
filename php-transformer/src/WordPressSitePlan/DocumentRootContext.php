@@ -111,15 +111,23 @@ final class DocumentRootContext
         return $classes;
     }
 
-    /** Register one deterministic, order-independent set of route classes. */
+    /**
+     * Register one deterministic set of route classes. A route gate names its
+     * set class in every arm it scopes, so the class is as short as route
+     * classes are and grows only when it would collide with another set.
+     */
     public static function routeSetClass(array $classes, array &$sets): string
     {
         $classes = array_values(array_unique($classes));
         sort($classes);
-        $class = 'be-rs-' . substr(hash('sha256', implode("\n", $classes)), 0, 16);
-        if (isset($sets[$class]) && $sets[$class] !== $classes) throw new \LogicException('Route set hash collision.');
-        $sets[$class] = $classes;
-        return $class;
+        $hash = hash('sha256', implode("\n", $classes));
+        for ($length = 8; $length <= 64; ++$length) {
+            $class = 'be-rs-' . substr($hash, 0, $length);
+            if (isset($sets[$class]) && $sets[$class] !== $classes) continue;
+            $sets[$class] = $classes;
+            return $class;
+        }
+        throw new \LogicException('Route set hash collision.');
     }
 
     /** Add set membership wherever a root's route class is written. */
