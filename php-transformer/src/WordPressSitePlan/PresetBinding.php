@@ -1511,7 +1511,7 @@ final class PresetBinding
                     // heading element font yields it to Global Styles, as
                     // the plain `h1` rule does above.
                     $kept = self::declarationText(array_values(array_filter(self::declarations($kept), static fn(array $pair): bool => 'font-family' !== $pair[0])));
-                } elseif (!str_contains($subject = self::subjectCompound($selector), '::') && !(preg_match(self::TYPE_SELECTOR, $subject, $subjectType) && in_array(strtolower($subjectType[1]), self::FONT_RESET_TAGS, true))
+                } elseif (!str_contains($subject = self::subjectCompound($selector), '::') && 1 !== preg_match('/^(?:html|:root|:host)(?![\w-])|\.editor-styles-wrapper(?![\w-])/i', $subject) && !(preg_match(self::TYPE_SELECTOR, $subject, $subjectType) && in_array(strtolower($subjectType[1]), self::FONT_RESET_TAGS, true))
                     && $this->rendersDefaultFont('body', $rawValue) && !$this->hasInheritedFontCompetitor()) {
                     // The rule restates the root Global Styles font, and no
                     // other author font can sit between its elements and
@@ -1519,7 +1519,10 @@ final class PresetBinding
                     // to Global Styles. Targets that would render another
                     // font without it keep it (rootFontKeepers()); a rule
                     // on elements with their own font (`code`, `button`)
-                    // is what gives them the root font, so it stays.
+                    // is what gives them the root font, so it stays. The
+                    // root element's own font stays too: it is what body
+                    // inherits where editor-only defaults out-weigh Global
+                    // Styles on the canvas body.
                     $keepers = $this->rootFontKeepers($rawValue);
                     $kept = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
                     if (array() !== $keepers) {
