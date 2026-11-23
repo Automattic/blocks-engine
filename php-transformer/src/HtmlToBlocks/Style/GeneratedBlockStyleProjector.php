@@ -54,6 +54,11 @@ final class GeneratedBlockStyleProjector
                 }
             }
         }
+        // Descendant selectors paint native text blocks too, even when they
+        // have no author class. Carry their static winning paint into block
+        // support before site-plan preset binding; class-list observations
+        // cannot identify these elements. Leave variants in the stylesheet.
+        $attrs = $this->withContextTextPaint($name, $attrs, $sourceElement);
         $normalized = $this->runtime->normalizeBlockSupportAttributes($name, $attrs);
         $fallback = $normalized['fallbackStyle'];
         $attrs = $normalized['attrs'];
@@ -159,6 +164,63 @@ final class GeneratedBlockStyleProjector
         );
         if ( '' !== $carrier ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+        }
+        return $attrs;
+    }
+
+    /**
+     * Text paint a descendant or marker selector (`.banner p`) gives a native
+     * text block, carried into the block's colour and typography support.
+     * Class-list observations cannot identify such an element, so without
+     * the handoff its paint stays in the projected rule, where Global Styles
+     * cannot reach it. Only the static winner moves: a property a state,
+     * media condition, `!important` or conditional custom property varies
+     * stays with the stylesheet, as does an element-local class recipe,
+     * which site-plan preset binding already owns.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withContextTextPaint(string $name, array $attrs, DOMElement $sourceElement): array
+    {
+        if ( ! in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
+            return $attrs;
+        }
+        $wanted = array();
+        if ( ! isset($attrs['textColor']) && ! isset($attrs['style']['color']['text']) && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'color') ) {
+            $wanted['color'] = array( 'color' );
+        }
+        if ( ! isset($attrs['fontFamily']) && ! isset($attrs['style']['typography']['fontFamily'])
+            && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font')
+            && ! $this->styleResolver->hasStateStyleFamily($sourceElement, 'font-family')
+            && ! $this->styleResolver->hasConditionalStyleFamily($sourceElement, 'font') ) {
+            $wanted['font-family'] = array( 'font', 'font-family' );
+        }
+        if ( array() === $wanted ) {
+            return $attrs;
+        }
+        $declarations = $this->styleResolver->classOwnedResponsiveDeclarations(
+            $sourceElement,
+            SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceElement))
+        );
+        $origins = $this->styleResolver->classRecipeOrigins($sourceElement);
+        foreach ( $wanted as $property => $spellings ) {
+            $value = (string) ( $declarations[$property] ?? '' );
+            if ( '' === $value || '!context' !== ( $origins[$property] ?? null )
+                || CssValueInspector::isImportant($value)
+                || in_array(strtolower(trim($value)), array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer', 'currentcolor' ), true)
+                || $this->styleResolver->readsConditionalCustomProperty($sourceElement, $spellings) ) {
+                continue;
+            }
+            $mapped = $this->styleResolver->styleAttributeMapper()->map(
+                array( $property => $value ),
+                fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $sourceElement)
+            );
+            if ( 'color' === $property && isset($mapped['style']['color']['text']) ) {
+                $attrs['style']['color']['text'] = $mapped['style']['color']['text'];
+            } elseif ( 'font-family' === $property && isset($mapped['style']['typography']['fontFamily']) ) {
+                $attrs['style']['typography']['fontFamily'] = $mapped['style']['typography']['fontFamily'];
+            }
         }
         return $attrs;
     }
