@@ -74,14 +74,16 @@ final class AuthorStylesheetProjector
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         $bridges = array();
+        $layoutSubjects = $this->implicitLayoutSubjects($context->emittedMarkup);
         $navigationHosts = array();
         $navigationRoots = $this->navigationContainerScope->navigationRootClassLists($context->emittedMarkup);
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, &$bridges, &$navigationHosts): string {
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, $layoutSubjects, &$bridges, &$navigationHosts): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
                 $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
+                $css = $this->layoutDisplayRules($css, $layoutSubjects);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
                 foreach ( $this->navigationContainerHosts($prelude, $context, $navigationRoots) as $host ) {
@@ -259,6 +261,61 @@ final class AuthorStylesheetProjector
     }
 
     /**
+     * Core adds display through body .is-layout-flex/grid at render time.
+     * Weight every authored display equally on those subjects, including
+     * conditional resets, without changing display on ordinary source boxes.
+     * Existing root-weighted projections already own their Core baseline.
+     *
+     * @param array<string, list<DOMElement>> $subjects
+     */
+    private function layoutDisplayRules(string $css, array $subjects): string
+    {
+        if ( array() === $subjects ) return $css;
+        return (new CssStylesheetTransformer())->transformStyleRules($css, static function (string $selector, string $body) use ($subjects): string {
+            $display = SourceDeclarations::verbatim($body)['display'] ?? null;
+            if ( null === $display ) return $selector . '{' . $body . '}';
+            $targets = array();
+            foreach ( CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm ) {
+                // Pseudo-elements do not own Core's layout box.
+                if ( str_contains($arm, '::') || str_contains($arm, ':root') ) continue;
+                $parsed = CssSelectorMatcher::parse($arm);
+                if ( ! $parsed['supported'] ) continue;
+                $classes = array();
+                foreach ( $subjects as $class => $elements ) {
+                    if ( array() !== CssSelectorMatcher::filterMatching($elements, $parsed, true) ) $classes[] = '.' . $class;
+                }
+                if ( array() !== $classes ) $targets[] = ':root:root ' . $arm . ':where(' . implode(',', $classes) . ')';
+            }
+            return $selector . '{' . $body . '}'
+                . (array() === $targets ? '' : implode(',', $targets) . '{display:' . $display . '}');
+        });
+    }
+
+    /**
+     * Core applies implicit layout defaults only at render time. Read those
+     * defaults from the same block metadata used by attribute normalization;
+     * ordinary CSS-owned boxes must not gain another display projection.
+     *
+     * @return array<string, list<DOMElement>>
+     */
+    private function implicitLayoutSubjects(string $markup): array
+    {
+        $runtime = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+        $subjects = array();
+        $document = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::parseFragment($markup);
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            foreach ( SourceDom::tokens($element->getAttribute('class')) as $class ) {
+                if ( ! str_starts_with($class, 'wp-block-') ) continue;
+                $metadata = $runtime->blockMetadata('core/' . substr($class, 9));
+                if ( in_array($metadata['supports']['layout']['default']['type'] ?? '', array('flex', 'grid'), true) ) {
+                    $subjects[$class][] = $element;
+                }
+            }
+        }
+        return $subjects;
+    }
+
+    /**
      * Roll Core's unlayered defaults back to the original author cascade, not
      * to a copied value. Layer order, important declarations and state/media
      * changes therefore remain owned by the source stylesheet.
@@ -285,7 +342,7 @@ final class AuthorStylesheetProjector
             // subjects, nor do RichText carriers have Core block defaults.
             $targets = array_filter(CssStylesheetTransformer::splitSelectorList($selector) ?? array(), static function (string $arm): bool {
                 $positive = CssSelectorCompoundInspector::positiveSelector($arm);
-                return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-)/', $positive)
+                return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-|is-layout-(?:flex|grid)\\b)/', $positive)
                     && ! preg_match('/\\.blocks-engine-(?:role-richtext\\b|richtext-)/', $positive);
             });
             if ( array() === $targets ) return;
