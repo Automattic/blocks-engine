@@ -738,7 +738,7 @@ final class FormControlMetadataBuilder
         }
 
         if ( 'select' === $tagName ) {
-            $options = $this->options($control);
+            $options = $this->withDisplayedSelection($control, $this->options($control));
             if ( array() !== $options ) {
                 $metadata['options'] = $options;
             }
@@ -1456,6 +1456,65 @@ final class FormControlMetadataBuilder
             }
 
             $options[] = $optionMetadata;
+        }
+
+        return $options;
+    }
+
+    /**
+     * Mark the option a single-line select shows when none declares `selected`.
+     *
+     * HTML displays the first enabled option as the select's answer, and the
+     * capture's native state records which option the source showed. A
+     * provider reads `selected` as the field's default; without it a provider
+     * prepends its own prompt ("Select an option") the source never shows.
+     * An empty-value option shown this way is the field's prompt, flagged as
+     * an explicitly selected empty option is.
+     *
+     * @param array<int, array<string, mixed>> $options
+     * @return array<int, array<string, mixed>>
+     */
+    private function withDisplayedSelection(DOMElement $select, array $options): array
+    {
+        if ( array() === $options || $select->hasAttribute('multiple') || 1 < (int) SourceDom::attr($select, 'size') ) {
+            return $options;
+        }
+        foreach ( $options as $option ) {
+            if ( ! empty($option['selected']) ) {
+                return $options;
+            }
+        }
+
+        $displayed = null;
+        $state = NativeControlState::attributes($select);
+        if ( null !== $state && isset($state['options']) && count($state['options']) === count($options) ) {
+            foreach ( $state['options'] as $index => $option ) {
+                if ( true === ($option['initialSelected'] ?? false) ) {
+                    $displayed = $index;
+                    break;
+                }
+            }
+        } else {
+            $index = 0;
+            foreach ( $select->getElementsByTagName('option') as $option ) {
+                if ( ! $option instanceof DOMElement ) {
+                    continue;
+                }
+                $group = $option->parentNode;
+                if ( ! $option->hasAttribute('disabled') && ! ( $group instanceof DOMElement && 'optgroup' === strtolower($group->tagName) && $group->hasAttribute('disabled') ) ) {
+                    $displayed = $index;
+                    break;
+                }
+                ++$index;
+            }
+        }
+        if ( null === $displayed || ! isset($options[$displayed]) ) {
+            return $options;
+        }
+
+        $options[$displayed]['selected'] = true;
+        if ( '' === trim((string) ($options[$displayed]['value'] ?? '')) ) {
+            $options[$displayed]['placeholder'] = true;
         }
 
         return $options;
