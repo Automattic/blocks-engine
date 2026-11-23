@@ -31,6 +31,9 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  */
 final class UnreachableSelectorPruner
 {
+    /** Deterministic work counter for fresh-worker regression tests. */
+    private static int $evidenceIndexBuildCount = 0;
+
     private const MINTED = '/^(?:wp-|is-|has-|blocks-engine-|be-|route-class-|editor-|block-editor-|components-)/';
     /** Names WordPress mints as element state, which its own runtime scripts may add to WordPress output. */
     private const WORDPRESS_STATE = '/^(?:is|has)-/';
@@ -60,6 +63,7 @@ final class UnreachableSelectorPruner
      */
     public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null)
     {
+        if (array() !== $texts) ++self::$evidenceIndexBuildCount;
         $this->evidenceText = implode("\n", $texts);
         // Source documents that are not WordPress output never receive
         // WordPress's runtime state classes before conversion.
@@ -83,6 +87,46 @@ final class UnreachableSelectorPruner
         // otherwise keep every reset token (and its registration) alive.
         // Readers are judged with the most conservative arm pruning (IDs kept).
         if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner(array_map(fn (string $css): string => $this->withoutUnreachableArms($css, true), $stylesheets), $texts);
+    }
+
+    /** Portable indexes only: the shared plan already carries the evidence. */
+    public function exportState(): array
+    {
+        return array(
+            'live' => array_keys($this->live), 'markup_names' => array_keys($this->markupNames),
+            'prefixes' => $this->livePrefixes, 'wordpress_states' => $this->wordPressStates,
+            'types' => $this->typeNamed, 'contains' => $this->evidenceContains,
+            'readers' => $this->propertyPruner?->exportState(),
+            'arms' => $this->reachableSelectors,
+        );
+    }
+
+    /** @param list<string> $texts Existing site evidence, never embedded in the index. */
+    public static function fromState(array $texts, array $state): self
+    {
+        $pruner = new self(array(), true);
+        $pruner->evidenceText = implode("\n", $texts);
+        $pruner->live = array_fill_keys($state['live'], true);
+        $pruner->markupNames = array_fill_keys($state['markup_names'], true);
+        $pruner->livePrefixes = $state['prefixes'];
+        $pruner->wordPressStates = $state['wordpress_states'];
+        $pruner->typeNamed = $state['types'];
+        $pruner->evidenceContains = $state['contains'];
+        $pruner->reachableSelectors = $state['arms'];
+        $pruner->propertyPruner = null === $state['readers'] ? null : UnusedCustomPropertyPruner::fromState($state['readers']);
+        return $pruner;
+    }
+
+    /** Extend a site index without mutating its reader set or output cache. */
+    public function withStylesheets(array $stylesheets): self
+    {
+        $pruner = clone $this;
+        $pruner->prunedStylesheets = array();
+        if (null !== $this->propertyPruner) {
+            $pruner->propertyPruner = clone $this->propertyPruner;
+            $pruner->propertyPruner->addStylesheets(array_map(fn (string $css): string => $this->withoutUnreachableArms($css, true), $stylesheets));
+        }
+        return $pruner;
     }
 
     /**
@@ -159,7 +203,16 @@ final class UnreachableSelectorPruner
         return $pruned;
     }
 
+    /** @var array<string,bool> */
+    private array $reachableSelectors = array();
+
     public function reachable(string $selector, bool $preserveIds = false): bool
+    {
+        $key = (int) $preserveIds . ':' . $selector;
+        return $this->reachableSelectors[$key] ??= $this->computeReachable($selector, $preserveIds);
+    }
+
+    private function computeReachable(string $selector, bool $preserveIds): bool
     {
         $selector = (string) preg_replace('#/\*.*?\*/#s', ' ', $selector);
         if (1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;

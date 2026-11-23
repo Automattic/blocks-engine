@@ -33,6 +33,19 @@ final class UnusedCustomPropertyPruner
      */
     public function __construct(array $stylesheets, array $evidence, private bool $complete = false)
     {
+        $this->addStylesheets($stylesheets);
+        foreach ($evidence as $text) {
+            $this->remember($text);
+            // A runtime can construct property names; do not infer absence
+            // when its custom-property API arguments need evaluation.
+            $dynamic = preg_replace('/(?:setProperty|getPropertyValue|removeProperty)\s*\(\s*(["\'])(?:--)?[a-zA-Z][\w-]*\1\s*(?=[,)])/', '', $text) ?? $text;
+            if (preg_match('/(?:setProperty|getPropertyValue|removeProperty)\s*\(/', $dynamic)) $this->uncertain = true;
+        }
+    }
+
+    /** @param list<string> $stylesheets Additional readers, without rescanning site evidence. */
+    public function addStylesheets(array $stylesheets): void
+    {
         // Count even references in dead declarations. This deliberately avoids
         // changing fallback/cycle semantics and is conservative across sheets.
         foreach ($stylesheets as $css) {
@@ -52,13 +65,22 @@ final class UnusedCustomPropertyPruner
                 if (!preg_match('/^@property\s+--[\w-]+\s*$/Di', $rule)) $this->remember($rule);
             }
         }
-        foreach ($evidence as $text) {
-            $this->remember($text);
-            // A runtime can construct property names; do not infer absence
-            // when its custom-property API arguments need evaluation.
-            $dynamic = preg_replace('/(?:setProperty|getPropertyValue|removeProperty)\s*\(\s*(["\'])(?:--)?[a-zA-Z][\w-]*\1\s*(?=[,)])/', '', $text) ?? $text;
-            if (preg_match('/(?:setProperty|getPropertyValue|removeProperty)\s*\(/', $dynamic)) $this->uncertain = true;
-        }
+    }
+
+    /** @return array{used:list<string>,uncertain:bool,namespaces:array<string,array<string,true>>} */
+    public function exportState(): array
+    {
+        return array('used' => array_keys($this->used), 'uncertain' => $this->uncertain, 'namespaces' => $this->namespaces);
+    }
+
+    /** Restore the reader index, not the source evidence. */
+    public static function fromState(array $state): self
+    {
+        $pruner = new self(array(), array());
+        $pruner->used = array_fill_keys($state['used'], true);
+        $pruner->uncertain = $state['uncertain'];
+        $pruner->namespaces = $state['namespaces'];
+        return $pruner;
     }
 
     private function remember(string $text): void
