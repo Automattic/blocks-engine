@@ -23,7 +23,7 @@ foreach (array('<!-- wp:post-title {"level":1} /-->', '"contentSize":"1240px"', 
 }
 
 // The bootstrap selects that template only for pages without a captured
-// identity or an assigned template, below page-<slug> and page-<id>.
+// identity, captured route or assigned template, below page-<slug> and page-<id>.
 $filters = array();
 function add_filter($hook, $callback, ...$args): void { $GLOBALS['filters'][$hook][] = $callback; }
 function add_action(...$args): void {}
@@ -32,10 +32,11 @@ function remove_filter(...$args): void {}
 function get_queried_object_id(): int { return $GLOBALS['queried']; }
 function get_page_template_slug($id): string { return 21 === $id ? 'page-landing' : ''; }
 function get_post_meta($id, $key, $single): string { return 20 === $id ? 'captured-identity' : ''; }
+function get_page_uri($id): string { return 23 === $id ? 'about' : 'new'; }
 $source = array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'];
 eval(preg_replace('/^<\?php\s*/', '', $source));
 $hierarchy = array('page-new.php', 'page-22.php', 'page.php');
-foreach (array(20 => $hierarchy, 21 => $hierarchy, 22 => array('page-new.php', 'page-22.php', 'authored-page.php', 'page.php')) as $id => $expected) {
+foreach (array(20 => $hierarchy, 21 => $hierarchy, 23 => $hierarchy, 22 => array('page-new.php', 'page-22.php', 'authored-page.php', 'page.php')) as $id => $expected) {
     $GLOBALS['queried'] = $id;
     $actual = $hierarchy;
     foreach ($filters['page_template_hierarchy'] ?? array() as $callback) $actual = $callback($actual);
