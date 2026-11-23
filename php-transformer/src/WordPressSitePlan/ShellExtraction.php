@@ -2073,7 +2073,7 @@ final class ShellExtraction
             $partMarkup = is_array($absorbed) ? self::landmarkPartMarkup($absorbed['markup'], $area) : $first['template_part_markup'];
             // An entry shell renders on every route, but its in-page sections exist only on the entry page.
             if ($singlePage && !$inlineShell) $partMarkup = $this->links->qualifyShellFragments($partMarkup, $pages[array_key_first($applicable)]['source_path']);
-            $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
+            $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : self::populationAncestorContext($first['ancestor_context'] ?? null, array_map(static fn(int $index): mixed => $candidates[$index][0]['ancestor_context'] ?? null, array_keys($withoutShells)));
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             // A template-bound area stays template-bound for every population
@@ -2162,7 +2162,7 @@ final class ShellExtraction
             $sourcePath = 'wordpress-site-plan/shared/' . $partSlug;
             $title = self::routeVariantTitle($area, $pages[$cluster['indexes'][0]], count($parts) + 2);
             $partMarkup = (string) $first['template_part_markup'];
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => array_keys($templateSlugs), 'excluded_template_slugs' => array_keys($otherOverrides), 'template_wrappers' => $wrappers), static fn(mixed $value): bool => array() !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_population', array_intersect_key($candidates, $withoutShells), $clusterIdentity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($first['ancestor_context'] ?? null) ? array('ancestor_context' => $first['ancestor_context']) : array());
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => array_keys($templateSlugs), 'excluded_template_slugs' => array_keys($otherOverrides), 'template_wrappers' => $wrappers), static fn(mixed $value): bool => array() !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_population', array_intersect_key($candidates, $withoutShells), $clusterIdentity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($first['ancestor_context'] ?? null) ? array('ancestor_context' => self::populationAncestorContext($first['ancestor_context'], array_map(static fn(int $index): mixed => $candidates[$index][0]['ancestor_context'] ?? null, array_keys($withoutShells)))) : array());
             $beforeShells = array();
             foreach ($withoutShells as $index => $withoutShell) {
                 $beforeShells[$pages[$index]['source_path']] = $pages[$index]['canonical_block_markup'];
@@ -2197,6 +2197,30 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $pages @param array<int,array<int,array<string,mixed>>> $candidates @param list<int> $indexes
      * @return array<string,mixed>|null
      */
+    /**
+     * The ancestor context of a part shared by a route population. Routes
+     * adopting one chrome design can still have hoisted it out of different
+     * ancestors (a page root container named after each page), and rules
+     * written for each route's own ancestors styled the chrome on that route.
+     * The part keeps every adopting route's ancestor hooks, so those rules
+     * follow it to the template instead of only the representative route's.
+     *
+     * @param array<string,mixed>|null $context
+     * @param list<mixed> $routeContexts Each adopting route's ancestor context.
+     * @return array<string,mixed>|null
+     */
+    private static function populationAncestorContext(?array $context, array $routeContexts): ?array
+    {
+        if (!is_array($context)) return $context;
+        foreach ($routeContexts as $routeContext) {
+            if (!is_array($routeContext)) continue;
+            foreach (array('classes', 'ids') as $kind) {
+                $context[$kind] = array_values(array_unique(array_merge((array) ($context[$kind] ?? array()), array_map('strval', (array) ($routeContext[$kind] ?? array())))));
+            }
+        }
+        return $context;
+    }
+
     private function populationRepresentative(array $pages, array $candidates, array $indexes, string $area): ?array
     {
         return null;
@@ -4156,6 +4180,10 @@ final class ShellExtraction
         // The part renders every variant, so the backdrop ancestors of each
         // variant document are detached from it.
         $context = is_array($primaryContext) ? $primaryContext : array();
+        $primaryClass = null;
+        foreach ($variantClasses as $class) if (0 === self::responsiveVariantRank($class)) { $primaryClass = $class; break; }
+        $primaryClass ??= $variantClasses[0];
+        $context = (array) self::populationAncestorContext($context, array_map(static fn(int $index): mixed => $byPage[$index][$primaryClass][0]['ancestor_context'] ?? null, array_keys($kept)));
         if (array() !== $backdropIds) $context['backdrop_ids'] = array_map('strval', array_keys($backdropIds));
         if (array() !== $staticStartIds) $context['static_start_ids'] = array_map('strval', array_keys($staticStartIds));
         return array('pages' => $cleaned, 'markup' => implode("\n", $pieces), 'identities' => $identities, 'ancestor_context' => $context);
