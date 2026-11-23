@@ -175,6 +175,24 @@ final class SitePlanRun
     }
 
     /**
+     * The captured entry document's prose column, which pages authored after
+     * the import render in. A lone entry page renders through front-page.html,
+     * leaving page.html to new pages; otherwise captured pages share page.html
+     * and new pages need a separate template.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<string,mixed>
+     */
+    private function authoredPage(array $pages): array
+    {
+        $lone = 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']);
+        $entry = $lone ? $this->initialDocuments[0] : (array_values(array_filter($this->initialDocuments, static fn(array $document): bool => !empty($document['entrypoint'])))[0] ?? null);
+        if (null === $entry) return array();
+        $usage = ArrayField::array($entry, 'design_usage');
+        return array('prose_width' => $usage['prose_width_px'] ?? null, 'prose_padding' => $usage['prose_padding_px'] ?? null, 'prose_columns' => $usage['prose_columns'] ?? array(), 'separate' => !$lone);
+    }
+
+    /**
      * Runs the plan stages in order. Each stage is named by its timer:
      *
      * - pages (begun by the constructor): routes the pages, selects
@@ -349,7 +367,7 @@ final class SitePlanRun
         // markup for the template units that replace them.
         $pageSourceMarkup = array_column($pages, '_projected_source_block_markup', 'source_path');
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array(), isset($themeProjection['theme']['styles']['blocks']['core/paragraph']['spacing']['margin']));
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], $this->authoredPage($pages), isset($themeProjection['theme']['styles']['blocks']['core/paragraph']['spacing']['margin']));
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);
@@ -369,7 +387,7 @@ final class SitePlanRun
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         // Related-section queries are registered while article chrome is factored.
         $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
-        $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
+        $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles, $templates);
         $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);
         $this->timer?->start('compose.site_plan.asset_writes');
         $assets = StylesheetScopes::canonicalize($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments));
