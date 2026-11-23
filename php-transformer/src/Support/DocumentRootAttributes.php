@@ -12,11 +12,19 @@ final class DocumentRootAttributes
         return self::forDocument($html)[$tagName] ?? array();
     }
 
-    /** Re-parent a body parsed on its own under an `<html>` carrying the source root attributes, so `:root` and `html` rules match the root rather than the body. */
+    /**
+     * Re-parent a body parsed on its own under an `<html>` carrying the source root attributes, so `:root` and `html` rules match the root rather than the body.
+     * The body regains its named selector attributes too, so rules scoped by them (`#site .page`) match as they do on the rendered body.
+     * Its `data-*` and `aria-*` predicates stay with the projection that owns root data state.
+     */
     public static function restoreRoot(\DOMElement $body, string $html): void
     {
+        $attributes = self::forDocument($html);
+        foreach ( array_intersect_key($attributes['body'], array_flip(SourceAttribute::SELECTOR_NAMES)) as $name => $value ) {
+            if ( ! $body->hasAttribute($name) ) $body->setAttribute($name, $value);
+        }
         $root = $body->ownerDocument->createElement('html');
-        foreach ( self::fromHtml($html) as $name => $value ) {
+        foreach ( $attributes['html'] as $name => $value ) {
             $root->setAttribute($name, $value);
         }
         $body->ownerDocument->replaceChild($root, $body);
