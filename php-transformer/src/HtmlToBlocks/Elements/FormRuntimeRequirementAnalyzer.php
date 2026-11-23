@@ -199,6 +199,8 @@ final class FormRuntimeRequirementAnalyzer
         $hasChoice = false;
         $onlyChoices = true;
         $hasSubmit = false;
+        $hasSubmitLike = false;
+        $hasVisitorControl = false;
         $choiceGroupSizes = array();
         // Submission controls count even when they are not rendered/authored
         // fields in the provider inventory (for example a hidden submit button).
@@ -210,7 +212,10 @@ final class FormRuntimeRequirementAnalyzer
                 $hasSubmit = true;
             }
             if ( FormControlClassifier::isSubmitLikeControl($control, $soleActionControl) ) {
+                $hasSubmitLike = true;
                 $donate = $donate || self::hasDonationSubmitSemantics($control);
+            } else {
+                $hasVisitorControl = true;
             }
         }
         foreach ( $controls as $control ) {
@@ -251,7 +256,10 @@ final class FormRuntimeRequirementAnalyzer
         // A submit label alone ("Add to Cart or Get a Quote") does not make a
         // form that asks for the visitor's email a cart form: a purchase form
         // carries the item, never the buyer's contact details.
-        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || (! $email && self::hasCommerceSubmissionSignal($form, true, $soleActionControl)) ) {
+        // Submission metadata alone is not a purchase surface: hidden-only
+        // forms can carry content without offering any visitor interaction.
+        if ( ($hasSubmitLike || $hasVisitorControl)
+            && (preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || (! $email && self::hasCommerceSubmissionSignal($form, true, $soleActionControl))) ) {
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';
