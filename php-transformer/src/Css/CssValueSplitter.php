@@ -37,16 +37,6 @@ final class CssValueSplitter
         return CssRuleTreeCache::memo('values:' . serialize($delimiters), $input, static fn (): array => self::splitTopLevelUncached($input, $delimiters));
     }
 
-    /** Like splitTopLevel(), retaining empty segments and token whitespace.
-     * Comments still follow the shared reader's normalization to one space.
-     * @param array<int, string> $delimiters
-     * @return array<int, string>
-     */
-    public static function splitTopLevelVerbatim(string $input, array $delimiters): array
-    {
-        return self::split($input, $delimiters, false);
-    }
-
     private static function splitTopLevelUncached(string $input, array $delimiters): array
     {
         $parts = self::split($input, $delimiters, false);

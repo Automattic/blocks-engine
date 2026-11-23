@@ -13,7 +13,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityShimCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationWhitespaceCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -624,7 +623,6 @@ final class SitePlanRun
             // the selector whitespace that separates no tokens ships once
             // per arm. Declaration values are left byte for byte.
             $compacted = CssSelectorListCompactor::withoutRedundantSelectorWhitespaceInStylesheet($compacted);
-            $compacted = CssDeclarationWhitespaceCompactor::stylesheet($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
