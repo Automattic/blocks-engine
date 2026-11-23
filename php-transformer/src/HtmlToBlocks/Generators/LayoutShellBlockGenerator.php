@@ -14,6 +14,31 @@ final class LayoutShellBlockGenerator
         'inert', 'loop', 'multiple', 'muted', 'nomodule', 'open', 'readonly', 'required', 'selected',
     );
 
+    /**
+     * Editor-only marker on the node that carries the shell's inner blocks.
+     *
+     * `useInnerBlocksProps()` adds `block-editor-block-list__layout`, which
+     * Gutenberg's `content.css` styles `position:relative`. Like the
+     * `block-editor-block-list__block` class that `sourceBlockProps()` drops
+     * from the outer wrapper, that default would make a source wrapper that
+     * is static on the frontend the containing block of its absolutely
+     * positioned children in the canvas. Gutenberg's in-between inserter
+     * reads the layout class, so it stays; this marker lets
+     * {@see self::EDITOR_INNER_BLOCKS_CARRIER_CSS} restore the wrapper's own
+     * box behaviour instead. The marker never reaches saved markup.
+     */
+    public const INNER_BLOCKS_CARRIER_CLASS = 'blocks-engine-layout-shell-inner-blocks';
+
+    /**
+     * Cancels Gutenberg's `.block-editor-block-list__layout{position:relative}`
+     * on the shell's inner-blocks carrier. Two classes outrank that one-class
+     * default whatever the load order, and stay below every editor position
+     * copy of authored CSS (`:root .editor-styles-wrapper …`, see
+     * AuthorStylesheetProjector::editorOverrideRules()) and inline styles, so
+     * an authored position on the wrapper still wins in the canvas.
+     */
+    public const EDITOR_INNER_BLOCKS_CARRIER_CSS = '.block-editor-block-list__layout.' . self::INNER_BLOCKS_CARRIER_CLASS . '{position:static}';
+
     public static function isBooleanAttribute(string $name): bool
     {
         return in_array(strtolower($name), self::BOOLEAN_ATTRIBUTES, true);
@@ -137,6 +162,17 @@ final class LayoutShellBlockGenerator
         merged.ref = props.ref ? mergeRefs( [ blockProps.ref, props.ref ] ) : blockProps.ref;
         return merged;
     }
+    // The node holding the inner blocks keeps the source wrapper's own box in
+    // the canvas: the marker lets the engine's editor stylesheet cancel the
+    // `position: relative` Gutenberg gives `block-editor-block-list__layout`,
+    // just as sourceBlockProps() drops `block-editor-block-list__block`.
+    // Saved markup never carries the marker.
+    function innerBlocksCarrierProps( props ) {
+        var carrier = Object.assign( {}, props );
+        carrier.className = String( props.className || '' ).split( /\s+/ ).filter( Boolean )
+            .concat( [ __INNER_BLOCKS_CARRIER_CLASS__ ] ).join( ' ' );
+        return carrier;
+    }
     function readableName( value ) {
         value = String( value || '' ).trim();
         if ( ! value || value.indexOf( 'blocks-engine-' ) === 0 || value.indexOf( 'be-inline-' ) === 0 || value.indexOf( 'comp-' ) === 0 || /^[a-f0-9]{16,}$/.test( value ) || /^[a-z]{1,4}\d[a-z0-9_]*$/i.test( value ) || /^[A-Z][a-z][A-Z][a-z]{2,}$/.test( value ) ) { return ''; }
@@ -218,7 +254,7 @@ final class LayoutShellBlockGenerator
         var blockProps = useBlockProps();
         var outerProps = wrappers.length ? sourceBlockProps( wrapperProps( wrappers[ 0 ].attributes ), blockProps ) : blockProps;
         var last = wrappers.length - 1;
-        var innerProps = useInnerBlocksProps( last > 0 ? wrapperProps( wrappers[ last ].attributes ) : outerProps );
+        var innerProps = innerBlocksCarrierProps( useInnerBlocksProps( last > 0 ? wrapperProps( wrappers[ last ].attributes ) : outerProps ) );
         var content = createElement( last >= 0 ? wrappers[ last ].tagName || 'div' : 'div', innerProps );
         for ( var index = last - 1; index >= 0; index-- ) {
             content = createElement( wrappers[ index ].tagName || 'div', index === 0 ? outerProps : wrapperProps( wrappers[ index ].attributes ), content );
@@ -248,7 +284,7 @@ JS;
                 'attributes' => array('wrappers' => array('type' => 'array', 'default' => array())),
                 'supports' => array('html' => false, 'reusable' => false, 'renaming' => false),
             ),
-            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__BOOLEAN_ATTRIBUTES__', '__VIEWPORT_ENTRANCE__'), array($blockName, json_encode(array_fill_keys(self::BOOLEAN_ATTRIBUTES, true), JSON_THROW_ON_ERROR), json_encode(CaptureEvidence::VIEWPORT_ENTRANCE, JSON_THROW_ON_ERROR)), $script)),
+            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__BOOLEAN_ATTRIBUTES__', '__VIEWPORT_ENTRANCE__', '__INNER_BLOCKS_CARRIER_CLASS__'), array($blockName, json_encode(array_fill_keys(self::BOOLEAN_ATTRIBUTES, true), JSON_THROW_ON_ERROR), json_encode(CaptureEvidence::VIEWPORT_ENTRANCE, JSON_THROW_ON_ERROR), json_encode(self::INNER_BLOCKS_CARRIER_CLASS, JSON_THROW_ON_ERROR)), $script)),
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element')),
         );
     }

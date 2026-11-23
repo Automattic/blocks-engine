@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElement
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
@@ -532,6 +533,11 @@ final class EngineSupportCss
         // 1em cover padding must not fill the sides the author left unset.
         if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
             $parts[] = ':root :where(.wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '){padding:0}';
+        }
+        // A layout shell's inner-blocks carrier keeps the source wrapper's own
+        // position in the canvas; authored editor position copies still win.
+        if ( 1 === preg_match('~<!-- wp:[a-z0-9-]+/layout-shell[\s/]~', $serializedBlocks) ) {
+            $parts[] = LayoutShellBlockGenerator::EDITOR_INNER_BLOCKS_CARRIER_CSS;
         }
         return $parts;
     }
