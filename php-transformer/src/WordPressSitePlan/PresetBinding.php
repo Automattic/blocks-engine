@@ -1070,6 +1070,7 @@ final class PresetBinding
         );
         foreach ($presets as $key => [$attribute, $property, $observedProperty, $flagClass, $presetClass]) {
             if (isset($attributes->{$attribute})) continue;
+            $kind = 'text' === $key ? 'text-color' : 'color';
             // A core preset class is !important and would mask the value the
             // device-inline runtime writes for another device.
             if (isset($deviceOverridden[$property]) || ('background' === $key && isset($deviceOverridden['background']))) continue;
@@ -1082,7 +1083,7 @@ final class PresetBinding
                 // adding a preset class, this preserves its cascade slot and
                 // does not assume anything about the block's class supports.
                 if (!is_string($literal)) continue;
-                $slug = $this->system->blockColorSlug($this->resolve($literal)) ?? $this->presetSlug('color', $literal, null, $reason);
+                $slug = $this->system->blockColorSlug($this->resolve($literal)) ?? $this->presetSlug($kind, $literal, null, $reason);
                 if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
                 else $this->refuse($reason ?? 'unsupported_block');
                 continue;
@@ -1103,7 +1104,7 @@ final class PresetBinding
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
             $resolvedInline = 'text' === $key && is_string($literal) && str_contains($literal, 'var(') && null !== CssColor::parse($this->resolve($literal));
-            $inlineOnly = $resolvedInline && null === $this->presetSlug('color', $literal, $observation);
+            $inlineOnly = $resolvedInline && null === $this->presetSlug($kind, $literal, $observation);
             if (is_string($literal) && (null !== CssColor::parse($literal) || $inlineOnly)) {
                 // A proven inline colour belongs to this block, not every
                 // element sharing its author classes. Ordinary breakpoint
@@ -1112,7 +1113,7 @@ final class PresetBinding
                 // below proves that the literal really is serialized inline.
                 $observation = null;
             }
-            $slug = $this->presetSlug('color', $literal, $observation, $reason);
+            $slug = $this->presetSlug($kind, $literal, $observation, $reason);
             if (null === $slug && is_string($literal) && self::paintsNothing($literal)) {
                 // A zero-alpha colour (a computed `rgba(255, 255, 255, 0)`)
                 // is no design value: it is the `transparent` keyword in
@@ -2213,7 +2214,7 @@ final class PresetBinding
     /** Why a value that names no token is not bound; null when it paints nothing of its own. */
     private static function unboundReason(string $kind, string $value): ?string
     {
-        if ('color' !== $kind) return 'no_matching_token';
+        if ('color' !== $kind && 'text-color' !== $kind) return 'no_matching_token';
         if (1 === preg_match('/^(?:currentcolor|inherit|initial|unset|revert|revert-layer)$/i', trim($value))) return null;
         $color = CssColor::parse($value);
         if (null === $color) return 'unresolved_value';
@@ -2232,7 +2233,7 @@ final class PresetBinding
     private function comparable(string $kind, string $value): bool
     {
         return match ($kind) {
-            'color' => null !== CssColor::parse($value),
+            'color', 'text-color' => null !== CssColor::parse($value),
             'font-family' => '' !== trim($value) && !str_contains($value, 'var(') && !in_array(strtolower(trim($value)), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true),
             default => null !== CssLength::toPx($value),
         };
@@ -2243,6 +2244,9 @@ final class PresetBinding
         if (!$this->comparable($kind, $value)) return null;
         return match ($kind) {
             'color' => $this->system->colorSlug($value),
+            // A block's text colour may also name a near shade's derived
+            // token (DesignSystem::withBlockNearShades()).
+            'text-color' => $this->system->colorSlug($value) ?? $this->system->blockNearShadeSlug($value),
             'font-size' => $this->fontSizeSlug($value),
             'font-family' => $this->system->fontFamilySlug($value),
             default => $this->spacingSlug($value),

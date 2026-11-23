@@ -26,8 +26,10 @@ foreach (array('white' => 'base', '#fff' => 'base', '#ffffff' => 'base', 'rgb(25
     $assert(1 === preg_match('/<!-- wp:cover (\{.*?\}) -->\s*(<[^>]+>)/s', $markup, $match), $color . ': the banner remains a native cover.');
     $attrs = json_decode($match[1], true, 512, JSON_THROW_ON_ERROR);
     if (null === $expected) {
-        $assert($color === ($attrs['style']['color']['text'] ?? null) && !isset($attrs['textColor']), 'A near shade keeps its literal text paint.');
-        $assert(str_contains($match[2], 'color:' . $color), 'The near shade stays inline.');
+        // A near shade never binds to its representative (that would
+        // repaint it); it names its derived near-shade token instead.
+        $assert('base-shade-popopo' === ($attrs['textColor'] ?? null) && !isset($attrs['style']['color']['text']), 'A near shade binds to its derived near-shade token (' . $match[1] . ').');
+        $assert(str_contains($match[2], 'has-base-shade-popopo-color') && !str_contains($match[2], 'color:'), 'The near shade is a preset class, not inline paint.');
         continue;
     }
     // Collect failures so the trunk run reports every notation, not only the first.
