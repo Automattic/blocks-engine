@@ -339,6 +339,9 @@ final class SitePlanRun
          foreach ($pages as &$page) unset($page['_synced_pattern_source']); unset($page);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
+        // Archive sources leave the pages here; keep their projected source
+        // markup for the template units that replace them.
+        $pageSourceMarkup = array_column($pages, '_projected_source_block_markup', 'source_path');
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
         $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array(), isset($themeProjection['theme']['styles']['blocks']['core/paragraph']['spacing']['margin']));
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
@@ -353,8 +356,10 @@ final class SitePlanRun
         // Article chrome moves shared post chrome out of each post body, which
         // shifts the page-owned blocks after it. Rebase their runtime anchors.
         // Taxonomy archive sources now live in template units, not pages;
-        // include those documents so their bindings retain an emitted anchor.
-        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates, $templates), $paginationOwners);
+        // include those documents so their bindings retain an emitted anchor,
+        // checked against their projected source markup. Only this call sees
+        // that working key; $templates is emitted without it.
+        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates, $this->withProjectedSource($templates, $pageSourceMarkup)), $paginationOwners);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         // Related-section queries are registered while article chrome is factored.
         $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
@@ -845,11 +850,25 @@ final class SitePlanRun
      */
     private function bindingTemplates(array $tokens): array
     {
-        $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references);
-        $surfaceMarkup = array_column($this->surfaces, 'block_markup', 'source_path');
-        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
+        return $this->withProjectedSource(ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references));
+    }
+
+    /**
+     * Template units with their source's projected markup, so a binding on a
+     * template is checked against its own source document: a captured
+     * surface's markup, else that of the page the template replaced. The key
+     * is working state for anchoring only; emitted templates never carry it.
+     *
+     * @param array<int,array<string,mixed>> $templates
+     * @param array<string,string> $pageSourceMarkup
+     * @return array<int,array<string,mixed>>
+     */
+    private function withProjectedSource(array $templates, array $pageSourceMarkup = array()): array
+    {
+        $sourceMarkup = array_column($this->surfaces, 'block_markup', 'source_path') + $pageSourceMarkup;
+        foreach ($templates as &$template) if (is_string($sourceMarkup[$template['source_path'] ?? ''] ?? null)) $template['_projected_source_block_markup'] = $sourceMarkup[$template['source_path']];
         unset($template);
-        return $bindingTemplates;
+        return $templates;
     }
 
     /**
