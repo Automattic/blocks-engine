@@ -5664,11 +5664,39 @@ final class StyleResolver implements ElementPresentationResolver
         // Keeping the authored shorthand also preserves resets for components
         // that our presentation mappers do not parse.
         uasort($cascade, fn (array $left, array $right): int => $this->mediaTextCascadeEntryOutranks($left, $right) ? 1 : -1);
+        // What the element's own recipes and inline style give it without any
+        // context rule. A context rule (`.header .label`) that only restates
+        // that value changes nothing the element renders, so the recipe still
+        // owns the property: every element with the class renders it alike.
+        $recipeCascade = array();
+        if ( $recipeOrigins ) {
+            $sequence = 0;
+            foreach ( $rules as $rule ) {
+                if ( ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
+                    || ( null !== $excludeSelector && $excludeSelector((string) $rule['selector']) )
+                ) {
+                    continue;
+                }
+                $specificity = $this->cascade->specificity($rule['selector']);
+                foreach ( $rule['declarations'] as $property => $value ) {
+                    ++$sequence;
+                    if ( $recipes[$sequence] ?? false ) {
+                        $this->applyMediaTextCascadeDeclaration($recipeCascade, (string) $property, (string) $value, false, $specificity, $sequence, $rule['layerRank'] ?? null);
+                    }
+                }
+            }
+            foreach ( SourceDeclarations::parse($inlineStyle) as $property => $value ) {
+                $this->applyMediaTextCascadeDeclaration($recipeCascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
+            }
+        }
         $declarations = array();
         foreach ( $cascade as $property => $entry ) {
             if ( "\0all" !== $property ) {
+                $restated = isset($recipeCascade[$property])
+                    && $recipeCascade[$property]['value'] === $entry['value']
+                    && $recipeCascade[$property]['important'] === $entry['important'];
                 $declarations[$property] = $recipeOrigins
-                    ? (($entry['inline'] || ($recipes[$entry['sequence']] ?? false)) ? '0' : '!context')
+                    ? (($entry['inline'] || ($recipes[$entry['sequence']] ?? false) || $restated) ? '0' : '!context')
                     : $entry['value'] . ($entry['important'] ? ' !important' : '');
             }
         }
