@@ -575,7 +575,7 @@ final class WrapperCoalescer
     private function resolvedCompositionCoalescing(DOMElement $element, array $childBlock): ?array
     {
         $name = (string) ($childBlock['blockName'] ?? '');
-        if (! in_array($name, array('core/group'), true)
+        if (! in_array($name, array('core/group', 'core/paragraph', 'core/heading'), true)
             || 'div' !== strtolower($element->tagName)
             || null !== $this->layoutGeometryProofFor($element)) return null;
         $childAttrs = ArrayField::array($childBlock, 'attrs');
@@ -587,11 +587,15 @@ final class WrapperCoalescer
             static fn (array $check): bool => ! in_array($check[0], array('unsupported_child_block_name'), true)
         ));
         if (null !== $this->firstDisqualification($checks)) return null;
+        // Shell extraction finds page chrome as the group blocks at the
+        // document's edges; a text leaf there must keep its group boundary.
+        if ('core/group' !== $name && $this->isDocumentEdgeWrapper($element)) return null;
         $leaf = $this->resolvedCompositionLeaf($element, $childBlock);
         if (! $leaf instanceof DOMElement
             || $this->sourceElementClassifier->hasMotionStructureToken($leaf)
             || $this->runtimeIslands->isRuntimeDomTarget($leaf)) return null;
         $leafTag = strtolower($leaf->tagName);
+        if ('core/group' !== $name && ! $this->repeatedMembersFoldAlike($element, $leaf)) return null;
         if (('core/paragraph' === $name && 'p' !== $leafTag)
             || ('core/heading' === $name && ! preg_match('/^h[1-6]$/', $leafTag))
             || ('core/group' === $name && ! in_array($leafTag, array('div', 'section', 'article', 'aside', 'main'), true))) return null;
@@ -645,6 +649,67 @@ final class WrapperCoalescer
         if ('' !== $transferredId && '' !== trim((string) ($attrs['anchor'] ?? ''))) $childAttrs['anchor'] = (string) $attrs['anchor'];
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
         return $this->createBlock->createBlock($name, $childAttrs, $innerBlocks, $leaf);
+    }
+
+    /**
+     * Whether the wrapper opens or closes the document: at every level up to
+     * the body it is the first element (a header edge) or at every level the
+     * last (a footer edge). Shell extraction reads page chrome from the group
+     * blocks at those edges, so such a wrapper keeps its group boundary.
+     */
+    private function isDocumentEdgeWrapper(DOMElement $element): bool
+    {
+        $leading = true;
+        $trailing = true;
+        for ($node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode) {
+            for ($sibling = $node->previousSibling; $leading && null !== $sibling; $sibling = $sibling->previousSibling) {
+                if ($sibling instanceof DOMElement) $leading = false;
+            }
+            for ($sibling = $node->nextSibling; $trailing && null !== $sibling; $sibling = $sibling->nextSibling) {
+                if ($sibling instanceof DOMElement) $trailing = false;
+            }
+            if (! $leading && ! $trailing) return false;
+        }
+        return true;
+    }
+
+    /** @var \WeakMap<\DOMDocument, array<string, list<DOMElement>>>|null */
+    private ?\WeakMap $classSignatureMembers = null;
+
+    /**
+     * A wrapper repeated elsewhere in the document (same tag and classes)
+     * folds only when every member folds the same way: each is a chain of
+     * sole-child wrappers of the same length around a leaf with the same tag,
+     * and none sits at a document edge. Otherwise one instance would lose the
+     * group its siblings keep.
+     */
+    private function repeatedMembersFoldAlike(DOMElement $element, DOMElement $leaf): bool
+    {
+        $classes = SourceDom::classNames($element);
+        if (array() === $classes || ! $element->ownerDocument instanceof \DOMDocument) return true;
+        sort($classes);
+        $depth = 0;
+        for ($node = $leaf; $node instanceof DOMElement && $node !== $element; $node = $node->parentNode) ++$depth;
+        $document = $element->ownerDocument;
+        $this->classSignatureMembers ??= new \WeakMap();
+        if (! isset($this->classSignatureMembers[$document])) {
+            $index = array();
+            foreach ($document->getElementsByTagName('*') as $node) {
+                $nodeClasses = SourceDom::classNames($node);
+                if (array() === $nodeClasses) continue;
+                sort($nodeClasses);
+                $index[strtolower($node->tagName) . '.' . implode('.', $nodeClasses)][] = $node;
+            }
+            $this->classSignatureMembers[$document] = $index;
+        }
+        foreach ($this->classSignatureMembers[$document][strtolower($element->tagName) . '.' . implode('.', $classes)] ?? array() as $member) {
+            if ($member === $element) continue;
+            if ($this->isDocumentEdgeWrapper($member)) return false;
+            $node = $member;
+            for ($i = 0; $i < $depth && $node instanceof DOMElement; ++$i) $node = ($this->soleElementChild)($node);
+            if (! $node instanceof DOMElement || strtolower($node->tagName) !== strtolower($leaf->tagName)) return false;
+        }
+        return true;
     }
 
     /**
