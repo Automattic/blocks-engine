@@ -1364,6 +1364,7 @@ final class SharedChromeStylesheets
                 if (!self::selectorTargetsAuthoredChrome(('id' === $kind ? '#' : '.') . CssIdent::escape((string) $name), $only, array('class' => array(), 'id' => array()))) $routeHooks[$kind][$name] = true;
             }
         }
+        $routeContentMarkers = $routeHooks['marker'];
         // Keep each chrome element's rules in one stylesheet: an element with any
         // route-kept hook keeps all of its hooks on the route (to a fixed point).
         do {
@@ -1377,6 +1378,13 @@ final class SharedChromeStylesheets
                 }
             }
         } while ($grown);
+        // A control's instance marker owns generated wrapper repairs, not the
+        // authored utility hooks it happens to share with route content. Those
+        // repairs must follow the chosen shared control onto adopting routes.
+        // A marker actually carried by route content still keeps its ownership.
+        foreach (array_keys($routeHooks['marker']) as $marker) {
+            if (!isset($routeContentMarkers[$marker]) && 1 === preg_match('/^blocks-engine-control-[a-f0-9]{12}-[0-9]+$/', $marker)) unset($routeHooks['marker'][$marker]);
+        }
         return $routeHooks;
     }
 
