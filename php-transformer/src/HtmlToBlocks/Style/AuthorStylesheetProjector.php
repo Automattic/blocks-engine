@@ -1154,13 +1154,33 @@ final class AuthorStylesheetProjector
         // Margins carry no button geometry, so a dormant control arm may name
         // its subject classes (the main arm stays per element in wrapper mode).
         $projected = $this->rewriteSelectorPrelude($prelude, $context, true, true, true);
+        // Provider field shells are new boxes, not source children. Structural
+        // selectors (including :where(.stack > :not(:last-child))) otherwise
+        // put a second copy of a control's margin on its shell. The native
+        // control keeps the cascade-resolved margin through the presentation
+        // graph; do not let the author selector also space the invented box.
+        $providerShell = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $form = SourceDom::ancestorElement($element, 'form');
+                if ( null !== $form && FormControlClassifier::isDataEntryControl($element) && array() !== FormDispatcher::hostRenderedClasses($form) ) {
+                    $providerShell = true;
+                }
+                // An authored use of the same class still owns its margins.
+                if ( in_array('grunion-field-wrap', SourceDom::tokens($element->getAttribute('class')), true) ) {
+                    return $projected;
+                }
+            }
+        }
         $selectors = CssStylesheetTransformer::splitSelectorList($projected);
         if ( null === $selectors ) {
             return $projected;
         }
 
         // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
-        $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
+        $shim = ($providerShell ? ':not(:where(.grunion-field-wrap))' : '')
+            . ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
         $nativeFlex = 1 === preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $context->emittedMarkup);
         return implode(',', array_map(static function (string $selector) use ($shim, $nativeFlex): string {
             $selector = trim($selector);
