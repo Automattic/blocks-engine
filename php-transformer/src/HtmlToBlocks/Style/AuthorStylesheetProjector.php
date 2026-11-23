@@ -1154,16 +1154,19 @@ final class AuthorStylesheetProjector
         // Margins carry no button geometry, so a dormant control arm may name
         // its subject classes (the main arm stays per element in wrapper mode).
         $projected = $this->rewriteSelectorPrelude($prelude, $context, true, true, true);
-        // Provider field shells are new boxes, not source children. Structural
-        // selectors (including :where(.stack > :not(:last-child))) otherwise
-        // put a second copy of a control's margin on its shell. The native
-        // control keeps the cascade-resolved margin through the presentation
-        // graph; do not let the author selector also space the invented box.
+        // Provider field shells are new boxes, not source children. A purely
+        // positional child selector (:where(.stack > :not(:last-child)))
+        // matches the shell that now occupies the control's slot, putting a
+        // second copy of the control's margin on it. The native control keeps
+        // the cascade-resolved margin through the presentation graph; do not
+        // let that author selector also space the invented box. Selectors that
+        // name their subject (or reset every element) cannot double it.
         $providerShell = false;
         foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
+            $positionalChild = self::isPositionalChildSelector($parsed);
             foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
-                $form = SourceDom::ancestorElement($element, 'form');
+                $form = $positionalChild ? SourceDom::ancestorElement($element, 'form') : null;
                 if ( null !== $form && FormControlClassifier::isDataEntryControl($element) && array() !== FormDispatcher::hostRenderedClasses($form) ) {
                     $providerShell = true;
                 }
@@ -1195,6 +1198,26 @@ final class AuthorStylesheetProjector
             }
             return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
         }, $selectors));
+    }
+
+    /**
+     * Whether a selector reaches its subject only by being a child of another
+     * compound: no type, class, id or attribute names the subject itself.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private static function isPositionalChildSelector(array $parsed): bool
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        $combinators = $parsed['combinators'] ?? array();
+        if ( true !== ($parsed['supported'] ?? false) || count($compounds) < 2 || '>' !== trim((string) end($combinators)) ) {
+            return false;
+        }
+        $subject = CssSelectorCompoundInspector::rightmost($compounds);
+        return null === ($subject['type'] ?? null)
+            && array() === ($subject['classes'] ?? array())
+            && array() === ($subject['ids'] ?? array())
+            && array() === ($subject['attributes'] ?? array());
     }
 
     /** @param list<DOMElement>|null $controls Limit a partition to these matched controls. */
