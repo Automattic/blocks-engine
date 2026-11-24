@@ -813,7 +813,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             patternContext: $this->patternContext,
             visualTextWrapperBlock: $inlineTextWrappers->visualTextWrapperBlockFromElement(...),
             coalescedSingleGroupWrapper: $this->wrapperCoalescer->coalescedSingleGroupWrapper(...),
-            shouldPreserveWrapper: $this->emptyVisualRetention->shouldPreserveWrapper(...)
+            wrapperDisposition: $this->emptyVisualRetention->wrapperDisposition(...)
         ),
             $emptyFeatureShells,
             $formDispatcher,
