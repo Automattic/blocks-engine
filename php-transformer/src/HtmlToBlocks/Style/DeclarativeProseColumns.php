@@ -32,7 +32,13 @@ final class DeclarativeProseColumns
                 if ($flex && !self::stretchedColumn($s)) return;
                 if ($flexItem && !in_array(strtolower(trim($s['align-self'] ?? '')), array('', 'auto', 'normal', 'stretch'), true)) return;
                 $length = static fn(string $value): ?float => CssFluidLength::evaluate($value, $viewport, 900, $available, null, $rem);
-                $width = isset($s['width']) ? $length($s['width']) : $available;
+                $margin = preg_split('/\s+/', trim($s['margin'] ?? '0'));
+                $inline = preg_split('/\s+/', trim($s['margin-inline'] ?? ''), -1, PREG_SPLIT_NO_EMPTY);
+                $ml = $s['margin-left'] ?? $inline[0] ?? ($margin[3] ?? $margin[1] ?? $margin[0]);
+                $mr = $s['margin-right'] ?? $inline[1] ?? $inline[0] ?? ($margin[1] ?? $margin[0]);
+                // An auto-width box fills its containing block less its own
+                // non-auto horizontal margins.
+                $width = isset($s['width']) ? $length($s['width']) : $available - ('auto' === $ml ? 0 : ($length($ml) ?? 0)) - ('auto' === $mr ? 0 : ($length($mr) ?? 0));
                 if (null === $width) return;
                 // Native paragraphs occupy their containing block's column; a
                 // max-width a bare paragraph also gets styles authored ones in
@@ -40,8 +46,6 @@ final class DeclarativeProseColumns
                 if (isset($s['max-width']) && null !== ($max = $length($s['max-width']))) {
                     if ('p' !== $tag || null === $bare || ($resolver->authorViewport->atViewport($bare, array('max-width'), $viewport)['max-width'] ?? null) !== $s['max-width']) $width = min($width, $max);
                 }
-                $margin = preg_split('/\s+/', trim($s['margin'] ?? '0'));
-                $ml = $s['margin-left'] ?? $s['margin-inline'] ?? ($margin[3] ?? $margin[1] ?? $margin[0]);
                 $left += 'auto' === $ml ? max(0, ($available - $width) / 2) : ($length($ml) ?? 0);
                 $padding = preg_split('/\s+/', trim($s['padding'] ?? '0'));
                 $pl = $length($s['padding-left'] ?? ($padding[3] ?? $padding[1] ?? $padding[0])) ?? 0;
