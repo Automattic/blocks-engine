@@ -2326,6 +2326,10 @@ final class ArtifactCompiler
      * Every class and id a document root of the site can carry: the captured
      * roots' own, and any name a script could add at runtime, so route
      * scoping never forks an arm into a root alternative no root matches.
+     * A capture report describes the source as measured (box trees, captured
+     * component markup, geometry): it names every element's classes but adds
+     * none to a root at runtime. Only the scroll-state report (replayed as
+     * class toggles) and the receipt (its document scope classes) may name one.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array<string, true>
@@ -2336,12 +2340,7 @@ final class ArtifactCompiler
         $collect = static function (string $text) use (&$tokens): void {
             if (preg_match_all('/[\w-]+/', $text, $matches)) foreach ($matches[0] as $token) $tokens[$token] = true;
         };
-        foreach ($files as $file) {
-            if ('css' === ($file['kind'] ?? '')) continue;
-            if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $collect((string) json_encode($file['metadata']));
-            $text = $file['content'] ?? (is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
-            if (!is_string($text) || '' === $text) continue;
-            if ('html' !== ($file['kind'] ?? '')) { $collect($text); continue; }
+        $collectHtml = static function (string $text) use ($collect): void {
             $root = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($text)['root_attributes'];
             $collect((string) ($root['class'] ?? '') . ' ' . (string) ($root['id'] ?? ''));
             // Inline scripts and handlers can add root classes at runtime.
@@ -2353,6 +2352,25 @@ final class ArtifactCompiler
                 $offset = $close;
             }
             if (preg_match_all('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\')/i', $text, $handlers)) foreach ($handlers[1] as $handler) $collect($handler);
+        };
+        foreach ($files as $file) {
+            if ('css' === ($file['kind'] ?? '')) continue;
+            if (ArtifactNormalizer::CAPTURE_REPORT_ROLE === ($file['role'] ?? null) && !in_array($file['path'] ?? null, array('scroll-states.json', 'capture-receipt.json'), true)) continue;
+            $metadata = $file['metadata'] ?? null;
+            if (is_array($metadata) && array() !== $metadata) {
+                // Resolved includes are markup inlined into the document: read
+                // them as markup, so only their scripts and handlers count.
+                $includes = $metadata['compilation']['html_include_sources'] ?? null;
+                if (is_array($includes)) {
+                    unset($metadata['compilation']['html_include_sources']);
+                    foreach ($includes as $include) if (is_string($include)) $collectHtml($include);
+                }
+                $collect((string) json_encode($metadata));
+            }
+            $text = $file['content'] ?? (is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            if (!is_string($text) || '' === $text) continue;
+            if ('html' !== ($file['kind'] ?? '')) { $collect($text); continue; }
+            $collectHtml($text);
         }
         return $tokens;
     }
