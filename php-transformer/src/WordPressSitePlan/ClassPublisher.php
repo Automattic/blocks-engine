@@ -169,11 +169,15 @@ final class ClassPublisher
         $drop = self::droppable($markups, array_diff_key($listed, $referenced));
 
         // One name for each class that stays, in first-occurrence order. A
-        // specificity shim matches nothing by construction, whatever names it.
+        // specificity shim matches nothing by construction, whatever names it,
+        // and selectors repeat it in nearly every arm: it takes no word past
+        // the namespace (`<namespace>-c0`), so publishing adds as few bytes
+        // per occurrence as the namespace allows.
         $map = array();
         foreach (self::selectorShims($cssText) as $shim => $_) {
-            $name = $namespace . '-weight-' . str_replace('-', '', substr($shim, 3));
-            for ($suffix = 2; isset($taken[$name]); ++$suffix) $name = $namespace . '-weight-' . str_replace('-', '', substr($shim, 3)) . '-' . $suffix;
+            $base = $namespace . '-' . str_replace('-', '', substr($shim, 3));
+            $name = $base;
+            for ($suffix = 2; isset($taken[$name]); ++$suffix) $name = $base . '-' . $suffix;
             $taken[$name] = true;
             $map[$shim] = $name;
         }
