@@ -491,6 +491,78 @@ final class PresetBinding
         }
     }
 
+    /**
+     * Bind a parsed block tree a provider renders in place of page content
+     * (a form fallback's `readable_blocks`). The provider serializes these
+     * blocks itself, so they never pass through the page markup binding: a
+     * colour, font size or spacing an author class gives a readable block
+     * would otherwise stay owned by that class, overriding the block's own
+     * controls and any colour a parent block sets. Each block binds exactly
+     * as its serialized form does in a page: its attributes and its own
+     * opening element change, its content does not. A form control's subtree
+     * stays as compiled: the provider rebuilds the control from its own facts.
+     *
+     * @param array<int|string,mixed> $blocks
+     * @return array<int|string,mixed>
+     */
+    public function bindBlockTree(array $blocks, ?string $source = null): array
+    {
+        $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
+        try {
+            return $this->bindTree($blocks);
+        } finally {
+            $this->rootPx = $this->siteRootPx;
+        }
+    }
+
+    /**
+     * @param array<int|string,mixed> $blocks
+     * @return array<int|string,mixed>
+     */
+    private function bindTree(array $blocks): array
+    {
+        foreach ($blocks as $index => $block) {
+            if (!is_array($block) || !is_string($block['blockName'] ?? null) || isset($block['form_control_index'])) continue;
+            if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->bindTree($block['innerBlocks']);
+            $blocks[$index] = $this->boundTreeBlock($block);
+        }
+        return $blocks;
+    }
+
+    /**
+     * @param array<string,mixed> $block
+     * @return array<string,mixed>
+     */
+    private function boundTreeBlock(array $block): array
+    {
+        // Page binding reads core blocks only: their delimiters carry no namespace.
+        if (1 !== preg_match('~^core/([\w-]+)$~', (string) $block['blockName'], $match)) return $block;
+        $name = $match[1];
+        $head = $block['innerContent'][0] ?? null;
+        if (!is_string($head) || !is_array($block['attrs'] ?? null) || array() === $block['attrs']) return $block;
+        $json = BlockAttributes::encode($block['attrs']);
+        $opening = '<!-- wp:' . $name . ' ' . $json . ' -->';
+        $bound = $this->bindBlock($name, $json, $opening . $head, strlen($opening));
+        if (null === $bound) return $block;
+        [$delimiter, $tagStart, $tagEnd, $tag] = $bound;
+        $attrs = array();
+        if (1 === preg_match('~^<!-- wp:\S+ (\{.*\}) -->$~s', $delimiter, $encoded)) {
+            $attrs = json_decode($encoded[1], true);
+            if (!is_array($attrs)) return $block;
+        }
+        $between = substr($head, 0, $tagStart - strlen($opening));
+        if ('button' === $name && null !== ($slug = $this->system->buttonVariationSlug()) && str_contains($delimiter, 'is-style-' . $slug)) {
+            $between = (string) preg_replace('/\bclass="/', 'class="is-style-' . $slug . ' ', $between, 1);
+        }
+        $newHead = $between . $tag . substr($head, $tagEnd - strlen($opening));
+        $block['attrs'] = $attrs;
+        $block['innerContent'][0] = $newHead;
+        if (is_string($block['innerHTML'] ?? null) && str_starts_with($block['innerHTML'], $head)) {
+            $block['innerHTML'] = $newHead . substr($block['innerHTML'], strlen($head));
+        }
+        return $block;
+    }
+
     private function bindMarkup(string $markup): string
     {
         $markup = $this->bindNavigations($markup);

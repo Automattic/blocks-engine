@@ -284,6 +284,14 @@ final class SitePlanRun
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
+        // A form provider renders a fallback's readable blocks in place of the
+        // page's form, so they bind as the page markup they replace does.
+        if (null !== $this->presetBinding) foreach ($data['fallbacks'] as &$fallback) {
+            if (!is_array($fallback) || !is_array($fallback['readable_blocks'] ?? null)) continue;
+            $source = $fallback['source_path'] ?? null;
+            $fallback['readable_blocks'] = $this->presetBinding->bindBlockTree($fallback['readable_blocks'], is_string($source) ? $source : null);
+        }
+        unset($fallback);
         // Anchor only after presets and scoped font defaults settle the page
         // bytes, but before shell extraction moves any runtime-bound regions.
         $this->timer?->start('compose.site_plan.entity_bindings');
