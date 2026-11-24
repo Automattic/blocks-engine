@@ -30,7 +30,7 @@ $plan = (new ArtifactCompiler())->compile(array(
 ))->toWordPressSitePlanView()['wordpress_site_plan'];
 
 $sheets = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? null) ? (string) ($asset['content'] ?? '') : '', $plan['assets'] ?? array()));
-$assert(1 === preg_match('/(?<!:not\():where\(\.blocks-engine-role-control\)[^{}]*\{margin-top:12px\}/', $sheets), 'The stack rule reaches the controls through the control role class.');
+$assert(1 === preg_match('/(?<!:not\(:where\()\.blocks-engine-role-control(?![\w-])[^{}]*\{margin-top:12px\}/', $sheets), 'The stack rule reaches the controls through the control role class.');
 $assert(1 !== preg_match('/:where\(\.blocks-engine-control-[0-9a-f]{12}-[0-9]+,[^{}]*\{margin-top:12px\}/', $sheets), 'No marker list naming every control ships.');
 
 // A list naming most carriers is written as the role class minus the rest,

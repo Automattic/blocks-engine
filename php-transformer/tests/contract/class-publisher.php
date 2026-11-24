@@ -241,7 +241,9 @@ $escapedCss = $stylesheets($escapedQuote);
 preg_match_all($engineIdent, $escapedCss, $escapedLeft);
 $assert(array() === $escapedLeft[0], 'CSS after an escaped quote is published too: ' . implode(', ', array_unique($escapedLeft[0])));
 $assert(1 === preg_match('/"className":"([^"]*)","metadata":\{"blocksEngineRuntimeAttributes":\{"data-grid-id":"row"/', $content($escapedQuote), $row), 'The grid container keeps its published classes.');
-$gridded = array_filter(explode(' ', $row[1]), static fn (string $class): bool => 1 === preg_match('/\.' . preg_quote($class, '/') . '\)[^{}]*\{[^}]*display:grid/', $escapedCss));
+// The class may sit inside the carrier's `:where()` or be lifted out of it to
+// pay a specificity shim (`:where(.x):not(.c)` is `.x`); either selects.
+$gridded = array_filter(explode(' ', $row[1]), static fn (string $class): bool => 1 === preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])[^{}]*\{[^}]*display:grid/', $escapedCss));
 $assert(array() !== $gridded, 'A class the grid container carries selects its display:grid rule: ' . $row[1]);
 
 $bootstrapMethod = new ReflectionMethod(ClassPublisher::class, 'publishedBootstrap');
