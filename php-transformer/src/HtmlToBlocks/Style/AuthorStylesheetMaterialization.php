@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 
 /**
@@ -43,6 +44,24 @@ final class AuthorStylesheetMaterialization
         private readonly bool $nativeDocumentContext,
         private readonly string $sourcePath
     ) {
+    }
+
+    /**
+     * Whether the source form boxes handed to the form provider author their
+     * margin only in cascade layers: at least one does, and none sets it in
+     * an unlayered rule (including state rules), which `revert-layer` would
+     * otherwise roll back.
+     */
+    private function providerFormBoxMarginIsLayered(): bool
+    {
+        $layered = false;
+        foreach ( $this->session->authorStyleAnalysis()->sourceBody()->getElementsByTagName('form') as $form ) {
+            if ( array() === FormDispatcher::hostRenderedClasses($form) ) continue;
+            $margin = $this->styleResolver->authorPropertyFamilyLayering($form, array( 'margin' => '/^margin(?:-.*)?$/' ), true)['margin'] ?? null;
+            if ( false === $margin ) return false;
+            if ( true === $margin ) $layered = true;
+        }
+        return $layered;
     }
 
     public function contentBoxCss(): string
@@ -155,7 +174,7 @@ final class AuthorStylesheetMaterialization
         // CascadeLayer (see CascadeLayer), not by the order these calls
         // appear in. $afterAuthorCss orders the collected stylesheet by that
         // declared layer once every contribution below has been collected.
-        $afterAuthorCss->absorb($engineSupportCss->generatedMarkupRepairCss($serializedBlocks));
+        $afterAuthorCss->absorb($engineSupportCss->generatedMarkupRepairCss($serializedBlocks, $this->providerFormBoxMarginIsLayered()));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkBoxRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationAnchorLineHeightRules($serializedBlocks));
