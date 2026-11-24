@@ -46,6 +46,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormControlConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PhrasingSvgConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ScrollStateConverter;
@@ -1882,27 +1883,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function boxlessWrapperHookChild(DOMElement $element): ?DOMElement
     {
-        if ( ! in_array($element, $this->retainedCustomWrapperHooks, true) ) {
-            return null;
-        }
-        $child = null;
-        foreach ( $element->childNodes as $node ) {
-            if ( $node instanceof DOMElement ) {
-                if ( null !== $child ) {
-                    return null;
-                }
-                $child = $node;
-            } elseif ( $node instanceof \DOMText && '' !== trim($node->textContent) ) {
-                return null;
-            }
-        }
-        if ( null === $child
-            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, true)
-            || ! $this->renderNeutral->isBoxlessWrapper($element)
-        ) {
-            return null;
-        }
-        return $child;
+        // Whether the hook's Group folds into its child is WrapperDecision's (#7471).
+        return WrapperDecision::retainedWrapperHook(
+            $element,
+            in_array($element, $this->retainedCustomWrapperHooks, true),
+            fn (): bool => $this->runtimeIslands->isSafeTransparentCustomElement($element, true),
+            fn (): bool => $this->renderNeutral->isBoxlessWrapper($element)
+        )['child'];
     }
 
     /**
