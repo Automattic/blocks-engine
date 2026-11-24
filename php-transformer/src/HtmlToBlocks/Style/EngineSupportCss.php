@@ -65,7 +65,6 @@ final class EngineSupportCss
         SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS,
         SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS,
         SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS,
-        SourceBlockAttributeProjector::SIZED_VIDEO_FIGURE_CLASS,
         HtmlCompilation::LOWERED_PARAGRAPH_CLASS,
     );
 
@@ -551,7 +550,9 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SIZED_VIDEO_FIGURE_CLASS) ) {
             // The figure core/video injects around a source <video> has no
-            // source margin of its own.
+            // source margin of its own. It stays out of ZERO_MARGIN_BOX_CLASSES:
+            // that list is shipped on every page, and this marker only where a
+            // source video sized its own box.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SIZED_VIDEO_FIGURE_CLASS . '){margin:0}';
         }
         if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
