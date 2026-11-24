@@ -66,4 +66,41 @@ foreach (array(
     }
 }
 
+// The frame's ratio is the figure's only height: the image inside is out of
+// flow. The bridge that moves an image's own ratio class from its figure down
+// onto the image (`<img class="aspect-square">`) must not reset this figure's
+// ratio to auto, or the tile collapses to zero height.
+$compiled = (new ArtifactCompiler())->compile(array('files' => array(
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><main><div class="grid"><div class="tile">' . $frame . '</div><div class="tile"><img class="aspect-square w-full object-cover" src="c.jpg" alt="C"></div></div></main></body></html>'),
+    array('path' => 's.css', 'kind' => 'css', 'content' => $css),
+)))->toArray();
+preg_match_all('#<figure class="([^"]*)"#', $compiled['serialized_blocks'], $figures);
+$frameFigure = array_values(array_filter($figures[1], static fn (string $classes): bool => str_contains(' ' . $classes . ' ', ' inline-block ')));
+$imageFigure = array_values(array_filter($figures[1], static fn (string $classes): bool => !str_contains(' ' . $classes . ' ', ' inline-block ')));
+if (1 !== count($frameFigure) || 1 !== count($imageFigure)) {
+    throw new RuntimeException('Expected one framed and one ratio-classed image figure: ' . $compiled['serialized_blocks']);
+}
+$stylesheets = implode('', array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $compiled['assets']));
+$resetsRatio = static function (string $classes) use ($stylesheets): bool {
+    $classes = preg_split('/\s+/', trim($classes)) ?: array();
+    preg_match_all('#([^{}]+)\{[^{}]*aspect-ratio:auto[^{}]*\}#', $stylesheets, $rules);
+    foreach ($rules[1] as $prelude) {
+        foreach (explode(',', $prelude) as $arm) {
+            $excluded = preg_match_all('#:not\(\.([A-Za-z0-9_-]+)\)#', $arm, $not) ? $not[1] : array();
+            preg_match_all('#\.([A-Za-z0-9_-]+)#', (string) preg_replace('#:(?:where|not)\([^()]*(?:\([^()]*\))?[^()]*\)#', '', $arm), $required);
+            if (array() !== $required[1] && array() === array_diff($required[1], $classes) && array() === array_intersect($excluded, $classes)
+                && !str_contains($arm, '>') && !str_contains($arm, ' ')) {
+                return true;
+            }
+        }
+    }
+    return false;
+};
+if ($resetsRatio($frameFigure[0])) {
+    throw new RuntimeException('The framed image figure must keep its frame ratio: ' . $stylesheets);
+}
+if (!$resetsRatio($imageFigure[0])) {
+    throw new RuntimeException('An image that carried its own ratio class still moves that ratio onto the image: ' . $stylesheets);
+}
+
 echo "positioned-image-frame-figure: passed\n";

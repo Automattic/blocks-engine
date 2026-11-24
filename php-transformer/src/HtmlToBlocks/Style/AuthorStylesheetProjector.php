@@ -3043,9 +3043,14 @@ final class AuthorStylesheetProjector
             // would size that box itself and ignore a definite image height
             // from another rule (`.grid img{height:260px}` beside `.photo
             // {aspect-ratio:1}` squares the figure, not the image).
+            // A figure lowered from a ratio frame around an out-of-flow image
+            // is the ratio box itself: the image cannot take the ratio over.
             if ( isset($declarations['aspect-ratio']) ) {
+                $frameFigures = str_contains($context->emittedMarkup, SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS)
+                    ? ':where(:not(.' . SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS . '))'
+                    : '';
                 $figurePrelude = implode(',', array_unique(array_map(
-                    static fn (string $arm): string => (string) preg_replace('/\s*>\s*(?:a\s*>\s*)?img\s*$/i', '', $arm),
+                    static fn (string $arm): string => (string) preg_replace('/\s*>\s*(?:a\s*>\s*)?img\s*$/i', '', $arm) . $frameFigures,
                     CssValueSplitter::splitTopLevel($imagePrelude, array(','))
                 )));
                 $rule .= $figurePrelude . '{aspect-ratio:auto' . (str_contains($declarations['aspect-ratio'], '!important') ? '!important' : '') . '}';

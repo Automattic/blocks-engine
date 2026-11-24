@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -59,7 +60,10 @@ final class PositionedImageFrameLowering
         if (null === $image) {
             return null;
         }
-        $block = $this->imageLowering->convertImage($image, $frame);
+        // The frame's ratio sizes this figure: the image inside is out of
+        // flow, so the ratio cannot move down onto it as it does for an image
+        // that carried the ratio class itself.
+        $block = $this->imageLowering->convertImage($image, $frame, null, null, false, array(SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS));
 
         return null !== $block && 'core/image' === ($block['blockName'] ?? null) ? $block : null;
     }
