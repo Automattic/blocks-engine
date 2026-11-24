@@ -399,7 +399,21 @@ final class WrapperCoalescer
      */
     public function coalescingDisposition(DOMElement $element, array $childBlock): WrapperDisposition
     {
-        return $this->coalescingResolution($element, $childBlock)['disposition'];
+        return $this->decision()->resolve($element, $childBlock)['disposition'];
+    }
+
+    private ?WrapperDecision $decision = null;
+
+    /** The guard table that owns every single-child keep/drop decision. */
+    public function decision(): WrapperDecision
+    {
+        return $this->decision ??= new WrapperDecision(
+            $this,
+            $this->sourceElementClassifier,
+            $this->runtimeIslands,
+            $this->styleResolver,
+            $this->preservesScriptStateWrapper
+        );
     }
 
     /** @var array<string, true> */
@@ -529,16 +543,14 @@ final class WrapperCoalescer
      */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( ($this->preservesScriptStateWrapper)($element)
-            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes'])
-            || $this->isLayoutGeometryCorrectiveTarget($element) ) {
+        if ( null !== $this->decision()->preflight($element, $childBlock) ) {
             return null;
         }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
         $absorbed = $this->absorbedNeutralChild($element, $childBlock);
         if (null !== $absorbed) return $absorbed;
-        $resolution = $this->coalescingResolution($element, $childBlock);
+        $resolution = $this->decision()->resolve($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
             return null;
         }
@@ -674,138 +686,18 @@ final class WrapperCoalescer
     }
 
     /**
-     * Runs the same three disqualification phases, in the same
-     * short-circuiting order, that the original single boolean expression
-     * evaluated — so a disqualification reason here changes nothing about
-     * which wrappers coalesce, only whether the decision is named.
-     *
-     * @param array<string, mixed> $childBlock
-     * @return array{disposition: WrapperDisposition, proof: ?array<string, mixed>, attrs: array<string, mixed>, source_child: ?DOMElement}
-     */
-    private function coalescingResolution(DOMElement $element, array $childBlock): array
-    {
-        $proof = $this->layoutGeometryProofFor($element);
-        $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
-        $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);
-
-        $reason = $this->firstDisqualification($this->eligibilityDisqualifications($element, $childBlock, $proof, $fullWidthTransparentShell, $redundantNestedLayout));
-        if (null !== $reason) {
-            return array('disposition' => WrapperDisposition::preserve($reason), 'proof' => $proof, 'attrs' => array(), 'source_child' => null);
-        }
-
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        $reason = $this->firstDisqualification($this->presentationAttributeDisqualifications($attrs, $redundantNestedLayout));
-        if (null !== $reason) {
-            return array('disposition' => WrapperDisposition::preserve($reason), 'proof' => $proof, 'attrs' => $attrs, 'source_child' => null);
-        }
-
-        $sourceChild = $this->matchingSourceChild($element, $childBlock);
-        $reason = $this->firstDisqualification($this->sourceChildDisqualifications($element, $childBlock, $sourceChild, $proof, $fullWidthTransparentShell, $redundantNestedLayout));
-        if (null !== $reason) {
-            return array('disposition' => WrapperDisposition::preserve($reason), 'proof' => $proof, 'attrs' => $attrs, 'source_child' => $sourceChild);
-        }
-
-        return array('disposition' => WrapperDisposition::coalesce('single_child_wrapper_absorbed'), 'proof' => $proof, 'attrs' => $attrs, 'source_child' => $sourceChild);
-    }
-
-    /**
-     * The original gate: is this even the shape wrapper coalescing applies
-     * to (a representable wrapper around a single supported child, with no
-     * id/role/interactivity/data/structure signal of its own — unless a
-     * layout-geometry proof or a redundant-nested-layout finding already
-     * accounts for it)? Each disjunct of the original boolean expression is
-     * named here in the same order, so the first one that matches is the
-     * reason the wrapper is preserved.
-     *
-     * @param array<string, mixed> $childBlock
-     * @param array<string, mixed>|null $proof
-     * @return array<int, array{0: string, 1: Closure(): bool}>
-     */
-    private function eligibilityDisqualifications(DOMElement $element, array $childBlock, ?array $proof, bool $fullWidthTransparentShell, bool $redundantNestedLayout): array
-    {
-        return array(
-            // A saved core/group boundary is a coalescing decision already made:
-            // its save shape no longer carries the source signals (data
-            // attributes, an anchor tag) that kept it, so re-deciding from the
-            // saved markup would fold a wrapper the first transform preserved.
-            array('saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
-            array('child_is_binding_anchor', fn (): bool => $this->isBindingAnchor($childBlock)),
-            array('unrepresentable_wrapper_tag', fn (): bool => ! $this->wrapperTagIsRepresentableOnChild($element, $childBlock)),
-            array('unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array( 'core/group', 'core/image' ), true)),
-            array('full_width_shell_requires_group_child', fn (): bool => $fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null)),
-            array('runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
-            array('structural_layout_child_without_proof', fn (): bool => null === $proof && $this->isDirectChildOfStructuralLayout($element) && ! $redundantNestedLayout),
-            array('has_id_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'id'))),
-            array('has_role_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'role'))),
-            array('non_neutral_geometry_without_proof', fn (): bool => null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout),
-            array('has_interactive_attributes', fn (): bool => array() !== $this->interactiveAttributes($element)),
-            array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== SourceDom::safeDataAttributes($element)),
-            array('has_structure_signals_without_proof', fn (): bool => null === $proof && $this->hasBlockingStructureSignals($element, $childBlock) && ! $redundantNestedLayout),
-            array('has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     * @return array<int, array{0: string, 1: Closure(): bool}>
-     */
-    private function presentationAttributeDisqualifications(array $attrs, bool $redundantNestedLayout): array
-    {
-        return array(
-            array('unsupported_presentation_attributes', fn (): bool => ! $redundantNestedLayout && array() !== array_diff(array_keys($attrs), array( 'className', 'style' ))),
-        );
-    }
-
-    /**
-     * Once eligibility holds, the wrapper still only coalesces if a single
-     * source child actually carries the child block's identity forward
-     * cleanly: it exists, its tag matches what the child block expects, it
-     * carries no motion token of its own, its box-affecting declarations are
-     * neutral (or already proven/redundant), and — the expensive check,
-     * evaluated last exactly as before — removing the wrapper would not
-     * change which author selectors match.
-     *
-     * @param array<string, mixed> $childBlock
-     * @param array<string, mixed>|null $proof
-     * @return array<int, array{0: string, 1: Closure(): bool}>
-     */
-    private function sourceChildDisqualifications(DOMElement $element, array $childBlock, ?DOMElement $sourceChild, ?array $proof, bool $fullWidthTransparentShell, bool $redundantNestedLayout): array
-    {
-        return array(
-            array('missing_matching_source_child', fn (): bool => ! $sourceChild instanceof DOMElement),
-            array('image_source_child_type_mismatch', fn (): bool => 'core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-')),
-            array('source_child_has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($sourceChild)),
-            array('box_affecting_declarations_not_neutral', fn (): bool => null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))),
-            array('full_width_shell_child_not_normal_flow', fn (): bool => null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild)),
-            array('containing_block_dependent_declarations', fn (): bool => 'core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)),
-            array('selector_matching_does_not_survive_coalescing', fn (): bool => null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell)),
-        );
-    }
-
-    /**
      * A provider replaces a bound block wholesale, so a wrapper absorbed into
      * it would be deleted by that replacement.
      *
      * @param array<string, mixed> $block
      */
-    private function isBindingAnchor(array $block): bool
+    public function isBindingAnchor(array $block): bool
     {
         return $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null);
     }
 
-    /** @param array<int, array{0: string, 1: Closure(): bool}> $checks */
-    private function firstDisqualification(array $checks): ?string
-    {
-        foreach ( $checks as [$reason, $isDisqualified] ) {
-            if ( $isDisqualified() ) {
-                return $reason;
-            }
-        }
-        return null;
-    }
-
     /** @param array<string, mixed> $childBlock */
-    private function matchingSourceChild(DOMElement $element, array $childBlock): ?DOMElement
+    public function matchingSourceChild(DOMElement $element, array $childBlock): ?DOMElement
     {
         $provenanceId = $childBlock['_source_provenance_id'] ?? null;
         $sourceChild = is_int($provenanceId)
@@ -818,7 +710,7 @@ final class WrapperCoalescer
     }
 
     /** @param array<string, mixed> $block */
-    private function syntheticImageGeometryLeaf(array $block): bool
+    public function syntheticImageGeometryLeaf(array $block): bool
     {
         $className = (string) ($block['attrs']['className'] ?? '');
         return 'core/image' === ($block['blockName'] ?? null)
@@ -990,7 +882,7 @@ final class WrapperCoalescer
         return true;
     }
 
-    private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
+    public function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
     {
         $declarations = SourceDeclarations::inline($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
@@ -1005,7 +897,7 @@ final class WrapperCoalescer
         return true;
     }
 
-    private function hasOnlyFullWidthTransparentBoxAffectingDeclarations(DOMElement $element): bool
+    public function hasOnlyFullWidthTransparentBoxAffectingDeclarations(DOMElement $element): bool
     {
         $declarations = $this->matchingAuthorDeclarations($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
@@ -1015,7 +907,7 @@ final class WrapperCoalescer
         return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap($declarations);
     }
 
-    private function isNormalFlowFullWidthShellChild(DOMElement $element): bool
+    public function isNormalFlowFullWidthShellChild(DOMElement $element): bool
     {
         if ( $this->hasContainingBlockDependentAuthorDeclarations($element) ) {
             return false;
@@ -1059,7 +951,7 @@ final class WrapperCoalescer
         return array() !== $declarations;
     }
 
-    private function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
+    public function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
     {
         $declarations = $this->matchingAuthorDeclarations($element);
         foreach ( array_keys($declarations) as $property ) {
@@ -1103,7 +995,7 @@ final class WrapperCoalescer
      *
      * @param array<string, mixed> $childBlock
      */
-    private function isRedundantNestedLayoutWrapper(DOMElement $element, array $childBlock): bool
+    public function isRedundantNestedLayoutWrapper(DOMElement $element, array $childBlock): bool
     {
         if ( 'core/group' !== ($childBlock['blockName'] ?? null) ) {
             return false;
@@ -1137,7 +1029,7 @@ final class WrapperCoalescer
     }
 
     /** @param array<string, mixed> $childBlock */
-    private function wrapperTagIsRepresentableOnChild(DOMElement $element, array $childBlock): bool
+    public function wrapperTagIsRepresentableOnChild(DOMElement $element, array $childBlock): bool
     {
         $tag = strtolower($element->tagName);
         if ( 'div' === $tag ) {
@@ -1188,7 +1080,7 @@ final class WrapperCoalescer
     }
 
     /** @param array<string, mixed> $childBlock */
-    private function hasBlockingStructureSignals(DOMElement $element, array $childBlock): bool
+    public function hasBlockingStructureSignals(DOMElement $element, array $childBlock): bool
     {
         $signals = $this->sourceElementDescription->structureSignals($element);
         if ( 'core/image' === ($childBlock['blockName'] ?? null) ) {
@@ -1291,7 +1183,7 @@ final class WrapperCoalescer
      * carrier on the child's box and override that box's own values (for
      * example `display:block` over an authored `display:table`).
      */
-    private function isLayoutGeometryCorrectiveTarget(DOMElement $element): bool
+    public function isLayoutGeometryCorrectiveTarget(DOMElement $element): bool
     {
         $parent = $element->parentNode;
         if (!$parent instanceof DOMElement) return false;
@@ -1392,7 +1284,7 @@ final class WrapperCoalescer
      *
      * @return array<string, bool|string>
      */
-    private function interactiveAttributes(DOMElement $element): array
+    public function interactiveAttributes(DOMElement $element): array
     {
         return array_filter(array(
             'tabindex'      => SourceDom::attr($element, 'tabindex'),
