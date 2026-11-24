@@ -32,12 +32,12 @@ final class SourceBlockAttributeProjector
     public const PROPAGATED_LINK_CLASS = 'blocks-engine-propagated-link';
     public const PROPAGATED_LINK_COLOR_CLASS = 'blocks-engine-propagated-link-color';
     /**
-     * Boxes whose block support skips wrapper serialization because the block
-     * writes them onto an inner element (core block.json
-     * `spacing.__experimentalSkipSerialization`).
+     * Boxes a block writes onto the inner element its source control becomes
+     * (core/button pads its link: `spacing.__experimentalSkipSerialization`),
+     * where the theme's element padding applies unless the attribute zeroes it.
      */
     private const INNER_SERIALIZED_BOXES = array(
-        'padding' => array('core/button', 'core/accordion-heading', 'core/icon', 'core/tab-list'),
+        'padding' => array('core/button'),
     );
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
