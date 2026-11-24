@@ -738,6 +738,7 @@ final class FormPresentationGraphBuilder
                 }
             }
             $this->carryFieldGroupGapOntoLabel($row, $control, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
+            $this->carrySiblingLabelSpacingOntoLabel($row, $control, $analysis['rules'], $customPropertyAnalysis['rules']);
             $container = $this->controlContainer($index, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
             if ( null !== $container ) {
                 $controlContainers[] = $container['container'];
@@ -1949,6 +1950,120 @@ final class FormPresentationGraphBuilder
         $matched = $this->matched($element, $rules, true);
         $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
         return array_merge($matched['base'], null === $condition ? array() : ($conditional[json_encode($condition)] ?? array()));
+    }
+
+    /**
+     * A `for` label rendered inline before its control in block flow sits
+     * alone in an anonymous line box, and a sibling-stacking utility
+     * (`.space-y-1.5 > * ~ *`) spaces the control below that line. The
+     * provider's field puts the same label and control in its own wrapper
+     * and neutralizes sibling-stacking control margins as inter-field
+     * spacing, so the source's label-to-control distance is lost: the line
+     * box collapses to the label's own line-height and the margin drops.
+     *
+     * Carry that distance onto the label, which owns it in the provider: the
+     * control's sibling margin becomes the label's margin-block-end, and the
+     * line box the parent's strut gives an inline label becomes its
+     * line-height (each line of an inline label is at least that tall).
+     *
+     * @param array<string, mixed> $row
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     */
+    private function carrySiblingLabelSpacingOntoLabel(array &$row, DOMElement $control, array $rules, array $customPropertyRules): void
+    {
+        $label = FormControlLabel::element($control);
+        if ( ! $label instanceof DOMElement || 'label' !== strtolower($label->tagName) || ! self::isWrappedFieldControl($control) || ! ($control->previousElementSibling?->isSameNode($label) ?? false) || ! is_array($row['label']['styles'] ?? null) || ! is_array($row['control']['styles'] ?? null) ) {
+            return;
+        }
+        $parent = $label->parentNode;
+        if ( ! $parent instanceof DOMElement || isset($row['label']['styles']['margin_block_end']) || isset($row['label']['styles']['margin_bottom']) ) {
+            return;
+        }
+        $controlFacts = $this->matched($control, $rules)['base'];
+        $margin = $controlFacts['margin-top'] ?? null;
+        $spacing = $row['control']['styles']['margin_top'] ?? null;
+        if ( ! is_array($margin) || ! is_string($spacing) || ! self::isSiblingSelector((string) ($margin['selector'] ?? '')) ) {
+            return;
+        }
+        // Only block flow has the anonymous line box; a flex or grid parent
+        // blockifies the label and spaces the pair with its own gap.
+        $parentFacts = array_intersect_key($this->layoutFacts($parent, $rules, null), array( 'display' => true ));
+        $parentDisplay = CssValueInspector::comparable($this->styles($parentFacts, $parent, null, $customPropertyRules, true)['display'] ?? 'block');
+        $labelDisplay = CssValueInspector::comparable((string) ($row['label']['styles']['display'] ?? 'inline'));
+        if ( ! in_array($parentDisplay, array( 'block', 'flow-root' ), true) ) {
+            return;
+        }
+        $styles = $row['label']['styles'];
+        $provenance = is_array($row['label']['provenance'] ?? null) ? $row['label']['provenance'] : array();
+        $styles['margin_block_end'] = $spacing;
+        $provenance = array_merge($provenance, $this->provenance(array( 'margin-block-end' => $margin ), null));
+        if ( 'inline' === $labelDisplay ) {
+            $strut = $this->lineHeightPixels($parent, $rules, $customPropertyRules);
+            $own = $this->lineHeightPixels($label, $rules, $customPropertyRules);
+            if ( null !== $strut && null !== $own && $strut['px'] > $own['px'] ) {
+                $styles['line_height'] = rtrim(rtrim(number_format($strut['px'], 3, '.', ''), '0'), '.') . 'px';
+                $provenance = array_merge($provenance, $this->provenance(array( 'line-height' => $strut['fact'] ), null));
+            }
+        }
+        ksort($styles);
+        $row['label'] = array( 'styles' => $styles, 'provenance' => array_slice($provenance, 0, self::MAX_PROVENANCE) );
+        // The label now owns the distance; the control keeps no copy of it.
+        $controlStyles = $row['control']['styles'];
+        $moved = array( 'margin-top' );
+        unset($controlStyles['margin_top']);
+        if ( isset($controlFacts['margin-bottom']) && ($controlFacts['margin-bottom']['selector'] ?? null) === $margin['selector'] && ($controlFacts['margin-bottom']['path'] ?? null) === $margin['path'] ) {
+            unset($controlStyles['margin_bottom']);
+            $moved[] = 'margin-bottom';
+        }
+        $controlProvenance = array();
+        foreach ( is_array($row['control']['provenance'] ?? null) ? $row['control']['provenance'] : array() as $fact ) {
+            if ( $fact['source_path'] === $margin['path'] && $fact['selector'] === $this->provenanceSelector((string) $margin['selector'])['selector'] ) {
+                $fact['properties'] = array_values(array_diff($fact['properties'], $moved));
+                if ( array() === $fact['properties'] ) continue;
+            }
+            $controlProvenance[] = $fact;
+        }
+        $row['control'] = array( 'styles' => $controlStyles, 'provenance' => $controlProvenance );
+    }
+
+    /** Whether a selector reaches its subject through a sibling combinator. */
+    private static function isSiblingSelector(string $selector): bool
+    {
+        $tokens = CssSelectorTokenizer::tokenize(trim($selector));
+        return $tokens['supported'] && array() !== $tokens['combinators'] && in_array($tokens['combinators'][count($tokens['combinators']) - 1], array( '~', '+' ), true);
+    }
+
+    /**
+     * The used line-height in pixels an element's text lines get, from the
+     * nearest declaring element. A unitless line-height inherits as a number
+     * and multiplies the element's own font size.
+     *
+     * @return array{px: float, fact: array<string, mixed>}|null
+     */
+    private function lineHeightPixels(DOMElement $element, array $rules, array $customRules): ?array
+    {
+        $root = $element->ownerDocument?->documentElement;
+        $rootPx = $root instanceof DOMElement ? $this->fontPixels($root, $rules, $customRules) : 16.0;
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $fact = $this->layoutFacts($node, $rules, null)['line-height'] ?? null;
+            if ( ! is_array($fact) ) {
+                continue;
+            }
+            $value = CssValueInspector::comparable((string) ($this->styles(array( 'line-height' => $fact ), $node, null, $customRules, true)['line_height'] ?? ''));
+            if ( 'inherit' === $value ) {
+                continue;
+            }
+            if ( 1 === preg_match('/^(?:\d+\.?\d*|\.\d+)$/D', $value) ) {
+                return array( 'px' => (float) $value * $this->fontPixels($element, $rules, $customRules), 'fact' => $fact );
+            }
+            if ( str_ends_with($value, '%') ) {
+                return array( 'px' => (float) $value / 100 * $this->fontPixels($node, $rules, $customRules), 'fact' => $fact );
+            }
+            $px = CssLength::toPx($value, $rootPx, $this->fontPixels($node, $rules, $customRules));
+            return null === $px || $px <= 0 ? null : array( 'px' => $px, 'fact' => $fact );
+        }
+        return null;
     }
 
     /** Resolve inherited font sizes against their own parent, not the marker. */
