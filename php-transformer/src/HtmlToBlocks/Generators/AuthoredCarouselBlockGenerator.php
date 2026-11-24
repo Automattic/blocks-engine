@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
@@ -3245,17 +3246,14 @@ JS;
             foreach ($ancestor->attributes as $attribute) {
                 $name = strtolower($attribute->name);
                 $value = $attribute->value;
-                if (preg_match('/^(?:id|tabindex|role|(?:data|aria)-[a-zA-Z0-9_-]+)$/D', $name)
-                    && !str_starts_with($name, 'data-wp-')
-                    && !preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)
-                    && strlen($value) <= 512
-                ) {
+                if (WrapperDecision::carouselStageWrapperAttribute($name, $value)) {
                     $attributes[$name] = $value;
                 }
             }
             $sourceGeometry = $styleResolver->sourceGeometryPresentationDeclarations($ancestor);
             $inlineStyle = $this->safeInlineStyle($styleResolver->cssDeclarationString($sourceGeometry) . ';' . SourceDom::attr($ancestor, 'style'));
-            if ('' !== $className || array() !== $attributes || '' !== $inlineStyle) {
+            // Whether the stage ancestor is restated or folded is WrapperDecision's (#7471).
+            if (WrapperDecision::carouselStageWrapper($className, $attributes, $inlineStyle)->isPreserve()) {
                 array_unshift($ancestors, array('className' => $className, 'attributes' => $attributes, 'style' => $inlineStyle));
             }
         }

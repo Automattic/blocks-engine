@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use DOMText;
@@ -678,29 +679,11 @@ final class ButtonsPattern
      */
     private function accessibleLinkContentWrapper(DOMElement $anchor): ?DOMElement
     {
-        $wrapper = null;
-        foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                if ( null !== $wrapper ) {
-                    return null;
-                }
-                $wrapper = $child;
-            } elseif ( $child instanceof \DOMText || $child instanceof \DOMCdataSection ) {
-                if ( '' !== trim($child->textContent) ) {
-                    return null;
-                }
-            }
-        }
-        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'span', 'div' ), true) || ! $wrapper->hasAttributes() ) {
-            return null;
-        }
-        foreach ( $wrapper->attributes ?? array() as $attribute ) {
-            if ( ! AccessibleLinkBlockGenerator::isContentAttributeName(strtolower($attribute->name)) ) {
-                return null;
-            }
-        }
-
-        return $wrapper;
+        // Whether the wrapper is restated as the RichText element is WrapperDecision's (#7471).
+        return WrapperDecision::accessibleLinkContentWrapper(
+            $anchor,
+            static fn (string $name): bool => AccessibleLinkBlockGenerator::isContentAttributeName($name)
+        )['wrapper'];
     }
 
     /** Core's title can name decorative artwork, but must not replace the
@@ -761,11 +744,13 @@ final class ButtonsPattern
         // whether those elements stay plain authored markup or became RichText
         // marker carriers: either way they are separate items the wrapper
         // lays out, not one run the wrapper merely styles.
-        if ( true === $identified && ($this->hasRetainedSourceElement($html) || $this->isSourceItemSequence($html)) ) {
-            return $wrapped;
-        }
+        $disposition = WrapperDecision::buttonLabelSpan(
+            $identified,
+            fn (): bool => $this->hasRetainedSourceElement($html),
+            fn (): bool => $this->isSourceItemSequence($html)
+        );
 
-        return $html;
+        return $disposition->isPreserve() ? $wrapped : $html;
     }
 
     /**
@@ -1223,29 +1208,7 @@ final class ButtonsPattern
     /** Whether the wrapper box paints: fills, borders, shadows, or outlines. */
     private function labelWrapperPaints(DOMElement $wrapper, ButtonPatternContext $buttons): bool
     {
-        $style = strtolower($buttons->resolvedStyle($wrapper));
-        foreach ( CssRuleAnalyzer::declarations($style, array( 'background', 'background-color', 'background-image' )) as [ 'value' => $background ] ) {
-            if ( CssValueInspector::backgroundPaints($background) ) {
-                return true;
-            }
-        }
-        $sides = static fn (string $prefix, array $suffixes): array => array_merge(...array_map(
-            static fn (string $side): array => array_map(static fn (string $suffix): string => $prefix . '-' . $side . '-' . $suffix, $suffixes),
-            array( 'top', 'right', 'bottom', 'left' )
-        ));
-        $absent = '/^(?:0|none)\s*[a-z%]*\s*$/';
-        foreach ( array(
-            array( array_merge(array( 'border' ), $sides('border', array( 'width', 'style', 'color' ))), $absent ),
-            array( array( 'box-shadow' ), '/^none\s*$/' ),
-            array( array( 'outline', 'outline-width', 'outline-style', 'outline-color' ), $absent ),
-        ) as [ $properties, $negation ] ) {
-            $first = CssRuleAnalyzer::declarations($style, $properties)[0] ?? null;
-            if ( null !== $first && 1 !== preg_match($negation, $first['value']) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return WrapperDecision::buttonLabelWrapper($buttons->resolvedStyle($wrapper))->isPreserve();
     }
 
     private function hasButtonSignal(DOMElement $anchor, ButtonPatternContext $buttons): bool
@@ -1348,11 +1311,7 @@ final class ButtonsPattern
 
     private function hasWrapperButtonSignal(DOMElement $element, string $resolvedStyle): bool
     {
-        if ( 'button' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
-            return true;
-        }
-
-        return $this->signalClassifier->hasStyleSignal($element, $resolvedStyle);
+        return null !== WrapperDecision::buttonControlWrapper($element, fn (): bool => $this->signalClassifier->hasStyleSignal($element, $resolvedStyle));
 	}
 
 	private function singleSimpleAnchorChild(DOMElement $element): ?DOMElement

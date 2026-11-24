@@ -16,6 +16,8 @@ Slice 4 tables are pinned by name, stage and order in
 `tests/unit/wrapper-decision-conversion.php` (`WrapperDecision::conversionGuardStages()`).
 Slice 5 tables are pinned the same way in
 `tests/unit/wrapper-decision-layout.php` (`WrapperDecision::layoutGuardStages()`).
+Slice 6 tables are pinned the same way in
+`tests/unit/wrapper-decision-patterns.php` (`WrapperDecision::patternGuardStages()`).
 
 Outcomes use the `WrapperDisposition` vocabulary: `preserve`, `fold`,
 `coalesce`, `css-owned` and `drop`. Each outcome carries a named reason and
@@ -54,6 +56,18 @@ the stage that produced it.
 | `layoutShellWrapper()` + `layoutShellSourceClasses()` + `layoutShellRestatedClass()` (preserve) | `Elements/LayoutShellLowering::layoutShellWrapper()` / `layoutShellClassName()` (slice 5) | tag: `custom_element_restated_as_div`, `field_box_label_restated_as_div`, else `source_tag` (restatement); classes: `capture_device_visibility_carrier` keeps every source class (identity); per class `runtime_dom_selector_class` (identity), `engine_attribute_class` (restatement) | `layout-shell-root-child-classes.php`, `layout-shell-label.php` |
 | `preludeWrapper()` (drop / preserve / fold) | `Elements/ElementConversionPrelude::convert()` dispatch (slice 5) | drop with the `inertScaffolding()` reason; preserve `span_holds_form` (identity, kept as a group); fold `standalone_inline_layout_leaf` (geometry, continues when no leaf is built) | `element-conversion-prelude.php`, `inert-capture-scaffolding.php` |
 | `richTextStylingHook()` + `listItemContentHoisting()` + `contentWrappingSpan()` (fold / preserve) | `RichText/RichTextStylingHookNormalizer::normalize()` / `hoistContentWrappingSpans()` (slice 5) | hook: fold `attributeless_font` (identity), preserve `restated_on_mark`, fold `unrepresentable_inline_wrapper`, else preserve `rich_text_inline_format` (restatement); hoisting: preserve `list_item_has_block_content` (restatement), `rich_text_safe_identity`, `rich_text_marker_declaration` (identity), else fold `content_wrapping_span_hoisted` (restatement, classes and declarations restated on the block) | `heading-phrasing-wrappers.php`, `inline-fragment-wrapper-transport.php` |
+| `buttonLabelWrapper()` (preserve / fold) | `Patterns/ButtonsPattern::labelWrapperPaints()` (slice 6) | preserve `paints_background`, `paints_border`, `paints_box_shadow`, `paints_outline`; otherwise fold `paint_free_label_wrapper` (all geometry) | `button-decoration-wrapper.php`, `button-wrapper-inner-fill.php` |
+| `buttonControlWrapper()` (fold) | `Patterns/ButtonsPattern::hasWrapperButtonSignal()` (slice 6) | `button_role` (identity), `wrapper_button_style_signal` (geometry); a match folds the wrapper into `core/buttons` | `standalone-layout-button-wrapper.php`, `button-decoration-wrapper.php` |
+| `accessibleLinkContentWrapper()` (preserve / fold) | `Patterns/ButtonsPattern::accessibleLinkContentWrapper()` (slice 6) | fold `not_single_child_element`, `not_span_or_div` (restatement), `no_attributes`, `non_content_attribute` (identity); otherwise preserve `restated_on_rich_text_element` (restatement) | `accessible-link-retained-descendant-styles.php`, `accessible-link-editor-style.php` |
+| `buttonLabelSpan()` (preserve / fold) | `Patterns/ButtonsPattern::unwrapPresentationalSpan()` (slice 6) | fold `no_wrapping_span` (restatement), `bare_span_not_restorable` (identity); preserve `retained_source_element`, `source_item_sequence`; otherwise fold `presentational_label_span` (all restatement) | `authored-button-label-presentation.php`, `flattened-button-label-white-space.php` |
+| `navigationCarrierLayoutWrapper()` (preserve / fold) | `Patterns/NavigationPattern::carrierLayoutWrapper()` (slice 6) | fold `not_single_child_element` (restatement), `not_div`, `navigation_chrome` (identity), `fewer_than_two_element_children` (geometry); otherwise preserve `carrier_layout_row_box` (geometry) | `navigation-brand-carrier-layout-wrapper.php` |
+| `flattenedNavigationWrapper()` (fold) | `Patterns/NavigationPattern::withFlattenedWrapperVisibility()` (slice 6) | `no_navigation_context` (identity), `display_none_at_every_viewport`, `not_hidden_at_any_viewport` (geometry), `undistributable_declaration`, `no_carrier_class` (restatement, records the subject last); otherwise `visibility_restated_per_item` (restatement) | `navigation-flattened-wrapper-visibility.php` |
+| `inertNavigationSupportWrapper()` (drop / preserve) | `Patterns/NavigationPattern::isInertNavigationSupportWrapper()` (slice 6) | preserve `not_div_or_span`, `text_leaf`; drop `inert_support_descendants`; otherwise preserve `navigable_or_named_descendant` (all identity) | `navigation-inert-support-children.php` |
+| `mediaTextMediaWrapper()` + `mediaTextTextSideGroup()` (preserve / fold) | `Patterns/MediaTextPattern` media wrapper chain and `isHoistableTextSideGroupAttrs()` (slice 6) | media: preserve `decorated_media_wrapper`, else fold `media_wrapper_replaced_by_figure` (geometry); text side: fold `no_group_attributes`, preserve `attributes_beyond_class_name` (restatement), `authored_class` (identity), else fold `generated_layout_markers_only` (restatement) | `media-text-pattern.php`, `media-text-classed-overlay.php` |
+| `capturedMenuTriggerGroup()` (drop / preserve) | `Support/CapturedMenuDialogFold::redundantTriggerGroup()` (slice 6; the ancestor walk stays) | preserve `trigger_is_its_own_group` (restatement), `group_holds_dialog`, `group_holds_row`, `trigger_outside_group`, `unrepeated_control`, `non_punctuation_text`; otherwise drop `trigger_group_repeats_row` (all identity) | `navigation-menu-dialog-fold.php`, `captured-menu-existing-navigation.php` |
+| `captureCloseHelper()` + `equivalentNavigationDuplicate()` (drop / preserve) | `Support/NavigationToggleSuppressor::suppressCaptureCloseHelpers()` / `suppressEquivalentNavigationDuplicates()` (slice 6) | close helper: preserve `not_close_helper_for_panel` (identity), `not_hidden` (geometry), `inside_panel` (identity), else drop `superseded_capture_close_helper`; duplicate: preserve `not_element`, `projected_navigation`, `already_suppressed`, `holds_menu_control`, `not_navigation_target`, `different_navigation_signature`, else drop `equivalent_navigation_duplicate` (all identity) | `native-navigation-toggle-wrapper-slot.php`, `custom-element-captured-dialog-wrapper.php` |
+| `carouselStageWrapper()` + `carouselStageWrapperAttribute()` (preserve / fold) | `Generators/AuthoredCarouselBlockGenerator::stageWrappers()` (slice 6) | preserve `stage_class` (restatement), `stage_identity_attributes` (identity), `stage_geometry_style` (geometry); otherwise fold `no_stage_identity_or_geometry` (restatement) | `slideshow-layout-wrapper-content.php`, `static-carousel-named-custom-element.php`, `percentage-chain-carousel-stage.php` |
+| `retainedWrapperHook()` (fold / preserve) | `HtmlCompilation::boxlessWrapperHookChild()` (slice 6) | preserve `not_single_child_element` (restatement), `unsafe_transparent_custom_element` (identity), `hook_has_box` (geometry); otherwise fold `boxless_retained_hook` (geometry) | `custom-element-wrapper-attribute-selector.php` |
 
 All of these tables run in the same order, and with the same short-circuiting and
 side-effect gates (`StyleResolver::presentationAttributes()` registers style
@@ -61,20 +75,15 @@ carriers), as the predicates they replaced.
 
 ## Still deciding locally
 
-These are the next migration candidates. "Duplicates" names the
-`WrapperDecision` guard whose signal the site reads again. A blank means the
-signal is unique to the site.
+Outside the materialization layer, no wrapper decision is made outside
+`WrapperDecision` any more. These sites are listed because they read wrapper
+shapes, with why they stay local:
 
-| File :: method | Signal read | Outcome | Duplicates | Tests that pin it |
-| --- | --- | --- | --- | --- |
-| `HtmlCompilation` :: `boxlessWrapperHookChild()` | retained custom wrapper hook, safe transparent custom element, boxless | fold (hook's Group skipped) | `runtime_dom_target`, geometry neutrality | `custom-element-wrapper-attribute-selector.php` |
-| `Patterns/ButtonsPattern` :: `unwrapPresentationalSpan()` / `accessibleLinkContentWrapper()` / `labelWrapperPaints()` / `hasWrapperButtonSignal()` | presentational spans, label paint, wrapper button signal | fold / preserve label wrapper | `has_structure_signals_without_proof` | `button-decoration-wrapper.php`, `button-wrapper-inner-fill.php`, `standalone-layout-button-wrapper.php` |
-| `Patterns/NavigationPattern` :: `isInertNavigationSupportWrapper()` / `withFlattenedWrapperVisibility()` / `carrierLayoutWrapper()` | aria-hidden support descendants, wrapper visibility per viewport, carrier layout | drop / fold with visibility restated per item / preserve carrier | `has_interactive_attributes`, `restatement` (visibility restated) | `navigation-inert-support-children.php`, `navigation-flattened-wrapper-visibility.php`, `navigation-brand-carrier-layout-wrapper.php` |
-| `Patterns/MediaTextPattern`, `Patterns/CoverPattern`, `Patterns/LogoPattern` | pattern-specific media / overlay wrapper shapes | fold into the pattern block | `unsupported_child_block_name` | `media-text-pattern.php`, `cover-pattern.php`, `media-text-classed-overlay.php` |
-| `Support/NavigationToggleSuppressor`, `Support/CapturedMenuDialogFold` | capture close helpers, duplicate navigation, captured menu dialog rows | drop / fold | `runtime_dom_target` | `native-navigation-toggle-wrapper-slot.php`, `custom-element-captured-dialog-wrapper.php` |
-| `Generators/AuthoredCarouselBlockGenerator` :: `stageWrappers()` | carousel stage wrappers between root and list | fold into carousel shell | `has_motion_structure_token` | `slideshow-layout-wrapper-content.php`, `static-carousel-named-custom-element.php` |
-| `WordPressSitePlan/ShellExtraction` :: `unwrapChromeContainers()` / `isLayoutTransparentBlock()` / `isExtraDepthWrapper()` | saved `wrappers`/`config` attrs, `display:contents`, extra single-child depth | fold (for chrome identity only) | `saved_group_boundary` | `shell-wrapper-shared-header-template.php`, `entry-chrome-wrapper.php`, `post-chrome-wrapper-encoding-identity.php` |
-| `WordPressSitePlan/ListingQueryLoops` :: `wrapperAttributes()` | listing item wrapper attrs | preserve on the query-loop template | | `wrapper-class-post-date.php` |
+| File | Why it is not a wrapper decision |
+| --- | --- |
+| `Patterns/CoverPattern`, `Patterns/LogoPattern`, the rest of `Patterns/MediaTextPattern` | Pattern recognition gates: a bail returns the whole subtree to ordinary lowering, where `WrapperDecision` decides its wrappers. |
+| `WordPressSitePlan/ListingQueryLoops` saved card wrappers (route link, lead image) | Materialization must not import translation (`tests/contract/layer-direction.php`), so these restatement decisions stay in the site-plan layer. |
+| `WordPressSitePlan/ShellExtraction::isLayoutTransparentBlock()` / `isExtraDepthWrapper()` | Chrome identity comparison only, never emitted output; kept in the site-plan layer for the same layer-direction rule. |
 
 ## Stage 2 candidates seen while mapping
 

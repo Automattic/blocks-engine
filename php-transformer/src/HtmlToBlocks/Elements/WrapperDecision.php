@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -86,6 +87,14 @@ use stdClass;
  * outcome), layout-shell wrapper restatement, the element conversion
  * prelude's wrapper dispatch, and RichText styling-hook unwrapping and
  * hoisting.
+ *
+ * Slice 6 adds the last local deciders (see {@see self::patternGuardStages()}):
+ * button label and control wrappers, navigation carrier, flattened and
+ * support wrappers, media/text wrappers, captured menu trigger groups,
+ * navigation duplicates and capture close helpers, carousel stage wrappers,
+ * and retained custom wrapper hooks. Site-plan chrome identity and listing
+ * card wrappers stay in `WordPressSitePlan`: materialization must not import
+ * translation (tests/contract/layer-direction.php).
  */
 final class WrapperDecision
 {
@@ -1779,6 +1788,547 @@ final class WrapperDecision
                 'rich_text_safe_identity' => self::STAGE_IDENTITY,
                 'rich_text_marker_declaration' => self::STAGE_IDENTITY,
                 'content_wrapping_span_hoisted' => self::STAGE_RESTATEMENT,
+            ),
+        );
+    }
+
+    /**
+     * Does a label wrapper between a button control and its label paint a
+     * box of its own (fill, border, shadow or outline)? Then it is kept
+     * (`preserve`) and the label is not lowered through it; otherwise it
+     * folds into the button's RichText. Formerly
+     * `ButtonsPattern::labelWrapperPaints()`.
+     */
+    public static function buttonLabelWrapper(string $resolvedStyle): WrapperDisposition
+    {
+        $style = strtolower($resolvedStyle);
+        $sides = static fn (string $prefix, array $suffixes): array => array_merge(...array_map(
+            static fn (string $side): array => array_map(static fn (string $suffix): string => $prefix . '-' . $side . '-' . $suffix, $suffixes),
+            array( 'top', 'right', 'bottom', 'left' )
+        ));
+        $absent = '/^(?:0|none)\s*[a-z%]*\s*$/';
+        $firstPaints = static function (array $properties, string $negation) use ($style): bool {
+            $first = CssRuleAnalyzer::declarations($style, $properties)[0] ?? null;
+            return null !== $first && 1 !== preg_match($negation, $first['value']);
+        };
+
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'paints_background', static function () use ($style): bool {
+                foreach ( CssRuleAnalyzer::declarations($style, array( 'background', 'background-color', 'background-image' )) as [ 'value' => $background ] ) {
+                    if ( CssValueInspector::backgroundPaints($background) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }),
+            array(self::STAGE_GEOMETRY, 'paints_border', fn (): bool => $firstPaints(array_merge(array( 'border' ), $sides('border', array( 'width', 'style', 'color' ))), $absent)),
+            array(self::STAGE_GEOMETRY, 'paints_box_shadow', fn (): bool => $firstPaints(array( 'box-shadow' ), '/^none\s*$/')),
+            array(self::STAGE_GEOMETRY, 'paints_outline', fn (): bool => $firstPaints(array( 'outline', 'outline-width', 'outline-style', 'outline-color' ), $absent)),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::fold('paint_free_label_wrapper', self::STAGE_GEOMETRY);
+    }
+
+    /**
+     * A wrapper around a bare anchor that is itself the button's control
+     * surface: it folds into `core/buttons` (its presentation becomes the
+     * button's) when it has a button role or a button style signal. Null
+     * keeps it. Formerly `ButtonsPattern::hasWrapperButtonSignal()`.
+     *
+     * @param Closure(): bool $styleSignal
+     */
+    public static function buttonControlWrapper(DOMElement $wrapper, Closure $styleSignal): ?WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'button_role', fn (): bool => 'button' === strtolower($wrapper->hasAttribute('role') ? $wrapper->getAttribute('role') : '')),
+            array(self::STAGE_GEOMETRY, 'wrapper_button_style_signal', $styleSignal),
+        ), WrapperDisposition::fold(...));
+    }
+
+    /**
+     * The anchor's only child, when it is a span or div wrapping the whole
+     * label with attributes the accessible-link RichText element can carry:
+     * that wrapper is restated as the RichText element (`preserve`).
+     * Otherwise a `fold` names why the anchor's own label is used. Formerly
+     * `ButtonsPattern::accessibleLinkContentWrapper()`.
+     *
+     * @param Closure(string): bool $contentAttribute
+     * @return array{disposition: WrapperDisposition, wrapper: ?DOMElement}
+     */
+    public static function accessibleLinkContentWrapper(DOMElement $anchor, Closure $contentAttribute): array
+    {
+        $wrapper = null;
+        $disposition = self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'not_single_child_element', static function () use ($anchor, &$wrapper): bool {
+                foreach ( $anchor->childNodes as $child ) {
+                    if ( $child instanceof DOMElement ) {
+                        if ( null !== $wrapper ) {
+                            return true;
+                        }
+                        $wrapper = $child;
+                    } elseif ( $child instanceof \DOMText || $child instanceof \DOMCdataSection ) {
+                        if ( '' !== trim($child->textContent) ) {
+                            return true;
+                        }
+                    }
+                }
+                return ! $wrapper instanceof DOMElement;
+            }),
+            array(self::STAGE_RESTATEMENT, 'not_span_or_div', static function () use (&$wrapper): bool {
+                return ! in_array(strtolower($wrapper->tagName), array( 'span', 'div' ), true);
+            }),
+            array(self::STAGE_IDENTITY, 'no_attributes', static function () use (&$wrapper): bool {
+                return ! $wrapper->hasAttributes();
+            }),
+            array(self::STAGE_IDENTITY, 'non_content_attribute', static function () use (&$wrapper, $contentAttribute): bool {
+                foreach ( $wrapper->attributes ?? array() as $attribute ) {
+                    if ( ! $contentAttribute(strtolower($attribute->name)) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }),
+        ), WrapperDisposition::fold(...));
+
+        return null === $disposition
+            ? array( 'disposition' => WrapperDisposition::preserve('restated_on_rich_text_element', self::STAGE_RESTATEMENT), 'wrapper' => $wrapper )
+            : array( 'disposition' => $disposition, 'wrapper' => null );
+    }
+
+    /**
+     * The `<span>` chain wrapping a whole button label: unwrapped (`fold`)
+     * unless every span carries a source identity and the label holds its
+     * own source elements, which the wrapper lays out (`preserve`). Formerly
+     * the tail of `ButtonsPattern::unwrapPresentationalSpan()`.
+     *
+     * @param bool|null $identified Null when no span wraps the label; false when a bare span is in the chain.
+     * @param Closure(): bool $retainedSourceElement
+     * @param Closure(): bool $sourceItemSequence
+     */
+    public static function buttonLabelSpan(?bool $identified, Closure $retainedSourceElement, Closure $sourceItemSequence): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'no_wrapping_span', fn (): bool => null === $identified),
+            array(self::STAGE_IDENTITY, 'bare_span_not_restorable', fn (): bool => false === $identified),
+        ), WrapperDisposition::fold(...))
+            ?? self::firstMatch(array(
+                array(self::STAGE_RESTATEMENT, 'retained_source_element', $retainedSourceElement),
+                array(self::STAGE_RESTATEMENT, 'source_item_sequence', $sourceItemSequence),
+            ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::fold('presentational_label_span', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * A navigation landmark's sole layout box, when the brand row sits one
+     * level down: kept as the carrier's own group (`preserve`). A `fold`
+     * names why the landmark is read directly. Formerly
+     * `NavigationPattern::carrierLayoutWrapper()`.
+     *
+     * @param Closure(DOMElement): bool $navigationChrome
+     * @return array{disposition: WrapperDisposition, wrapper: ?DOMElement}
+     */
+    public static function navigationCarrierLayoutWrapper(DOMElement $nav, Closure $navigationChrome): array
+    {
+        $wrapper = null;
+        $disposition = self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'not_single_child_element', static function () use ($nav, &$wrapper): bool {
+                foreach ( $nav->childNodes as $child ) {
+                    if ( XML_COMMENT_NODE === $child->nodeType
+                        || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                        continue;
+                    }
+                    if ( ! $child instanceof DOMElement || $wrapper instanceof DOMElement ) {
+                        return true;
+                    }
+                    $wrapper = $child;
+                }
+                return ! $wrapper instanceof DOMElement;
+            }),
+            array(self::STAGE_IDENTITY, 'not_div', static function () use (&$wrapper): bool {
+                return 'div' !== strtolower($wrapper->tagName);
+            }),
+            array(self::STAGE_IDENTITY, 'navigation_chrome', static function () use (&$wrapper, $navigationChrome): bool {
+                return $navigationChrome($wrapper);
+            }),
+            array(self::STAGE_GEOMETRY, 'fewer_than_two_element_children', static function () use (&$wrapper): bool {
+                $elements = 0;
+                foreach ( $wrapper->childNodes as $child ) {
+                    if ( $child instanceof DOMElement ) {
+                        ++$elements;
+                    }
+                }
+                return 2 > $elements;
+            }),
+        ), WrapperDisposition::fold(...));
+
+        return null === $disposition
+            ? array( 'disposition' => WrapperDisposition::preserve('carrier_layout_row_box', self::STAGE_GEOMETRY), 'wrapper' => $wrapper )
+            : array( 'disposition' => $disposition, 'wrapper' => null );
+    }
+
+    /**
+     * A link-run wrapper core/navigation flattens into its menu (`fold`):
+     * the reason names whether its responsive visibility is restated on each
+     * item through a carrier class (`visibility_restated_per_item`) or why it
+     * is not. Formerly `NavigationPattern::withFlattenedWrapperVisibility()`.
+     * The carrier class records the wrapper as a projection subject, so it
+     * is requested only once every other guard passed.
+     *
+     * @param Closure(): bool $displayNoneAtEveryViewport
+     * @param Closure(): array<string, list<string>> $declaredAtAnyViewport
+     * @param Closure(string, list<string>): bool $distributable
+     * @param Closure(): string $carrierClass
+     * @return array{disposition: WrapperDisposition, className: string}
+     */
+    public static function flattenedNavigationWrapper(bool $hasContext, Closure $displayNoneAtEveryViewport, Closure $declaredAtAnyViewport, Closure $distributable, Closure $carrierClass): array
+    {
+        $declared = null;
+        $declarations = static function () use (&$declared, $declaredAtAnyViewport): array {
+            return $declared ??= $declaredAtAnyViewport();
+        };
+        $className = '';
+        $disposition = self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'no_navigation_context', fn (): bool => ! $hasContext),
+            array(self::STAGE_GEOMETRY, 'display_none_at_every_viewport', $displayNoneAtEveryViewport),
+            array(self::STAGE_GEOMETRY, 'not_hidden_at_any_viewport', static fn (): bool => ! in_array('none', array_map(static fn (string $value): string => strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value)), $declarations()['display'] ?? array()), true)),
+            array(self::STAGE_RESTATEMENT, 'undistributable_declaration', static function () use ($declarations, $distributable): bool {
+                foreach ( $declarations() as $property => $values ) {
+                    if ( ! $distributable((string) $property, $values) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }),
+            array(self::STAGE_RESTATEMENT, 'no_carrier_class', static function () use (&$className, $carrierClass): bool {
+                $className = $carrierClass();
+                return '' === $className;
+            }),
+        ), WrapperDisposition::fold(...));
+
+        return null === $disposition
+            ? array( 'disposition' => WrapperDisposition::fold('visibility_restated_per_item', self::STAGE_RESTATEMENT), 'className' => $className )
+            : array( 'disposition' => $disposition, 'className' => '' );
+    }
+
+    /**
+     * A neutral `div`/`span` beside a list-backed menu whose descendants are
+     * all hidden from assistive technology and cannot be focused or navigate
+     * is dropped as navigation support (`drop`); otherwise it is kept as
+     * content. Formerly `NavigationPattern::isInertNavigationSupportWrapper()`.
+     *
+     * @param Closure(): bool $inertDescendants
+     */
+    public static function inertNavigationSupportWrapper(DOMElement $element, Closure $inertDescendants): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'not_div_or_span', fn (): bool => ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)),
+            array(self::STAGE_IDENTITY, 'text_leaf', fn (): bool => '' !== trim($element->textContent ?? '') && 0 === $element->childElementCount),
+        ), WrapperDisposition::preserve(...))
+            ?? self::firstMatch(array(
+                array(self::STAGE_IDENTITY, 'inert_support_descendants', $inertDescendants),
+            ), WrapperDisposition::drop(...))
+            ?? WrapperDisposition::preserve('navigable_or_named_descendant', self::STAGE_IDENTITY);
+    }
+
+    /**
+     * A wrapper between a media/text section and its media: core/media-text
+     * replaces it with its own figure (`fold`), so a wrapper whose box paints
+     * or shapes the media is kept and the section is not recognized
+     * (`preserve`). Formerly inlined in `MediaTextPattern::recognize()`.
+     *
+     * @param array<string, mixed> $declarations
+     */
+    public static function mediaTextMediaWrapper(array $declarations): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'decorated_media_wrapper', static function () use ($declarations): bool {
+                foreach ( array_keys($declarations) as $property ) {
+                    if ( in_array($property, array( 'perspective', 'transform', 'filter', 'box-shadow', 'aspect-ratio', 'overflow', 'overflow-x', 'overflow-y' ), true)
+                        || preg_match('/^(?:background|border|padding)(?:-|$)/', (string) $property) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::fold('media_wrapper_replaced_by_figure', self::STAGE_GEOMETRY);
+    }
+
+    /**
+     * The converted text side's wrapper group inside core/media-text: hoisted
+     * into the content pane (`fold`) when it carries nothing the block would
+     * lose, otherwise kept (`preserve`). Formerly
+     * `MediaTextPattern::isHoistableTextSideGroupAttrs()`.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    public static function mediaTextTextSideGroup(array $attrs, DOMElement $textSide): WrapperDisposition
+    {
+        if ( array() === $attrs ) {
+            return WrapperDisposition::fold('no_group_attributes', self::STAGE_RESTATEMENT);
+        }
+
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'attributes_beyond_class_name', fn (): bool => array( 'className' ) !== array_keys($attrs) || ! is_string($attrs['className'])),
+            array(self::STAGE_IDENTITY, 'authored_class', static function () use ($attrs, $textSide): bool {
+                $sourceClasses = SourceDom::tokens(SourceDom::attr($textSide, 'class'));
+                foreach ( SourceDom::tokens($attrs['className']) as $class ) {
+                    if ( '' === $class ) {
+                        continue;
+                    }
+                    if ( ! str_starts_with($class, 'blocks-engine-css-owned-') || in_array($class, $sourceClasses, true) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::fold('generated_layout_markers_only', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * The hamburger's own wrapper when a captured menu dialog folds into the
+     * row's navigation: dropped with the hamburger (`drop`) when everything
+     * else in it repeats a control the row already shows; otherwise kept
+     * and only the hamburger goes. Formerly
+     * `CapturedMenuDialogFold::redundantTriggerGroup()`; the ancestor walk
+     * that finds the wrapper stays there.
+     *
+     * @param list<DOMElement> $triggers
+     * @param Closure(): bool $unrepeatedControl
+     * @param Closure(): bool $onlyPunctuationOutsideControls
+     */
+    public static function capturedMenuTriggerGroup(DOMElement $group, array $triggers, DOMElement $dialog, DOMElement $row, Closure $unrepeatedControl, Closure $onlyPunctuationOutsideControls): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'trigger_is_its_own_group', fn (): bool => $group->isSameNode($triggers[0])),
+            array(self::STAGE_IDENTITY, 'group_holds_dialog', fn (): bool => SourceDom::elementContains($group, $dialog)),
+            array(self::STAGE_IDENTITY, 'group_holds_row', fn (): bool => SourceDom::elementContains($group, $row)),
+            array(self::STAGE_IDENTITY, 'trigger_outside_group', static function () use ($group, $triggers): bool {
+                foreach ( $triggers as $other ) {
+                    if ( ! SourceDom::elementContains($group, $other) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }),
+            array(self::STAGE_IDENTITY, 'unrepeated_control', $unrepeatedControl),
+            array(self::STAGE_IDENTITY, 'non_punctuation_text', fn (): bool => ! $onlyPunctuationOutsideControls()),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::drop('trigger_group_repeats_row', self::STAGE_IDENTITY);
+    }
+
+    /**
+     * A hidden capture close helper for a panel the native navigation
+     * overlay replaces closes nothing (`drop`). Formerly inlined in
+     * `NavigationToggleSuppressor::suppressCaptureCloseHelpers()`.
+     */
+    public static function captureCloseHelper(DOMNode $button, string $panelId, DOMElement $panel): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'not_close_helper_for_panel', fn (): bool => ! $button instanceof DOMElement || $panelId !== trim(SourceDom::attr($button, CaptureEvidence::DIALOG_CLOSE))),
+            array(self::STAGE_GEOMETRY, 'not_hidden', fn (): bool => ! $button->hasAttribute('hidden')),
+            array(self::STAGE_IDENTITY, 'inside_panel', fn (): bool => SourceDom::elementContains($panel, $button)),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::drop('superseded_capture_close_helper', self::STAGE_IDENTITY);
+    }
+
+    /**
+     * A second source navigation with the same destinations as the one a
+     * menu control projects is dropped (`drop`). Formerly inlined in
+     * `NavigationToggleSuppressor::suppressEquivalentNavigationDuplicates()`.
+     *
+     * @param Closure(): bool $alreadySuppressed
+     * @param Closure(): bool $navigationTarget
+     * @param Closure(): bool $sameSignature
+     */
+    public static function equivalentNavigationDuplicate(DOMNode $candidate, DOMElement $navigation, DOMElement $control, Closure $alreadySuppressed, Closure $navigationTarget, Closure $sameSignature): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'not_element', fn (): bool => ! $candidate instanceof DOMElement),
+            array(self::STAGE_IDENTITY, 'projected_navigation', fn (): bool => $candidate->isSameNode($navigation)),
+            array(self::STAGE_IDENTITY, 'already_suppressed', $alreadySuppressed),
+            array(self::STAGE_IDENTITY, 'holds_menu_control', fn (): bool => SourceDom::elementContains($candidate, $control)),
+            array(self::STAGE_IDENTITY, 'not_navigation_target', fn (): bool => ! $navigationTarget()),
+            array(self::STAGE_IDENTITY, 'different_navigation_signature', fn (): bool => ! $sameSignature()),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::drop('equivalent_navigation_duplicate', self::STAGE_IDENTITY);
+    }
+
+    /**
+     * A source ancestor between a carousel root and its slide list: restated
+     * as a stage wrapper around the generated viewport (`preserve`) when it
+     * has a safe class, identity attributes or geometry; otherwise folded
+     * into the carousel shell. Formerly inlined in
+     * `AuthoredCarouselBlockGenerator::stageWrappers()`.
+     *
+     * @param array<string, string> $attributes
+     */
+    public static function carouselStageWrapper(string $className, array $attributes, string $inlineStyle): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'stage_class', fn (): bool => '' !== $className),
+            array(self::STAGE_IDENTITY, 'stage_identity_attributes', fn (): bool => array() !== $attributes),
+            array(self::STAGE_GEOMETRY, 'stage_geometry_style', fn (): bool => '' !== $inlineStyle),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::fold('no_stage_identity_or_geometry', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * Which source attributes of a carousel stage ancestor are restated on
+     * its stage wrapper: identity and data/aria attributes that are not
+     * runtime controller state.
+     */
+    public static function carouselStageWrapperAttribute(string $name, string $value): bool
+    {
+        return (bool) preg_match('/^(?:id|tabindex|role|(?:data|aria)-[a-zA-Z0-9_-]+)$/D', $name)
+            && ! str_starts_with($name, 'data-wp-')
+            && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)
+            && strlen($value) <= 512;
+    }
+
+    /**
+     * A retained custom-wrapper hook (kept in the source DOM only so author
+     * selectors keyed on its data attributes match during selector
+     * preparation): its sole child replaces it (`fold`) when the hook is a
+     * safe, boxless transparent custom element; otherwise it keeps its
+     * Group (`preserve`). Null when the element is not a retained hook.
+     * Formerly `HtmlCompilation::boxlessWrapperHookChild()`.
+     *
+     * @param Closure(): bool $safeTransparentCustomElement
+     * @param Closure(): bool $boxless
+     * @return array{disposition: ?WrapperDisposition, child: ?DOMElement}
+     */
+    public static function retainedWrapperHook(DOMElement $element, bool $retainedHook, Closure $safeTransparentCustomElement, Closure $boxless): array
+    {
+        if ( ! $retainedHook ) {
+            return array( 'disposition' => null, 'child' => null );
+        }
+        $child = null;
+        $disposition = self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'not_single_child_element', static function () use ($element, &$child): bool {
+                foreach ( $element->childNodes as $node ) {
+                    if ( $node instanceof DOMElement ) {
+                        if ( null !== $child ) {
+                            return true;
+                        }
+                        $child = $node;
+                    } elseif ( $node instanceof \DOMText && '' !== trim($node->textContent) ) {
+                        return true;
+                    }
+                }
+                return null === $child;
+            }),
+            array(self::STAGE_IDENTITY, 'unsafe_transparent_custom_element', fn (): bool => ! $safeTransparentCustomElement()),
+            array(self::STAGE_GEOMETRY, 'hook_has_box', fn (): bool => ! $boxless()),
+        ), WrapperDisposition::preserve(...));
+
+        return null === $disposition
+            ? array( 'disposition' => WrapperDisposition::fold('boxless_retained_hook', self::STAGE_GEOMETRY), 'child' => $child )
+            : array( 'disposition' => $disposition, 'child' => null );
+    }
+
+    /**
+     * Guard names of the slice-6 tables (#7471): patterns, navigation
+     * support, the carousel generator and retained wrapper hooks, in
+     * evaluation order, keyed to their stage. Pinned by
+     * `tests/unit/wrapper-decision-patterns.php`.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function patternGuardStages(): array
+    {
+        return array(
+            'button_label_wrapper' => array(
+                'paints_background' => self::STAGE_GEOMETRY,
+                'paints_border' => self::STAGE_GEOMETRY,
+                'paints_box_shadow' => self::STAGE_GEOMETRY,
+                'paints_outline' => self::STAGE_GEOMETRY,
+                'paint_free_label_wrapper' => self::STAGE_GEOMETRY,
+            ),
+            'button_control_wrapper' => array(
+                'button_role' => self::STAGE_IDENTITY,
+                'wrapper_button_style_signal' => self::STAGE_GEOMETRY,
+            ),
+            'accessible_link_content_wrapper' => array(
+                'not_single_child_element' => self::STAGE_RESTATEMENT,
+                'not_span_or_div' => self::STAGE_RESTATEMENT,
+                'no_attributes' => self::STAGE_IDENTITY,
+                'non_content_attribute' => self::STAGE_IDENTITY,
+                'restated_on_rich_text_element' => self::STAGE_RESTATEMENT,
+            ),
+            'button_label_span' => array(
+                'no_wrapping_span' => self::STAGE_RESTATEMENT,
+                'bare_span_not_restorable' => self::STAGE_IDENTITY,
+                'retained_source_element' => self::STAGE_RESTATEMENT,
+                'source_item_sequence' => self::STAGE_RESTATEMENT,
+                'presentational_label_span' => self::STAGE_RESTATEMENT,
+            ),
+            'navigation_carrier_layout_wrapper' => array(
+                'not_single_child_element' => self::STAGE_RESTATEMENT,
+                'not_div' => self::STAGE_IDENTITY,
+                'navigation_chrome' => self::STAGE_IDENTITY,
+                'fewer_than_two_element_children' => self::STAGE_GEOMETRY,
+                'carrier_layout_row_box' => self::STAGE_GEOMETRY,
+            ),
+            'flattened_navigation_wrapper' => array(
+                'no_navigation_context' => self::STAGE_IDENTITY,
+                'display_none_at_every_viewport' => self::STAGE_GEOMETRY,
+                'not_hidden_at_any_viewport' => self::STAGE_GEOMETRY,
+                'undistributable_declaration' => self::STAGE_RESTATEMENT,
+                'no_carrier_class' => self::STAGE_RESTATEMENT,
+                'visibility_restated_per_item' => self::STAGE_RESTATEMENT,
+            ),
+            'inert_navigation_support_wrapper' => array(
+                'not_div_or_span' => self::STAGE_IDENTITY,
+                'text_leaf' => self::STAGE_IDENTITY,
+                'inert_support_descendants' => self::STAGE_IDENTITY,
+                'navigable_or_named_descendant' => self::STAGE_IDENTITY,
+            ),
+            'media_text_media_wrapper' => array(
+                'decorated_media_wrapper' => self::STAGE_GEOMETRY,
+                'media_wrapper_replaced_by_figure' => self::STAGE_GEOMETRY,
+            ),
+            'media_text_text_side_group' => array(
+                'no_group_attributes' => self::STAGE_RESTATEMENT,
+                'attributes_beyond_class_name' => self::STAGE_RESTATEMENT,
+                'authored_class' => self::STAGE_IDENTITY,
+                'generated_layout_markers_only' => self::STAGE_RESTATEMENT,
+            ),
+            'captured_menu_trigger_group' => array(
+                'trigger_is_its_own_group' => self::STAGE_RESTATEMENT,
+                'group_holds_dialog' => self::STAGE_IDENTITY,
+                'group_holds_row' => self::STAGE_IDENTITY,
+                'trigger_outside_group' => self::STAGE_IDENTITY,
+                'unrepeated_control' => self::STAGE_IDENTITY,
+                'non_punctuation_text' => self::STAGE_IDENTITY,
+                'trigger_group_repeats_row' => self::STAGE_IDENTITY,
+            ),
+            'capture_close_helper' => array(
+                'not_close_helper_for_panel' => self::STAGE_IDENTITY,
+                'not_hidden' => self::STAGE_GEOMETRY,
+                'inside_panel' => self::STAGE_IDENTITY,
+                'superseded_capture_close_helper' => self::STAGE_IDENTITY,
+            ),
+            'equivalent_navigation_duplicate' => array(
+                'not_element' => self::STAGE_IDENTITY,
+                'projected_navigation' => self::STAGE_IDENTITY,
+                'already_suppressed' => self::STAGE_IDENTITY,
+                'holds_menu_control' => self::STAGE_IDENTITY,
+                'not_navigation_target' => self::STAGE_IDENTITY,
+                'different_navigation_signature' => self::STAGE_IDENTITY,
+                'equivalent_navigation_duplicate' => self::STAGE_IDENTITY,
+            ),
+            'carousel_stage_wrapper' => array(
+                'stage_class' => self::STAGE_RESTATEMENT,
+                'stage_identity_attributes' => self::STAGE_IDENTITY,
+                'stage_geometry_style' => self::STAGE_GEOMETRY,
+                'no_stage_identity_or_geometry' => self::STAGE_RESTATEMENT,
+            ),
+            'retained_wrapper_hook' => array(
+                'not_single_child_element' => self::STAGE_RESTATEMENT,
+                'unsafe_transparent_custom_element' => self::STAGE_IDENTITY,
+                'hook_has_box' => self::STAGE_GEOMETRY,
+                'boxless_retained_hook' => self::STAGE_GEOMETRY,
             ),
         );
     }
