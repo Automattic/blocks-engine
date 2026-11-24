@@ -39,7 +39,7 @@ foreach ( $frames as $frame ) {
 
 foreach ( array(
     'every rendered iframe carries its block className' => $saved,
-    'the desktop rule reaches the iframe through its marker' => '' !== $marker && 1 === preg_match('/\.' . preg_quote($marker, '/') . '\)[^{}]*\{position:absolute\}/', $css),
+    'the desktop rule reaches the iframe through its marker' => '' !== $marker && 1 === preg_match('/\.' . preg_quote($marker, '/') . '(?![\w-])[^{}]*\{position:absolute\}/', $css),
 ) as $label => $ok ) {
     if ( ! $ok ) {
         fwrite(STDERR, "FAIL: {$label}\n");
