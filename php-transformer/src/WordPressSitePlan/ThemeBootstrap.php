@@ -935,6 +935,9 @@ PHP;
         foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
         $partTargets = array();
         foreach ($assets as $asset) foreach ($asset['stylesheet_parts'] ?? array() as $path) $partTargets[$path] = true;
+        // A route's copy of a shared sheet loads only in that sheet's place.
+        $partTargets += RouteStylesheetDeliveries::deliveryTargets($assets);
+        $byTarget = array_column($assets, null, 'target_path');
         foreach ($assets as $index => $asset) {
             // Empty CSS still owns ordered occurrences and route selection;
             // dropping it can incorrectly activate the global fallback.
@@ -947,7 +950,11 @@ PHP;
                 if (!isset($documentsBySource[$source])) continue;
                 if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
                 $scope = PageStylesheets::documentScope($documentsBySource[$source]);
-                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
+                // The handle stays the shared sheet's occurrence; the bytes are
+                // that route's copy without other routes' gated arms.
+                $delivered = $byTarget[$asset[RouteStylesheetDeliveries::FIELD][$source] ?? ''] ?? null;
+                $instanceAsset = null === $delivered ? $asset : array_replace($asset, array_intersect_key($delivered, array_flip(array('source_path', 'target_path', 'token', 'reconciliation_identity', 'content', 'content_hash', 'size_bytes'))));
+                $instances[$source][] = array('asset' => $instanceAsset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
             }
             // A global resource without document instances already loads on
             // every view, so lending it as a frame fallback would load it twice.
@@ -978,7 +985,6 @@ PHP;
             array_push($ordered, ...$rows);
         }
         $expanded = array();
-        $byTarget = array_column($assets, null, 'target_path');
         foreach (array_merge($ordered, $after) as $row) {
             if (!isset($row['asset']['stylesheet_parts'])) { $expanded[] = $row; continue; }
             foreach ($row['asset']['stylesheet_parts'] as $position => $path) {
