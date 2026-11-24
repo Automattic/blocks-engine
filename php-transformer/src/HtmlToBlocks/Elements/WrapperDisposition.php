@@ -84,6 +84,11 @@ final class WrapperDisposition
         return self::PRESERVE === $this->kind;
     }
 
+    public function isFold(): bool
+    {
+        return self::FOLD === $this->kind;
+    }
+
     public function isDrop(): bool
     {
         return self::DROP === $this->kind;

@@ -44,8 +44,13 @@ final class CustomElementRuntimeConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
         if ( 'unproven' === $decision['disposition'] ) {
-            if ( $this->renderNeutral->isEmptyRenderNeutralConfiguredHost($element) ) {
-                $omit = $this->renderNeutral->isRenderNeutralWrapper($element, true, true);
+            $disposition = WrapperDecision::unprovenCustomElement(
+                fn (): bool => $this->renderNeutral->isEmptyRenderNeutralConfiguredHost($element),
+                fn (): bool => $this->renderNeutral->isRenderNeutralWrapper($element, true, true),
+                fn (): bool => $this->styleResolver->isDisplayNoneAtEveryViewport($element)
+            );
+            if ( in_array($disposition->reason, array( 'empty_render_neutral_configured_host', 'paint_free_runtime_placeholder' ), true) ) {
+                $omit = $disposition->isDrop();
                 $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
                     'code'                      => $omit ? 'html_custom_element_render_neutral' : 'html_custom_element_runtime_placeholder',
                     'severity'                  => 'info',
@@ -66,9 +71,7 @@ final class CustomElementRuntimeConverter implements ElementConverter
                     $element
                 ));
             }
-            // A host the source cascade hides at every viewport renders
-            // nothing there, so omitting it loses no content or behavior.
-            if ( $this->styleResolver->isDisplayNoneAtEveryViewport($element) ) {
+            if ( 'display_none_at_every_viewport' === $disposition->reason ) {
                 return ConversionOutcome::handled(null);
             }
             $fallbacks[] = FallbackDiagnostic::build(array(

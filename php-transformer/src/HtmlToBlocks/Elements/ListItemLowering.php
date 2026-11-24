@@ -54,7 +54,7 @@ final class ListItemLowering
             if ( array() === $children ) {
                 continue;
             }
-            if ( 1 === count($children) ) {
+            if ( null === WrapperDecision::singleChildCandidate($children) ) {
                 $coalesced = $this->wrapperCoalescer->coalescedSingleGroupWrapper($child, $children[0]);
                 if ( null !== $coalesced ) {
                     $items[] = $coalesced;

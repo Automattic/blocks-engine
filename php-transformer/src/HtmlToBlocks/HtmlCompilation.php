@@ -365,7 +365,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->imageUrls,
             $this->imageDimensions,
             $this->sourceElementClassifier,
-            $this->richTextMaterializer->inlineVisualDeclarations(...)
+            $this->richTextMaterializer->markupWithOwnedTextColors(...)
         );
         $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier,
             new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session),
@@ -813,7 +813,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             patternContext: $this->patternContext,
             visualTextWrapperBlock: $inlineTextWrappers->visualTextWrapperBlockFromElement(...),
             coalescedSingleGroupWrapper: $this->wrapperCoalescer->coalescedSingleGroupWrapper(...),
-            shouldPreserveWrapper: $this->emptyVisualRetention->shouldPreserveWrapper(...)
+            wrapperDisposition: $this->emptyVisualRetention->wrapperDisposition(...)
         ),
             $emptyFeatureShells,
             $formDispatcher,

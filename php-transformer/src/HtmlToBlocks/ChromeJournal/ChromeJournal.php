@@ -139,6 +139,12 @@ final class ChromeJournal
         $links = array();
         $relative = false;
         foreach (self::elements($element) as $node) {
+            // An inline SVG converts to an image whose asset URL is written
+            // relative to the page (SvgMaterializer), so its conversion reads
+            // the page directory just as a relative link does. Without this, a
+            // journal recorded on a page at one depth replays URLs that resolve
+            // to missing media on pages at another depth.
+            $relative = $relative || 'svg' === strtolower($node->localName ?? '');
             foreach (array('href', 'src', 'srcset', 'poster', 'action', 'data-src') as $attribute) {
                 if (!$node->hasAttribute($attribute)) continue;
                 $value = trim($node->getAttribute($attribute));

@@ -27,23 +27,23 @@ $result = (new HtmlTransformer())->transform($html)->toArray();
 $blocks = (string) $result['serialized_blocks'];
 $css = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), $result['assets']));
 
-if ( ! str_contains($blocks, '<figure class="wp-block-video aspect-video w-full blocks-engine-sized-video-figure">') ) {
+if ( ! str_contains($blocks, '<figure class="wp-block-video aspect-video w-full blocks-engine-synthetic-video-figure-ratio">') ) {
     throw new RuntimeException('A source video sized by an aspect ratio marks its core/video figure as a sized figure.');
 }
-if ( ! str_contains($blocks, '<figure class="wp-block-video fixed-h w-full blocks-engine-sized-video-figure">') ) {
+if ( ! str_contains($blocks, '<figure class="wp-block-video fixed-h w-full blocks-engine-synthetic-video-figure-ratio">') ) {
     throw new RuntimeException('A source video sized by a fixed height marks its core/video figure as a sized figure.');
 }
 if ( ! str_contains($blocks, '<figure class="wp-block-video w-full">') ) {
     throw new RuntimeException('A video sized only by its intrinsic media keeps its unmarked core/video figure.');
 }
-if ( ! str_contains($css, ':root :where(figure.blocks-engine-sized-video-figure)>video{width:100%;height:100%}') ) {
+if ( ! str_contains($css, ':root :where(figure.blocks-engine-synthetic-video-figure-ratio)>video{width:100%;height:100%}') ) {
     throw new RuntimeException('The <video> fills its sized figure so the source box, not the poster, sets its height.');
 }
-if ( ! str_contains($css, ':where(figure.blocks-engine-sized-video-figure){object-fit:contain}')
-    || ! str_contains($css, '.wp-block-video.blocks-engine-sized-video-figure>video{object-fit:inherit}') ) {
+if ( ! str_contains($css, ':where(figure.blocks-engine-synthetic-video-figure-ratio){object-fit:contain}')
+    || ! str_contains($css, '.wp-block-video.blocks-engine-synthetic-video-figure-ratio>video{object-fit:inherit}') ) {
     throw new RuntimeException('The filled <video> letterboxes its poster like the native element instead of Core\'s poster cover.');
 }
-if ( ! str_contains($css, ':root :where(figure.blocks-engine-sized-video-figure){margin:0}') ) {
+if ( ! str_contains($css, ':root :where(figure.blocks-engine-synthetic-video-figure-ratio){margin:0}') ) {
     throw new RuntimeException('The figure core/video injects adds no default figure margin below the source box.');
 }
 
