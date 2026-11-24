@@ -15,7 +15,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabel
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -95,10 +97,15 @@ final class AuthoredFormControlBlockConverter
             // Caption text, not an association: the caption is the core
             // paragraph's own box, carrying the label's classes and its text as
             // core RichText (a <label> inside RichText is structural markup the
-            // editor cannot edit). It keeps the block box every label of the
-            // materialized form takes, so the field lays out as before.
+            // editor cannot edit). An inline caption in block flow stays an
+            // inline carrier: its line box is the parent's strut, as the
+            // source label's was. A block-level or flex/grid-item caption
+            // keeps its own block box.
+            $inline = $this->presentation instanceof StyleResolver
+                && LayoutParticipation::resolve($label, $this->presentation)->isInline();
+            $boxClasses = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ($inline ? '' : ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
             return $this->createBlock->createBlock('core/paragraph', array_filter(array(
-                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS),
+                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $boxClasses),
                 'anchor' => (string) ($attrs['id'] ?? ''),
                 'content' => (string) ($attrs['content'] ?? ''),
             ), static fn (string $value): bool => '' !== $value), array(), $label);
