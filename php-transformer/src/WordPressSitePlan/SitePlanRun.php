@@ -175,21 +175,41 @@ final class SitePlanRun
     }
 
     /**
-     * The captured entry document's prose column, which pages authored after
-     * the import render in. A lone entry page renders through front-page.html,
-     * leaving page.html to new pages; otherwise captured pages share page.html
-     * and new pages need a separate template.
+     * The prose column pages authored after the import render in. A lone
+     * entry page renders through front-page.html, leaving page.html to new
+     * pages, so its column is theirs. Otherwise captured pages share page.html
+     * and new pages need a separate template: they render in the column most
+     * of those captured pages share, as the pages beside them in the page
+     * lifecycle, else in the entry document's.
      *
      * @param array<int,array<string,mixed>> $pages
      * @return array<string,mixed>
      */
     private function authoredPage(array $pages): array
     {
+        $column = static function (array $document): ?array {
+            $usage = ArrayField::array($document, 'design_usage');
+            $column = array('prose_width' => $usage['prose_width_px'] ?? null, 'prose_padding' => $usage['prose_padding_px'] ?? null, 'prose_columns' => $usage['prose_columns'] ?? array());
+            return null === $column['prose_width'] && array() === $column['prose_columns'] ? null : $column;
+        };
         $lone = 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']);
+        if (!$lone) {
+            $generic = array();
+            foreach ($pages as $page) if ('page' === ($page['post_type'] ?? 'page') && empty($page['entrypoint']) && !isset($page['route_template']) && isset($page['source_path'])) $generic[$page['source_path']] = true;
+            $shared = array();
+            foreach ($this->initialDocuments as $document) {
+                if (!isset($generic[$document['source_path'] ?? '']) || null === ($observed = $column($document))) continue;
+                $key = json_encode($observed);
+                $shared[$key] ??= array('column' => $observed, 'pages' => 0);
+                ++$shared[$key]['pages'];
+            }
+            $best = null;
+            foreach ($shared as $candidate) if (null === $best || $candidate['pages'] > $best['pages']) $best = $candidate;
+            if (null !== $best) return $best['column'] + array('separate' => true);
+        }
         $entry = $lone ? $this->initialDocuments[0] : (array_values(array_filter($this->initialDocuments, static fn(array $document): bool => !empty($document['entrypoint'])))[0] ?? null);
         if (null === $entry) return array();
-        $usage = ArrayField::array($entry, 'design_usage');
-        return array('prose_width' => $usage['prose_width_px'] ?? null, 'prose_padding' => $usage['prose_padding_px'] ?? null, 'prose_columns' => $usage['prose_columns'] ?? array(), 'separate' => !$lone);
+        return ($column($entry) ?? array()) + array('separate' => !$lone);
     }
 
     /**
