@@ -39,6 +39,12 @@ final class FormPresentationGraphBuilder
     private const MAX_VISUAL_BYTES = 12288;
     private const MAX_VISUAL_DIMENSION = 4096;
     private const MAX_PROVENANCE = 32;
+    /**
+     * Ascent minus descent, in em, of a typical UI sans-serif (Inter 0.73,
+     * Arial and Helvetica 0.69, Roboto 0.68): where an inline label's text
+     * sits on its parent's strut baseline (see carrySiblingLabelSpacingOntoLabel).
+     */
+    private const TYPICAL_ASCENT_MINUS_DESCENT = 0.7;
     /** Authored values such as system font stacks exceed a few hundred bytes; bound like selectors and conditions. */
     private const MAX_STYLE_VALUE_BYTES = 1024;
     /** Longer source selectors are recorded as a token-boundary prefix plus `selector_sha256` of the full selector. */
@@ -2005,11 +2011,21 @@ final class FormPresentationGraphBuilder
             $padded = array_intersect_key($styles, array_flip(array( 'padding', 'padding_top', 'padding_bottom', 'padding_block_start', 'padding_block_end' )));
             if ( null !== $strut && null !== $own && $strut['px'] > $own['px'] && array() === $padded ) {
                 // The label's own line-height is its typography and stays; the
-                // taller line box around it is space, split as the strut's
-                // half-leading above and below the label's own line.
-                $half = rtrim(rtrim(number_format(($strut['px'] - $own['px']) / 2, 3, '.', ''), '0'), '.') . 'px';
-                $styles['padding_top'] = $half;
-                $styles['padding_bottom'] = $half;
+                // taller line box around it is space, padded above and below
+                // the label's own line. The inline label's text sits on the
+                // strut's baseline, not centred in the line box: a strut of
+                // font size Fs puts its baseline (Fs - Fl) * (A - D) / 2 lower
+                // than the label's own half-leading (font size Fl) would, for
+                // the font's ascent A and descent D. Font metrics are not in
+                // the source CSS, so the split takes the typical UI sans-serif
+                // A - D. Centring instead lifts the text up to a pixel above
+                // the source baseline (#6994).
+                $half = ($strut['px'] - $own['px']) / 2;
+                $baseline = ($this->fontPixels($parent, $rules, $customPropertyRules) - $this->fontPixels($label, $rules, $customPropertyRules)) * self::TYPICAL_ASCENT_MINUS_DESCENT / 2;
+                $baseline = max(-$half, min($half, $baseline));
+                $pixels = static fn (float $px): string => rtrim(rtrim(number_format(abs($px) < 0.0005 ? 0.0 : $px, 3, '.', ''), '0'), '.') . 'px';
+                $styles['padding_top'] = $pixels($half + $baseline);
+                $styles['padding_bottom'] = $pixels($half - $baseline);
                 $provenance = array_merge($provenance, $this->provenance(array( 'padding-top' => $strut['fact'], 'padding-bottom' => $strut['fact'] ), null));
             }
         }

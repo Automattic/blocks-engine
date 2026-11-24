@@ -10,6 +10,9 @@ declare(strict_types=1);
  * own the whole label-to-control distance: the parent's line box as
  * block padding around its own (unchanged) line-height, and the control's
  * margin as its margin-block-end. The label's typography stays the source's.
+ * The padding is split where the inline label's text sat: on the 16px strut's
+ * baseline, (16 - 14) * 0.7 / 2 = 0.7px below the centre of the 24px line box,
+ * so the text does not land a pixel above the source's (#6994).
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -46,7 +49,7 @@ foreach ( array( 0 => 'Full Name', 1 => 'Message' ) as $index => $name ) {
     $label = is_array($row['label']['styles'] ?? null) ? $row['label']['styles'] : array();
     $control = is_array($row['control']['styles'] ?? null) ? $row['control']['styles'] : array();
     $assert('1' === ($label['line_height'] ?? null), $name . ' label keeps its own line-height', json_encode($label));
-    $assert('5px' === ($label['padding_top'] ?? null) && '5px' === ($label['padding_bottom'] ?? null), $name . ' label pads its own line to the line box its block parent gives an inline label', json_encode($label));
+    $assert('5.7px' === ($label['padding_top'] ?? null) && '4.3px' === ($label['padding_bottom'] ?? null), $name . ' label pads its own line to the line box its block parent gives an inline label, with its text on the strut baseline', json_encode($label));
     $assert('calc(.375rem * calc(1 - 0))' === ($label['margin_block_end'] ?? null), $name . ' label carries the control sibling margin to its control', json_encode($label));
     $assert(! isset($control['margin_top']) && ! isset($control['margin_bottom']), $name . ' control keeps no second copy of the label spacing', json_encode($control));
     $sources = array();
