@@ -9,12 +9,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
  *
  *  - preserve:  the wrapper survives as its own block (e.g. `core/group`).
  *  - fold:      the wrapper's markup is folded into an ancestor/descendant
- *               layout-shell wrapper chain rather than staying a block of
- *               its own.
+ *               layout-shell wrapper chain, or its children are emitted in
+ *               its place, rather than it staying a block of its own.
  *  - coalesce:  the wrapper disappears entirely; a surviving child block
  *               takes its place and absorbs its class/style identity.
  *  - css-owned: the wrapper's layout is re-expressed as CSS-owned attributes
  *               on a surviving block instead of a retained element boundary.
+ *  - drop:      the element and everything it holds is omitted: it is inert
+ *               scaffolding, or an empty box that renders nothing.
  *
  * Every disposition carries the reason that produced it. This replaces a
  * bare `null` return from a wrapper-elimination predicate, which recorded a
@@ -28,9 +30,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
  *
  * This value object is intentionally generic: {@see WrapperDecision} is its
  * owner (#1935, #7471), and the remaining wrapper call sites adopt it in
- * later byte-identical slices. Only `coalesce`/`preserve` are produced so
- * far; `fold` and `css-owned` are named here so later slices do not need to
- * introduce a second, incompatible vocabulary.
+ * later byte-identical slices. `coalesce`, `preserve`, `fold` and `drop`
+ * are produced so far; `css-owned` is named here so later slices do not
+ * need to introduce a second, incompatible vocabulary.
  */
 final class WrapperDisposition
 {
@@ -38,6 +40,7 @@ final class WrapperDisposition
     private const FOLD = 'fold';
     private const COALESCE = 'coalesce';
     private const CSS_OWNED = 'css-owned';
+    private const DROP = 'drop';
 
     private function __construct(
         public readonly string $kind,
@@ -66,6 +69,11 @@ final class WrapperDisposition
         return new self(self::CSS_OWNED, $reason, $stage);
     }
 
+    public static function drop(string $reason, ?string $stage = null): self
+    {
+        return new self(self::DROP, $reason, $stage);
+    }
+
     public function isCoalesce(): bool
     {
         return self::COALESCE === $this->kind;
@@ -74,5 +82,10 @@ final class WrapperDisposition
     public function isPreserve(): bool
     {
         return self::PRESERVE === $this->kind;
+    }
+
+    public function isDrop(): bool
+    {
+        return self::DROP === $this->kind;
     }
 }

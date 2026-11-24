@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -54,50 +53,23 @@ final class InertScaffoldingSuppressor implements ElementConverter
     ) {
     }
 
-    /** @param array<int, array<string, mixed>> $fallbacks */
+    /**
+     * Which scaffolding is dropped, and why, is {@see WrapperDecision::inertScaffolding()}'s
+     * decision (#7471); this converter reads the disposition and supplies the signals.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        // Capture selection notices belong to its runtime, not source content,
-        // regardless of the selected device or whether runtime CSS is present.
-        if ($element->hasAttribute(CaptureEvidence::DEVICE_UNAVAILABLE)) {
-            return ConversionOutcome::handled(null);
-        }
+        return WrapperDecision::inertScaffolding($this, $element, $tagName)?->isDrop()
+            ? ConversionOutcome::handled(null)
+            : ConversionOutcome::unhandled();
+    }
 
-        // A closed, script-populated dialog shell has no source content to lose.
-        // Open dialogs render even when empty (including user-agent border and
-        // padding); they and dialogs with descendants retain their existing path.
-        if ( 'dialog' === $tagName
-            && ! $element->hasAttribute('open')
-            && 0 === SourceDom::childElementCount($element)
-            && '' === trim($element->textContent ?? '') ) {
-            return ConversionOutcome::handled(null);
-        }
-
-        if ( 'iframe' === $tagName && $this->isInertHiddenCaptureIframe($element) ) {
-            return ConversionOutcome::handled(null);
-        }
-
-        if ( self::isMeasurementCopy($element, $this->styleResolver->isDisplayNoneAtEveryViewport(...)) ) {
-            return ConversionOutcome::handled(null);
-        }
-
-        if ( $this->isHiddenPresentationScaffolding($element) ) {
-            return ConversionOutcome::handled(null);
-        }
-
-        if ( $this->isInertLiveRegionScaffolding($element) ) {
-            return ConversionOutcome::handled(null);
-        }
-
-        if ( str_contains($tagName, '-') && $this->isInertEmptyCustomElement($element) ) {
-            return ConversionOutcome::handled(null);
-        }
-
-        if ( 'div' === $tagName && $this->isInertEmptyContainer($element) ) {
-            return ConversionOutcome::handled(null);
-        }
-
-        return ConversionOutcome::unhandled();
+    /** A measurement copy, read through the resolved cascade. */
+    public function isCascadedMeasurementCopy(DOMElement $element): bool
+    {
+        return self::isMeasurementCopy($element, $this->styleResolver->isDisplayNoneAtEveryViewport(...));
     }
 
     /**
@@ -166,7 +138,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
      * runtime script targets it. An unused `id` is a name without a reader.
      * Such an element is capture scaffolding: it only inflates List View.
      */
-    private function isInertEmptyContainer(DOMElement $element): bool
+    public function isInertEmptyContainer(DOMElement $element): bool
     {
         if ( 0 !== SourceDom::childElementCount($element)
             || '' !== trim($element->textContent ?? '')
@@ -191,7 +163,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
      * transparent, unaddressed host with no content, runtime target, semantics,
      * or authored box; meaningful or styled custom elements remain explicit.
      */
-    private function isInertEmptyCustomElement(DOMElement $element): bool
+    public function isInertEmptyCustomElement(DOMElement $element): bool
     {
         if ( 0 !== SourceDom::childElementCount($element)
             || '' !== trim($element->textContent ?? '')
@@ -364,7 +336,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
      * Do not generalize this to arbitrary hidden content: controls, addressed
      * panels, captured state and conditional CSS can reveal meaningful content.
      */
-    private function isHiddenPresentationScaffolding(DOMElement $element): bool
+    public function isHiddenPresentationScaffolding(DOMElement $element): bool
     {
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) ) {
             return false;
@@ -438,7 +410,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
         return true;
     }
 
-    private function isInertHiddenCaptureIframe(DOMElement $element): bool
+    public function isInertHiddenCaptureIframe(DOMElement $element): bool
     {
         if ( ! $this->sourceElementStartsHidden($element)
             || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
@@ -458,7 +430,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
         return true;
     }
 
-    private function isInertLiveRegionScaffolding(DOMElement $element): bool
+    public function isInertLiveRegionScaffolding(DOMElement $element): bool
     {
         if ( ! str_contains(strtolower($element->tagName), '-')
             || '' !== trim($element->textContent ?? '')
