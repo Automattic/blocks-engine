@@ -699,17 +699,21 @@ final class RepeatedBlockStyles
     {
         $margins = array_fill_keys(array_merge(...array_values(self::SIDE_PROPERTIES)), true);
         $rules = array();
+        // One parse per distinct selector, shared by every declaration row and
+        // every sheet repeating it. The matcher's own cache is bounded and may
+        // already be full, so rows would otherwise each hold a separate copy.
+        $parsed = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || ($marginsOnly && !str_contains($asset['content'], 'margin'))) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$rules, $margins, $marginsOnly): void {
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$rules, &$parsed, $margins, $marginsOnly): void {
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                     // Type/universal resets were already resolved by the capture.
                     // Only class rules can compete with the block-type style.
                     if ($marginsOnly && !str_contains($selector, '.')) continue;
                     foreach (CssRuleAnalyzer::declarationList($body) as $declaration) {
                         if ($marginsOnly && !isset($margins[$declaration['name']])) continue;
-                        $rules[] = array('selector' => $selector, 'parsed' => CssSelectorMatcher::parse($selector), 'property' => $declaration['name'], 'value' => $declaration['value'], 'unconditional' => array() === $ancestors);
+                        $rules[] = array('selector' => $selector, 'parsed' => $parsed[$selector] ??= CssSelectorMatcher::parse($selector), 'property' => $declaration['name'], 'value' => $declaration['value'], 'unconditional' => array() === $ancestors);
                     }
                 }
             });
