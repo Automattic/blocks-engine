@@ -946,7 +946,9 @@ final class ImageLowering
             : array();
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.
-        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio')));
+        // Inline background paint likewise rides the leaf
+        // (imageLeafPlacementClassName()), not the figure's box.
+        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio'), $this->styleResolver->imageLeafBackgroundProperties($image)));
         if ( ! $figure instanceof DOMElement ) {
             // Native spacing is serialized on the figure even when geometry
             // excludes it. Source image margins are carried on the leaf instead.
