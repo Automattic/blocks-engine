@@ -2471,16 +2471,34 @@ final class StyleResolver implements ElementPresentationResolver
         if (array() === $box) return '';
         ksort($box);
         $declarationList = array();
+        $inlineDeclarationList = array();
+        $inlineProperties = array();
         foreach ($box as $property => $value) {
-            $important = ($declarations[$property]['important'] ?? false) && ! CssValueInspector::isImportant($value) ? '!important' : '';
+            $sourceImportant = (bool) ($declarations[$property]['important'] ?? false);
+            $important = $sourceImportant && ! CssValueInspector::isImportant($value) ? '!important' : '';
+            if (($declarations[$property]['inline'] ?? false) && ! $sourceImportant) {
+                $inlineDeclarationList[] = $property . ':' . $value;
+                $inlineProperties[] = $property;
+                continue;
+            }
             $declarationList[] = $property . ':' . $value . $important;
         }
-        $signature = $this->geometryStructuralPath($image) . "\nimage-box-constraint\n" . implode(';', $declarationList);
+        $signature = $this->geometryStructuralPath($image) . "\nimage-box-constraint\n" . implode(';', array_merge($declarationList, $inlineDeclarationList));
         $className = $this->session->layoutGeometryState()->allocateCarrier($signature);
-        $this->session->layoutGeometryState()->registerRule(
-            $className,
-            '.' . $className . ' img{' . implode(';', $declarationList) . '}'
-        );
+        $rules = array() === $declarationList ? '' : '.' . $className . ' img{' . implode(';', $declarationList) . '}';
+        if (array() !== $inlineDeclarationList) {
+            // A source inline declaration outranks every normal author rule.
+            // Projection moves an author image rule's subject onto the figure
+            // and adds the leaf step (`.photo{}` becomes
+            // `.photo.wp-block-image>img`, one class and one type more), so the
+            // carrier must out-specify the source rule by more than that.
+            [$ids, $classes] = $this->authorNormalDeclarationSpecificity($image, $inlineProperties);
+            $compound = 0 < $ids
+                ? '.' . $className . ':is(.' . $className . ',' . str_repeat('#' . $className, $ids + 1) . ')'
+                : str_repeat('.' . $className, $classes + 1);
+            $rules .= ':root ' . $compound . ' img{' . implode(';', $inlineDeclarationList) . '}';
+        }
+        $this->session->layoutGeometryState()->registerRule($className, $rules);
 
         return $className;
     }
