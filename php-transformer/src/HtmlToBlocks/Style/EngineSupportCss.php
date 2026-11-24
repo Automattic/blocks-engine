@@ -65,8 +65,15 @@ final class EngineSupportCss
         SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS,
         SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS,
         SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS,
-        SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS,
         HtmlCompilation::LOWERED_PARAGRAPH_CLASS,
+    );
+
+    /**
+     * Zero-margin boxes listed only in a document that serializes them, so a
+     * document without one keeps its flow revert selectors byte for byte.
+     */
+    private const DOCUMENT_ZERO_MARGIN_BOX_CLASSES = array(
+        SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS,
     );
 
     /**
@@ -363,7 +370,7 @@ final class EngineSupportCss
                 . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
-            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p' . self::notZeroMarginBox() . '){margin-top:revert;margin-bottom:revert}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p' . self::notZeroMarginBox($serializedBlocks) . '){margin-top:revert;margin-bottom:revert}';
         }
         if ( str_contains($serializedBlocks, ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
@@ -452,7 +459,7 @@ final class EngineSupportCss
             // Cancel Core's author-origin flow margins, not the source's UA
             // margins (notably p's 1em). Author CSS follows and remains in
             // control; synthesized boxes get their own zero-margin resets.
-            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
+            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox($serializedBlocks) . '){margin-block-start:revert;margin-block-end:revert}';
             // Native flex groups also have Core's physical margin:0 reset.
             // Beat Core's (0,1,1) inline reset. marginSelectorPrelude gives
             // authored margins on these items the same two-class baseline,
@@ -460,7 +467,7 @@ final class EngineSupportCss
             // Emit only for markup using this contract, keeping unrelated
             // CSS-owned flow documents' stylesheets unchanged.
             if ( preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . self::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $serializedBlocks) ) {
-                $parts[] = ':root:root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox() . '){margin:revert}';
+                $parts[] = ':root:root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox($serializedBlocks) . '){margin:revert}';
             }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
@@ -515,9 +522,16 @@ final class EngineSupportCss
      *
      * @return list<string>
      */
-    private static function notZeroMarginBox(): string
+    private static function notZeroMarginBox(string $serializedBlocks): string
     {
-        return ':not(.' . implode(',.', self::ZERO_MARGIN_BOX_CLASSES) . ')';
+        $classes = self::ZERO_MARGIN_BOX_CLASSES;
+        foreach ( self::DOCUMENT_ZERO_MARGIN_BOX_CLASSES as $class ) {
+            if ( str_contains($serializedBlocks, $class) ) {
+                $classes[] = $class;
+            }
+        }
+
+        return ':not(.' . implode(',.', $classes) . ')';
     }
 
     public function coreDefaultResetCss(string $serializedBlocks): array

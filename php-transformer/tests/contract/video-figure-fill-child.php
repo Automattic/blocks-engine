@@ -49,4 +49,18 @@ if ( str_contains($ratioCss, 'figure.blocks-engine-synthetic-video-figure-ratio)
     throw new RuntimeException('A ratio figure keeps its authored height axis automatic.');
 }
 
+// A CSS-owned flow group reverts its children's margins except on the zero-margin
+// boxes. The ratio figure joins that list only in a document that serializes
+// one, so every other document's flow revert stays byte for byte.
+$support = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss();
+$flowGroup = '<div class="wp-block-group blocks-engine-css-owned-flow">';
+$withRatio = implode("\n", array_merge($support->beforeAuthorCss($flowGroup . '<figure class="wp-block-video blocks-engine-synthetic-video-figure-ratio"></figure></div>'), $support->coreDefaultResetCss($flowGroup . '<figure class="wp-block-video blocks-engine-synthetic-video-figure-ratio"></figure></div>')));
+$withoutRatio = implode("\n", array_merge($support->beforeAuthorCss($flowGroup . '<p>Text</p></div>'), $support->coreDefaultResetCss($flowGroup . '<p>Text</p></div>')));
+if ( ! str_contains($withRatio, '>*:not(.blocks-engine-synthetic-paragraph,.blocks-engine-synthetic-embed-figure,.blocks-engine-synthetic-image-figure,.blocks-engine-synthetic-video-figure-fill,.blocks-engine-lowered-paragraph,.blocks-engine-synthetic-video-figure-ratio)){margin-block-start:revert') ) {
+    throw new RuntimeException('A ratio video figure keeps its zero margin inside a CSS-owned flow group.');
+}
+if ( str_contains($withoutRatio, 'blocks-engine-synthetic-video-figure-ratio') ) {
+    throw new RuntimeException('A document without a ratio video figure keeps its flow revert selectors unchanged.');
+}
+
 echo "Video figure fill child contract passed.\n";
