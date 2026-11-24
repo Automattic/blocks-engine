@@ -548,7 +548,7 @@ final class WrapperCoalescer
         if (null !== $absorbed) return $absorbed;
         $resolution = $this->decision()->resolve($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
-            return null;
+            return $this->resolvedCompositionCoalescing($element, $childBlock);
         }
         $proof = $resolution['proof'];
         $attrs = $resolution['attrs'];
@@ -566,6 +566,352 @@ final class WrapperCoalescer
         if (null !== $proof) $this->session->layoutGeometryState()->recordProof($proof);
 
         return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /**
+     * Folds a wrapper whose class-merge coalescing failed, when box-tree
+     * evidence proves the wrapper geometry-neutral at every captured viewport
+     * ({@see BoxTreeWrapperEvidence}, ADR 0006 slice 1), by proving the fold
+     * on resolved styles ({@see ResolvedWrapperComposition}). The wrapper's
+     * classes and id move onto its only child; every author declaration whose
+     * match the fold changes is pinned on an engine-owned carrier for the node
+     * it applied to. An id moves only off a wrapper that is no shell edge and
+     * no reference target; a leaf with its own id keeps it, and the wrapper's
+     * unaddressed id is dropped unless it equals the leaf's. A data attribute
+     * moves only when nothing consumes it.
+     * Runtime, interactivity, structure and motion guards still apply, and
+     * repeated siblings fold alike. A wrapper without neutral evidence, or
+     * one the proof cannot cover, stays: without evidence nothing changes.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array<string, mixed>|null
+     */
+    private function resolvedCompositionCoalescing(DOMElement $element, array $childBlock): ?array
+    {
+        $evidence = $this->session->boxTreeWrapperEvidence();
+        if (! $evidence->hasEvidence()) return null;
+        $name = (string) ($childBlock['blockName'] ?? '');
+        if (! in_array($name, array('core/group', 'core/paragraph', 'core/heading'), true)
+            || 'div' !== strtolower($element->tagName)
+            || null !== $this->layoutGeometryProofFor($element)
+            || ! $evidence->isNeutral($element)) return null;
+        $childAttrs = ArrayField::array($childBlock, 'attrs');
+        $wrapperId = trim(SourceDom::attr($element, 'id'));
+        $checks = array_values(array_filter(
+            $this->eligibilityDisqualifications($element, $childBlock, null, false, false),
+            // A text leaf accepts the wrapper's identity like a group does;
+            // an id moves onto a child that has none. Evidence answers the
+            // wrapper's geometry; the proof below answers its inline style.
+            static fn (array $check): bool => ! in_array($check[0], array('unsupported_child_block_name', 'has_id_attribute', 'has_data_attributes_without_proof', 'non_neutral_geometry_without_proof'), true)
+        ));
+        if (null !== $this->firstDisqualification($checks)) return null;
+        if ('' !== $wrapperId && $this->isReferenceTarget($element, $wrapperId)) return null;
+        if ($this->hasConsumedDataAttributes($element)) return null;
+        // Shell extraction finds page chrome as the group blocks at the
+        // document's edges; such a wrapper keeps its group boundary, and an
+        // id there names the shell.
+        if (('core/group' !== $name || '' !== $wrapperId) && $this->isDocumentEdgeWrapper($element)) return null;
+        $leaf = $this->resolvedCompositionLeaf($element, $childBlock);
+        if (! $leaf instanceof DOMElement
+            || $this->sourceElementClassifier->hasMotionStructureToken($leaf)
+            || $this->runtimeIslands->isRuntimeDomTarget($leaf)) return null;
+        $leafTag = strtolower($leaf->tagName);
+        if (! $this->repeatedMembersFoldAlike($element, $leaf)) return null;
+        if (('core/paragraph' === $name && 'p' !== $leafTag)
+            || ('core/heading' === $name && ! preg_match('/^h[1-6]$/', $leafTag))
+            || ('core/group' === $name && ! in_array($leafTag, array('div', 'section', 'article', 'aside', 'main'), true))) return null;
+
+        $wrappers = array();
+        for ($node = $leaf->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            array_unshift($wrappers, $node);
+            if ($node === $element) break;
+        }
+        if ($element !== ($wrappers[0] ?? null)) return null;
+        // Wrappers between this one and the leaf were folded or dropped
+        // already: only the classes they left on the child block remain.
+        $childClasses = array_fill_keys(SourceDom::tokens((string) ($childAttrs['className'] ?? '')), true);
+        $mergedClasses = SourceDom::classNames($element);
+        foreach (array_slice($wrappers, 1) as $intermediate) {
+            if (! $evidence->isNeutral($intermediate)) return null;
+            // An intermediate's id is dropped; only an unaddressed one may go.
+            $intermediateId = trim(SourceDom::attr($intermediate, 'id'));
+            if ('' !== $intermediateId && $this->isReferenceTarget($intermediate, $intermediateId)) return null;
+            foreach (SourceDom::classNames($intermediate) as $class) {
+                if (isset($childClasses[$class])) $mergedClasses[] = $class;
+            }
+        }
+        // The leaf keeps its own id and anchor. The wrapper's id moves onto a
+        // leaf that has neither; otherwise it is dropped, which only an id
+        // nothing addresses may be (reference targets were refused above, and
+        // the proof restates every author rule whose match the drop changes).
+        // An id equal to the leaf's would collide, so that wrapper stays.
+        $transferredId = '';
+        if ('' !== $wrapperId) {
+            $leafId = trim(SourceDom::attr($leaf, 'id'));
+            $leafAnchor = trim((string) ($childAttrs['anchor'] ?? ''));
+            if ($wrapperId === $leafId || $wrapperId === $leafAnchor) return null;
+            if ('' === $leafId && '' === $leafAnchor) $transferredId = $wrapperId;
+        }
+
+        $proof = (new ResolvedWrapperComposition($this->session))->prove($wrappers, $leaf, $transferredId, implode(' ', $mergedClasses), $evidence->sizeTransfersTo($leaf));
+        if (isset($proof['failure'])) return null;
+
+        $leafCarrier = '';
+        $descendantCarriers = array();
+        foreach ($proof['pins'] as $pin) {
+            $carrier = $this->resolvedCompositionCarrier($pin['node'], $pin['rules']);
+            if (null === $carrier) return null;
+            if ($pin['node'] === $leaf) {
+                $leafCarrier = $carrier;
+            } else {
+                $descendantCarriers[hash('sha256', SourceDom::safeFallbackHtml($pin['node'], $this->session->authorSelectorProjectionState()->tagMarkers()))] = array($pin['node'], $carrier);
+            }
+        }
+        $innerBlocks = ArrayField::array($childBlock, 'innerBlocks');
+        if (array() !== $descendantCarriers) {
+            $innerBlocks = $this->withDescendantCarriers($innerBlocks, $descendantCarriers);
+            // Every pinned descendant needs its own block to carry the pin.
+            if (array() !== $descendantCarriers) return null;
+        }
+
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $childAttrs = $this->withRichTextContent($childBlock, $childAttrs);
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element), ...array($leafCarrier));
+        if ('' !== $transferredId && '' !== trim((string) ($attrs['anchor'] ?? ''))) $childAttrs['anchor'] = (string) $attrs['anchor'];
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
+        return $this->createBlock->createBlock($name, $childAttrs, $innerBlocks, $leaf);
+    }
+
+    /**
+     * Whether the wrapper opens or closes the document: at every level up to
+     * the body it is the first element (a header edge) or at every level the
+     * last (a footer edge). Shell extraction reads page chrome from the group
+     * blocks at those edges, so such a wrapper keeps its group boundary.
+     */
+    private function isDocumentEdgeWrapper(DOMElement $element): bool
+    {
+        $leading = true;
+        $trailing = true;
+        for ($node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode) {
+            for ($sibling = $node->previousSibling; $leading && null !== $sibling; $sibling = $sibling->previousSibling) {
+                if ($sibling instanceof DOMElement) $leading = false;
+            }
+            for ($sibling = $node->nextSibling; $trailing && null !== $sibling; $sibling = $sibling->nextSibling) {
+                if ($sibling instanceof DOMElement) $trailing = false;
+            }
+            if (! $leading && ! $trailing) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether something in the document points at the wrapper's id: a
+     * fragment link, a label, an ARIA relation or a `<use>` reference. The
+     * wrapper is then an anchor target and keeps its own box.
+     */
+    private function isReferenceTarget(DOMElement $element, string $id): bool
+    {
+        $document = $element->ownerDocument;
+        if (! $document instanceof DOMDocument) return true;
+        $this->referencedIds ??= new \WeakMap();
+        if (! isset($this->referencedIds[$document])) {
+            // One scan per document: Wix gives every element an id.
+            $fragments = array();
+            $tokens = array();
+            foreach ($document->getElementsByTagName('*') as $node) {
+                foreach (array('href', 'xlink:href', 'action', 'formaction') as $attribute) {
+                    $value = trim($node->getAttribute($attribute));
+                    $value = rawurldecode($value);
+                    if (str_contains($value, '#')) $fragments[] = $value;
+                }
+                foreach (array('for', 'form', 'list', 'headers', 'aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'aria-flowto', 'aria-activedescendant', 'aria-details', 'aria-errormessage', 'popovertarget', 'commandfor') as $attribute) {
+                    foreach (preg_split('/\s+/', trim($node->getAttribute($attribute))) ?: array() as $token) {
+                        if ('' !== $token) $tokens[$token] = true;
+                    }
+                }
+            }
+            $this->referencedIds[$document] = array('fragments' => $fragments, 'tokens' => $tokens);
+        }
+        $references = $this->referencedIds[$document];
+        if (isset($references['tokens'][$id])) return true;
+        foreach ($references['fragments'] as $fragment) {
+            if (str_ends_with($fragment, '#' . $id)) return true;
+        }
+        return false;
+    }
+
+    /** @var \WeakMap<DOMDocument, array{fragments: list<string>, tokens: array<string, true>}>|null */
+    private ?\WeakMap $referencedIds = null;
+
+    /**
+     * Whether a data attribute on the wrapper is consumed: an author or
+     * runtime selector tests it, a document script names it, or it is an
+     * engine or capture marker. Unconsumed wrapper data is never emitted.
+     */
+    private function hasConsumedDataAttributes(DOMElement $element): bool
+    {
+        $names = array_keys(SourceDom::safeDataAttributes($element));
+        if (array() === $names) return false;
+        $selectorNames = array();
+        foreach ($this->session->authorStyleAnalysis()->dataAttributeSelectorCompounds() as $entry) {
+            foreach ($entry['names'] as $selectorName) $selectorNames[strtolower((string) $selectorName)] = true;
+        }
+        $runtimeSelectors = implode("\n", array_merge(array_keys($this->session->runtimeSelectorState()->domSelectors()), array_keys($this->session->runtimeSelectorState()->canvasSelectors())));
+        $scripts = '';
+        if ($element->ownerDocument instanceof DOMDocument) {
+            foreach ($element->ownerDocument->getElementsByTagName('script') as $script) $scripts .= $script->textContent . "\n";
+        }
+        foreach ($names as $name) {
+            $name = strtolower((string) $name);
+            if (str_starts_with($name, 'data-blocks-engine') || str_starts_with($name, 'data-be-') || isset($selectorNames[$name]) || str_contains(strtolower($runtimeSelectors), $name)) return true;
+            $datasetKey = lcfirst(str_replace(' ', '', ucwords(str_replace('-', ' ', substr($name, 5)))));
+            if (str_contains($scripts, $name) || ('' !== $datasetKey && str_contains($scripts, $datasetKey))) return true;
+        }
+        return false;
+    }
+
+    /** @var \WeakMap<\DOMDocument, array<string, list<DOMElement>>>|null */
+    private ?\WeakMap $classSignatureMembers = null;
+
+    /**
+     * A wrapper repeated elsewhere in the document (same tag and classes)
+     * folds only when every member folds the same way: each is a chain of
+     * sole-child wrappers of the same length around a leaf with the same tag,
+     * none sits at a document edge, and box-tree evidence proves each one
+     * neutral. Otherwise one instance would lose the group its siblings keep.
+     */
+    private function repeatedMembersFoldAlike(DOMElement $element, DOMElement $leaf): bool
+    {
+        $classes = SourceDom::classNames($element);
+        if (array() === $classes || ! $element->ownerDocument instanceof \DOMDocument) return true;
+        sort($classes);
+        $depth = 0;
+        for ($node = $leaf; $node instanceof DOMElement && $node !== $element; $node = $node->parentNode) ++$depth;
+        $document = $element->ownerDocument;
+        $this->classSignatureMembers ??= new \WeakMap();
+        if (! isset($this->classSignatureMembers[$document])) {
+            $index = array();
+            foreach ($document->getElementsByTagName('*') as $node) {
+                $nodeClasses = SourceDom::classNames($node);
+                if (array() === $nodeClasses) continue;
+                sort($nodeClasses);
+                $index[strtolower($node->tagName) . '.' . implode('.', $nodeClasses)][] = $node;
+            }
+            $this->classSignatureMembers[$document] = $index;
+        }
+        foreach ($this->classSignatureMembers[$document][strtolower($element->tagName) . '.' . implode('.', $classes)] ?? array() as $member) {
+            if ($member === $element) continue;
+            if ($this->isDocumentEdgeWrapper($member) || ! $this->session->boxTreeWrapperEvidence()->isNeutral($member)) return false;
+            $node = $member;
+            for ($i = 0; $i < $depth && $node instanceof DOMElement; ++$i) $node = ($this->soleElementChild)($node);
+            if (! $node instanceof DOMElement || strtolower($node->tagName) !== strtolower($leaf->tagName)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * The source element the child block represents, found below a chain of
+     * sole-child wrappers that conversion has already folded or dropped.
+     *
+     * @param array<string, mixed> $childBlock
+     */
+    private function resolvedCompositionLeaf(DOMElement $element, array $childBlock): ?DOMElement
+    {
+        $provenanceId = $childBlock['_source_provenance_id'] ?? null;
+        if (! is_int($provenanceId)) return null;
+        $digest = (string) ($this->session->transformationProvenanceState()->source($provenanceId)['source_digest'] ?? '');
+        if ('' === $digest) return null;
+        $tagMarkers = $this->session->authorSelectorProjectionState()->tagMarkers();
+        for ($child = ($this->soleElementChild)($element); $child instanceof DOMElement; $child = ($this->soleElementChild)($child)) {
+            if (hash('sha256', SourceDom::safeFallbackHtml($child, $tagMarkers)) === $digest) return $child;
+            if ('div' !== strtolower($child->tagName)
+                || $this->runtimeIslands->isRuntimeDomTarget($child)
+                || $this->sourceElementClassifier->hasMotionStructureToken($child)
+                || array() !== $this->interactiveAttributes($child)
+                || array() !== SourceDom::safeDataAttributes($child)) return null;
+        }
+        return null;
+    }
+
+    /**
+     * One engine-owned carrier holding a node's pinned declarations, in source
+     * precedence order, each under its original conditions.
+     *
+     * @param list<array{conditions: list<string>, declarations: array<string, string>}> $rules
+     */
+    private function resolvedCompositionCarrier(DOMElement $node, array $rules): ?string
+    {
+        $signature = 'resolved-wrapper-composition:' . $node->getNodePath();
+        $parts = array();
+        foreach ($rules as $rule) {
+            $body = '';
+            foreach ($rule['declarations'] as $property => $value) {
+                $value = CssValueInspector::withoutImportant($value);
+                // A relative url() was authored against its stylesheet.
+                if ('' === $value || str_contains(strtolower($value), 'url(') || preg_match('/[{};]/', $value)) return null;
+                $body .= $property . ':' . $value . '!important;';
+            }
+            if ('' === $body) continue;
+            $parts[] = array($rule['conditions'], $body);
+            $signature .= "\n" . implode(' ', $rule['conditions']) . '{' . $body . '}';
+        }
+        if (array() === $parts) return '';
+        $className = $this->session->layoutGeometryState()->allocateCarrier($signature);
+        $css = '';
+        foreach ($parts as [$conditions, $body]) {
+            $rule = '.' . $className . '{' . $body . '}';
+            foreach (array_reverse($conditions) as $condition) {
+                $condition = trim($condition);
+                if (! str_starts_with($condition, '@')) return null;
+                $rule = $condition . '{' . $rule . '}';
+            }
+            $css .= $rule;
+        }
+        $this->session->layoutGeometryState()->registerRule($className, $css);
+        return $className;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, array{0: DOMElement, 1: string}> $carriers Pending carriers by source digest; found ones are removed.
+     * @return array<int, array<string, mixed>>
+     */
+    private function withDescendantCarriers(array $blocks, array &$carriers): array
+    {
+        foreach ($blocks as $index => $block) {
+            if (! is_array($block)) continue;
+            $inner = $this->withDescendantCarriers(ArrayField::array($block, 'innerBlocks'), $carriers);
+            $provenanceId = $block['_source_provenance_id'] ?? null;
+            $digest = is_int($provenanceId) ? (string) ($this->session->transformationProvenanceState()->source($provenanceId)['source_digest'] ?? '') : '';
+            if ('' === $digest || ! isset($carriers[$digest]) || ! in_array($block['blockName'] ?? null, array('core/group', 'core/paragraph', 'core/heading', 'core/image', 'core/list', 'core/quote'), true)) {
+                // Inner blocks serialize through innerContent placeholders.
+                if (array() !== $inner) $blocks[$index]['innerBlocks'] = $inner;
+                continue;
+            }
+            [$node, $carrier] = $carriers[$digest];
+            unset($carriers[$digest]);
+            $attrs = $this->withRichTextContent($block, ArrayField::array($block, 'attrs'));
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+            $blocks[$index] = $this->createBlock->createBlock((string) $block['blockName'], $attrs, $inner, $node);
+        }
+        return $blocks;
+    }
+
+    /**
+     * Serialized comment attrs omit a rich-text block's content; restore it
+     * from the saved markup before rebuilding the block.
+     *
+     * @param array<string, mixed> $block
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withRichTextContent(array $block, array $attrs): array
+    {
+        $name = (string) ($block['blockName'] ?? '');
+        if (array_key_exists('content', $attrs) || ! in_array($name, array('core/paragraph', 'core/heading'), true)) return $attrs;
+        $tag = 'core/paragraph' === $name ? 'p' : 'h[1-6]';
+        if (preg_match('/^\s*<(' . $tag . ')\b[^>]*>(.*)<\/\1>\s*$/is', (string) ($block['innerHTML'] ?? ''), $match)) $attrs['content'] = $match[2];
+        return $attrs;
     }
 
     /**

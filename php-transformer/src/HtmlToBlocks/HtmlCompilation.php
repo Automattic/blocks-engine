@@ -1173,7 +1173,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->session->installSourceDocument($this->documentEnvelope->documentRootTheme($html), NativeGetFormBlockBuilder::declaredDocumentHosts($html));
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
+            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), $this->session->boxTreeWrapperEvidence()->hasEvidence()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
         CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));

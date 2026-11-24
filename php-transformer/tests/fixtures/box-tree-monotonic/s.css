@@ -1,0 +1,13 @@
+p{margin:0}
+.lane{padding:24px;background:#eeeeee}
+@media (max-width:767px){.lane{padding:8px}}
+#a>.lane{margin:0 auto}
+.skin p{line-height:1.8}
+.lane>.col{letter-spacing:1px}
+#a .col{color:#123456}
+.outer > .content{color:red}
+[data-kind="note"] .notice{font-weight:700}
+.pos{position:relative;width:100%}
+.sized{max-width:640px;margin:0 auto}
+.card{float:none}
+.card-body{padding:12px}
