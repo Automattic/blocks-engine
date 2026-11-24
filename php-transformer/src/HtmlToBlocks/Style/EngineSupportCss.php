@@ -704,6 +704,13 @@ final class EngineSupportCss
             $parts[] = '.grunion-field-wrap .contact-form__field-hints:has(>.contact-form__field-format){display:contents}'
                 . "\n" . '.grunion-field-wrap .contact-form__field-hints>.contact-form__field-format{display:none}';
         }
+        if ( 1 === preg_match('/<form\b[^>]*\bclass="[^"]*\bwp-block-group\b/', $serializedBlocks) ) {
+            // A source form box survives as a Group inside the provider's
+            // flex form block, whose Core flex-item reset (0,1,1) would erase
+            // its authored margins (`mx-auto` centering, stacking). Hand the
+            // box's margin back to the layered author cascade.
+            $parts[] = 'body :where(.wp-block-jetpack-contact-form.is-layout-flex)>div.wp-block-group{margin:revert-layer}';
+        }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
             // because a content-wrapping link was pushed into the block. It

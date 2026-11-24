@@ -617,6 +617,7 @@ final class FormPresentationGraphBuilder
         $controlContainers = array();
         $exclusiveAncestors = (new FormControlTopologyBuilder())->exclusiveWrapperAncestors($form, $this->controlElements);
         $formControls = $this->controls($form);
+        $wrappedControlRules = $this->withoutContainerPlacedMargins($analysis['rules']);
 
         foreach ( $formControls as $index => $control ) {
             if ( $index >= self::MAX_CONTROLS ) {
@@ -634,7 +635,12 @@ final class FormPresentationGraphBuilder
                 if ( ! $element instanceof DOMElement ) {
                     continue;
                 }
-                $matched = $this->matched($element, $analysis['rules']);
+                // A provider wraps each data-entry control in a field box, and
+                // the projected container rule spaces that box: a margin the
+                // container places on its anonymous children is not the
+                // control's own, or every field gets the gap twice.
+                $roleRules = 'control' === $role && FormControlClassifier::isDataEntryControl($element) ? $wrappedControlRules : $analysis['rules'];
+                $matched = $this->matched($element, $roleRules);
                 if ('control' === $role && $element->parentNode instanceof DOMElement
                     && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
                     $parent = $this->matched($element->parentNode, $analysis['rules']);
@@ -1618,6 +1624,55 @@ final class FormPresentationGraphBuilder
         }
         $entry = $this->ruleIndexes[$found];
         return $this->matchCache->styleRuleCandidates($element, $entry['collection'], $entry['index']);
+    }
+
+    /**
+     * The rules with margins dropped where the selector's subject is an
+     * anonymous child or sibling of a container (`.stack>:not(:last-child)`,
+     * `.stack>:not([hidden])~:not([hidden])`, `.list>*`). Those margins space
+     * whatever box sits in the container, which for a provider-wrapped control
+     * is its field wrapper. A margin on the control's own type, class, id or
+     * attribute stays.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return list<array<string, mixed>>
+     */
+    private function withoutContainerPlacedMargins(array $rules): array
+    {
+        $filtered = array();
+        $changed = false;
+        foreach ( $rules as $rule ) {
+            if ( self::anonymousSubject($rule['parsed_selector'] ?? null) ) {
+                $declarations = array_values(array_filter(
+                    $rule['declarations'],
+                    static fn (array $declaration): bool => ! str_starts_with(strtolower((string) $declaration['name']), 'margin')
+                ));
+                if ( count($declarations) !== count($rule['declarations']) ) {
+                    $changed = true;
+                    if ( array() === $declarations ) {
+                        continue;
+                    }
+                    $rule['declarations'] = $declarations;
+                }
+            }
+            $filtered[] = $rule;
+        }
+        return $changed ? $filtered : $rules;
+    }
+
+    /** Whether a parsed selector's subject is only positioned by a combinator, naming no type, class, id or attribute of its own. */
+    private static function anonymousSubject(mixed $parsed): bool
+    {
+        if ( ! is_array($parsed) || true !== ( $parsed['supported'] ?? false ) || array() === ( $parsed['combinators'] ?? array() ) ) {
+            return false;
+        }
+        $subject = end($parsed['compounds']);
+        return is_array($subject)
+            && null === $subject['type']
+            && array() === $subject['classes']
+            && array() === $subject['ids']
+            && array() === $subject['attributes']
+            && array() === $subject['any'];
     }
 
     /** @param list<array<string, mixed>> $rules */
