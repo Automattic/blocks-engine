@@ -175,7 +175,7 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
         }
-        if ( $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element) ) {
+        if ( $this->emptyFeatureShells->disposition($element)->isDrop() ) {
             return ConversionOutcome::handled(null);
         }
         // A form is a semantic runtime boundary. Convert nested children before

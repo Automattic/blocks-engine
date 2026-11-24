@@ -30,7 +30,7 @@ final class TransparentUnknownElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        if ( ! $this->renderNeutral->isTransparentUnknownElement($element) ) {
+        if ( ! WrapperDecision::transparentUnknownElement($this->renderNeutral, $element)->isFold() ) {
             return ConversionOutcome::unhandled();
         }
 
