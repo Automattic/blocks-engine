@@ -81,6 +81,33 @@ final class ImageUrlResolver
         }
     }
 
+    /**
+     * The original behind a media service's box fill rendition, or ''.
+     *
+     * Image services (Wix media, and hosts built on it) serve
+     * `<original>/v1/fill/w_W,h_H,al_c,.../<name>`: the original scaled to cover
+     * a W x H box and cropped about its centre. Builders regenerate that URL for
+     * the box the image has at each viewport, so the captured URL is only the
+     * capture viewport's crop. Any other operation (a crop step, a focal point,
+     * an off-centre alignment, a blur) changes the picture and keeps the URL.
+     */
+    public function boxFillOriginal(string $url): string
+    {
+        if ( 1 !== preg_match('~^(https?://[^?#]+?\.(?:jpe?g|png|webp|avif|gif))/v1/fill/([^/?#]+)/[^/?#]+$~i', trim($url), $matches) ) {
+            return '';
+        }
+        $size = array();
+        foreach ( explode(',', $matches[2]) as $parameter ) {
+            if ( 1 === preg_match('/^([wh])_[1-9]\d*$/', $parameter, $axis) ) {
+                $size[$axis[1]] = true;
+            } elseif ( 1 !== preg_match('/^(?:al_c|q_\d+|usm_[\d._]+|enc_[a-z0-9]+|quality_auto|lg_\d+)$/i', $parameter) ) {
+                return '';
+            }
+        }
+
+        return 2 === count($size) ? $matches[1] : '';
+    }
+
     public function safeUrl(string $url): string
     {
         if ( ! preg_match('#^data:image/svg\+xml(?:[;,][^,]*)?,#i', $url) ) {

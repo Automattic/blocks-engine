@@ -338,6 +338,49 @@ final class ImageLowering
     }
 
     /**
+     * A box fill rendition covering a box the author sized is the original
+     * covering that box: the builder re-requests the crop for the box each
+     * viewport gives the image, so the captured file is the capture viewport's
+     * crop only (a 1440x560 strip zooms into a 768x520 box). Lower the original
+     * the rendition was cut from, so the attachment covers the box at every
+     * width. The crop is about the centre, so only the default position agrees,
+     * and the box must not take its size from the file.
+     */
+    private function replayBoxFillOriginal(DOMElement $image): void
+    {
+        $original = $this->imageUrls->boxFillOriginal(SourceDom::attr($image, 'src'));
+        if ( '' === $original ) {
+            return;
+        }
+        foreach ( SrcsetParser::urls(SourceDom::attr($image, 'srcset')) as $candidate ) {
+            if ( $original !== $this->imageUrls->boxFillOriginal($candidate) ) {
+                return;
+            }
+        }
+        $shape = $this->styleResolver->imageShapeDeclarations($image);
+        $value = fn (string $property): string => strtolower(CssValueInspector::withoutImportant(
+            $this->styleResolver->customProperties->resolve((string) ($shape[$property]['value'] ?? ''), $image)
+        ));
+        if ( 'cover' !== $value('object-fit')
+            || ! in_array($value('object-position'), array( '', 'center', 'center center', '50%', '50% 50%' ), true) ) {
+            return;
+        }
+        $outOfFlow = in_array(strtolower($this->styleResolver->declaredPresentation($image, 'position')->resolvedValue()), array( 'absolute', 'fixed' ), true);
+        foreach ( array( 'width', 'height' ) as $axis ) {
+            $size = $value($axis);
+            // A percentage of an auto-height container is auto, the file's height.
+            $definite = 1 === preg_match('/^\d*\.?\d+(?:px|r?em|vh|vw|svh|dvh|lvh)$/', $size)
+                || (1 === preg_match('/^\d*\.?\d+%$/', $size) && ('width' === $axis || $outOfFlow));
+            if ( ! $definite ) {
+                return;
+            }
+        }
+        $image->setAttribute('src', $original);
+        $image->removeAttribute('srcset');
+        $image->removeAttribute('sizes');
+    }
+
+    /**
      * core/image keeps only the image inside its link, so the image is the
      * link's whole content and its alt is the link's accessible name. When the
      * source named the link with something else (`aria-label`, text such as a
@@ -387,6 +430,9 @@ final class ImageLowering
     public function convertImage(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false): ?array
     {
         $this->imageDimensions->fillParentImageViewportPair($image);
+        if ( null === $picture ) {
+            $this->replayBoxFillOriginal($image);
+        }
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
