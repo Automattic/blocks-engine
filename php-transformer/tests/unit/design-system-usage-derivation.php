@@ -155,7 +155,8 @@ foreach (array('ancestor' => '', 'inherit' => 'h1{font-family:inherit}', 'unset'
 [, $cascadeTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>:root{--heading-font:Verdana,sans-serif}body{font-family:"Courier New",monospace}h1,h2,h3{font-family:var(--heading-font)}</style><style>h1,h2,h3{font-family:Georgia,serif}</style><h1>Main title</h1><h2>Second title</h2><h3>Third title</h3><p>Body text paragraph.</p>')));
 $cascadeFamilies = array_column($cascadeTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
 foreach (array('h1', 'h2', 'h3') as $level) {
-    $reference = $cascadeTheme['styles']['elements'][$level]['typography']['fontFamily'] ?? '';
+    // A level restating the heading element's family follows that element.
+    $reference = $cascadeTheme['styles']['elements'][$level]['typography']['fontFamily'] ?? $cascadeTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? '';
     $assert(str_starts_with($reference, 'var:preset|font-family|') && 'Georgia,serif' === ($cascadeFamilies[substr($reference, strlen('var:preset|font-family|'))] ?? null), 'authored heading cascade: ' . $level . ' references the winning Georgia preset, not inherit');
 }
 $assert('inherit' !== ($cascadeTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'authored heading cascade: no heading inheritance reset overrides source families');
