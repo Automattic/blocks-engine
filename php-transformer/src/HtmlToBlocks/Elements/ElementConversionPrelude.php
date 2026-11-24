@@ -414,7 +414,10 @@ final class ElementConversionPrelude implements ElementConverter
             return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
         }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
-        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($element);
+        // The carrier keeps the source inline and its classes for layout; the
+        // text it holds owns its colour inline, so a class rule on the kept
+        // inline does not override the colour control of an enclosing block.
+        $content = $this->richTextMaterializer->markupWithOwnedTextColors($element, null === $identity);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;
