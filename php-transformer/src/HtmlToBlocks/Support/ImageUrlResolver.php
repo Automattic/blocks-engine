@@ -91,7 +91,7 @@ final class ImageUrlResolver
      * capture viewport's crop. Any other operation (a crop step, a focal point,
      * an off-centre alignment, a blur) changes the picture and keeps the URL.
      */
-    public function boxFillOriginal(string $url): string
+    public static function boxFillOriginal(string $url): string
     {
         if ( 1 !== preg_match('~^(https?://[^?#]+?\.(?:jpe?g|png|webp|avif|gif))/v1/fill/([^/?#]+)/[^/?#]+$~i', trim($url), $matches) ) {
             return '';
@@ -106,6 +106,22 @@ final class ImageUrlResolver
         }
 
         return 2 === count($size) ? $matches[1] : '';
+    }
+
+    /**
+     * The original a referenced image was box-filled from, or ''. A capture
+     * that localized the media keeps the rendition's source URL only in its
+     * receipt, so the artifact asset carries the original's artifact path; an
+     * unlocalized reference is read from its own URL.
+     */
+    public function boxFillOriginalReference(string $url): string
+    {
+        $original = $this->assetMetadata($url)['box_fill_original'] ?? null;
+        if ( is_string($original) && '' !== $original ) {
+            return $original;
+        }
+
+        return self::boxFillOriginal($url);
     }
 
     public function safeUrl(string $url): string

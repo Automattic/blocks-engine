@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver;
@@ -338,6 +339,35 @@ final class ImageLowering
     }
 
     /**
+     * Whether an author aspect ratio fixes the shape of the box an image fills:
+     * the image's own, or one on the chain of boxes whose height it takes as
+     * 100%. A centre crop for one box of a fixed shape is the same picture in
+     * every box of that shape, so the captured rendition is correct at every
+     * width; only a box whose shape follows the viewport needs the original.
+     */
+    private function boxKeepsItsShape(DOMElement $image): bool
+    {
+        $element = $image;
+        for ( $depth = 0; $depth < 4 && $element instanceof DOMElement; ++$depth ) {
+            $inline = array_column(CssRuleAnalyzer::declarations(SourceDom::attr($element, 'style'), array( 'aspect-ratio' )), 'value');
+            $ratio = strtolower(CssValueInspector::withoutImportant(array() !== $inline ? (string) end($inline) : $this->styleResolver->declaredPresentation($element, 'aspect-ratio')->resolvedValue()));
+            if ( '' !== $ratio && 'auto' !== $ratio ) {
+                return true;
+            }
+            $height = strtolower(trim($this->styleResolver->declaredPresentation($element, 'height')->resolvedValue()));
+            if ( $element === $image ) {
+                $height = strtolower(trim((string) ($this->styleResolver->imageShapeDeclarations($image)['height']['value'] ?? $height)));
+            }
+            if ( '100%' !== CssValueInspector::withoutImportant($height) ) {
+                return false;
+            }
+            $element = $element->parentNode;
+        }
+
+        return false;
+    }
+
+    /**
      * A box fill rendition covering a box the author sized is the original
      * covering that box: the builder re-requests the crop for the box each
      * viewport gives the image, so the captured file is the capture viewport's
@@ -348,12 +378,12 @@ final class ImageLowering
      */
     private function replayBoxFillOriginal(DOMElement $image): void
     {
-        $original = $this->imageUrls->boxFillOriginal(SourceDom::attr($image, 'src'));
+        $original = $this->imageUrls->boxFillOriginalReference(SourceDom::attr($image, 'src'));
         if ( '' === $original ) {
             return;
         }
         foreach ( SrcsetParser::urls(SourceDom::attr($image, 'srcset')) as $candidate ) {
-            if ( $original !== $this->imageUrls->boxFillOriginal($candidate) ) {
+            if ( $original !== $this->imageUrls->boxFillOriginalReference($candidate) ) {
                 return;
             }
         }
@@ -374,6 +404,9 @@ final class ImageLowering
             if ( ! $definite ) {
                 return;
             }
+        }
+        if ( $this->boxKeepsItsShape($image) ) {
+            return;
         }
         $image->setAttribute('src', $original);
         $image->removeAttribute('srcset');
