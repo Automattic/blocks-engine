@@ -345,7 +345,7 @@ final class EngineSupportCss
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
         }
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
-            $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
+            $parts[] = self::inlineLayoutCarrierBoxCss(AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS);
             // An anchor inside the carrier exists only because a content-wrapping
             // link was pushed down onto it. It has no presentation of its own,
             // but as a block box it establishes a line box from the inherited
@@ -511,6 +511,26 @@ final class EngineSupportCss
         }
 
         return $parts;
+    }
+
+    /**
+     * The inline layout carrier paragraph is boxless, so its inline content
+     * lays out in the source's own box, and its box resets outrank theme and
+     * layout spacing. A carrier the editor's spacing or border controls have
+     * styled (core serializes them inline as `margin-*`, `padding-*` and
+     * `border-*`) must show that setting: the reset steps aside for each
+     * property the block sets, and the carrier takes a box to paint it on.
+     * Imported carriers carry no such inline style, so they stay boxless.
+     */
+    private static function inlineLayoutCarrierBoxCss(string $class): string
+    {
+        $carrier = 'p.' . $class;
+        $rules = array(':where(' . $carrier . '){display:contents}');
+        foreach ( array('margin', 'padding', 'border') as $property ) {
+            $rules[] = ':where(' . $carrier . ':not([style*=' . $property . '])){' . $property . ':0!important}';
+        }
+        $rules[] = ':where(' . $carrier . ':is([style*=margin],[style*=padding],[style*=border])){display:inline-block}';
+        return implode("\n", $rules);
     }
 
     /**
