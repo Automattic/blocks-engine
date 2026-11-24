@@ -631,6 +631,7 @@ final class FormPresentationGraphBuilder
                 $roles['required_marker'] = $marker;
                 $hasRequiredMarker = true;
             }
+            $labelGapFact = null;
             foreach ( $roles as $role => $element ) {
                 if ( ! $element instanceof DOMElement ) {
                     continue;
@@ -638,6 +639,7 @@ final class FormPresentationGraphBuilder
                 $matched = $this->matched($element, $analysis['rules']);
                 if ( 'control' === $role && self::isWrappedFieldControl($element) ) {
                     $matched = self::withoutParentSlotMargins($matched);
+                    [$matched, $labelGapFact] = $this->withoutLabelSiblingMargins($matched, $element, $roles['label'], $exclusiveAncestors[$index] ?? array(), $analysis['rules']);
                 }
                 if ('control' === $role && $element->parentNode instanceof DOMElement
                     && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
@@ -681,6 +683,7 @@ final class FormPresentationGraphBuilder
                 }
                 if ( 'label' === $role ) {
                     $this->carryLabelColumnGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
+                    $this->carryInlineLabelLineBox($styles, $provenance, $element, $control, $analysis['rules'], $customPropertyAnalysis['rules']);
                 }
                 if ( 'required_marker' === $role ) {
                     $this->carryMarkerGap($styles, $provenance, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
@@ -736,6 +739,9 @@ final class FormPresentationGraphBuilder
                         );
                     }
                 }
+            }
+            if ( null !== $labelGapFact ) {
+                $this->carryLabelSiblingGapOntoLabel($row, $control, $labelGapFact, $customPropertyAnalysis['rules']);
             }
             $this->carryFieldGroupGapOntoLabel($row, $control, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
             $container = $this->controlContainer($index, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
@@ -1666,6 +1672,270 @@ final class FormPresentationGraphBuilder
             return true;
         }
         return 'input' === $tag && ! in_array(strtolower(trim($element->getAttribute('type'))), array( 'submit', 'button', 'reset', 'image', 'hidden' ), true);
+    }
+
+    /**
+     * Split off the label-to-control spacing a sibling rule gives a wrapped
+     * field control (Tailwind's `.space-y-1.5 > :not([hidden]) ~ :not([hidden])`,
+     * `label + input`) when the only element before the control in its
+     * exclusive field wrapper is the control's own label.
+     *
+     * The provider field flattens that wrapper into one field shell holding the
+     * label and the control, so the sibling rule no longer reaches the control,
+     * and its sibling-stacking reset keeps such a margin off the control. The
+     * spacing is the gap below the label, which the field shell keeps as the
+     * label's block-end margin.
+     *
+     * @param array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} $matched
+     * @param list<DOMElement> $ancestors
+     * @param list<array<string, mixed>> $rules
+     * @return array{0: array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}, 1: array<string, mixed>|null}
+     */
+    private function withoutLabelSiblingMargins(array $matched, DOMElement $control, ?DOMElement $label, array $ancestors, array $rules): array
+    {
+        $parent = $control->parentNode;
+        if ( ! $label instanceof DOMElement || ! $parent instanceof DOMElement || ! ( $label->parentNode?->isSameNode($parent) ?? false ) ) {
+            return array( $matched, null );
+        }
+        if ( array() === array_filter($ancestors, static fn (DOMElement $ancestor): bool => $ancestor->isSameNode($parent)) ) {
+            return array( $matched, null );
+        }
+        $previous = 0;
+        for ( $sibling = $control->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
+            if ( ! $sibling instanceof DOMElement ) {
+                continue;
+            }
+            if ( ! $sibling->isSameNode($label) ) {
+                return array( $matched, null );
+            }
+            ++$previous;
+        }
+        if ( 1 !== $previous ) {
+            return array( $matched, null );
+        }
+        // A label that states its own block-end margin already owns the gap.
+        $labelFacts = $this->matched($label, $rules)['base'];
+        foreach ( array( 'margin', 'margin-bottom', 'margin-block-end', 'margin-block' ) as $property ) {
+            if ( isset($labelFacts[$property]) ) {
+                return array( $matched, null );
+            }
+        }
+        $sibling = array_filter(
+            $matched['base'],
+            static fn (array $fact, string $property): bool => str_starts_with($property, 'margin') && self::isSiblingSelector((string) ($fact['selector'] ?? '')),
+            ARRAY_FILTER_USE_BOTH
+        );
+        $gap = null;
+        foreach ( array( 'margin-block-start', 'margin-top', 'margin-block', 'margin' ) as $property ) {
+            if ( isset($sibling[$property]) ) {
+                $gap = array( 'property' => $property ) + $sibling[$property];
+                break;
+            }
+        }
+        if ( null === $gap ) {
+            return array( $matched, null );
+        }
+        $matched['base'] = array_diff_key($matched['base'], $sibling);
+        return array( $matched, $gap );
+    }
+
+    /**
+     * Carry the label-to-control sibling margin split off the control onto the
+     * label as margin-block-end.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $fact
+     * @param list<array<string, mixed>> $customPropertyRules
+     */
+    private function carryLabelSiblingGapOntoLabel(array &$row, DOMElement $control, array $fact, array $customPropertyRules): void
+    {
+        $property = (string) $fact['property'];
+        unset($fact['property']);
+        $value = $this->styles(array( $property => $fact ), $control, null, $customPropertyRules, true)[self::key($property)] ?? null;
+        if ( ! is_string($value) || '' === trim($value) ) {
+            return;
+        }
+        // A shorthand's first component is its block-start side.
+        if ( in_array($property, array( 'margin', 'margin-block' ), true) ) {
+            $value = CssValueSplitter::splitTopLevelWhitespace($value)[0] ?? '';
+            if ( '' === $value ) {
+                return;
+            }
+        }
+        $styles = is_array($row['label']['styles'] ?? null) ? $row['label']['styles'] : array();
+        if ( isset($styles['margin_block_end']) || isset($styles['margin_bottom']) ) {
+            return;
+        }
+        $styles['margin_block_end'] = $value;
+        ksort($styles);
+        $provenance = is_array($row['label']['provenance'] ?? null) ? $row['label']['provenance'] : array();
+        $row['label'] = array(
+            'styles' => $styles,
+            'provenance' => array_merge($provenance, $this->provenance(array( 'margin-block-end' => $fact ), null)),
+        );
+        if ( count($row['label']['provenance']) > self::MAX_PROVENANCE ) {
+            $row['label']['provenance'] = array_slice($row['label']['provenance'], 0, self::MAX_PROVENANCE);
+            $this->truncated = true;
+            $this->diagnostics[] = 'provenance_limit';
+        }
+    }
+
+    /**
+     * A source label left inline (its UA display) before a block-level control
+     * sits alone on a line box of its field wrapper, and every such line is at
+     * least as tall as the wrapper's strut: the wrapper's own line height. A
+     * provider field renders its label as a block, whose lines are only as tall
+     * as the label's own line height (Tailwind's `leading-none`), so the field
+     * loses the difference above its control. State the source line-box height
+     * as the label's line height when it is the taller one.
+     *
+     * Resolved to pixels from the unconditional cascade only; a responsive or
+     * state change to the font or line height on the chain leaves it alone.
+     *
+     * @param array<string, string> $styles
+     * @param list<array<string, mixed>> $provenance
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customRules
+     */
+    private function carryInlineLabelLineBox(array &$styles, array &$provenance, DOMElement $label, DOMElement $control, array $rules, array $customRules): void
+    {
+        $parent = $label->parentNode;
+        if ( ! $parent instanceof DOMElement || ! ( $control->parentNode?->isSameNode($parent) ?? false ) ) {
+            return;
+        }
+        // The label alone on its line: nothing but whitespace before it, and the
+        // block-level control right after it.
+        for ( $node = $label->previousSibling; null !== $node; $node = $node->previousSibling ) {
+            if ( $node instanceof DOMElement || ( XML_TEXT_NODE === $node->nodeType && '' !== trim((string) $node->textContent) ) ) {
+                return;
+            }
+        }
+        for ( $node = $label->nextSibling; null !== $node && ! $node->isSameNode($control); $node = $node->nextSibling ) {
+            if ( $node instanceof DOMElement || ( XML_TEXT_NODE === $node->nodeType && '' !== trim((string) $node->textContent) ) ) {
+                return;
+            }
+        }
+        $labelFacts = $this->matched($label, $rules);
+        $display = CssValueInspector::comparable((string) ($labelFacts['base']['display']['value'] ?? 'inline'));
+        $position = CssValueInspector::comparable((string) ($labelFacts['base']['position']['value'] ?? 'static'));
+        if ( 'inline' !== $display || in_array($position, array( 'absolute', 'fixed' ), true) || isset($labelFacts['base']['float']) ) {
+            return;
+        }
+        $controlDisplay = CssValueInspector::comparable((string) ($this->matched($control, $rules)['base']['display']['value'] ?? ''));
+        if ( ! in_array($controlDisplay, array( 'block', 'flex', 'grid', 'table', 'flow-root', 'list-item' ), true) ) {
+            return;
+        }
+        $parentFacts = $this->matched($parent, $rules)['base'];
+        $parentDisplay = CssValueInspector::comparable((string) ($parentFacts['display']['value'] ?? ''));
+        $blockFlow = '' === $parentDisplay
+            ? in_array(strtolower($parent->tagName), array( 'div', 'fieldset', 'li', 'section', 'article', 'p' ), true)
+            : in_array($parentDisplay, array( 'block', 'flow-root', 'list-item' ), true);
+        if ( ! $blockFlow ) {
+            return;
+        }
+        $labelBox = $this->computedLineHeight($label, $rules, $customRules);
+        $strut = $this->computedLineHeight($parent, $rules, $customRules);
+        if ( null === $labelBox || null === $strut || null === $strut['fact'] || $strut['px'] <= $labelBox['px'] + 0.5 ) {
+            return;
+        }
+        $styles['line_height'] = CssLength::format($strut['px']);
+        ksort($styles);
+        foreach ( $provenance as $key => $entry ) {
+            $entry['properties'] = array_values(array_diff($entry['properties'] ?? array(), array( 'line-height' )));
+            if ( array() === $entry['properties'] ) {
+                unset($provenance[$key]);
+            } else {
+                $provenance[$key] = $entry;
+            }
+        }
+        $provenance = array_values(array_merge($provenance, $this->provenance(array( 'line-height' => $strut['fact'] ), null)));
+    }
+
+    /**
+     * An element's computed line height in pixels through the unconditional
+     * cascade, with the fact that declared the inherited line height. Null when
+     * any link of the chain is conditional, `normal`, or not resolvable here.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customRules
+     * @return array{px: float, fact: array<string, mixed>|null}|null
+     */
+    private function computedLineHeight(DOMElement $element, array $rules, array $customRules): ?array
+    {
+        $chain = array();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            array_unshift($chain, $node);
+        }
+        $font = 16.0;
+        $root = 16.0;
+        $lineHeight = null;
+        foreach ( $chain as $depth => $node ) {
+            $matched = $this->matched($node, $rules);
+            foreach ( $matched['conditional'] as $facts ) {
+                if ( array() !== array_intersect_key($facts, array_flip(array( 'font', 'font-size', 'line-height' ))) ) {
+                    return null;
+                }
+            }
+            if ( isset($matched['base']['font']) ) {
+                return null;
+            }
+            $resolved = $this->styles(array_intersect_key($matched['base'], array_flip(array( 'font-size', 'line-height' ))), $node, null, $customRules, true);
+            // `inherit` keeps the parent's computed value (Tailwind's `body{line-height:inherit}`).
+            $resolved = array_filter($resolved, static fn (string $value): bool => 'inherit' !== CssValueInspector::comparable($value));
+            if ( isset($resolved['font_size']) ) {
+                $value = CssValueInspector::comparable($resolved['font_size']);
+                $px = 1 === preg_match('/^(\d+\.?\d*|\.\d+)%$/', $value, $percent)
+                    ? $font * (float) $percent[1] / 100
+                    : CssLength::toPx($value, $root, $font);
+                if ( null === $px || $px <= 0.0 ) {
+                    return null;
+                }
+                $font = $px;
+                if ( 0 === $depth ) {
+                    $root = $px;
+                }
+            }
+            if ( isset($resolved['line_height']) ) {
+                $value = CssValueInspector::comparable($resolved['line_height']);
+                $fact = $matched['base']['line-height'];
+                if ( 1 === preg_match('/^(\d+\.?\d*|\.\d+)$/', $value) ) {
+                    $lineHeight = array( 'factor' => (float) $value, 'px' => null, 'fact' => $fact );
+                } elseif ( 1 === preg_match('/^(\d+\.?\d*|\.\d+)%$/', $value, $percent) ) {
+                    $lineHeight = array( 'factor' => null, 'px' => $font * (float) $percent[1] / 100, 'fact' => $fact );
+                } else {
+                    $px = CssLength::toPx($value, $root, $font);
+                    if ( null === $px ) {
+                        return null;
+                    }
+                    $lineHeight = array( 'factor' => null, 'px' => $px, 'fact' => $fact );
+                }
+            }
+        }
+        if ( null === $lineHeight ) {
+            return null;
+        }
+        return array(
+            'px' => round(null !== $lineHeight['factor'] ? $lineHeight['factor'] * $font : (float) $lineHeight['px'], 3),
+            'fact' => $lineHeight['fact'],
+        );
+    }
+
+    /** Whether a complex selector reaches its subject through a sibling combinator. */
+    private static function isSiblingSelector(string $selector): bool
+    {
+        $selector = trim($selector);
+        while ( 1 === preg_match('/^:(?:where|is)\((.*)\)$/Dis', $selector, $match) ) {
+            $inner = trim($match[1]);
+            if ( ! CssSelectorTokenizer::tokenize($inner)['supported'] ) {
+                return false;
+            }
+            $selector = $inner;
+        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if ( ! $tokens['supported'] || array() === $tokens['combinators'] ) {
+            return false;
+        }
+        return in_array($tokens['combinators'][count($tokens['combinators']) - 1], array( '~', '+' ), true);
     }
 
     /**
