@@ -1786,8 +1786,10 @@ final class FormPresentationGraphBuilder
      * least as tall as the wrapper's strut: the wrapper's own line height. A
      * provider field renders its label as a block, whose lines are only as tall
      * as the label's own line height (Tailwind's `leading-none`), so the field
-     * loses the difference above its control. State the source line-box height
-     * as the label's line height when it is the taller one.
+     * loses the difference above its control. The label's text keeps its own
+     * line height (its typography is the source's); the strut's extra leading
+     * becomes block padding on the label, split evenly as the strut's
+     * half-leading sits on either side of the label's inline box.
      *
      * Resolved to pixels from the unconditional cascade only; a responsive or
      * state change to the font or line height on the chain leaves it alone.
@@ -1838,17 +1840,16 @@ final class FormPresentationGraphBuilder
         if ( null === $labelBox || null === $strut || null === $strut['fact'] || $strut['px'] <= $labelBox['px'] + 0.5 ) {
             return;
         }
-        $styles['line_height'] = CssLength::format($strut['px']);
-        ksort($styles);
-        foreach ( $provenance as $key => $entry ) {
-            $entry['properties'] = array_values(array_diff($entry['properties'] ?? array(), array( 'line-height' )));
-            if ( array() === $entry['properties'] ) {
-                unset($provenance[$key]);
-            } else {
-                $provenance[$key] = $entry;
+        foreach ( array_keys($styles) as $key ) {
+            if ( str_starts_with($key, 'padding') ) {
+                return;
             }
         }
-        $provenance = array_values(array_merge($provenance, $this->provenance(array( 'line-height' => $strut['fact'] ), null)));
+        $half = CssLength::format(round(( $strut['px'] - $labelBox['px'] ) / 2, 3));
+        $styles['padding_block_start'] = $half;
+        $styles['padding_block_end'] = $half;
+        ksort($styles);
+        $provenance = array_values(array_merge($provenance, $this->provenance(array( 'padding-block-end' => $strut['fact'], 'padding-block-start' => $strut['fact'] ), null)));
     }
 
     /**

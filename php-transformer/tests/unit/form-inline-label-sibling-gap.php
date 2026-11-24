@@ -8,7 +8,8 @@ declare(strict_types=1);
  * it. A provider field flattens the wrapper into one shell with a block label,
  * where neither survives: the sibling rule no longer reaches the input and the
  * label's lines shrink to its own `leading-none`. The presentation graph must
- * state both on the label, and keep the gap off the control.
+ * state both on the label (the strut's extra leading as block padding, leaving
+ * the label's own line height alone), and keep the gap off the control.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -51,8 +52,13 @@ foreach ( array( 0 => 'Full Name', 1 => 'Email' ) as $index => $name ) {
     if ( 'calc(.375rem * calc(1 - 0))' !== ( $label['margin_block_end'] ?? null ) ) {
         $fail($name . ' label does not keep the sibling gap above its control: ' . json_encode($label));
     }
-    if ( '24px' !== ( $label['line_height'] ?? null ) ) {
-        $fail($name . ' label does not keep its inline line box (the wrapper line height): ' . json_encode($label));
+    // The 24px strut around a 14px label line: 5px of leading on each side.
+    if ( '5px' !== ( $label['padding_block_start'] ?? null ) || '5px' !== ( $label['padding_block_end'] ?? null ) ) {
+        $fail($name . ' label does not keep its inline line box (the wrapper strut): ' . json_encode($label));
+    }
+    // Its own typography stays the source's: the text line is still 1.
+    if ( '1' !== ( $label['line_height'] ?? null ) ) {
+        $fail($name . ' label had its own line height replaced: ' . json_encode($label));
     }
     if ( '.875rem' !== ( $label['font_size'] ?? null ) ) {
         $fail($name . ' label lost its own type: ' . json_encode($label));
@@ -66,7 +72,7 @@ foreach ( array( 0 => 'Full Name', 1 => 'Email' ) as $index => $name ) {
         $fail($name . ' control lost its own presentation: ' . json_encode($control));
     }
     $selectors = array_column($rows[$index]['label']['provenance'] ?? array(), 'properties', 'selector');
-    if ( array( 'margin-block-end' ) !== ( $selectors['.space-y-1\\.5>:not([hidden])~:not([hidden])'] ?? null ) || array( 'line-height' ) !== ( $selectors['html'] ?? null ) ) {
+    if ( array( 'margin-block-end' ) !== ( $selectors['.space-y-1\\.5>:not([hidden])~:not([hidden])'] ?? null ) || array( 'padding-block-end', 'padding-block-start' ) !== ( $selectors['html'] ?? null ) ) {
         $fail($name . ' label provenance does not prove the carried facts: ' . json_encode($rows[$index]['label']['provenance'] ?? null));
     }
 }
@@ -84,8 +90,8 @@ $blockHtml = str_replace('class="text-sm leading-none"', 'class="block text-sm l
 $block = (new ArtifactCompiler())->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $blockHtml, 'styles.css' => $blockCss ) ))->toArray();
 foreach ( $block['fallbacks'] ?? array() as $fallback ) {
     foreach ( $fallback['presentation_graph']['controls'] ?? array() as $row ) {
-        if ( isset($row['label']) && '1' !== ( $row['label']['styles']['line_height'] ?? null ) ) {
-            $fail('a block label had its line height replaced: ' . json_encode($row['label']['styles']));
+        if ( isset($row['label']) && ( '1' !== ( $row['label']['styles']['line_height'] ?? null ) || isset($row['label']['styles']['padding_block_start']) ) ) {
+            $fail('a block label had its line box restated: ' . json_encode($row['label']['styles']));
         }
     }
 }

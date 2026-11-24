@@ -35,7 +35,11 @@ $assert(array() === $empty['source_reports']['generated_blocks'], 'an empty dang
 $caption = $transform($document('<form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form>'));
 $assert(!in_array('custom/authored-label', $names($caption['blocks']), true), 'a dangling caption beside its value is not an authored-label');
 $assert(!in_array('authored-label', array_column($caption['source_reports']['generated_blocks'], 'name'), true), 'a dangling caption registers no authored-label definition');
-$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph">Service<\/p>/', $caption['serialized_blocks']), 'the dangling caption is a block-box core paragraph carrying the label classes');
+// The label is inline in the source: alone in its block wrapper it sits on
+// the wrapper's line box, so the paragraph stays an inline synthetic box.
+$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph">Service<\/p>/', $caption['serialized_blocks']), 'the inline dangling caption is an inline core paragraph carrying the label classes');
+$blockCaption = $transform('<!DOCTYPE html><html><head><style>.caption{display:block}</style></head><body><form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form></body></html>');
+$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph">Service<\/p>/', $blockCaption['serialized_blocks']), 'a block dangling caption is a block-box core paragraph carrying the label classes');
 $assert(0 === $caption['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'], 'the caption paragraph carries no structural markup in its RichText content');
 
 $alone = $transform($document('<form><input id="f"><label for="f">First</label><div><label for="nowhere">Fields marked * are required</label></div></form>'));

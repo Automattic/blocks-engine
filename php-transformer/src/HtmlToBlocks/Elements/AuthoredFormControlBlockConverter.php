@@ -95,10 +95,15 @@ final class AuthoredFormControlBlockConverter
             // Caption text, not an association: the caption is the core
             // paragraph's own box, carrying the label's classes and its text as
             // core RichText (a <label> inside RichText is structural markup the
-            // editor cannot edit). It keeps the block box every label of the
-            // materialized form takes, so the field lays out as before.
+            // editor cannot edit). A label the author leaves at its UA inline
+            // display stays an inline synthetic paragraph: alone in a block
+            // wrapper it sits on a line box as tall as the wrapper's strut, not
+            // its own (`leading-none`) line height. A label the author displays
+            // otherwise keeps a block box.
+            $display = $this->presentation->declaredPresentation($label, 'display');
+            $inline = $display->isEmpty() || ( ! $display->isConditional() && 'inline' === strtolower(trim($display->base())) );
             return $this->createBlock->createBlock('core/paragraph', array_filter(array(
-                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS),
+                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ( $inline ? '' : ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS )),
                 'anchor' => (string) ($attrs['id'] ?? ''),
                 'content' => (string) ($attrs['content'] ?? ''),
             ), static fn (string $value): bool => '' !== $value), array(), $label);
