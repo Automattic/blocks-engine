@@ -29,6 +29,7 @@ use DOMElement;
 final class ImageLowering
 {
     public const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
+    public const BACKGROUND_IMAGE_HOST_CLASS = 'blocks-engine-background-image-host';
     public const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
 
     public function __construct(
@@ -40,8 +41,23 @@ final class ImageLowering
         private readonly HtmlTransformerSession $session,
         private readonly ImageUrlResolver $imageUrls,
         private readonly ImageDimensionResolver $imageDimensions,
-        private readonly SourceElementClassifier $sourceElementClassifier
+        private readonly SourceElementClassifier $sourceElementClassifier,
+        private readonly ?\Closure $ownedTextColorMarkup = null
     ) {
+    }
+
+    /**
+     * A caption is RichText like a paragraph, but it bypasses paragraph
+     * lowering. Its inline elements keep their source markup and also carry
+     * their resolved text colour inline, as paragraph RichText does, so the
+     * caption's text colour is owned by the content instead of a retained
+     * author class that silently overrides the block's colour control.
+     */
+    private function captionContent(DOMElement $caption): string
+    {
+        return null === $this->ownedTextColorMarkup
+            ? SourceDom::innerHtml($caption)
+            : (string) ($this->ownedTextColorMarkup)($caption, false);
     }
 
     /** @return array<string, mixed>|null */
@@ -150,7 +166,7 @@ final class ImageLowering
         $carrier = $this->session->layoutGeometryState()->allocateCarrier('materialized-background' . "\n" . $rule);
         $this->session->layoutGeometryState()->registerRule($carrier, ':root .' . $carrier . $rule);
         $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier, self::BACKGROUND_IMAGE_HOST_CLASS);
         return $this->blocks->createBlock('core/group', $attrs, array( $image ), $element);
     }
 
@@ -543,7 +559,7 @@ final class ImageLowering
         if ( $figure instanceof DOMElement ) {
             $caption = SourceDom::firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
-                $attrs['caption'] = SourceDom::innerHtml($caption);
+                $attrs['caption'] = $this->captionContent($caption);
                 // Core saves only wp-element-caption on this inner part. Bind
                 // author rules to a figure carrier, including rich-text subjects
                 // whose selectors depended on the source caption's classes.
@@ -608,6 +624,17 @@ final class ImageLowering
                     $projections->installInnerSubject($path, ':where(.' . $marker . ')', '', true);
                 }
                 $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
+                if ( $figure instanceof DOMElement && SourceDom::elementContains($link, $figure) ) {
+                    // The source link wrapped the container; core/image moves it
+                    // inside. It must not insert a new containing block or line
+                    // box between that container and an absolutely positioned
+                    // image. A static block keeps the link focusable, which
+                    // `display:contents` does not in Chromium.
+                    $geometry = $this->session->layoutGeometryState();
+                    $carrier = $geometry->allocateCarrier('image-link-container-swap');
+                    $geometry->registerRule($carrier, ':root figure.' . $carrier . '>a{display:block!important;position:static!important;width:auto!important;height:auto!important}');
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+                }
             }
         }
 
@@ -733,7 +760,10 @@ final class ImageLowering
         $loading       = in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '';
         $fetchpriority = strtolower(trim(SourceDom::attr($image, 'fetchpriority')));
         $fetchpriority = in_array($fetchpriority, array( 'high', 'low', 'auto' ), true) ? $fetchpriority : '';
-        if ( null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) ) {
+        // A captured rendition is the browser's resolved selection: there is
+        // nothing left to replay but the loading hints.
+        $rendered = null !== $picture && '' !== SourceDom::capturedPictureRendition($image);
+        if ( $rendered || (null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset'))) ) {
             if ( '' === $loading && '' === $fetchpriority ) {
                 return array();
             }
@@ -888,7 +918,9 @@ final class ImageLowering
             : array();
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.
-        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio')));
+        // Inline background paint likewise rides the leaf
+        // (imageLeafPlacementClassName()), not the figure's box.
+        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio'), $this->styleResolver->imageLeafBackgroundProperties($image)));
         if ( ! $figure instanceof DOMElement ) {
             // Native spacing is serialized on the figure even when geometry
             // excludes it. Source image margins are carried on the leaf instead.

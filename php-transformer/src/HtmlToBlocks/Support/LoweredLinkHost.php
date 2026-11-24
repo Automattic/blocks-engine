@@ -41,13 +41,29 @@ final class LoweredLinkHost
      * well: the support CSS hands a host text colour to the link
      * (`p.blocks-engine-synthetic-paragraph.has-text-color>a{color:inherit}`).
      *
+     * A classless link keeps the restatement, since its rules may address a
+     * box the conversion removed, unless its padding is known to arrive:
+     * `$linkCarriesPadding` says the link is an item of an author flex or
+     * grid container laid out as a box inside the host. That container stays
+     * a block with its source hooks, and the projector routes its
+     * `parent > a` rules through the host, so the link brings its padding and
+     * a second copy on the host would grow the item. Margins stay: on an item
+     * they also place it, which the link inside the host cannot do.
+     *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    public static function attributes(array $attrs, DOMElement $link): array
+    public static function attributes(array $attrs, DOMElement $link, bool $linkCarriesPadding = false): array
     {
         $sourceClasses = self::sourceClasses($link);
         if ( array() === $sourceClasses ) {
+            if ( $linkCarriesPadding && is_array($attrs['style']['spacing'] ?? null) ) {
+                unset($attrs['style']['spacing']['padding']);
+                $attrs['style'] = array_filter($attrs['style'], static fn (mixed $value): bool => array() !== $value);
+                if ( array() === $attrs['style'] ) {
+                    unset($attrs['style']);
+                }
+            }
             return $attrs;
         }
 

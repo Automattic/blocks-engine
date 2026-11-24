@@ -105,6 +105,9 @@ final class CssSelectorMatchCache
     /** @var array<int, bool> Selector id to whether its result depends only on the subject. */
     private array $subjectOnlySelectors = array();
 
+    /** @var array<int, bool> Selector id to whether its result depends only on the subject and its ancestors. */
+    private array $ancestorOnlySelectors = array();
+
     /** @var array<string, int> Element key or subject signature to its interned match element id. */
     private array $matchElementIds = array();
 
@@ -413,13 +416,23 @@ final class CssSelectorMatchCache
         return false;
     }
 
-    /** @param array<string, mixed> $selector @return array{supported: bool, matches: bool} */
-    public function matches(DOMElement $element, string $selectorText, array $selector, bool $accountForPseudoStateSuffix = false): array
+    /**
+     * `$ancestry` is the caller's proof of equivalence: elements given the
+     * same key carry identical tag names and attributes on themselves and on
+     * every ancestor up to the document root. A selector that reads only
+     * those (see CssSelectorMatcher::dependsOnlyOnAncestors()) is then
+     * matched once per key, across documents.
+     *
+     * @param array<string, mixed> $selector @return array{supported: bool, matches: bool}
+     */
+    public function matches(DOMElement $element, string $selectorText, array $selector, bool $accountForPseudoStateSuffix = false, ?int $ancestry = null): array
     {
         $selectorId = $accountForPseudoStateSuffix
             ? ($this->suffixSelectorIds[$selectorText] ?? $this->internSelector($selectorText, $selector, true))
             : ($this->selectorIds[$selectorText] ?? $this->internSelector($selectorText, $selector, false));
-        $elementId = $this->matchElementId($element, $selectorId, $selector);
+        $elementId = null !== $ancestry && ! $this->subjectOnlySelectors[$selectorId] && $this->ancestorOnlySelectors[$selectorId]
+            ? $this->matchElementIds['ancestry:' . $ancestry] ??= count($this->matchElementIds)
+            : $this->matchElementId($element, $selectorId, $selector);
         if ( isset($this->matchRows[$selectorId]) ) {
             $offset = ($elementId >> 2) - $this->matchRowBases[$selectorId];
             if ( $offset >= 0 && isset($this->matchRows[$selectorId][$offset]) ) {
@@ -516,6 +529,7 @@ final class CssSelectorMatchCache
         $this->selectorIds = array();
         $this->suffixSelectorIds = array();
         $this->subjectOnlySelectors = array();
+        $this->ancestorOnlySelectors = array();
         $this->matchElementIds = array();
         $this->matchBytes = 0;
         $this->matchEntries = 0;
@@ -585,6 +599,7 @@ final class CssSelectorMatchCache
     {
         $selectorId = count($this->selectorIds) + count($this->suffixSelectorIds);
         $this->subjectOnlySelectors[$selectorId] = CssSelectorMatcher::dependsOnlyOnSubject($selector);
+        $this->ancestorOnlySelectors[$selectorId] = CssSelectorMatcher::dependsOnlyOnAncestors($selector);
         if ( $accountForPseudoStateSuffix ) {
             return $this->suffixSelectorIds[$selectorText] = $selectorId;
         }

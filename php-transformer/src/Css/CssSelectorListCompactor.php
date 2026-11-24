@@ -103,9 +103,11 @@ final class CssSelectorListCompactor
 
     /**
      * The first top-level `:where()` of an arm listing only page-local
-     * markers of one kind, as [kind, prefix, markers, suffix]. Quotes are
-     * accepted only inside RichText carriers, so parentheses outside them
-     * count as selector nesting.
+     * markers of one kind, as [kind, prefix, markers, suffix]. An arm whose
+     * only quotes are RichText carriers lists those carriers; any other arm
+     * lists marker classes, read with its strings blanked so that neither a
+     * parenthesis nor a marker inside an attribute value (`[style*="…"]`)
+     * counts as selector structure.
      *
      * @return array{0:string,1:string,2:list<string>,3:string}|null
      */
@@ -116,24 +118,57 @@ final class CssSelectorListCompactor
         }
         $kind = 'c';
         $pattern = self::MARKER_WHERE;
+        $structure = $arm;
         if ( false !== strpbrk($arm, '"\'') ) {
-            if ( false !== strpbrk((string) preg_replace('/' . self::RICHTEXT_CARRIER . '/', '', $arm), '"\'') ) {
-                return null;
+            if ( false === strpbrk((string) preg_replace('/' . self::RICHTEXT_CARRIER . '/', '', $arm), '"\'') ) {
+                $kind = 'r';
+                $pattern = '/:where\(((?:' . self::RICHTEXT_CARRIER . ',)*' . self::RICHTEXT_CARRIER . ')\)/';
+            } else {
+                $structure = self::withBlankStrings($arm);
+                if ( null === $structure ) {
+                    return null;
+                }
             }
-            $kind = 'r';
-            $pattern = '/:where\(((?:' . self::RICHTEXT_CARRIER . ',)*' . self::RICHTEXT_CARRIER . ')\)/';
         }
-        if ( ! preg_match_all($pattern, $arm, $matches, PREG_OFFSET_CAPTURE) ) {
+        if ( ! preg_match_all($pattern, $structure, $matches, PREG_OFFSET_CAPTURE) ) {
             return null;
         }
         foreach ( $matches[0] as $index => [$text, $offset] ) {
-            $before = substr($arm, 0, $offset);
+            $before = substr($structure, 0, $offset);
             if ( substr_count($before, '(') !== substr_count($before, ')') ) {
                 continue;
             }
-            return array($kind, $before, explode(',', $matches[1][ $index ][0]), substr($arm, $offset + strlen($text)));
+            return array($kind, substr($arm, 0, $offset), explode(',', $matches[1][ $index ][0]), substr($arm, $offset + strlen($text)));
         }
         return null;
+    }
+
+    /**
+     * The selector with every quoted string's contents replaced by `_`, byte
+     * for byte, so offsets into it are offsets into the selector. Null for
+     * an escape, a comment or an unterminated string.
+     */
+    private static function withBlankStrings(string $selector): ?string
+    {
+        if ( str_contains($selector, '\\') || str_contains($selector, '/*') ) {
+            return null;
+        }
+        $blank = $selector;
+        $quote = '';
+        $length = strlen($selector);
+        for ( $offset = 0; $offset < $length; ++$offset ) {
+            $character = $selector[ $offset ];
+            if ( '' === $quote ) {
+                if ( '"' === $character || "'" === $character ) {
+                    $quote = $character;
+                }
+            } elseif ( $character === $quote ) {
+                $quote = '';
+            } else {
+                $blank[ $offset ] = '_';
+            }
+        }
+        return '' === $quote ? $blank : null;
     }
 
     /** A `:where()` whose arguments are page-local marker classes only. */
@@ -188,12 +223,14 @@ final class CssSelectorListCompactor
                 return array_map(static fn(string $marker): string => $before . ':where(' . $marker . ')' . $suffix, explode(',', $lists[1][$index][0]));
             }
         }
-        if ( false === strpbrk($arm, '\\"\'') && preg_match_all(self::MARKER_WHERE, $arm, $matches, PREG_OFFSET_CAPTURE) ) {
+        $structure = false === strpbrk($arm, '"\'') ? $arm : self::withBlankStrings($arm);
+        if ( null !== $structure && ! str_contains($arm, '\\') && preg_match_all(self::MARKER_WHERE, $structure, $matches, PREG_OFFSET_CAPTURE) ) {
             foreach ( $matches[0] as $index => [$text, $offset] ) {
-                $before = substr($arm, 0, $offset);
+                $before = substr($structure, 0, $offset);
                 if ( ! str_contains($matches[1][ $index ][0], ',') || substr_count($before, '(') !== substr_count($before, ')') ) {
                     continue;
                 }
+                $before = substr($arm, 0, $offset);
                 $suffix = substr($arm, $offset + strlen($text));
                 return array_map(static fn(string $marker): string => $before . ':where(' . $marker . ')' . $suffix, explode(',', $matches[1][ $index ][0]));
             }

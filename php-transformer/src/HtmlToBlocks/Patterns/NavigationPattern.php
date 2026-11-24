@@ -3641,7 +3641,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $navigationContext->observeItemBoxOn($anchor, $item);
-            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
+            // Boxes that render again undo their folds before the anchor reads its box.
+            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
+            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit
@@ -3657,7 +3659,6 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
-            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
             // A wrapper box renders on every route too, so it drops route state like the anchor.
             if ($isCurrentNavigationItem) foreach ($boxes as $index => $box) $boxes[$index]['className'] = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $box['className']))['className'] ?? '');
             if (array() !== $boxes) {
@@ -4102,7 +4103,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         return (string) array_key_first($colors);
     }
 
-
     /**
      * Carry inheritable anchor paint and typography through core's dynamic link.
      * The anchor's own box travels separately, as a marker class the projector
@@ -4541,7 +4541,6 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         return MenuVocabulary::containsCurrentStateToken(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
     }
-
 
     /**
      * A signalled submenu can be paired with a text label or a link carrier.

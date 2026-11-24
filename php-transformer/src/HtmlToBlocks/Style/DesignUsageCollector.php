@@ -98,6 +98,8 @@ final class DesignUsageCollector
     private array $widths = array();
 
     private ?float $proseWidth = null;
+    /** @var array{0:float,1:float} Inline padding around the prose column, left and right. */
+    private array $prosePadding = array(0.0, 0.0);
     /** @var array<string,array{viewport:int,left:float,width:float}> */
     private array $proseColumns = array();
     /** @var array<string,array<string,array<string,true>>> Class list => property => observations. */
@@ -131,6 +133,7 @@ final class DesignUsageCollector
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
         $this->proseWidth = null;
+        $this->prosePadding = array(0.0, 0.0);
         $this->proseColumns = array();
         // Browser boxes prove columns that max-width alone cannot describe,
         // including prose in a grid. Keep the widest body paragraph per viewport.
@@ -224,6 +227,7 @@ final class DesignUsageCollector
             'spacing' => self::rows($this->spacing),
             'widths' => self::rows($this->widths),
             'prose_width_px' => $this->proseWidth,
+            'prose_padding_px' => null === $this->proseWidth ? null : array_map(self::number(...), $this->prosePadding),
             'class_styles' => $this->classStyleRows(),
             'heading_typography' => $this->headingTypography,
             'button_looks' => $this->buttonLooks,
@@ -272,16 +276,19 @@ final class DesignUsageCollector
      * reference viewport (a desktop-only hero beside its phone copy) renders
      * its headings there, at the size usage reads for every heading. Record
      * those heading observations so their rendered sizes get a preset, while
-     * the resting document alone keeps weighting the usage scale.
+     * the resting document alone keeps weighting the usage scale. Class-list
+     * observations are not usage weight: they prove what an author class
+     * renders where it is shown, so text in that subtree can still bind its
+     * class paint to native block support instead of staying CSS-owned.
      *
      * @param array<string,mixed> $parent
      * @param array<string,string> $declarations
      */
     private function walkReferenceHeadings(DOMElement $element, array $parent, array $declarations): void
     {
-        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements);
+        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->elements);
         $this->walkVisible($element, $parent, $declarations, strtolower($element->tagName));
-        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements] = $usage;
+        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->elements] = $usage;
     }
 
     /** Whether a media rule that applies at the desktop reference viewport overrides a resting `display: none`. */
@@ -306,9 +313,21 @@ final class DesignUsageCollector
         $context['prose_grid'] = !empty($parent['prose_grid']) || in_array(self::clean($declarations['display'] ?? ''), array('grid', 'inline-grid', 'flex', 'inline-flex'), true);
         $maximum = CssLength::toPx(self::clean($declarations['max-width'] ?? ''), $this->rootPx, $context['size']);
         $context['prose_width'] = $parent['prose_width'] ?? null;
-        if (null !== $maximum && $maximum > 0) $context['prose_width'] = null === $context['prose_width'] ? $maximum : min($maximum, $context['prose_width']);
-        if ('p' === $tag && !$context['prose_excluded'] && !$context['prose_grid'] && '' !== trim($element->textContent) && null !== $context['prose_width']) {
-            $this->proseWidth = max($this->proseWidth ?? 0, $context['prose_width']);
+        $context['prose_padding'] = $parent['prose_padding'] ?? array(0.0, 0.0);
+        if (null !== $maximum && $maximum > 0) {
+            // The column is the box's content: a border-box container's inline
+            // padding insets its text from the max-width edge.
+            $padding = $this->paddingObservations($declarations, (float) $context['size']);
+            $inset = array_map(static fn(string $side): float => str_ends_with($side, 'px') ? (float) $side : 0.0, array($padding['padding-left'], $padding['padding-right']));
+            $content = 'border-box' === strtolower(self::clean($this->resolver->cascade->declarations($element)['box-sizing'] ?? '')) ? $maximum - $inset[0] - $inset[1] : $maximum;
+            if ($content > 0 && (null === $context['prose_width'] || $content < $context['prose_width'])) {
+                $context['prose_width'] = $content;
+                $context['prose_padding'] = $inset;
+            }
+        }
+        if ('p' === $tag && !$context['prose_excluded'] && !$context['prose_grid'] && '' !== trim($element->textContent) && null !== $context['prose_width'] && $context['prose_width'] > ($this->proseWidth ?? 0)) {
+            $this->proseWidth = $context['prose_width'];
+            $this->prosePadding = $context['prose_padding'];
         }
         $background = $this->backgroundColor($declarations);
         $opaque = null !== $background && CssColor::opaque($background);

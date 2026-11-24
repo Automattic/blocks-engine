@@ -1351,6 +1351,22 @@ final class SourceDom
      * @param array<string, string>          $tagMarkers  Lowercased tag name => marker class name.
      * @param Closure(DOMElement): list<string>|null $pathMarkers Original element => marker classes.
      */
+    /**
+     * The rendition the capture recorded a `<picture>`'s image rendering
+     * (CaptureEvidence::CURRENT_SOURCE), or '' without usable evidence. The
+     * browser already resolved that picture's source selection.
+     */
+    public static function capturedPictureRendition(DOMElement $image): string
+    {
+        $picture = $image->parentNode;
+        if ( ! $picture instanceof DOMElement || 'picture' !== strtolower($picture->tagName) ) {
+            return '';
+        }
+        $url = trim(self::attr($image, CaptureEvidence::CURRENT_SOURCE));
+
+        return '' !== $url && ! str_starts_with(strtolower($url), 'data:') && self::safeFallbackUrl($url, 'src', 'img', true) ? $url : '';
+    }
+
     public static function safeFallbackHtml(DOMElement $element, array $tagMarkers = array(), ?Closure $pathMarkers = null): string
     {
         $clone = $element->cloneNode(true);
@@ -1405,6 +1421,7 @@ final class SourceDom
     {
         $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $html) ?? '';
         $html = preg_replace('@<link\b[^>]*\/?>@si', '', $html) ?? '';
+        $html = preg_replace('/\s+' . preg_quote(CaptureEvidence::CURRENT_SOURCE, '/') . '\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $source = $html;
         $html = preg_replace_callback(

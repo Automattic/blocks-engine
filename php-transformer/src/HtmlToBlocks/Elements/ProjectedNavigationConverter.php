@@ -521,6 +521,11 @@ final class ProjectedNavigationConverter implements ElementConverter
             // and conditional rules) on the actual replacement control.
             $open = $host . '>.wp-block-navigation__responsive-container-open';
             $extraRules .= $open . '{background-color:ButtonFace!important;border-radius:0!important;padding:1px 6px!important}';
+            // A button the source does not lay out as flex or grid centres its
+            // content on both axes; Core's flex opener would start it top-left.
+            if ( ! preg_match('/(?:flex|grid)$/', $display) ) {
+                $extraRules .= $open . '{align-items:center!important;justify-content:center!important}';
+            }
             $extraRules .= $presentation->css($open, $buttonPresentation, $toggle);
         }
         if (null !== $source) {

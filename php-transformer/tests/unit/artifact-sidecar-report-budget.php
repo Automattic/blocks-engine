@@ -37,7 +37,6 @@ ksort($actual);
 ksort($expected);
 $assert($expected === $actual, 'Drop diagnostics must name each sidecar and its bytes.');
 $pages = array_values(array_filter($normalized['files'], static fn(array $file): bool => 'html' === $file['kind']));
-$assert(array() === $pages[0]['box_tree'], 'Dropped evidence must not attach to a page.');
 
 $withoutSidecars = $artifact;
 $withoutSidecars['files'] = array_slice($artifact['files'], 3);

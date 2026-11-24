@@ -15,6 +15,10 @@ final class ImageUrlResolver
 
     public function sourceUrl(DOMElement $image): string
     {
+        $rendered = SourceDom::capturedPictureRendition($image);
+        if ( '' !== $rendered ) {
+            return $rendered;
+        }
         $src = $this->safeUrl(SourceDom::attr($image, 'src'));
         if ( '' !== $src && ! str_starts_with(strtolower($src), 'data:') ) {
             return $src;

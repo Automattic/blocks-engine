@@ -53,6 +53,7 @@ final class SitePlanRun
     private readonly array $initialRuntimeDeclarations;
     private readonly array $initialRuntimeRecords;
     private readonly array $initialTaxonomyProjection;
+    private readonly array $dateArchives;
 
     /**
      * Post-chrome matching normalizes every nested range of every post, and
@@ -118,10 +119,10 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        // A box-tree carrier on a button's link owns that button's look.
         $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents), array_values(array_column(array_filter($documents, static fn(array $document): bool => !empty($document['document_metadata']['engine_owned_styles'])), 'source_path')));
+        $usageBySource = DesignSystem::usageBySource($documents);
+        $this->designSystem = DesignSystem::fromUsage($usageBySource)?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups)->withBlockNearShades($markups, $usageBySource);
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, $usageBySource, $markups);
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $this->surfaces = TemplateSurfaces::select($documents);
@@ -144,13 +145,17 @@ final class SitePlanRun
         // Native date archives are document roots, not materialized pages, but
         // their captured file paths still participate in link resolution.
         $this->entryRoot = PageRoute::entryRoot($compiled['pages']);
+        $dateArchives = array();
         foreach ($compiled['pages'] as $document) {
             if (!ContentDecisions::isDateArchive($document)) continue;
             $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
+            $entity = DateArchives::entity($document['source_path'], $path);
+            if (null !== $entity) $dateArchives[] = $entity;
             $target = '/' . trim($path, '/') . '/';
             $routeSources[$document['source_path']] = $target;
             $routeTargets['/' . trim($path, '/')] = $target;
         }
+        $this->dateArchives = $dateArchives;
         $this->timer?->start('compose.site_plan.pages');
         $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $this->routeMap);
         $this->shellExtraction = new ShellExtraction($this->links);
@@ -167,6 +172,24 @@ final class SitePlanRun
         $this->initialRuntimeDeclarations = $runtimeDeclarations;
         $this->initialRuntimeRecords = $runtimeRecords;
         $this->initialTaxonomyProjection = $taxonomyProjection;
+    }
+
+    /**
+     * The captured entry document's prose column, which pages authored after
+     * the import render in. A lone entry page renders through front-page.html,
+     * leaving page.html to new pages; otherwise captured pages share page.html
+     * and new pages need a separate template.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<string,mixed>
+     */
+    private function authoredPage(array $pages): array
+    {
+        $lone = 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']);
+        $entry = $lone ? $this->initialDocuments[0] : (array_values(array_filter($this->initialDocuments, static fn(array $document): bool => !empty($document['entrypoint'])))[0] ?? null);
+        if (null === $entry) return array();
+        $usage = ArrayField::array($entry, 'design_usage');
+        return array('prose_width' => $usage['prose_width_px'] ?? null, 'prose_padding' => $usage['prose_padding_px'] ?? null, 'prose_columns' => $usage['prose_columns'] ?? array(), 'separate' => !$lone);
     }
 
     /**
@@ -257,7 +280,7 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem, array_column(array_filter($pages, static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles'])), 'source_path'));
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
@@ -279,6 +302,7 @@ final class SitePlanRun
             if (isset($part['content_hash'])) $part['content_hash'] = WordPressSitePlan::contentHash($bound);
         }
         unset($part);
+        ['pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'theme' => $themeProjection['theme']] = $this->withRepeatedBlockStyles($pages, $parts, $frameParts, $assets, $shellDeclarations, $themeProjection['theme']);
         $assetTargetCollisions = array();
         // Element markers some emitted markup still carries. A rule naming
         // any other marker names an element extraction replaced (one route's
@@ -309,7 +333,6 @@ final class SitePlanRun
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $this->references);
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
-        $assets = EvidenceRouteStylesheets::retire($assets, $pages, array_merge($parts, $frameParts));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shellDeclarations;
@@ -330,6 +353,8 @@ final class SitePlanRun
          $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
          $pages = $syncedPatterns['pages'];
          $syncedPatterns = $syncedPatterns['patterns'];
+         // Imported page sections lock their structure so owners edit content, not wrappers.
+         $pages = ContentOnlySectionProjection::project($pages, $runtimeDeclarations, $runtimeEntityRecords);
          // Query Loop projection can shorten page markup after shell extraction,
          // and synced patterns take shared panel content (and its bindings) out
          // of the page. Rebase retained runtime anchors on the final documents.
@@ -338,8 +363,11 @@ final class SitePlanRun
          foreach ($pages as &$page) unset($page['_synced_pattern_source']); unset($page);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
+        // Archive sources leave the pages here; keep their projected source
+        // markup for the template units that replace them.
+        $pageSourceMarkup = array_column($pages, '_projected_source_block_markup', 'source_path');
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_width_px'] ?? null) : null, 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']) ? ($this->initialDocuments[0]['design_usage']['prose_columns'] ?? array()) : array());
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates'], $this->authoredPage($pages), isset($themeProjection['theme']['styles']['blocks']['core/paragraph']['spacing']['margin']));
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);
@@ -351,13 +379,18 @@ final class SitePlanRun
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
         // Article chrome moves shared post chrome out of each post body, which
         // shifts the page-owned blocks after it. Rebase their runtime anchors.
-        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $paginationOwners);
+        // Taxonomy archive sources now live in template units, not pages;
+        // include those documents so their bindings retain an emitted anchor,
+        // checked against their projected source markup. Only this call sees
+        // that working key; $templates is emitted without it.
+        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates, $this->withProjectedSource($templates, $pageSourceMarkup)), $paginationOwners);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         // Related-section queries are registered while article chrome is factored.
         $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
-        $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
+        $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles, $templates);
         $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);
         $this->timer?->start('compose.site_plan.asset_writes');
+        $assets = StylesheetScopes::canonicalize($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments));
         $routes = RouteTable::forPages($pages);
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
@@ -465,6 +498,7 @@ final class SitePlanRun
             'operations' => $operations,
             'routes' => $routes,
             'taxonomy_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'taxonomy_term' === $entity['kind'])),
+            'date_archives' => $this->dateArchives,
             'comment_entities' => $commentEntities,
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $this->input->navigationLinks,
@@ -488,6 +522,8 @@ final class SitePlanRun
         $plan = AssetConsumers::assign($plan);
         $plan['quality']['metrics'] += UnreferencedEngineClasses::metrics($plan);
         $plan = ContentConservation::check($plan, $this->compiled['pages']);
+        // Everything that ships is final: engine classes take the theme's names.
+        if (is_string($this->compiled['class_namespace'] ?? null)) $plan = ClassPublisher::publish($plan, $this->compiled['class_namespace']);
         $plan['plan_identity'] = WordPressSitePlan::planIdentity($plan);
         WordPressSitePlan::assertValid($plan);
         return $plan;
@@ -707,6 +743,40 @@ final class SitePlanRun
         return $pages;
     }
     /**
+     * Moves block margins that repeat across a block type into theme.json
+     * block styles (RepeatedBlockStyles). It runs once shared chrome sits in
+     * its parts, so a part's blocks are read once, and before templates copy
+     * any markup. Parts lose values only when every route is engine-owned.
+     *
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,frame_parts:array<int,array<string,mixed>>,theme:array<string,mixed>}
+     */
+    private function withRepeatedBlockStyles(array $pages, array $parts, array $frameParts, array $assets, array $runtimeDeclarations, array $theme): array
+    {
+        $documents = array();
+        foreach (array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts) as $set => $rows) {
+            foreach ($rows as $index => $row) {
+                if (!is_string($row['canonical_block_markup'] ?? null)) continue;
+                $documents[$set . ':' . $index] = array('markup' => $row['canonical_block_markup'], 'strippable' => false);
+            }
+        }
+        $anchors = array();
+        array_walk_recursive($runtimeDeclarations, static function (mixed $value, int|string $key) use (&$anchors): void {
+            if ('search_block_markup' === $key && is_string($value)) $anchors[$value] = $value;
+        });
+        $surfaces = array_values(array_filter(array_column($this->surfaces, 'block_markup'), 'is_string'));
+        $hoisted = RepeatedBlockStyles::hoist($documents, $surfaces, $assets, array_values($anchors), $theme);
+        if (array() === $hoisted['blocks']) return array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'theme' => $theme);
+        $sets = array('pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts);
+        foreach ($hoisted['markup'] as $key => $markup) {
+            [$set, $index] = explode(':', $key, 2);
+            $sets[$set][$index]['canonical_block_markup'] = $markup;
+            if (isset($sets[$set][$index]['content_hash'])) $sets[$set][$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+        }
+        $theme['styles']['blocks'] = array_replace_recursive($theme['styles']['blocks'] ?? array(), $hoisted['blocks']);
+        return array('pages' => $sets['pages'], 'parts' => $sets['parts'], 'frame_parts' => $sets['frame_parts'], 'theme' => $theme);
+    }
+
+    /**
      * Gives each page its route, and records each document's own breadcrumb
      * trail while it still has it: shared chrome later moves the breadcrumb
      * into one template.
@@ -805,11 +875,25 @@ final class SitePlanRun
      */
     private function bindingTemplates(array $tokens): array
     {
-        $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references);
-        $surfaceMarkup = array_column($this->surfaces, 'block_markup', 'source_path');
-        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
+        return $this->withProjectedSource(ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references));
+    }
+
+    /**
+     * Template units with their source's projected markup, so a binding on a
+     * template is checked against its own source document: a captured
+     * surface's markup, else that of the page the template replaced. The key
+     * is working state for anchoring only; emitted templates never carry it.
+     *
+     * @param array<int,array<string,mixed>> $templates
+     * @param array<string,string> $pageSourceMarkup
+     * @return array<int,array<string,mixed>>
+     */
+    private function withProjectedSource(array $templates, array $pageSourceMarkup = array()): array
+    {
+        $sourceMarkup = array_column($this->surfaces, 'block_markup', 'source_path') + $pageSourceMarkup;
+        foreach ($templates as &$template) if (is_string($sourceMarkup[$template['source_path'] ?? ''] ?? null)) $template['_projected_source_block_markup'] = $sourceMarkup[$template['source_path']];
         unset($template);
-        return $bindingTemplates;
+        return $templates;
     }
 
     /**

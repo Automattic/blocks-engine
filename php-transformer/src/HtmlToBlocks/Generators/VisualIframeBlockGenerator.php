@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
@@ -99,7 +100,8 @@ final class VisualIframeBlockGenerator
         // except an inline fill at a core embed ratio, which core/embed draws as is.
         // Hidden frames also keep their native element so source hiding selectors still apply.
         $fluidRatio = '' === $providerNameSlug ? null : $this->fluidAspectRatio($surface, $styleResolver);
-        $sourceSized = null === $fluidRatio && $this->sourceOwnsIframeGeometry($surface, $styleResolver);
+        $fillsContainingBlock = '' !== $providerNameSlug && null === $fluidRatio && $this->fillsContainingBlock($surface, $url, $styleResolver);
+        $sourceSized = null === $fluidRatio && ! $fillsContainingBlock && $this->sourceOwnsIframeGeometry($surface, $styleResolver);
         if ( '' !== $providerNameSlug && ! $sourceSized && ! $sourceElementStartsHidden($surface) ) {
             $embedAttrs = array_merge($styleResolver->presentationAttributes($surface), array(
                 'url'              => $this->canonicalEmbedUrl($url),
@@ -113,9 +115,11 @@ final class VisualIframeBlockGenerator
                     SourceBlockAttributeProjector::EMBED_NORMAL_WHITESPACE_CLASS
                 );
             }
-            $sizingClassName = null !== $fluidRatio
-                ? $this->nearestEmbedAspectRatioClassName($fluidRatio)
-                : $this->embedSizingClassName($surface, $styleResolver);
+            $sizingClassName = match (true) {
+                null !== $fluidRatio => $this->nearestEmbedAspectRatioClassName($fluidRatio),
+                $fillsContainingBlock => $this->fillEmbedClassName($surface, $styleResolver),
+                default => $this->embedSizingClassName($surface, $styleResolver),
+            };
             if ( '' !== $sizingClassName ) {
                 // Only once the source has committed to an exact sizing intent
                 // (#1918's ratio or #1923's absolute height) does the figure's
@@ -481,6 +485,93 @@ final class VisualIframeBlockGenerator
             if ( abs($ratio - $presetRatio) <= $presetRatio * 0.005 ) {
                 return $presetRatio;
             }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether a frame covers its positioned containing block under every
+     * author rule, so that ancestor box (a percentage-padding ratio box, or a
+     * sized wrapper) owns its size rather than the frame itself.
+     *
+     * The provider embed replaces the frame with core's oEmbed markup, so
+     * frames whose source carries playback parameters or non-default
+     * restrictions, or whose fill depends on a fixed position, a size
+     * attribute or a viewport-specific offset, keep the source-sized frame.
+     */
+    private function fillsContainingBlock(DOMElement $iframe, string $url, StyleResolver $styleResolver): bool
+    {
+        if ( ! $styleResolver->positionedLayerCoversContainingBlock($iframe) || ! $this->providerEmbedKeepsFrameBehavior($iframe, $url)
+            || 'absolute' !== CssValueInspector::declared($styleResolver->structuralPresentationDeclarations($iframe), 'position') ) {
+            return false;
+        }
+        $declared = $styleResolver->authorDeclaredPropertyValues($iframe, array( 'position', 'width', 'height', 'top', 'right', 'bottom', 'left', 'inset' ));
+        if ( array() === ( $declared['width'] ?? array() ) || array() === ( $declared['height'] ?? array() ) ) {
+            return false;
+        }
+        $zero = static fn (string $value): bool => CssValueInspector::isZeroLength($value);
+        foreach ( $declared as $property => $values ) {
+            foreach ( $values as $value ) {
+                $accepted = match ($property) {
+                    'position' => 'absolute' === $value,
+                    'width', 'height' => '100%' === $value,
+                    'top', 'left' => $zero($value),
+                    'right', 'bottom' => 'auto' === $value || $zero($value),
+                    'inset' => array() === array_filter(CssValueInspector::expandBoxShorthand($value), static fn (string $side): bool => ! $zero($side)),
+                    default => true,
+                };
+                if ( ! $accepted ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /** Whether core's oEmbed frame behaves as the source frame: no playback parameters, sandbox or non-default referrer policy. */
+    private function providerEmbedKeepsFrameBehavior(DOMElement $iframe, string $url): bool
+    {
+        $referrerPolicy = strtolower(trim($iframe->getAttribute('referrerpolicy')));
+
+        return '' === (string) parse_url($url, PHP_URL_QUERY)
+            && ! $iframe->hasAttribute('sandbox')
+            && in_array($referrerPolicy, array( '', 'strict-origin-when-cross-origin' ), true);
+    }
+
+    /**
+     * The fill marker, with the core aspect class nearest the ratio box the
+     * frame fills so the editor preview and a relocated block keep its shape.
+     */
+    private function fillEmbedClassName(DOMElement $iframe, StyleResolver $styleResolver): string
+    {
+        $ratio = $this->containingRatioBoxAspectRatio($iframe, $styleResolver);
+
+        return SourceDom::mergeClassNames(
+            SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS,
+            null === $ratio ? '' : $this->nearestEmbedAspectRatioClassName($ratio)
+        );
+    }
+
+    /** Width over height of the nearest non-covering ancestor sized by percentage vertical padding. */
+    private function containingRatioBoxAspectRatio(DOMElement $iframe, StyleResolver $styleResolver): ?float
+    {
+        for ( $node = $iframe->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $styleResolver->positionedLayerCoversContainingBlock($node) ) {
+                continue;
+            }
+            $box = $styleResolver->authorViewport->reference($node, array( 'padding', 'padding-top', 'padding-bottom' ));
+            $sides = CssValueInspector::expandBoxShorthand(CssValueInspector::comparable((string) ($box['padding'] ?? '')));
+            $percent = 0.0;
+            foreach ( array( 'padding-top' => 0, 'padding-bottom' => 2 ) as $property => $side ) {
+                $value = CssValueInspector::comparable((string) ($box[ $property ] ?? $sides[ $side ] ?? ''));
+                if ( 1 === preg_match('/^(\d+(?:\.\d+)?)%$/', $value, $match) ) {
+                    $percent += (float) $match[1];
+                }
+            }
+
+            return $percent > 0 ? 100 / $percent : null;
         }
 
         return null;

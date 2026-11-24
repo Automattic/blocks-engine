@@ -96,7 +96,6 @@ final class PageStylesheets
         $linkedIndexes = array();
         $firstOccurrences = array();
         foreach ($pages as $page) {
-            if (!empty($page['document_metadata']['engine_owned_styles'])) continue;
             // The Nth stylesheet link sorts at 2N+1 and a <style> preceded by
             // N stylesheet links sorts at 2N, placing it before that link.
             $sequence = array();
@@ -136,7 +135,6 @@ final class PageStylesheets
 
         return array_values($assets);
     }
-
 
     /**
      * Every stylesheet instance names a canonical document, an order and its
@@ -326,7 +324,7 @@ final class PageStylesheets
         $named = array();
         foreach (array_merge(array((string) json_encode($documents, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)), array_map(static fn (array $asset): string => ArrayField::string($asset, 'content'), $assets)) as $text) {
             if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $text, $matches)) $named += array_fill_keys($matches[1], true);
-            if (preg_match_all('/(?:url\(\s*|@import\s+(?!url\()|(?:href|src)=)\\\\?["\']?([^"\'()\s\\\\]+)/i', $text, $matches)) {
+            if (preg_match_all('/(?:url\(\s*|' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . '(?!url\()|(?:href|src)=)\\\\?["\']?([^"\'()\s\\\\]+)/i', $text, $matches)) {
                 foreach ($matches[1] as $reference) $named[strtolower(basename((string) parse_url($reference, PHP_URL_PATH)))] = true;
             }
         }

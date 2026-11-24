@@ -283,6 +283,129 @@ final class CommerceStructureRecognizer
     }
 
     /**
+     * A card that publishes no price ("Price on request", "Enquire") is still
+     * a product when it is the same kind of card as a qualifying sibling in
+     * the same grid (same tag and classes) and, where that sibling shows its
+     * price, shows a priceless label instead. It must name a product with an
+     * image and its own detail link. The sibling's price is the commerce
+     * evidence; a card showing an amount that did not qualify (a plan, a bare
+     * menu price) is never admitted here.
+     *
+     * @param list<DOMElement> $pricedSiblings Qualifying priced cards of the same grid.
+     * @return array<string, mixed>|null Product data with a `price_label` instead of a price.
+     */
+    public function unpricedSiblingCardData(DOMElement $card, array $pricedSiblings): ?array
+    {
+        if ( $this->isCartSummary($card) || $this->containsMultipleProducts($card) || 1 === preg_match('/\d/', implode(' ', $this->productPriceTexts($card))) ) {
+            return null;
+        }
+        $label = null;
+        foreach ( $pricedSiblings as $sibling ) {
+            if ( $this->cardSignature($sibling) !== $this->cardSignature($card) ) {
+                continue;
+            }
+            $price = $this->priceElementPath($sibling);
+            $slot = null === $price ? null : $this->elementAtPath($card, $price);
+            $text = null === $slot ? '' : $this->collapsedText($slot);
+            if ( '' !== $text && 0 === preg_match('/\d/', $text) && mb_strlen($text) <= 64 ) {
+                $label = $text;
+                break;
+            }
+        }
+        $name = $this->productNameText($card);
+        $url = null === $label || '' === $name || $label === $name ? null : $this->productLinkUrl($card, $name);
+        $image = $this->productImage($card);
+        if ( null === $url || null === $image ) {
+            return null;
+        }
+
+        return array_filter(array(
+            'name'             => $name,
+            'slug'             => $this->productLinkSlug($card, $name),
+            'url'              => $url,
+            'price_label'      => $label,
+            'description'      => $this->productDescriptionText($card, $name),
+            'image'            => $image,
+            'category'         => $this->productCategoryText($card),
+            'has_cart_control' => $this->hasCartControl($card),
+            'source_selector'  => SourceDom::elementSelector($card),
+        ), static fn (mixed $value, string $key): bool => in_array($key, array( 'description', 'image' ), true) || ( null !== $value && '' !== $value ), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /** A card's element kind: its tag and its sorted class tokens. */
+    public function cardSignature(DOMElement $card): string
+    {
+        $classes = preg_split('/\s+/', trim(SourceDom::attr($card, 'class'))) ?: array();
+        sort($classes, SORT_STRING);
+
+        return strtolower($card->tagName) . '.' . implode('.', array_filter($classes, 'strlen'));
+    }
+
+    /**
+     * Child-element index path from the card to its innermost price element.
+     *
+     * @return list<int>|null
+     */
+    private function priceElementPath(DOMElement $card): ?array
+    {
+        // The first price-bearing element with no price-bearing child.
+        $found = null;
+        foreach ( $card->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $this->looksLikePriceText($this->collapsedText($element)) && ! $this->hasPriceChild($element) ) {
+                $found = $element;
+                break;
+            }
+        }
+        if ( null === $found ) {
+            return null;
+        }
+        $path = array();
+        for ( $node = $found; $node instanceof DOMElement && $node !== $card; $node = $node->parentNode ) {
+            $index = 0;
+            for ( $sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
+                if ( $sibling instanceof DOMElement ) {
+                    ++$index;
+                }
+            }
+            array_unshift($path, $index);
+        }
+
+        return $path;
+    }
+
+    private function hasPriceChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->looksLikePriceText($this->collapsedText($child)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param list<int> $path */
+    private function elementAtPath(DOMElement $card, array $path): ?DOMElement
+    {
+        $node = $card;
+        foreach ( $path as $index ) {
+            $next = null;
+            foreach ( $node->childNodes as $child ) {
+                if ( $child instanceof DOMElement && 0 === $index-- ) {
+                    $next = $child;
+                    break;
+                }
+            }
+            if ( null === $next ) {
+                return null;
+            }
+            $node = $next;
+        }
+
+        return $node;
+    }
+
+    /**
      * Whether the card declares schema.org Product/Offer structure via microdata.
      *
      * Public so a container-level aggregator (`CommerceFallbackReporter`) can

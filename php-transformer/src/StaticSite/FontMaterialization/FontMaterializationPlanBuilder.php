@@ -368,7 +368,7 @@ final class FontMaterializationPlanBuilder
         $seen = array();
         foreach ( $sources as $source ) {
             $content = preg_replace('/\/\*.*?\*\//s', '', $source['content']) ?? $source['content'];
-            if ( ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $content, $matches, PREG_SET_ORDER) ) continue;
+            if ( ! preg_match_all('/' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . '(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $content, $matches, PREG_SET_ORDER) ) continue;
             foreach ( $matches as $index => $match ) {
                 $href = html_entity_decode((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), ENT_QUOTES | ENT_HTML5);
                 $parts = parse_url($href);

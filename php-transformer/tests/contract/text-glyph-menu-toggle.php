@@ -46,6 +46,8 @@ $assert((bool) preg_match('/responsive-container-open\{[^}]*color:(?:white|#fff(
 $assert((bool) preg_match('/responsive-container-open\{[^}]*background:transparent!important/', $css), 'The opener does not inherit the overlay background.');
 $assert((bool) preg_match('/responsive-container-open\{min-width:0!important;min-height:0!important/', $css), 'Intrinsic text sizing replaces the synthetic 44px touch floor.');
 $assert(str_contains($css, 'font:revert!important;letter-spacing:normal!important'), 'Native button metrics replace inherited navigation typography before source font replay.');
+// Issue #7266: Core's opener is a flex box; the source block button centred its glyph.
+$assert(str_contains($css, 'responsive-container-open{align-items:center!important;justify-content:center!important}'), 'The opener keeps the native button centring of its glyph.');
 // Check the host, not just the transparent leaf button: the source panel's
 // class survives on this visible box even while the source panel was hidden.
 $dom = new DOMDocument();

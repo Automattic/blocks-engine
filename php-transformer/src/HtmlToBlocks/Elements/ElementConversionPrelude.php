@@ -414,11 +414,10 @@ final class ElementConversionPrelude implements ElementConverter
             return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
         }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
-        // On a box-tree route the author sheet is retired and the carrier
-        // paragraph generates no box, so the element keeps its own captured
-        // box (display, margins, typography) through a carrier on itself.
-        $boxless = null === $identity ? $this->styleResolver->boxTreeBoxlessContent($element) : null;
-        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($boxless ?? $element);
+        // The carrier keeps the source inline and its classes for layout; the
+        // text it holds owns its colour inline, so a class rule on the kept
+        // inline does not override the colour control of an enclosing block.
+        $content = $this->richTextMaterializer->markupWithOwnedTextColors($element, null === $identity);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;

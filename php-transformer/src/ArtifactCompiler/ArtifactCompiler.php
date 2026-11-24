@@ -563,16 +563,30 @@ final class ArtifactCompiler
         }
         $fallbackEvidence = CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence);
         $sourceReports = array(
-            'box_tree' => BoxTreeReport::coverage($normalized['files']),
             'core_html_fallback_evidence' => $fallbackEvidence,
             'reusable_components' => $this->reusableComponentEvidence($entryPath, $entryBlocks['reusable_components'], $compiledHtmlDocuments, $generatedAssets),
             'layout_geometry_proof' => array_merge($entryBlocks['layout_geometry_proof'] ?? array(), ...array_values(array_map(static fn(array $document): array => $document['layout_geometry_proof'] ?? array(), $compiledHtmlDocuments))),
             'artifact' => $this->artifactInputReport($artifact, $normalized, $entryPath, $html, $referenceReports),
         );
         $sourceReports += self::capturedInteractionReports($capturedDialogs);
+        // Companion save functions may reconstruct hooks from attributes.
+        // Carry their declared vocabulary through the existing runtime contract.
+        foreach (array_column($allGeneratedBlocks, null, 'name') as $generated) {
+            if (empty($generated['runtime_class_names'])) continue;
+            $normalized['runtime_declarations'][] = array(
+                'kind' => 'class_contract',
+                'type' => (string) $generated['name'],
+                'source_path' => $entryPath,
+                'payload' => array('schema' => 'blocks-engine/runtime-class-contract/v1', 'classes' => $generated['runtime_class_names']),
+            );
+        }
+        $normalized['runtime_declarations'] = RuntimeDeclarations::normalizeList($normalized['runtime_declarations']);
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], ArrayField::array($entryBlocks, 'document_root_markers'), ArrayField::array($entryBlocks, 'design_usage'));
         $compiledSite['source_css_bytes'] = $normalized['source_css_bytes'];
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
+        // The theme's class namespace: the site plan publishes engine classes in it.
+        $classNamespace = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ClassPublisher::namespaceSlug($artifact['class_namespace'] ?? null);
+        if (null !== $classNamespace) $compiledSite['class_namespace'] = $classNamespace;
         $sourceReports['compiled_site'] = $compiledSite;
         $identityFailures = DocumentIdentity::compiledSiteFailures($compiledSite);
         foreach ( DocumentIdentity::diagnostics($identityFailures) as $identityDiagnostic ) {
@@ -1061,6 +1075,16 @@ final class ArtifactCompiler
             }
         };
 
+        // A shared shell is compiled under only the ancestor context its
+        // members share, so its support states the route-free baseline of the
+        // chrome. Each route's own compilation resolves the same chrome under
+        // that route's full context (a route class on <body> can select other
+        // values) and publishes the same selectors. The baseline therefore
+        // loads first and every route's support refines it; loaded after,
+        // it would override route-specific values with equal specificity.
+        // Identical support bytes may also belong to the evidence page; the
+        // page then merges into the shell's row and both keep their owners.
+        $append($sharedShellAssets, array('scope' => 'shared'));
         $append($entryAssets, $entryOwnership);
         $filesByPath = array_column($files, null, 'path');
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
@@ -1070,9 +1094,6 @@ final class ArtifactCompiler
                 FileOwnership::of($file)
             );
         }
-        // Identical support bytes may already belong to the evidence page.
-        // Merge the shell's consumers too, rather than dropping its ownership.
-        $append($sharedShellAssets, array('scope' => 'shared'));
 
         return $assets;
     }
@@ -1420,7 +1441,6 @@ final class ArtifactCompiler
             // A shared shell's projection joins every page's stylesheet, where
             // a rule it left unprojected would bypass the page's projection.
             'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
-            'box_tree' => $this->boxTreeForSource($files, $sourcePath),
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
         ));
         $blockCompilationOutput = $result->blockCompilationOutput;
@@ -1460,15 +1480,6 @@ final class ArtifactCompiler
             'document_root_markers' => $blockCompilationOutput->documentRootMarkers,
             'design_usage' => $blockCompilationOutput->designUsage,
         );
-    }
-
-    /** @param array<int,array<string,mixed>> $files @return array<string,mixed> */
-    private function boxTreeForSource(array $files, string $sourcePath): array
-    {
-        foreach ($files as $file) {
-            if ($sourcePath === $file['path']) return $file['box_tree'] ?? array();
-        }
-        return array();
     }
 
     private function layoutGeometryProofForSource(array $files, string $sourcePath): array
@@ -1943,7 +1954,7 @@ final class ArtifactCompiler
         $byPath = array_column($files, null, 'path');
         foreach ($split['statements'] as $statement) {
             $clean = rtrim(trim(preg_replace('#^(?:\s|/\*.*?\*/)*#s', '', $statement) ?? $statement), ';');
-            if (!preg_match('/^@import\s+(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')(.*)$/is', $clean, $match)) {
+            if (!preg_match('/^' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . '(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')(.*)$/is', $clean, $match)) {
                 $preamble[] = $statement;
                 continue;
             }
@@ -2715,68 +2726,11 @@ final class ArtifactCompiler
         );
     }
 
-    /**
-     * A route that sampled an extra viewport carries a responsive projection
-     * hook its peers lack, so its chrome reads as a different source group.
-     * Merge groups that differ only by projection hooks when box-tree
-     * evidence records their routes as chrome peers: their observations
-     * agree on every viewport they share ({@see BoxTreeReport}). Without that
-     * evidence a hook may select distinct responsive rules, so it keeps its
-     * own group.
-     *
-     * @param array<string,array<string,array<string,mixed>>> $groups Members by source identity.
-     * @return array<string,array<string,array<string,mixed>>>
-     */
-    private static function withChromePeerGroups(array $groups, string $area, int|string $variant): array
-    {
-        if (count($groups) < 2) return $groups;
-        $hook = '/\s*\b' . preg_quote(CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX, '/') . '[a-f0-9]{12}\b/';
-        $buckets = array();
-        foreach ($groups as $identity => $members) {
-            $row = current($members)['rows'][$area][$variant];
-            $withoutHooks = preg_replace('/\sclass="\s*"/', '', preg_replace($hook, '', (string) $row['identity']) ?? '') ?? '';
-            $buckets[hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup($withoutHooks))][] = $identity;
-        }
-        $peers = static function (array $members) use ($area, $variant): array {
-            $paths = array();
-            foreach ($members as $document) {
-                $root = preg_match('/^<[^>]*\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="([^"]*)"/', (string) $document['rows'][$area][$variant]['markup'], $match) ? $match[1] : null;
-                if (null !== $root) $paths = array_merge($paths, $document['chrome_peers'][$root] ?? array());
-            }
-            return $paths;
-        };
-        foreach ($buckets as $identities) {
-            if (count($identities) < 2) continue;
-            // Largest group first: it names the merged group.
-            usort($identities, static fn(string $a, string $b): int => count($groups[$b]) <=> count($groups[$a]));
-            $target = array_shift($identities);
-            foreach ($identities as $identity) {
-                if (array() === array_intersect($peers($groups[$identity]), array_keys($groups[$target]))) continue;
-                $groups[$target] += $groups[$identity];
-                unset($groups[$identity]);
-            }
-        }
-        return $groups;
-    }
-
     private static function withoutBoxTreeNodeIds(string $markup): string
     {
         return preg_replace('/\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $markup) ?? $markup;
     }
 
-    /**
-     * Split members into those that load every landmark stylesheet most
-     * members load, and those the shared shell serves. A landmark stylesheet
-     * is a style source that names one of the landmark's ids; route-only
-     * stylesheets still drop out of the shell head. A member loading other
-     * landmark stylesheets still shares the shell when its box-tree evidence
-     * proves its landmark renders like a conforming member's
-     * ({@see BoxTreeReport}); it never shapes the shell's head or context.
-     *
-     * @param array<string,array{content:string,rows:array<string,mixed>,chrome_peers:array<string,list<string>>}> $members
-     * @param array<int,array<string,mixed>> $files
-     * @return array{0:array<string,array<string,mixed>>,1:array<string,array<string,mixed>>} Conforming members, then every sharing member.
-     */
     private function membersSharingLandmarkStyles(array $members, string $area, int|string $variant, array $files, string $entryPath): array
     {
         $counts = array();
@@ -2798,11 +2752,7 @@ final class ArtifactCompiler
         }
         $shared = array_keys(array_filter($counts, static fn(int $count): bool => 2 * $count > count($members)));
         $conforming = array_filter($members, static fn(string $path): bool => array() === array_diff_key(array_flip($shared), $loaded[$path]), ARRAY_FILTER_USE_KEY);
-        $sharing = array_filter($members, static function (array $document, string $path) use ($conforming, $area, $variant): bool {
-            if (isset($conforming[$path])) return true;
-            $root = preg_match('/^<[^>]*\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="([^"]*)"/', (string) $document['rows'][$area][$variant]['markup'], $match) ? $match[1] : null;
-            return null !== $root && array() !== array_intersect($document['chrome_peers'][$root] ?? array(), array_keys($conforming));
-        }, ARRAY_FILTER_USE_BOTH);
+        $sharing = $conforming;
         return array($conforming, $sharing);
     }
 
@@ -2844,7 +2794,7 @@ final class ArtifactCompiler
             }
             unset($areaRows, $row);
             // Shared stylesheet comparison must not see route-specific capture IDs.
-            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows, 'chrome_peers' => $file['box_tree']['chrome_peers'] ?? array());
+            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows);
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
 
@@ -2860,7 +2810,6 @@ final class ArtifactCompiler
                     $groups[$variant][$row['source_identity']][$path] = $document;
                 }
             }
-            foreach ($groups as $variant => $variantGroups) $groups[$variant] = self::withChromePeerGroups($variantGroups, $area, $variant);
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
                 // A member whose landmark styles come from another stylesheet
                 // renders it under other rules and keeps its own copy, unless
@@ -2903,6 +2852,7 @@ final class ArtifactCompiler
                 $open = ''; $close = '';
                 foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . SourceShells::attributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
                 $synthetic = '<!doctype html><html' . SourceShells::attributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . SourceShells::attributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
+                ++$this->sharedShellCompilationCount;
                 $compiled = $this->compileHtmlDocumentBlocks($synthetic, $evidenceSourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
                 $generatedBlocks = array_merge($generatedBlocks, $compiled['generated_blocks'] ?? array());
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
@@ -3510,7 +3460,6 @@ final class ArtifactCompiler
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titles->titleFromHtml($html, $sourcePath);
         $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
         $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
-        if (array() !== $this->boxTreeForSource($files, $sourcePath)) $metadata['engine_owned_styles'] = true;
         $metadata = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::withRouteSets($metadata, $this->routeSets);
         if ( array() !== $projectedRootMarkers ) {
             $rootClasses = array_values(array_filter(SourceDom::tokens((string) ($metadata['root_attributes']['class'] ?? '')), static fn(string $class): bool => '' !== $class));

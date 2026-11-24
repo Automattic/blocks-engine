@@ -81,6 +81,27 @@ final class ArtifactNormalizer
      */
     public function normalize(array $artifact): array
     {
+        return $this->normalizeArtifact($artifact, true);
+    }
+
+    /**
+     * Normalize an internal partition envelope whose inline payloads were
+     * already expanded and validated by a full normalize() pass.
+     *
+     * @param array<string, mixed> $artifact
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
+     */
+    public function normalizeExpanded(array $artifact): array
+    {
+        return $this->normalizeArtifact($artifact, false);
+    }
+
+    /**
+     * @param array<string, mixed> $artifact
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
+     */
+    private function normalizeArtifact(array $artifact, bool $expandInlineFiles): array
+    {
         $runtimeDeclarations = RuntimeDeclarations::normalize($artifact);
         $diagnostics = array();
         $files = array();
@@ -111,11 +132,15 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
-        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
-        $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
-            $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
-            $limits['max_files']
-        );
+        // Partition envelopes already contain the canonical expansion. Reuse
+        // it rather than rescanning every source document for inline payloads.
+        if ($expandInlineFiles) {
+            $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
+            $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
+                $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
+                $limits['max_files']
+            );
+        }
         $rawFiles = array_values(self::reportsBeforeSidecars($rawFiles));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
@@ -353,12 +378,6 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
-        $boxTrees = BoxTreeReport::read($files);
-        $diagnostics = array_merge($diagnostics, $boxTrees['diagnostics']);
-        foreach ($files as &$file) {
-            if ('html' === $file['kind']) $file['box_tree'] = $boxTrees['trees'][$file['path']] ?? array();
-        }
-        unset($file);
         $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
@@ -411,6 +430,15 @@ final class ArtifactNormalizer
      * @param array<array-key,array<string,mixed>> $files
      * @return array<array-key,array<string,mixed>>
      */
+    /**
+     * Box-tree intake is off by default (#7352): the import is the import of
+     * the same capture without sidecars, and the withheld evidence is
+     * reported rather than silently ignored.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array{trees:array<string,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+
     public static function reportsBeforeSidecars(array $files): array
     {
         $normalizer = new self();

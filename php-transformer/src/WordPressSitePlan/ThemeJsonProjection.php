@@ -185,7 +185,7 @@ final class ThemeJsonProjection
         }
         $selected = $this->sharedDefaults(array_values($selected), $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
-        $theme = $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport'], $system);
+        $theme = $this->theme($selected, $presets, $this->fontFaces($assets, $documentPaths), $responsiveBreakpoints['viewport'], $system);
         if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, array_replace($this->authoredElementProperties($deliveryAssets, $variables), $contestedProperties));
         $deliveryAssets = $this->withoutRegisteredFontFaces($deliveryAssets, $assets, $theme);
         $theme = self::withCollapsedFontFaceWeights($theme);
@@ -389,12 +389,38 @@ final class ThemeJsonProjection
      * authored-CSS owned because theme.json cannot carry their payload.
      *
      * @param array<int,array<string,mixed>> $assets
+     * @param list<string> $documentPaths
      * @return array<int,array<string,mixed>>
      */
-    private function fontFaces(array $assets): array
+    private function fontFaces(array $assets, array $documentPaths): array
     {
+        $rules = $this->fontFaceRules($assets);
+        // Resource inventory order is not cascade order (notably A,B,A).
+        // Global registration follows the first document's source sequence;
+        // assets without instances retain their inventory slots.
+        foreach ($documentPaths as $source) {
+            $positions = array();
+            foreach ($assets as $index => $asset) foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                if ($source === $instance['source_path']) $positions[$index] = max($positions[$index] ?? -1, $instance['order']);
+            }
+            if (array() === $positions) continue;
+            $slots = array();
+            $ordered = array();
+            foreach ($rules as $index => $rule) if (isset($positions[$rule['asset']])) {
+                $slots[] = $index;
+                $ordered[] = $rule;
+            }
+            usort($ordered, static fn(array $left, array $right): int => $positions[$left['asset']] <=> $positions[$right['asset']] ?: $left['start'] <=> $right['start']);
+            foreach ($slots as $index => $slot) $rules[$slot] = $ordered[$index];
+            break;
+        }
         $faces = array();
-        foreach ($this->fontFaceRules($assets) as $rule) $faces[self::fontFaceKey($rule['face'])] ??= $rule['face'];
+        foreach ($rules as $rule) {
+            $key = self::fontFaceKey($rule['face']);
+            // An exact repeated face must keep its last, not first, position.
+            unset($faces[$key]);
+            $faces[$key] = $rule['face'];
+        }
         return array_values($faces);
     }
 
@@ -887,6 +913,13 @@ final class ThemeJsonProjection
             if (array() === ($styles['elements'][$level]['color'] ?? array())) unset($styles['elements'][$level]['color']);
             if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
         }
+        // A heading level restating the heading element's typeface renders
+        // nothing the `heading` element does not, but Global Styles prints
+        // the level rule after it, so the level copy would pin that typeface
+        // against every later edit of the heading element. Drop the
+        // restatement and let the level follow the heading element. Level
+        // colours stay: authored CSS restates them as the level's own paint.
+        $styles = self::withoutRestatedHeadingLevels($styles);
         // Absence of a unanimous element look means inheritance, not absence
         // of an editable element in Global Styles. Keep that default explicit
         // without promoting a section's colour or a heading level's typeface
@@ -912,6 +945,31 @@ final class ThemeJsonProjection
         $theme['settings'] = $settings;
         $theme['styles'] = $styles;
         return $theme;
+    }
+
+    /**
+     * Drops `h1`–`h6` element typefaces equal to the `heading` element's,
+     * pruning what the drop leaves empty.
+     *
+     * @param array<string,mixed> $styles
+     * @return array<string,mixed>
+     */
+    private static function withoutRestatedHeadingLevels(array $styles): array
+    {
+        $heading = $styles['elements']['heading'] ?? null;
+        if (!is_array($heading)) return $styles;
+        foreach (array(array('typography', 'fontFamily')) as [$group, $key]) {
+            $value = $heading[$group][$key] ?? null;
+            if (!is_string($value) || '' === trim($value)) continue;
+            foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $level) {
+                $written = $styles['elements'][$level][$group][$key] ?? null;
+                if (!is_string($written) || strtolower(trim($written)) !== strtolower(trim($value))) continue;
+                unset($styles['elements'][$level][$group][$key]);
+                if (array() === ($styles['elements'][$level][$group] ?? array())) unset($styles['elements'][$level][$group]);
+                if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
+            }
+        }
+        return $styles;
     }
 
     /**

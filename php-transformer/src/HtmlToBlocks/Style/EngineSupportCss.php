@@ -69,6 +69,14 @@ final class EngineSupportCss
     );
 
     /**
+     * Zero-margin boxes listed only in a document that serializes them, so a
+     * document without one keeps its flow revert selectors byte for byte.
+     */
+    private const DOCUMENT_ZERO_MARGIN_BOX_CLASSES = array(
+        SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS,
+    );
+
+    /**
      * @return list<string>
      */
     public function beforeAuthorCss(string $serializedBlocks): array
@@ -212,6 +220,23 @@ final class EngineSupportCss
                 // instead of its intrinsic aspect ratio.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS) ) {
+            // The figure carries the source video's aspect-ratio box. The
+            // video fills it (letterboxed by its default object-fit) as the
+            // source did; with no definite figure height, 100% stays auto.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS) ) {
+            // The source frame covered its positioned containing block, which
+            // the converted ancestors keep. The figure takes over that layer,
+            // and core's wrapper and the oEmbed iframe fill it.
+            $fill = ':root :where(figure.' . SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS . ')';
+            $parts[] = $fill . '{position:absolute;top:0;left:0;width:100%;height:100%}'
+                // The editor positions every block root relative to itself.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS . '.wp-block-embed{position:absolute}'
+                . $fill . '>.wp-block-embed__wrapper{height:100%}'
+                . $fill . '>.wp-block-embed__wrapper iframe{display:block;width:100%;height:100%}';
+        }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
         }
@@ -305,7 +330,11 @@ final class EngineSupportCss
             // Author img selectors can newly match the synthetic leaf. Keep
             // its stacking inside the background figure so it cannot rise
             // above content that painted over the original background.
-            $parts[] = ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '){isolation:isolate!important}'
+            // Paint is out of flow even when the host has only min-height.
+            // Low specificity lets authored positioning keep its containing block.
+            $parts[] = ':where(.' . ImageLowering::BACKGROUND_IMAGE_HOST_CLASS . '){position:relative}'
+                . "\n" . ':root .' . ImageLowering::BACKGROUND_IMAGE_HOST_CLASS . '>.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '{position:absolute;inset:0;margin:0}'
+                . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . '){isolation:isolate!important}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){width:100%;height:100%}'
                 // A propagated link has no source box. Size Core's auto-height
@@ -316,7 +345,7 @@ final class EngineSupportCss
                 . "\n" . ':root :where(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
         }
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
-            $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
+            $parts[] = self::inlineLayoutCarrierBoxCss(AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS);
             // An anchor inside the carrier exists only because a content-wrapping
             // link was pushed down onto it. It has no presentation of its own,
             // but as a block box it establishes a line box from the inherited
@@ -341,7 +370,7 @@ final class EngineSupportCss
                 . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
-            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p' . self::notZeroMarginBox() . '){margin-top:revert;margin-bottom:revert}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p' . self::notZeroMarginBox($serializedBlocks) . '){margin-top:revert;margin-bottom:revert}';
         }
         if ( str_contains($serializedBlocks, ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
@@ -430,7 +459,7 @@ final class EngineSupportCss
             // Cancel Core's author-origin flow margins, not the source's UA
             // margins (notably p's 1em). Author CSS follows and remains in
             // control; synthesized boxes get their own zero-margin resets.
-            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
+            $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox($serializedBlocks) . '){margin-block-start:revert;margin-block-end:revert}';
             // Native flex groups also have Core's physical margin:0 reset.
             // Beat Core's (0,1,1) inline reset. marginSelectorPrelude gives
             // authored margins on these items the same two-class baseline,
@@ -438,7 +467,7 @@ final class EngineSupportCss
             // Emit only for markup using this contract, keeping unrelated
             // CSS-owned flow documents' stylesheets unchanged.
             if ( preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . self::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $serializedBlocks) ) {
-                $parts[] = ':root:root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox() . '){margin:revert}';
+                $parts[] = ':root:root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox($serializedBlocks) . '){margin:revert}';
             }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
@@ -485,6 +514,26 @@ final class EngineSupportCss
     }
 
     /**
+     * The inline layout carrier paragraph is boxless, so its inline content
+     * lays out in the source's own box, and its box resets outrank theme and
+     * layout spacing. A carrier the editor's spacing or border controls have
+     * styled (core serializes them inline as `margin-*`, `padding-*` and
+     * `border-*`) must show that setting: the reset steps aside for each
+     * property the block sets, and the carrier takes a box to paint it on.
+     * Imported carriers carry no such inline style, so they stay boxless.
+     */
+    private static function inlineLayoutCarrierBoxCss(string $class): string
+    {
+        $carrier = 'p.' . $class;
+        $rules = array(':where(' . $carrier . '){display:contents}');
+        foreach ( array('margin', 'padding', 'border') as $property ) {
+            $rules[] = ':where(' . $carrier . ':not([style*=' . $property . '])){' . $property . ':0!important}';
+        }
+        $rules[] = ':where(' . $carrier . ':is([style*=margin],[style*=padding],[style*=border])){display:inline-block}';
+        return implode("\n", $rules);
+    }
+
+    /**
      * Zero-margin defaults for boxes synthesized by block serialization.
      *
      * With author layers, HtmlCompilation pairs these defaults in the engine
@@ -493,9 +542,16 @@ final class EngineSupportCss
      *
      * @return list<string>
      */
-    private static function notZeroMarginBox(): string
+    private static function notZeroMarginBox(string $serializedBlocks): string
     {
-        return ':not(.' . implode(',.', self::ZERO_MARGIN_BOX_CLASSES) . ')';
+        $classes = self::ZERO_MARGIN_BOX_CLASSES;
+        foreach ( self::DOCUMENT_ZERO_MARGIN_BOX_CLASSES as $class ) {
+            if ( str_contains($serializedBlocks, $class) ) {
+                $classes[] = $class;
+            }
+        }
+
+        return ':not(.' . implode(',.', $classes) . ')';
     }
 
     public function coreDefaultResetCss(string $serializedBlocks): array
@@ -520,6 +576,9 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){margin:0}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS) ) {
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . '){margin:0}';
         }
         if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
             $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
@@ -581,7 +640,7 @@ final class EngineSupportCss
      *
      * @return list<CascadeRule>
      */
-    public function generatedMarkupRepairCss(string $serializedBlocks): array
+    public function generatedMarkupRepairCss(string $serializedBlocks, bool $layeredProviderFormBoxMargin = false): array
     {
         $parts = array();
         if (str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::CLIPPED_SUBMENU_CLASS)) {
@@ -680,6 +739,23 @@ final class EngineSupportCss
             // A source link restored around frozen component content adds only
             // navigation: its content keeps the source box and paint.
             $parts[] = ':root :where(a.' . FallbackEmitter::LINK_CONTENTS_CLASS . '){display:contents;color:inherit;text-decoration:inherit}';
+        }
+        if ( 1 === preg_match('/<input\b[^>]*\btype\s*=\s*["\']?date["\'\s>\/]/i', $serializedBlocks) ) {
+            // A source date control hands off to the provider's date field,
+            // which prints a visible "YYYY-MM-DD" format hint the source never
+            // painted. Its description link (aria-describedby) survives
+            // display:none; the hints row stops boxing so other hints stay put.
+            $parts[] = '.grunion-field-wrap .contact-form__field-hints:has(>.contact-form__field-format){display:contents}'
+                . "\n" . '.grunion-field-wrap .contact-form__field-hints>.contact-form__field-format{display:none}';
+        }
+        if ( $layeredProviderFormBoxMargin && 1 === preg_match('/<form\b[^>]*\bclass="[^"]*\bwp-block-group\b/', $serializedBlocks) ) {
+            // A source form box survives as a Group inside the provider's
+            // flex form block, whose Core flex-item reset (0,1,1) would erase
+            // its authored margins (`mx-auto` centering, stacking). Hand the
+            // box's margin back to the layered author cascade. Only when every
+            // author margin on those boxes is layered: `revert-layer` here
+            // would also roll back an unlayered author margin.
+            $parts[] = 'body :where(.wp-block-jetpack-contact-form.is-layout-flex)>div.wp-block-group{margin:revert-layer}';
         }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists

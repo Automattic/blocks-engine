@@ -181,14 +181,14 @@ final class DeclarationAddressedClasses
         $paths = array_filter($replacements, static fn (string $key): bool => str_starts_with($key, 'assets/css/'), ARRAY_FILTER_USE_KEY);
         // Replacement keys are provisional identities and stylesheet paths;
         // a key without either prefix cannot change and skips strtr().
-        $prefixedKeys = array() === array_filter(array_keys($replacements), static fn (int|string $key): bool => ! str_contains((string) $key, 'blocks-engine-') && ! str_contains((string) $key, 'assets/css/'));
+        $prefixedKeys = array() === array_filter(array_keys($replacements), static fn (int|string $key): bool => ! str_contains((string) $key, 'blocks-engine-') && ! str_contains((string) $key, 'be-inline-geometry-') && ! str_contains((string) $key, 'assets/css/'));
         return fn (mixed $value): mixed => $this->rewriteValue($value, $replacements, $paths, $prefixedKeys);
     }
 
     /** @param array<string, string> $replacements */
     private static function rewriteKey(string $key, array $replacements, bool $prefixedKeys): string
     {
-        if (array() === $replacements || ($prefixedKeys && ! str_contains($key, 'blocks-engine-') && ! str_contains($key, 'assets/css/'))) {
+        if (array() === $replacements || ($prefixedKeys && ! str_contains($key, 'blocks-engine-') && ! str_contains($key, 'be-inline-geometry-') && ! str_contains($key, 'assets/css/'))) {
             return $key;
         }
         return strtr($key, $replacements);
@@ -216,6 +216,9 @@ final class DeclarationAddressedClasses
             // Every provisional identity contains the literal prefix.
             if (array() !== $replacements && str_contains($value, 'blocks-engine-')) {
                 $value = preg_replace_callback(self::PATTERN, static fn (array $match): string => $replacements[$match[0]] ?? $match[0], $value) ?? $value;
+            }
+            if (array() !== $replacements && str_contains($value, 'be-inline-geometry-')) {
+                $value = preg_replace_callback('/be-inline-geometry-[a-f0-9]{16}\b/', static fn (array $match): string => $replacements[$match[0]] ?? $match[0], $value) ?? $value;
             }
             return str_contains($value, 'assets/css/') ? strtr($value, $paths) : $value;
         }
