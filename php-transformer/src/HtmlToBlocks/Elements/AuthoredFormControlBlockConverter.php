@@ -18,7 +18,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
@@ -53,7 +52,7 @@ final class AuthoredFormControlBlockConverter
         ?Closure $richTextLabelContent = null,
         ?Closure $editableLabelContent = null,
         private readonly ?WrapperCoalescer $wrapperCoalescer = null,
-        private readonly ?Closure $controlTextDeclarations = null
+        private readonly ?Closure $controlTextColor = null
     ) {
         $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
         $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
@@ -619,21 +618,17 @@ final class AuthoredFormControlBlockConverter
     }
 
     /**
-     * The text colour a source class rule paints on a native control. The
+     * The text colour a source class recipe paints on a native control. The
      * published control keeps its author classes, so without a block setting
      * that class rule, not the block, decides the label's colour and a colour
      * set on any containing block never reaches it. Promoting it to the
-     * label's native colour support makes the block own it (#7227). An
-     * inline source colour already stays on the native box, and a colour a
-     * breakpoint owns stays with its class rule.
+     * label's native colour support makes the block own it (#7227). Colour
+     * the class does not own alone (inline, contextual, conditional) stays
+     * where it is.
      */
     private function sourceClassTextColor(DOMElement $control): string
     {
-        if (null === $this->controlTextDeclarations || '' !== trim((string) (SourceDeclarations::inline($control)['color'] ?? ''))) return '';
-        $color = trim((string) (($this->controlTextDeclarations)($control)['color'] ?? ''));
-        if ('' === $color || preg_match('/[;{}<>"]/', $color) || in_array(strtolower($color), array('inherit', 'unset', 'initial', 'revert', 'currentcolor'), true)) return '';
-
-        return $color;
+        return null === $this->controlTextColor ? '' : (string) ($this->controlTextColor)($control);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool

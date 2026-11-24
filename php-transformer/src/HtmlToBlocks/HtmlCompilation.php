@@ -609,11 +609,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
             $this->richTextStylingHooks->inlineContent(...),
             $this->wrapperCoalescer,
-            fn (DOMElement $control): array => $this->styleResolver->stripResponsiveClassOwnedDeclarations(
-                $control,
-                array_intersect_key($this->richTextMaterializer->inlineVisualDeclarations($control), array( 'color' => true )),
-                true
-            )
+            $this->styleResolver->classRecipeTextColor(...)
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,

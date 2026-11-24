@@ -14,9 +14,12 @@ $html = '<html><head><link rel="stylesheet" href="s.css"></head><body><main><sec
     . '<p class="muted">Try an example</p>'
     . '<form><input name="q" data-blocks-engine-capture-native-control-state=\'{"version":1,"kind":"input","type":"text","value":"","defaultValue":""}\'>'
     . '<button type="button" class="action muted">Muted example</button>'
-    . '<button type="button" class="action" style="color:#123456">Inline example</button></form>'
+    . '<button type="button" class="action" style="color:#123456">Inline example</button>'
+    . '<button type="button" class="action plain">Context example</button>'
+    . '<button type="button" class="action narrow">Narrow example</button></form>'
     . '</section></main></body></html>';
-$css = ':root{--muted:rgb(157 151 144)}body{color:#2a2a28}.muted{color:var(--muted)}.action{padding:8px;border:1px solid #ccc;text-align:left}';
+$css = ':root{--muted:rgb(157 151 144)}body{color:#2a2a28}.muted{color:var(--muted)}.action{padding:8px;border:1px solid #ccc;text-align:left}'
+    . '.wrap .plain{color:#654321}.narrow{color:#224466}@media (max-width:600px){.narrow{color:#884422}}';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => $html),
     array('path' => 's.css', 'content' => $css),
@@ -38,5 +41,13 @@ if (!str_contains($markup, '"blocksEngineControlBox":{"type":"button","class":"a
 [$attrs] = $labels['Inline example'] ?? throw new RuntimeException('Missing the inline control label: ' . $markup);
 if (isset($attrs['textColor']) || isset($attrs['style']['color'])) {
     throw new RuntimeException('An inline source colour stays on the native box, not the label: ' . $markup);
+}
+// Colour a class recipe does not own alone (a contextual selector, or a
+// breakpoint) keeps its stylesheet ownership rather than freezing inline.
+foreach (array('Context example', 'Narrow example') as $text) {
+    [$attrs] = $labels[$text] ?? throw new RuntimeException('Missing the ' . $text . ' label: ' . $markup);
+    if (isset($attrs['textColor']) || isset($attrs['style']['color'])) {
+        throw new RuntimeException($text . ' must keep its stylesheet colour ownership: ' . $markup);
+    }
 }
 echo "PASS: class-painted control labels own their text colour natively\n";
