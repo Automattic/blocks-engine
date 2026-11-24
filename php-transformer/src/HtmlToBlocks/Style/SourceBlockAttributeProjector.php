@@ -302,6 +302,22 @@ final class SourceBlockAttributeProjector
     }
 
     /**
+     * Whether the source <video>'s own declarations fix its block size: an
+     * aspect ratio, or a definite non-percentage height.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function sizesVideoBlockAxis(array $declarations): bool
+    {
+        $aspectRatio = CssValueInspector::declared($declarations, 'aspect-ratio');
+        if ( '' !== $aspectRatio && 'auto' !== $aspectRatio && ! in_array($aspectRatio, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+            return true;
+        }
+        $height = CssValueInspector::declared($declarations, 'height');
+        return 1 === preg_match('/^(?:\d*\.?\d+(?:px|r?em|vh|svh|lvh|dvh|vmin|vmax|ch|ex|lh|cm|mm|in|pt|pc|q)|(?:calc|clamp|min|max)\(.*\))$/', $height);
+    }
+
+    /**
      * Zero-specificity size hints for a video's HTML dimensions, and its fill class.
      *
      * @param array<string, mixed> $attrs
@@ -341,11 +357,12 @@ final class SourceBlockAttributeProjector
             if ( '100%' === CssValueInspector::declared($declarations, 'width')
                 && '100%' === CssValueInspector::declared($declarations, 'height') ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
-            } elseif ( $this->declaresAspectRatio($sourceElement) ) {
-                // The authored ratio (`.aspect-video{aspect-ratio:16/9}`)
-                // sized the <video> box and letterboxed its frames. Projected,
-                // it sizes the figure instead, so the video must fill that box
-                // rather than take its intrinsic (often portrait) ratio.
+            } elseif ( $this->declaresAspectRatio($sourceElement) || $this->sizesVideoBlockAxis($declarations) ) {
+                // The source box (`.aspect-video{aspect-ratio:16/9}` or a fixed
+                // height) sized the <video> and letterboxed its frames.
+                // Projected, it sizes the figure instead, so the video must
+                // fill that box rather than take its intrinsic (often portrait)
+                // ratio.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS);
             }
         }

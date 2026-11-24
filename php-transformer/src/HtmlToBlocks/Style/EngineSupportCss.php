@@ -221,10 +221,15 @@ final class EngineSupportCss
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS) ) {
-            // The figure carries the source video's aspect-ratio box. The
-            // video fills it (letterboxed by its default object-fit) as the
-            // source did; with no definite figure height, 100% stays auto.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
+            // The figure carries the source video's sized box (an aspect ratio
+            // or a fixed height). The video fills it as the source did; with
+            // no definite figure height, 100% stays auto.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}'
+                // A native video letterboxes its poster and frames (`contain`)
+                // unless the source chose a fit, whose class now sits on the
+                // figure. Core covers any poster; restore the source fit.
+                . ':where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . '){object-fit:contain}'
+                . '.wp-block-video.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . '>video{object-fit:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS) ) {
             // The source frame covered its positioned containing block, which
