@@ -5688,6 +5688,32 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->cascadeWinners($state->matchingRules($element, 'static'), self::DESKTOP_REFERENCE_WIDTH, null, SourceDom::attr($element, 'style'), true);
     }
 
+    /**
+     * The resting text colour an author class recipe on the element itself
+     * paints (`.text-muted{color:…}`), resolved to a static value, or '' when
+     * the colour is not a class's alone to hand to native colour support:
+     * an inline source colour, a contextual or element selector (`.card
+     * button`), a media-conditional rule or custom property, `!important`,
+     * or a CSS-wide keyword. Those keep their stylesheet ownership, since an
+     * inline block colour would freeze them at every width and context.
+     */
+    public function classRecipeTextColor(DOMElement $element): string
+    {
+        if ( isset(SourceDeclarations::inline($element)['color']) ) return '';
+        $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
+        if ( array() === array_filter($classes, static fn (string $class): bool => ! str_starts_with($class, 'blocks-engine-')) ) return '';
+        if ( '0' !== (string) ( $this->staticRecipeOrigins($element)['color'] ?? '' ) ) return '';
+        if ( $this->hasConditionalStyleFamily($element, 'color') || $this->readsConditionalCustomProperty($element, array( 'color' )) ) return '';
+        $value = trim((string) ( SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element))['color'] ?? '' ));
+        if ( '' === $value || CssValueInspector::isImportant($value)
+            || in_array(strtolower($value), array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer', 'currentcolor', 'transparent' ), true) ) return '';
+        $resolved = trim($this->customProperties->resolve($value, $element));
+        // An undefined author custom property has no static value to own.
+        if ( '' === $resolved || 1 === preg_match('/var\(\s*--(?!wp--preset--)/i', $resolved) || 1 === preg_match('/[;{}<>"]/', $resolved) ) return '';
+
+        return $resolved;
+    }
+
     /** Only a selector that matches the element by itself, with no ancestry or position, defines a portable recipe. */
     private function isClassRecipeSelector(string $selector): bool
     {
