@@ -1508,7 +1508,10 @@ final class CssStylesheetTransformer
             $span = $tokens['compound_spans'][$last];
             $pseudo = self::pseudoElementOffset($tokens['compounds'][$last]);
             $insert = null === $pseudo ? $span['end'] : $span['start'] + $pseudo;
-            $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
+            // A subject after a combinator has a parent or a previous sibling,
+            // so it is never the root: only the descendant alternative can hold.
+            $subjectGuard = $tokens['supported'] && $last > 0 ? ':where(' . $root . ' *)' : $guard;
+            $arm = substr($arm, 0, $insert) . $subjectGuard . substr($arm, $insert);
         }
         unset($arm);
         return $arms;
@@ -1655,6 +1658,21 @@ final class CssStylesheetTransformer
             }
         }
         return null;
+    }
+
+    /**
+     * Whether any compound of a complex selector names a pseudo-element. Such
+     * a selector is not valid inside `:is()`/`:where()`, where it matches
+     * nothing. An unreadable selector is reported as naming none.
+     */
+    public static function namesPseudoElement(string $selector): bool
+    {
+        $tokens = CssSelectorTokenizer::tokenize(trim($selector));
+        if (!$tokens['supported']) return false;
+        foreach ($tokens['compounds'] as $compound) {
+            if (null !== self::pseudoElementOffset($compound)) return true;
+        }
+        return false;
     }
 
     /** Byte offset of a top-level pseudo-element in a compound, if any. */
