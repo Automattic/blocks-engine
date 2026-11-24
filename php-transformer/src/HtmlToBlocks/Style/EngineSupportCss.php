@@ -65,6 +65,7 @@ final class EngineSupportCss
         SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS,
         SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS,
         SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS,
+        SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS,
         HtmlCompilation::LOWERED_PARAGRAPH_CLASS,
     );
 
@@ -211,6 +212,12 @@ final class EngineSupportCss
                 // video so it keeps the source box (and object-fit letterbox)
                 // instead of its intrinsic aspect ratio.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS) ) {
+            // The figure carries the source video's aspect-ratio box. The
+            // video fills it (letterboxed by its default object-fit) as the
+            // source did; with no definite figure height, 100% stays auto.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . ')>video{width:100%;height:100%}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::FILL_EMBED_FIGURE_CLASS) ) {
             // The source frame covered its positioned containing block, which
@@ -535,6 +542,9 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){margin:0}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS) ) {
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS . '){margin:0}';
         }
         if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
             $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
