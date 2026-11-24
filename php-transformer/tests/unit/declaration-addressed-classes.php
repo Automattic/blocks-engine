@@ -69,6 +69,29 @@ $assert($address($a, $base) !== $address($b, $base, array('stylesheet_target' =>
 $ab = '.CONTROL{color:red}.CONTROL{color:blue}';
 $assert($address($a, $ab) !== $address($b, $ab . '.CONTROL{color:red}'), 'A/B/A cascade order is not deduplicated into A/B.');
 $assert($address($a, '.CONTROL{--Case:"A;B";color:var(--Case)}') !== $address($b, '.CONTROL{--case:"A;B";color:var(--case)}'), 'Strings and case-sensitive custom properties survive normalization.');
+// A carrier in a nested alternative list the compactor cannot expand (the
+// outer list mixes specificities) keeps one address whatever its sibling
+// alternatives are provisionally called, how many there are and where it sits
+// among them, so identical controls on two routes publish one class instead
+// of one per route. Siblings that decide which elements match (under
+// `:not()`/`:has()`) and carriers in its own branch keep their names.
+$nested = static fn (string ...$siblings): string => '.page :is(.panel[hidden],#menu,.dm-active>:is(' . implode(',', array_map(static fn (string $sibling): string => $sibling === 'CONTROL' ? ':where(.CONTROL):not(.be-c-0)' : ':where(.' . $sibling . '):not(.be-c-0)', $siblings)) . ')){display:none}';
+$first = 'blocks-engine-control-111111111111-0';
+$second = 'blocks-engine-control-222222222222-3';
+$third = 'blocks-engine-control-333333333333-1';
+$assert($address($a, $nested($first, 'CONTROL')) === $address($a, $nested($second, 'CONTROL')), 'Sibling alternatives\' provisional names do not enter a carrier\'s address.');
+$assert($address($a, $nested($first, 'CONTROL')) === $address($a, $nested('CONTROL', $second, $third)), 'Sibling alternatives\' count and order do not enter a carrier\'s address.');
+$assert($address($a, $nested($first, 'CONTROL')) !== $address($a, $nested('blocks-engine-semantic-111111111111-0', 'CONTROL')), 'A sibling\'s carrier kind still enters the address.');
+$assert($address($a, '.page :is(.x,:is(.' . $first . ',.CONTROL)){color:red}') !== $address($a, '.page :is(#x,:is(.' . $first . ',.CONTROL)){color:red}'), 'Non-carrier siblings that weigh the list keep their text.');
+foreach (array(
+    static fn (string $peer): string => '.page :is(#menu,.' . $peer . ' .CONTROL){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.CONTROL.' . $peer . '){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.CONTROL:not(.x,.' . $peer . ')){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.x:not(:is(.CONTROL,.' . $peer . '))){display:none}',
+    static fn (string $peer): string => '.page :is(#menu,.CONTROL:has(>.x,>.' . $peer . ')){display:none}',
+) as $branch) {
+    $assert($address($a, $branch($first)) !== $address($a, $branch($second)), 'Carriers that decide which elements match keep their names in the address.');
+}
 $map = $identity->replacements(array(array('content' => '.' . $a . '{color:red}')));
 $content = '.' . $a . '{color:red}';
 $path = 'assets/css/test-' . substr(hash('sha256', $content), 0, 16) . '.css';
