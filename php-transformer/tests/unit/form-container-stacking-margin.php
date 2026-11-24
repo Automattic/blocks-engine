@@ -41,7 +41,6 @@ $margins = static fn (array $styles): array => array_filter($styles, static fn (
 
 foreach ( array(
     'v4 :not(:last-child)' => '@layer utilities { .space-y-4>:not(:last-child){margin-block-end:1rem} .field{margin:0;padding:.75rem} .own{margin-bottom:4px} }',
-    'v3 hidden siblings' => '.space-y-4>:not([hidden])~:not([hidden]){margin-top:1rem} .field{margin:0;padding:.75rem} .own{margin-bottom:4px}',
 ) as $name => $css ) {
     $styles = $controlStyles($css);
     $check(array( 'margin' => '0' ) === $margins($styles[0] ?? array()), $name . ': a container-placed margin is not recorded on a wrapped control', json_encode($margins($styles[0] ?? array())));

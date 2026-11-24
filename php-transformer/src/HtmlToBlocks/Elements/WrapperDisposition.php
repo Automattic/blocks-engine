@@ -22,11 +22,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
  * a role, an interactive attribute, an unmatched selector, ...) that kept or
  * dropped the wrapper.
  *
- * This value object is intentionally generic: it is the first of several
- * call sites across wrapper coalescing expected to adopt it (see
- * php-transformer issue #1935). Only `coalesce`/`preserve` are produced by
- * this slice; `fold` and `css-owned` are named here so later slices do not
- * need to introduce a second, incompatible vocabulary.
+ * A refusal also names the {@see WrapperDecision} stage (geometry, identity
+ * or restatement) whose guard produced it, so a kept wrapper says not only
+ * which signal kept it but which question that signal answered.
+ *
+ * This value object is intentionally generic: {@see WrapperDecision} is its
+ * owner (#1935, #7471), and the remaining wrapper call sites adopt it in
+ * later byte-identical slices. Only `coalesce`/`preserve` are produced so
+ * far; `fold` and `css-owned` are named here so later slices do not need to
+ * introduce a second, incompatible vocabulary.
  */
 final class WrapperDisposition
 {
@@ -37,23 +41,29 @@ final class WrapperDisposition
 
     private function __construct(
         public readonly string $kind,
-        public readonly string $reason
+        public readonly string $reason,
+        public readonly ?string $stage = null
     ) {
     }
 
-    public static function preserve(string $reason): self
+    public static function preserve(string $reason, ?string $stage = null): self
     {
-        return new self(self::PRESERVE, $reason);
+        return new self(self::PRESERVE, $reason, $stage);
     }
 
-    public static function fold(string $reason): self
+    public static function fold(string $reason, ?string $stage = null): self
     {
-        return new self(self::FOLD, $reason);
+        return new self(self::FOLD, $reason, $stage);
     }
 
-    public static function coalesce(string $reason): self
+    public static function coalesce(string $reason, ?string $stage = null): self
     {
-        return new self(self::COALESCE, $reason);
+        return new self(self::COALESCE, $reason, $stage);
+    }
+
+    public static function cssOwned(string $reason, ?string $stage = null): self
+    {
+        return new self(self::CSS_OWNED, $reason, $stage);
     }
 
     public function isCoalesce(): bool
@@ -61,4 +71,8 @@ final class WrapperDisposition
         return self::COALESCE === $this->kind;
     }
 
+    public function isPreserve(): bool
+    {
+        return self::PRESERVE === $this->kind;
+    }
 }

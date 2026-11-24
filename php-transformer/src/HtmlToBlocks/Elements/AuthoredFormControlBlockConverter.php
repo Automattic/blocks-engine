@@ -51,7 +51,8 @@ final class AuthoredFormControlBlockConverter
         private readonly Closure $projectSourceTags,
         ?Closure $richTextLabelContent = null,
         ?Closure $editableLabelContent = null,
-        private readonly ?WrapperCoalescer $wrapperCoalescer = null
+        private readonly ?WrapperCoalescer $wrapperCoalescer = null,
+        private readonly ?Closure $controlTextColor = null
     ) {
         $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
         $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
@@ -602,15 +603,32 @@ final class AuthoredFormControlBlockConverter
             $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
         }
         if (!isset($attributes['type'])) $attributes['type'] = 'submit';
-        $label = $this->createBlock->createBlock('core/button', array(
+        $labelAttrs = array(
             'tagName' => 'button',
             'type' => $attributes['type'],
             'text' => $this->runtime->escapeHtml($button->textContent),
-        ), array());
+        );
+        $textColor = $this->sourceClassTextColor($button);
+        if ('' !== $textColor) $labelAttrs['style'] = array('color' => array('text' => $textColor));
+        $label = $this->createBlock->createBlock('core/button', $labelAttrs, array());
         return $this->createBlock->createBlock('core/group', array(
             'tagName' => 'div',
             'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button', 'blocksEngineControlLabel' => true),
         ), array($label), $button);
+    }
+
+    /**
+     * The text colour a source class recipe paints on a native control. The
+     * published control keeps its author classes, so without a block setting
+     * that class rule, not the block, decides the label's colour and a colour
+     * set on any containing block never reaches it. Promoting it to the
+     * label's native colour support makes the block own it (#7227). Colour
+     * the class does not own alone (inline, contextual, conditional) stays
+     * where it is.
+     */
+    private function sourceClassTextColor(DOMElement $control): string
+    {
+        return null === $this->controlTextColor ? '' : (string) ($this->controlTextColor)($control);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool
