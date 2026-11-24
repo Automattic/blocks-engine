@@ -110,8 +110,10 @@ $result = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\Artifact
     . '"><h1>Reveal</h1></div></main></body></html>',
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert(1 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0' . preg_quote($condition, '/') . '\)/', $css)
-    && 0 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0\)[^{]*\{opacity:1/', $css), 'Attribute markers retain runtime class conditions rather than publishing an unconditional after pose.');
+// The after pose names the marker and its condition in one compound,
+// whichever of them pays the rule's weight outside `:where()`.
+$poses = preg_match_all('/(?:^|})([^{}]*)\{opacity:1/', $css, $after) ? $after[1] : array();
+$assert(array() !== $poses && array() === array_filter($poses, static fn (string $selector): bool => 1 !== preg_match('/\.blocks-engine-attribute-[a-f0-9]{12}-0(?:[^\s>+~,]*?)' . preg_quote($condition, '/') . '/', $selector)), 'Attribute markers retain runtime class conditions rather than publishing an unconditional after pose.');
 }
 $result = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' =>
     '<html><head><style>[data-fx^=fade][data-fx^=fade]{transform:translate3d(-100px,0,0)}[data-fx^=fade][data-fx^=fade].on{opacity:1;transform:none}</style></head><body><main><h1>Reveal</h1><img class="pic on" data-fx="fade-right" width="200" height="120" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="></main></body></html>',

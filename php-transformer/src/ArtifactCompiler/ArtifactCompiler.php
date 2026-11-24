@@ -36,6 +36,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunk
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
@@ -3210,6 +3211,7 @@ final class ArtifactCompiler
         $metadata = array();
         $capturedGlyphPaths = $this->capturedGlyphAssetPaths($html, $sourcePath, $files);
         $candidates = $this->fileIndex->isIndexed() ? $this->fileIndex->imageFiles() : $files;
+        $boxFillOriginals = $this->capturedBoxFillOriginals($files, $candidates);
         foreach ( $candidates as $file ) {
             if ( ArtifactFileIndex::isMaterializedHtmlDocument($file) ) {
                 continue;
@@ -3236,6 +3238,9 @@ final class ArtifactCompiler
             }
             if ( $glyph['undecodable'] ) {
                 $asset['glyph_color_undecodable'] = true;
+            }
+            if ( isset($boxFillOriginals[$path]) ) {
+                $asset['box_fill_original'] = $boxFillOriginals[$path];
             }
 
             foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
@@ -3339,6 +3344,45 @@ final class ArtifactCompiler
     /**
      * @return array<int, string>
      */
+    /**
+     * Captured box fill renditions whose original the capture also exported:
+     * rendition artifact path => original artifact path. A capture localizes
+     * media references, so the `<original>/v1/fill/w_W,h_H,al_c,...` source URL
+     * survives only in the receipt's asset records.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $images
+     * @return array<string, string>
+     */
+    private function capturedBoxFillOriginals(array $files, array $images): array
+    {
+        $assets = CaptureReceiptReport::read($files)['assets'] ?? null;
+        if ( ! is_array($assets) ) {
+            return array();
+        }
+        $imagePaths = array();
+        foreach ( $images as $image ) {
+            if ( is_string($image['path'] ?? null) && str_starts_with((string) ($image['mime_type'] ?? ''), 'image/') ) {
+                $imagePaths[$image['path']] = true;
+            }
+        }
+        $pathBySource = array();
+        foreach ( $assets as $asset ) {
+            if ( is_array($asset) && is_string($asset['path'] ?? null) && is_string($asset['source_url'] ?? null) && isset($imagePaths[$asset['path']]) ) {
+                $pathBySource[$asset['source_url']] = $asset['path'];
+            }
+        }
+        $originals = array();
+        foreach ( $pathBySource as $source => $path ) {
+            $original = $pathBySource[ImageUrlResolver::boxFillOriginal($source)] ?? null;
+            if ( null !== $original && $original !== $path ) {
+                $originals[$path] = $original;
+            }
+        }
+
+        return $originals;
+    }
+
     private function assetLookupKeysForSource(string $assetPath, string $sourcePath): array
     {
         $keys = array($assetPath, '/' . $assetPath);

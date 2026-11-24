@@ -250,13 +250,17 @@ final class PresetBinding
     /** @var array<string,true>|null OWN_FONT_PHRASING_TAGS the documents render; null when unknown. */
     private ?array $renderedOwnFontTags = null;
     /**
-     * Classes the documents render, on any element and on headings; null
-     * when the markup is unknown. A font rule requiring a class the site
-     * renders but never on a heading cannot reach a heading.
+     * Classes the documents render, on any element and on headings, and
+     * each heading's class list; null when the markup is unknown. A font
+     * rule requiring a class the site renders but never on a heading cannot
+     * reach a heading, and one requiring a class never on a heading beside
+     * another class cannot reach a heading carrying that other class.
      *
-     * @var array{all:array<string,true>,headings:array<string,true>}|null
+     * @var array{all:array<string,true>,headings:array<string,true>,heading_lists:list<array<string,true>>}|null
      */
     private ?array $renderedClasses = null;
+    /** Rendered classes keyed by their subject class. @var array<string,string>|null */
+    private ?array $renderedSubjectClasses = null;
     /** The theme's button element font family, resolved from its preset. */
     private ?string $buttonFontDefault = null;
     /** Memo of hasInheritedFontCompetitor() for the current theme defaults. */
@@ -306,16 +310,19 @@ final class PresetBinding
                     foreach ($tags[1] as $tag) $this->renderedOwnFontTags[strtolower($tag)] = true;
                 }
             }
-            $this->renderedClasses = array('all' => array(), 'headings' => array());
+            $this->renderedClasses = array('all' => array(), 'headings' => array(), 'heading_lists' => array());
             foreach ($markups as $markup) {
                 if (!preg_match_all('/<([a-z][a-z0-9-]*)\b[^>]*?\sclass\s*=\s*("[^"]*"|\'[^\']*\')/i', $markup, $elements, PREG_SET_ORDER)) continue;
                 foreach ($elements as [, $tag, $classes]) {
                     $tag = strtolower($tag);
+                    $heading = 1 === preg_match('/^h[1-6]$/', $tag);
+                    $list = array();
                     foreach (preg_split('/\s+/', trim(html_entity_decode(substr($classes, 1, -1), ENT_QUOTES))) ?: array() as $class) {
                         if ('' === $class) continue;
                         $this->renderedClasses['all'][$class] = true;
-                        if (1 === preg_match('/^h[1-6]$/', $tag)) $this->renderedClasses['headings'][$class] = true;
+                        if ($heading) $this->renderedClasses['headings'][$class] = $list[$class] = true;
                     }
+                    if ($heading && array() !== $list) $this->renderedClasses['heading_lists'][] = $list;
                 }
             }
         }
@@ -1553,8 +1560,9 @@ final class PresetBinding
                     }
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
+                    $ownClass = substr((string) strtok(trim($selector), ':'), 1);
                     foreach ($this->fontDefaults as $target => $font) {
-                        if ('body' !== $target && $this->rendersDefaultFont($target, $rawValue) && !$this->hasCompetingFont($target)) $excluded[] = $target;
+                        if ('body' !== $target && $this->rendersDefaultFont($target, $rawValue) && !$this->hasCompetingFont($target, $ownClass)) $excluded[] = $target;
                     }
                     if (array() !== $excluded) {
                         $other = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
@@ -1691,7 +1699,7 @@ final class PresetBinding
      * conditional and shorthand rules conservatively retain the class rule,
      * unless class-list rendering evidence shows the other font always won.
      */
-    private function hasCompetingFont(string $tag): bool
+    private function hasCompetingFont(string $tag, ?string $withClass = null): bool
     {
         foreach ($this->fontRules as $rule) {
             $subject = self::subjectCompound($rule['selector']);
@@ -1704,6 +1712,11 @@ final class PresetBinding
             // a core/heading, whose only block class is `wp-block-heading`.
             if (array() !== preg_grep('/^class:wp-block-(?!heading$)[a-z0-9_-]+$/', $tokens['tokens'])) continue;
             if ($this->classNeverOnHeading($subject)) continue;
+            // Yielding `$withClass` on headings only changes headings that
+            // carry it: a rule needing a class never rendered on such a
+            // heading (`.font-serif` on other headings than `.font-heading`'s)
+            // renders the same font with or without the yield.
+            if (null !== $withClass && $this->classNeverOnHeadingWith($subject, $withClass)) continue;
             if (null !== $rule['value'] && $this->rendersDefaultFont($tag, $rule['value'])) continue;
             if (null !== $rule['value'] && $this->classRendersOwnFont($rule['selector'], $rule['value'])) continue;
             return true;
@@ -1720,6 +1733,78 @@ final class PresetBinding
     private function classNeverOnHeading(string $subject): bool
     {
         if (null === $this->renderedClasses) return false;
+        foreach (self::requiredSubjectClasses($subject) as $class) {
+            if (isset($this->renderedClasses['all'][$class]) && !isset($this->renderedClasses['headings'][$class])) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether a subject compound requires a class the documents render, but
+     * never on a heading that also carries `$withClass` (itself rendered).
+     * A subject that is a list (`:is(.a, :where(.b))`) must fail on every
+     * arm. A subject class (`blocks-engine-subject-class-<hash>`) stands for
+     * the source class token it hashes. A class the markup never shows
+     * proves nothing, as above.
+     */
+    private function classNeverOnHeadingWith(string $subject, string $withClass): bool
+    {
+        if (null === $this->renderedClasses || '' === $withClass || !isset($this->renderedClasses['all'][$withClass])) return false;
+        if (null === $this->renderedSubjectClasses) {
+            $this->renderedSubjectClasses = array();
+            foreach ($this->renderedClasses['all'] as $class => $_) $this->renderedSubjectClasses[EngineMarker::subjectClassClass((string) $class)] = (string) $class;
+        }
+        foreach (self::subjectArms($subject) as $arm) {
+            $excluded = false;
+            foreach (self::requiredSubjectClasses($arm) as $class) {
+                $class = $this->renderedSubjectClasses[$class] ?? $class;
+                if ($class === $withClass || !isset($this->renderedClasses['all'][$class])) continue;
+                $excluded = true;
+                foreach ($this->renderedClasses['heading_lists'] as $list) {
+                    if (isset($list[$class], $list[$withClass])) { $excluded = false; break; }
+                }
+                if ($excluded) break;
+            }
+            if (!$excluded) return false;
+        }
+        return true;
+    }
+
+    /**
+     * A subject compound's alternatives: the arms of a leading `:is()` or
+     * `:where()` list, each with the compound's remaining conditions, or
+     * the compound itself.
+     *
+     * @return list<string>
+     */
+    private static function subjectArms(string $subject): array
+    {
+        $subject = trim($subject);
+        if (1 !== preg_match('/^:(?:is|where)\(/', $subject, $open)) return array($subject);
+        $start = strlen($open[0]);
+        for ($i = $start, $depth = 1, $length = strlen($subject); $i < $length; $i++) {
+            if ('\\' === $subject[$i]) { $i++; continue; }
+            if ('(' === $subject[$i]) $depth++;
+            elseif (')' === $subject[$i] && 0 === --$depth) break;
+        }
+        if (0 !== $depth) return array($subject);
+        $rest = substr($subject, $i + 1);
+        $arms = array();
+        foreach (CssValueSplitter::splitTopLevel(substr($subject, $start, $i - $start), array(',')) as $arm) {
+            $arms[] = self::subjectCompound(trim($arm)) . $rest;
+        }
+        return $arms;
+    }
+
+    /**
+     * The classes a subject compound requires. Classes inside functional
+     * pseudo-classes (`:not()`, `:is()`) and attribute selectors are not
+     * required; a single-compound `:where()`/`:is()` still requires its own.
+     *
+     * @return list<string>
+     */
+    private static function requiredSubjectClasses(string $subject): array
+    {
         // A single-compound `:where()`/`:is()` still requires its classes.
         $subject = (string) preg_replace('/:(?:where|is)\(\s*((?:[^\s(),\\\\]|\\\\.)+)\s*\)/', '$1', $subject);
         $required = '';
@@ -1729,12 +1814,8 @@ final class PresetBinding
             elseif (')' === $subject[$i] || ']' === $subject[$i]) $depth = max(0, $depth - 1);
             elseif (0 === $depth) $required .= $subject[$i];
         }
-        if (!preg_match_all('/\.((?:\\\\.|[\w-])+)/', $required, $classes)) return false;
-        foreach ($classes[1] as $class) {
-            $class = stripslashes($class);
-            if (isset($this->renderedClasses['all'][$class]) && !isset($this->renderedClasses['headings'][$class])) return true;
-        }
-        return false;
+        if (!preg_match_all('/\.((?:\\\\.|[\w-])+)/', $required, $classes)) return array();
+        return array_map('stripslashes', $classes[1]);
     }
 
     /**

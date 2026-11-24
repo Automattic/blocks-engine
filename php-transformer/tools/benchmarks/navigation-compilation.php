@@ -41,7 +41,9 @@ if ('--contract' === ($argv[1] ?? '')) {
     // Re-pinned for #7228: the classless `.tile p` paragraphs now own their
     // descendant-selector colour through block colour support.
     // Re-pinned for #7415: the site plan declares an empty `date_archives` list.
-    if ('dcab82ccadec96a0bb1e10a682c18e549205e0e98fbd1270d270738c5f137204' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
+    // Re-pinned for #6145: `.tile.kind-N p` arms pay their class weight with
+    // the paragraph's source class instead of a `:where()` and a class shim.
+    if ('5bf04c78efa9874b3862d6fd2726df8301eae8145048db0a4c584dda7899d6fc' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
 } elseif (isset($argv[1])) {
     $encoded = json_encode($output, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     if (is_file($argv[1]) && file_get_contents($argv[1]) !== $encoded) throw new RuntimeException('Compile output differs from baseline');

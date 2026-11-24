@@ -790,23 +790,26 @@ final class AuthorStylesheetProjector
             }
             $marginGroups[$marginPrelude][$property] = $value;
         }
-        // A margin can read a custom property its own rule declares (Tailwind's
-        // `space-y-*` sets `--tw-space-y-reverse` beside the margins). The
-        // margin arm may reach a different box than the surface arm (a
-        // control's core/buttons wrapper rather than its link), so the margin
-        // carries those locals with it, or its var() is invalid there. At zero
-        // specificity, so the source's own setters (`space-y-reverse`) win.
-        $marginLocals = $this->styleResolver->cssDeclarationString(self::referencedCustomProperties($margins, $declarations));
         $marginRules = '';
+        $marginVariables = self::referencedCustomProperties($margins, $declarations);
         foreach ( $marginGroups as $marginPrelude => $marginDeclarations ) {
-            $localSelectors = '' === $marginLocals ? array() : array_filter(
-                CssStylesheetTransformer::splitSelectorList($marginPrelude) ?? array(),
-                static fn (string $selector): bool => 1 !== preg_match('/(?:::|:(?:before|after|first-letter|first-line)\b)/i', $selector)
-            );
-            if ( array() !== $localSelectors ) {
-                $marginRules .= ':where(' . implode(',', array_map('trim', $localSelectors)) . '){' . $marginLocals . '}';
+            $marginCss = $this->styleResolver->cssDeclarationString($marginDeclarations);
+            [ $carriers, $others ] = array() === $marginVariables ? array( array(), array() ) : self::partitionButtonCarrierArms($marginPrelude);
+            if ( array() === $carriers ) {
+                $marginRules .= $marginPrelude . '{' . $marginCss . '}';
+                continue;
             }
-            $marginRules .= $marginPrelude . '{' . $this->styleResolver->cssDeclarationString($marginDeclarations) . '}';
+            // The rest of this rule (its own custom properties included)
+            // projects onto the button link, but the margin lands on the
+            // outer carrier. Restate the variables that margin reads on that
+            // carrier: an undefined variable invalidates the margin at
+            // computed-value time and collapses the source spacing. Carrier
+            // arms select only button carriers, disjoint from the other arms,
+            // so splitting the rule keeps every element's cascade.
+            if ( array() !== $others ) {
+                $marginRules .= implode(',', $others) . '{' . $marginCss . '}';
+            }
+            $marginRules .= implode(',', $carriers) . '{' . $this->styleResolver->cssDeclarationString($marginVariables) . ';' . $marginCss . '}';
         }
         $css = $rules
             . $marginRules
@@ -818,6 +821,58 @@ final class AuthorStylesheetProjector
             . $navigationItemSpaceRule;
 
         return $this->withEditorProjectionRules($css, $prelude, $body, $context);
+    }
+
+    /**
+     * Custom properties declared by the same rule that its margins read,
+     * including variables those variables read in turn.
+     *
+     * @param array<string, string> $margins
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private static function referencedCustomProperties(array $margins, array $declarations): array
+    {
+        $referenced = array();
+        $pending = array_values($margins);
+        while ( array() !== $pending ) {
+            $value = (string) array_shift($pending);
+            if ( ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+                continue;
+            }
+            foreach ( $matches[1] as $name ) {
+                if ( isset($referenced[ $name ]) || ! isset($declarations[ $name ]) ) {
+                    continue;
+                }
+                $referenced[ $name ] = $declarations[ $name ];
+                $pending[] = $declarations[ $name ];
+            }
+        }
+        return $referenced;
+    }
+
+    /**
+     * Split projected arms into those that select a lowered button's outer
+     * carrier and all others.
+     *
+     * @return array{list<string>, list<string>}
+     */
+    private static function partitionButtonCarrierArms(string $prelude): array
+    {
+        $carriers = array();
+        $others = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array( $prelude ) as $arm ) {
+            // `:not(.wp-block-buttons)` guards exclude carriers; only a
+            // positive `:where(.wp-block-buttons)` compound selects one.
+            if ( ! str_contains($arm, 'wp-block-button__link')
+                && 1 === preg_match('/:where\([^()]*\.wp-block-buttons?\)/', $arm)
+            ) {
+                $carriers[] = $arm;
+            } else {
+                $others[] = $arm;
+            }
+        }
+        return array( $carriers, $others );
     }
 
     /**
@@ -1160,34 +1215,6 @@ final class AuthorStylesheetProjector
             }
         }
         return implode('', array_unique($rules));
-    }
-
-    /**
-     * The custom properties of `$declarations` that `$values` read, directly
-     * or through another of those properties.
-     *
-     * @param array<string, string> $values
-     * @param array<string, string> $declarations
-     * @return array<string, string>
-     */
-    private static function referencedCustomProperties(array $values, array $declarations): array
-    {
-        $locals = array();
-        $pending = array_values($values);
-        while ( array() !== $pending ) {
-            $value = (string) array_pop($pending);
-            if ( ! str_contains($value, 'var(') || ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
-                continue;
-            }
-            foreach ( $matches[1] as $name ) {
-                if ( isset($locals[$name]) || ! isset($declarations[$name]) ) {
-                    continue;
-                }
-                $locals[$name] = $declarations[$name];
-                $pending[] = $declarations[$name];
-            }
-        }
-        return $locals;
     }
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
