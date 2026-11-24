@@ -790,8 +790,22 @@ final class AuthorStylesheetProjector
             }
             $marginGroups[$marginPrelude][$property] = $value;
         }
+        // A margin can read a custom property its own rule declares (Tailwind's
+        // `space-y-*` sets `--tw-space-y-reverse` beside the margins). The
+        // margin arm may reach a different box than the surface arm (a
+        // control's core/buttons wrapper rather than its link), so the margin
+        // carries those locals with it, or its var() is invalid there. At zero
+        // specificity, so the source's own setters (`space-y-reverse`) win.
+        $marginLocals = $this->styleResolver->cssDeclarationString(self::referencedCustomProperties($margins, $declarations));
         $marginRules = '';
         foreach ( $marginGroups as $marginPrelude => $marginDeclarations ) {
+            $localSelectors = '' === $marginLocals ? array() : array_filter(
+                CssStylesheetTransformer::splitSelectorList($marginPrelude) ?? array(),
+                static fn (string $selector): bool => 1 !== preg_match('/(?:::|:(?:before|after|first-letter|first-line)\b)/i', $selector)
+            );
+            if ( array() !== $localSelectors ) {
+                $marginRules .= ':where(' . implode(',', array_map('trim', $localSelectors)) . '){' . $marginLocals . '}';
+            }
             $marginRules .= $marginPrelude . '{' . $this->styleResolver->cssDeclarationString($marginDeclarations) . '}';
         }
         $css = $rules
@@ -1146,6 +1160,34 @@ final class AuthorStylesheetProjector
             }
         }
         return implode('', array_unique($rules));
+    }
+
+    /**
+     * The custom properties of `$declarations` that `$values` read, directly
+     * or through another of those properties.
+     *
+     * @param array<string, string> $values
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private static function referencedCustomProperties(array $values, array $declarations): array
+    {
+        $locals = array();
+        $pending = array_values($values);
+        while ( array() !== $pending ) {
+            $value = (string) array_pop($pending);
+            if ( ! str_contains($value, 'var(') || ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+                continue;
+            }
+            foreach ( $matches[1] as $name ) {
+                if ( isset($locals[$name]) || ! isset($declarations[$name]) ) {
+                    continue;
+                }
+                $locals[$name] = $declarations[$name];
+                $pending[] = $declarations[$name];
+            }
+        }
+        return $locals;
     }
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
