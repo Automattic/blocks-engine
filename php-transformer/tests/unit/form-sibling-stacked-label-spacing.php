@@ -7,8 +7,9 @@ declare(strict_types=1);
  * box as tall as the parent's line-height, and the control's sibling-combinator
  * margin-top spaces it below that line. The provider field neutralizes the
  * control's sibling-stacking margin as inter-field spacing, so the label must
- * own the whole label-to-control distance: the parent's line box as its
- * line-height and the control's margin as its margin-block-end.
+ * own the whole label-to-control distance: the parent's line box as
+ * block padding around its own (unchanged) line-height, and the control's
+ * margin as its margin-block-end. The label's typography stays the source's.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -44,12 +45,13 @@ foreach ( array( 0 => 'Full Name', 1 => 'Message' ) as $index => $name ) {
     $row = $rows[$index] ?? array();
     $label = is_array($row['label']['styles'] ?? null) ? $row['label']['styles'] : array();
     $control = is_array($row['control']['styles'] ?? null) ? $row['control']['styles'] : array();
-    $assert('24px' === ($label['line_height'] ?? null), $name . ' label keeps the line box its block parent gives an inline label', json_encode($label));
+    $assert('1' === ($label['line_height'] ?? null), $name . ' label keeps its own line-height', json_encode($label));
+    $assert('5px' === ($label['padding_top'] ?? null) && '5px' === ($label['padding_bottom'] ?? null), $name . ' label pads its own line to the line box its block parent gives an inline label', json_encode($label));
     $assert('calc(.375rem * calc(1 - 0))' === ($label['margin_block_end'] ?? null), $name . ' label carries the control sibling margin to its control', json_encode($label));
     $assert(! isset($control['margin_top']) && ! isset($control['margin_bottom']), $name . ' control keeps no second copy of the label spacing', json_encode($control));
     $sources = array();
     foreach ( $row['label']['provenance'] ?? array() as $fact ) foreach ( $fact['properties'] as $property ) $sources[$property][] = $fact['selector'];
-    $assert(in_array('html', $sources['line-height'] ?? array(), true) && str_contains(implode(',', $sources['margin-block-end'] ?? array()), '~'), $name . ' carried label spacing names its source rules', json_encode($row['label']['provenance'] ?? null));
+    $assert(in_array('html', $sources['padding-top'] ?? array(), true) && str_contains(implode(',', $sources['margin-block-end'] ?? array()), '~'), $name . ' carried label spacing names its source rules', json_encode($row['label']['provenance'] ?? null));
 }
 
 // A flex field group blockifies the label: no anonymous line box, no carry.

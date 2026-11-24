@@ -1963,8 +1963,9 @@ final class FormPresentationGraphBuilder
      *
      * Carry that distance onto the label, which owns it in the provider: the
      * control's sibling margin becomes the label's margin-block-end, and the
-     * line box the parent's strut gives an inline label becomes its
-     * line-height (each line of an inline label is at least that tall).
+     * extra height of the line box the parent's strut gives an inline label
+     * becomes padding around the label's own line. The label keeps its own
+     * line-height: that is its typography, and the source text is set in it.
      *
      * @param array<string, mixed> $row
      * @param list<array<string, mixed>> $rules
@@ -2001,9 +2002,15 @@ final class FormPresentationGraphBuilder
         if ( 'inline' === $labelDisplay ) {
             $strut = $this->lineHeightPixels($parent, $rules, $customPropertyRules);
             $own = $this->lineHeightPixels($label, $rules, $customPropertyRules);
-            if ( null !== $strut && null !== $own && $strut['px'] > $own['px'] ) {
-                $styles['line_height'] = rtrim(rtrim(number_format($strut['px'], 3, '.', ''), '0'), '.') . 'px';
-                $provenance = array_merge($provenance, $this->provenance(array( 'line-height' => $strut['fact'] ), null));
+            $padded = array_intersect_key($styles, array_flip(array( 'padding', 'padding_top', 'padding_bottom', 'padding_block_start', 'padding_block_end' )));
+            if ( null !== $strut && null !== $own && $strut['px'] > $own['px'] && array() === $padded ) {
+                // The label's own line-height is its typography and stays; the
+                // taller line box around it is space, split as the strut's
+                // half-leading above and below the label's own line.
+                $half = rtrim(rtrim(number_format(($strut['px'] - $own['px']) / 2, 3, '.', ''), '0'), '.') . 'px';
+                $styles['padding_top'] = $half;
+                $styles['padding_bottom'] = $half;
+                $provenance = array_merge($provenance, $this->provenance(array( 'padding-top' => $strut['fact'], 'padding-bottom' => $strut['fact'] ), null));
             }
         }
         ksort($styles);
