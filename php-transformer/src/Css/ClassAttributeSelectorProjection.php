@@ -22,11 +22,22 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  *
  * Engine tokens can then never create a match. The token vocabulary comes
  * from the source documents' class attributes, so no class list is assumed.
+ *
+ * The guard on the first arm names the engine prefix. It is part of the
+ * predicate it follows, not a class reference, and the class publisher
+ * restates it in the published prefixes (publishedEngineFree()).
  */
 final class ClassAttributeSelectorProjection
 {
-    private const ENGINE_TOKEN_PREFIX = 'blocks-engine-';
+    public const ENGINE_TOKEN_PREFIX = 'blocks-engine-';
     private const ENGINE_FREE = ':where(:not([class*="' . self::ENGINE_TOKEN_PREFIX . '"]))';
+
+    /**
+     * An engine-free guard as engineFree() writes it, unanchored and without
+     * delimiters, so a class predicate reader can take it as part of the
+     * predicate it follows. Group 1 holds its `:not()` arms.
+     */
+    public const ENGINE_FREE_GUARD = ':where\(((?::not\(\[class\*="[A-Za-z0-9_-]+"\]\))+)\)';
     private const ATTRIBUTE = '/\[\s*class\s*([*^$|])=\s*(?:"([^"\\\\]*)"|\'([^\'\\\\]*)\'|([A-Za-z0-9_-]+))\s*([iIsS])?\s*\]/';
 
     /** @var array<string, true> */
@@ -43,6 +54,46 @@ final class ClassAttributeSelectorProjection
                 $this->classAttributes[$value] = true;
             }
         }
+    }
+
+    /**
+     * The guard that keeps a predicate off elements whose class attribute
+     * contains any of `$prefixes`.
+     *
+     * @param list<string> $prefixes
+     */
+    public static function engineFree(array $prefixes): string
+    {
+        return ':where(' . implode('', array_map(static fn (string $prefix): string => ':not([class*="' . $prefix . '"])', $prefixes)) . ')';
+    }
+
+    /**
+     * The prefixes a guard's `:not()` arms (ENGINE_FREE_GUARD group 1) exclude.
+     *
+     * @return list<string>
+     */
+    public static function engineFreePrefixes(string $arms): array
+    {
+        preg_match_all('/\[class\*="([A-Za-z0-9_-]+)"\]/', $arms, $matches);
+        return array_map('strval', $matches[1]);
+    }
+
+    /** `$text` without engine-free guards: what remains names classes. */
+    public static function withoutEngineFree(string $text): string
+    {
+        return str_contains($text, ':where(') ? (string) preg_replace('/' . self::ENGINE_FREE_GUARD . '/', '', $text) : $text;
+    }
+
+    /**
+     * `$css` with this pass's guards restated to exclude `$prefixes`, for a
+     * stylesheet whose engine classes were renamed to them.
+     *
+     * @param list<string> $prefixes
+     */
+    public static function publishedEngineFree(string $css, array $prefixes): string
+    {
+        $guard = self::engineFree($prefixes);
+        return self::ENGINE_FREE === $guard ? $css : str_replace(self::ENGINE_FREE, $guard, $css);
     }
 
     /** Class attribute values of every element in HTML documents. @param iterable<string> $documents */
