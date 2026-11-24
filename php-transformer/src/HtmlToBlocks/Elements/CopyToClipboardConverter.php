@@ -26,6 +26,12 @@ final class CopyToClipboardConverter implements ElementConverter
         'kopiuj', 'kopiera', 'kopier', 'kopioi',
     );
 
+    /** A clipboard write in source script. */
+    private const CLIPBOARD_WRITE = '/\\bclipboard\\s*(?:\\?\\.|\\.)\\s*write(?:Text)?\\s*\\(|\\bexecCommand\\s*\\(\\s*[\'"]copy[\'"]/';
+
+    /** How far, in bytes, an attribute read may sit from a clipboard write and still feed it. */
+    private const SCRIPT_BINDING_WINDOW = 240;
+
     public function __construct(private readonly HtmlTransformerSession $session)
     {
     }
@@ -111,18 +117,60 @@ final class CopyToClipboardConverter implements ElementConverter
         return $this->hasClipboardContract($element) || $this->isNonNavigatingHref($element);
     }
 
+    /**
+     * Copy evidence: a clipboard contract, a clipboard handler, a copy-intent
+     * accessible name, or a source script that writes to the clipboard where
+     * it reads the control's `data-copy*` attribute. A `data-copy*` attribute
+     * alone is not evidence: "copy" also names duplicate and clone commands.
+     */
     private function hasCopyAffordance(DOMElement $element): bool
     {
         return $this->hasClipboardContract($element)
             || $this->hasCopyHandler($element)
-            || $this->isCopyIntentName($this->accessibleName($element));
+            || $this->isCopyIntentName($this->accessibleName($element))
+            || $this->hasScriptBoundCopyAttribute($element);
     }
 
+    /** A clipboard.js-style `data-clipboard*` attribute, or a `data-copy-*` attribute that names the copied payload. */
     private function hasClipboardContract(DOMElement $element): bool
     {
         foreach ( $element->attributes ?? array() as $attribute ) {
-            if ( 1 === preg_match('/^data-(?:clipboard|copy)(?:-[a-z0-9-]+)?$/', strtolower($attribute->nodeName)) ) {
+            if ( 1 === preg_match('/^data-(?:clipboard(?:-[a-z0-9-]+)?|copy-(?:text|target|selector|value|content))$/', strtolower($attribute->nodeName)) ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasScriptBoundCopyAttribute(DOMElement $element): bool
+    {
+        $references = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( 1 !== preg_match('/^data-copy(?:-([a-z0-9-]+))?$/', $name, $matches) ) {
+                continue;
+            }
+            $property = 'copy' . str_replace(' ', '', ucwords(str_replace('-', ' ', $matches[1] ?? '')));
+            $references[] = preg_quote($name, '/') . '(?![a-z0-9-])';
+            $references[] = 'dataset\\s*(?:\\?\\.|\\.)\\s*' . $property . '(?![A-Za-z0-9_$])';
+            $references[] = 'dataset\\s*\\[\\s*[\'"]' . $property . '[\'"]\\s*\\]';
+        }
+        if ( array() === $references ) {
+            return false;
+        }
+        $reference = '/' . implode('|', $references) . '/';
+        foreach ( $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets() as $asset ) {
+            $script = (string) ($asset['content'] ?? '');
+            if ( '' === $script || ! preg_match_all(self::CLIPBOARD_WRITE, $script, $writes, PREG_OFFSET_CAPTURE) ) {
+                continue;
+            }
+            foreach ( $writes[0] as list( $write, $offset ) ) {
+                $start = max(0, $offset - self::SCRIPT_BINDING_WINDOW);
+                $window = substr($script, $start, $offset - $start + strlen($write) + self::SCRIPT_BINDING_WINDOW);
+                if ( 1 === preg_match($reference, $window) ) {
+                    return true;
+                }
             }
         }
 
