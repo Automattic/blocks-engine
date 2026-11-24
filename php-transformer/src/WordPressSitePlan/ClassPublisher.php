@@ -156,6 +156,7 @@ final class ClassPublisher
             }
             foreach (self::classLists($markup) as $list) foreach (self::tokens($list['value']) as $token) if (1 !== preg_match(self::ENGINE_CLASS, $token)) $taken[$token] = true;
             $outside += self::idents(self::withoutClassLists($markup));
+            $pinned += self::saveOwnedClasses($markup);
         }
         foreach ($cssClasses as $class => $_) {
             if (1 === preg_match(self::ENGINE_CLASS, $class)) $order[$class] ??= count($order);
@@ -369,6 +370,45 @@ final class ClassPublisher
             array_push($occurrences, ...self::listOccurrences(html_entity_decode($event[6], ENT_QUOTES | ENT_HTML5), false === $block ? null : $block, strtolower($event[5])));
         }
         return $occurrences;
+    }
+
+    /**
+     * Engine classes a non-core block's save() writes on its own elements
+     * without reading them from a block attribute.
+     *
+     * Core blocks derive their saved classes from attributes this pass
+     * rewrites alongside the HTML. A generated or third-party block's save()
+     * is code the plan does not carry: a class its saved HTML holds that no
+     * `className`/`class` attribute of that block supplies is a literal in
+     * that code. Renaming or dropping it in content alone would make the
+     * stored markup disagree with save(), so it keeps its name.
+     *
+     * @return array<string,true>
+     */
+    private static function saveOwnedClasses(string $markup): array
+    {
+        if (!preg_match_all(self::MARKUP_EVENT, $markup, $events, PREG_SET_ORDER)) return array();
+        $stack = array();
+        $owned = array();
+        foreach ($events as $event) {
+            if ('' !== ($event[2] ?? '')) {
+                if ('/' === $event[1]) {
+                    array_pop($stack);
+                    continue;
+                }
+                if ('/' === ($event[4] ?? '')) continue;
+                $supplied = array();
+                foreach (BlockCommentClasses::values($event[0]) as $value) foreach (self::tokens($value) as $token) $supplied[$token] = true;
+                $stack[] = array('core' => !str_contains($event[2], '/') || str_starts_with($event[2], 'core/'), 'supplied' => $supplied);
+                continue;
+            }
+            $block = end($stack);
+            if (false === $block || $block['core']) continue;
+            foreach (self::tokens(html_entity_decode($event[6], ENT_QUOTES | ENT_HTML5)) as $token) {
+                if (1 === preg_match(self::ENGINE_CLASS, $token) && !isset($block['supplied'][$token])) $owned[$token] = true;
+            }
+        }
+        return $owned;
     }
 
     /**
