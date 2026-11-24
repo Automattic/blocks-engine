@@ -585,6 +585,22 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
+        // Captured pages share page.html with their content-owned layout. A page
+        // authored after the import, carrying no captured identity and no
+        // assigned template, renders through the new-page template instead;
+        // page-<slug> and page-<id> templates still outrank it. A captured page
+        // whose identity was not kept is still known by its captured route.
+        if (in_array(ThemeTemplates::AUTHORED_PAGE, array_column($templates, 'slug'), true)) {
+            $capturedPaths = array();
+            foreach ($pages as $page) if ('page' === ($page['post_type'] ?? 'page') && isset($page['route']['path'])) $capturedPaths[trim((string) $page['route']['path'], '/')] = true;
+            $lines[] = "add_filter( 'page_template_hierarchy', static function ( array \$templates ): array {";
+            $lines[] = "    \$id = get_queried_object_id();";
+            $lines[] = "    if ( ! \$id || '' !== get_page_template_slug( \$id ) || '' !== (string) get_post_meta( \$id, '_blocks_engine_reconciliation_identity', true ) || isset( " . BootstrapData::literal($capturedPaths) . "[ trim( (string) get_page_uri( \$id ), '/' ) ] ) ) return \$templates;";
+            $lines[] = "    \$generic = array_search( 'page.php', \$templates, true );";
+            $lines[] = "    if ( false !== \$generic ) array_splice( \$templates, \$generic, 0, array( '" . ThemeTemplates::AUTHORED_PAGE . ".php' ) );";
+            $lines[] = "    return \$templates;";
+            $lines[] = "} );";
+        }
         self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
