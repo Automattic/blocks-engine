@@ -77,6 +77,17 @@ final class ReusableComponentState
     }
 
     /**
+     * Whether the captures proved this element a navigation item with route
+     * state. Only such an item's current-state classes are route state; the
+     * same class authored elsewhere on the page is ordinary content.
+     */
+    public function carriesRestingNavigation(DOMElement $element): bool
+    {
+        return $element->hasAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE)
+            || (null !== $this->restingNavigation && isset($this->restingNavigation[$element]));
+    }
+
+    /**
      * Restore the evidence onto a detached copy of a source subtree, node for
      * node, for RouteStateProjector::withRestingNavigation to consume.
      */
