@@ -211,9 +211,31 @@ $unsafeArtifact['files']['site.css'] .= '.be-fold-a.be-fold-b{outline-width:6px}
 $unsafe = $compile($unsafeArtifact + array('class_namespace' => 'acme'));
 $assert($unsafe[ClassPublisher::MAP_KEY]['be-fold-a'] !== $unsafe[ClassPublisher::MAP_KEY]['be-fold-b'], 'A competing compound keeps the delivered hooks separate.');
 $guard = new ReflectionMethod(ClassPublisher::class, 'foldPreservesCascade');
-$assert(!$guard->invoke(null, '.be-a.be-b{color:red}.source.other{color:blue}', array('be-a' => 'x', 'be-b' => 'x')), 'A specificity-order change vetoes folding.');
-$assert($guard->invoke(null, '.be-a.be-b{color:red}', array('be-a' => 'x', 'be-b' => 'x')), 'An uncontested compound can fold.');
+$cascadeIndex = new ReflectionMethod(ClassPublisher::class, 'cascadeIndex');
+$assert(!$guard->invoke(null, $cascadeIndex->invoke(null, '.be-a.be-b{color:red}.source.other{color:blue}'), array('be-a' => 'x', 'be-b' => 'x')), 'A specificity-order change vetoes folding.');
+$assert($guard->invoke(null, $cascadeIndex->invoke(null, '.be-a.be-b{color:red}'), array('be-a' => 'x', 'be-b' => 'x')), 'An uncontested compound can fold.');
+$assert(!$guard->invoke(null, $cascadeIndex->invoke(null, '.be-a.be-b{color:red}:unknown-thing(){color:blue}'), array('be-a' => 'x', 'be-b' => 'x')), 'Unknown selector syntax vetoes a specificity-changing fold.');
+$assert($guard->invoke(null, $cascadeIndex->invoke(null, '.be-a .be-b{color:red}.other{color:blue}'), array('be-a' => 'x', 'be-b' => 'x')), 'Tokens in separate compounds keep their weight.');
 $foldGroups = new ReflectionMethod(ClassPublisher::class, 'folds');
+
+// The cascade proof re-reads only selectors naming a mapped token (issue #7452):
+// N fold groups over S unrelated selectors cost ~N^2 selector reads, not N*S.
+$evaluations = new ReflectionProperty(ClassPublisher::class, 'cascadeEvaluations');
+$groupCount = 20;
+$fillerCount = 2000;
+$workCss = '';
+for ($i = 0; $i < $fillerCount; ++$i) $workCss .= '.filler-' . $i . ' .item-' . $i . '{color:red}';
+$workCarriers = array();
+$workEligible = array();
+for ($i = 0; $i < $groupCount; ++$i) {
+    $workCss .= '.be-g' . $i . '-a{color:red}.be-g' . $i . '-b{color:blue}';
+    $workCarriers['be-g' . $i . '-a'] = $workCarriers['be-g' . $i . '-b'] = array($i);
+    $workEligible['be-g' . $i . '-a'] = $workEligible['be-g' . $i . '-b'] = count($workEligible);
+}
+$evaluations->setValue(null, 0);
+$workFolds = $foldGroups->invoke(null, $workCarriers, $workEligible, $workCss);
+$assert(2 * $groupCount === count($workFolds), 'Every independent group folds.');
+$assert($evaluations->getValue() <= $groupCount * ($groupCount + 1), 'Fold proof work grows with touched selectors, not groups times selectors (' . $evaluations->getValue() . ').');
 $assert(array() === $foldGroups->invoke(null, array('be-a' => array(0, 1), 'be-b' => array(0)), array('be-a' => 0, 'be-b' => 1), '.be-a{color:red}.be-b{color:blue}'), 'One extra occurrence in another document prevents folding.');
 $assert(array() === $foldGroups->invoke(null, array(), array('be-a' => 0, 'be-b' => 1), '.be-a{color:red}.be-b{color:blue}'), 'CSS-only hooks have no equal element set to fold.');
 

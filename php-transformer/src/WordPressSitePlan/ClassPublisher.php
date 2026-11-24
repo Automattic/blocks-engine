@@ -63,6 +63,9 @@ final class ClassPublisher
 
     private const SEMANTIC_MAX = 40;
 
+    /** Selectors renamed and re-read by the fold cascade proof; a work-count seam. */
+    private static int $cascadeEvaluations = 0;
+
     /** Markup groups whose block content ships. */
     private const UNIT_GROUPS = array('pages', 'template_parts', 'templates', 'synced_patterns', 'menus', 'taxonomy_entities', 'author_entities');
 
@@ -555,40 +558,39 @@ final class ClassPublisher
             if (isset($carriers[$token])) $groups[implode(',', $carriers[$token])][] = $token;
         }
         $folds = array();
+        $index = null;
         foreach ($groups as $tokens) {
             if (count($tokens) < 2) continue;
+            $index ??= self::cascadeIndex($css);
             $candidate = array_fill_keys($tokens, $tokens[0]);
-            if (self::foldPreservesCascade($css, $folds + $candidate)) $folds += $candidate;
+            if (self::foldPreservesCascade($index, $folds + $candidate)) $folds += $candidate;
         }
         return $folds;
     }
 
     /**
-     * A conservative cascade proof: if any selector loses weight, require its
-     * ordering against every other selector to stay unchanged. Comparing even
-     * disjoint rules/properties/conditions is deliberate: we need no assumptions
-     * about runtime state, shorthand expansion, layers or stylesheet order.
-     * Unknown selector syntax vetoes a specificity-changing fold, not publishing.
+     * Every top-level rule selector, read once per publish: its specificity
+     * (null when unknown), class count, and an index from class token to the
+     * selectors naming it.
      *
-     * @param array<string,string> $map
+     * @return array{selectors:list<array{0:string,1:?int,2:int}>,tokens:array<string,list<int>>,weights:array<int,int>,unknown:int}
      */
-    private static function foldPreservesCascade(string $css, array $map): bool
+    private static function cascadeIndex(string $css): array
     {
-        $weights = array();
-        $changed = false;
+        $index = array('selectors' => array(), 'tokens' => array(), 'weights' => array(), 'unknown' => 0);
         $prelude = '';
         foreach (self::cssPieces($css) as $piece) {
             if ('{' === $piece) {
                 if (!str_starts_with(ltrim($prelude), '@')) {
                     foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
-                        $after = self::renamedPrelude($selector, $map);
-                        $beforeParsed = CssSelectorMatcher::parse(trim($selector));
-                        $afterParsed = CssSelectorMatcher::parse(trim($after));
-                        $known = $beforeParsed['supported'] && $afterParsed['supported'];
-                        $before = $known ? CssSelectorMatcher::specificity($beforeParsed) : null;
-                        $afterWeight = $known ? CssSelectorMatcher::specificity($afterParsed) : null;
-                        $weights[] = array($before, $afterWeight);
-                        if (preg_match_all(self::CLASS_SELECTOR, $after) < preg_match_all(self::CLASS_SELECTOR, $selector) && (!$known || $before !== $afterWeight)) $changed = true;
+                        $parsed = CssSelectorMatcher::parse(trim($selector));
+                        $weight = $parsed['supported'] ? CssSelectorMatcher::specificity($parsed) : null;
+                        $id = count($index['selectors']);
+                        $classes = preg_match_all(self::CLASS_SELECTOR, $selector, $matches);
+                        $index['selectors'][] = array($selector, $weight, (int) $classes);
+                        foreach (array_unique($matches[1]) as $token) $index['tokens'][$token][] = $id;
+                        if (null === $weight) ++$index['unknown'];
+                        else $index['weights'][$weight] = ($index['weights'][$weight] ?? 0) + 1;
                     }
                 }
                 $prelude = '';
@@ -598,13 +600,52 @@ final class ClassPublisher
                 $prelude .= $piece;
             }
         }
-        if (!$changed) return true;
-        foreach ($weights as [$before, $after]) {
-            if (null === $before) return false;
-            if ($before === $after) continue;
-            foreach ($weights as [$otherBefore, $otherAfter]) {
-                if (null === $otherBefore || ($before <=> $otherBefore) !== ($after <=> $otherAfter)) return false;
+        return $index;
+    }
+
+    /**
+     * A conservative cascade proof: if any selector loses weight, require its
+     * ordering against every other selector to stay unchanged. Comparing even
+     * disjoint rules/properties/conditions is deliberate: we need no assumptions
+     * about runtime state, shorthand expansion, layers or stylesheet order.
+     * Unknown selector syntax vetoes a specificity-changing fold, not publishing.
+     *
+     * Only selectors naming a mapped token are renamed and re-read; every
+     * other selector keeps its weight by construction. Pairwise ordering holds
+     * exactly when before-weight -> after-weight is a strictly increasing
+     * function, which one sort over the distinct pairs checks.
+     *
+     * @param array{selectors:list<array{0:string,1:?int,2:int}>,tokens:array<string,list<int>>,weights:array<int,int>,unknown:int} $index
+     * @param array<string,string> $map
+     */
+    private static function foldPreservesCascade(array $index, array $map): bool
+    {
+        $touched = array();
+        foreach ($map as $token => $_) foreach ($index['tokens'][$token] ?? array() as $id) $touched[$id] = true;
+        $weights = $index['weights'];
+        $pairs = array();
+        $changed = false;
+        $unknown = $index['unknown'] > 0;
+        foreach ($touched as $id => $_) {
+            [$selector, $before, $classes] = $index['selectors'][$id];
+            ++self::$cascadeEvaluations;
+            $after = self::renamedPrelude($selector, $map);
+            $afterParsed = CssSelectorMatcher::parse(trim($after));
+            $afterWeight = null !== $before && $afterParsed['supported'] ? CssSelectorMatcher::specificity($afterParsed) : null;
+            if (null === $afterWeight) {
+                $unknown = true;
+            } else {
+                --$weights[$before];
+                $pairs[$before . ':' . $afterWeight] = array($before, $afterWeight);
             }
+            if (preg_match_all(self::CLASS_SELECTOR, $after) < $classes && (null === $afterWeight || $before !== $afterWeight)) $changed = true;
+        }
+        if (!$changed) return true;
+        if ($unknown) return false;
+        foreach ($weights as $weight => $count) if ($count > 0) $pairs[$weight . ':' . $weight] = array($weight, $weight);
+        usort($pairs, static fn (array $a, array $b): int => array($a[0], $a[1]) <=> array($b[0], $b[1]));
+        for ($i = 1, $count = count($pairs); $i < $count; ++$i) {
+            if ($pairs[$i][0] === $pairs[$i - 1][0] || $pairs[$i][1] <= $pairs[$i - 1][1]) return false;
         }
         return true;
     }
