@@ -31,6 +31,14 @@ final class SourceBlockAttributeProjector
     /** RichText content wrapped in a link propagated from an enclosing card anchor. */
     public const PROPAGATED_LINK_CLASS = 'blocks-engine-propagated-link';
     public const PROPAGATED_LINK_COLOR_CLASS = 'blocks-engine-propagated-link-color';
+    /**
+     * Boxes whose block support skips wrapper serialization because the block
+     * writes them onto an inner element (core block.json
+     * `spacing.__experimentalSkipSerialization`).
+     */
+    private const INNER_SERIALIZED_BOXES = array(
+        'padding' => array('core/button', 'core/accordion-heading', 'core/icon', 'core/tab-list'),
+    );
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const AUTHOR_MAX_WIDTH_IMAGE_CLASS = 'blocks-engine-author-max-width-image';
@@ -590,6 +598,10 @@ final class SourceBlockAttributeProjector
     private function withGlobalZeroBoxes(string $name, array $attrs, DOMElement $sourceElement, SourceBlockAttributeProjectionContext $context): array
     {
         foreach (array('padding', 'margin') as $box) {
+            // A block that serializes this box onto an inner element (core/button
+            // pads its link, not the wrapper) cannot hand it to a wrapper class:
+            // the inner element would fall back to the theme's own padding.
+            if (in_array($name, self::INNER_SERIALIZED_BOXES[$box] ?? array(), true)) continue;
             $sides = $attrs['style']['spacing'][$box] ?? array();
             $zeroSides = is_array($sides) ? array_values(array_intersect(array('top', 'right', 'bottom', 'left'), array_keys(array_filter($sides, static fn($value): bool => is_string($value) && CssValueInspector::isZeroLength($value))))) : array();
             $zeroSides = array_values(array_filter($zeroSides, fn(string $side): bool => $this->styleResolver->hasGlobalZeroBox($sourceElement, $box, $side)));
