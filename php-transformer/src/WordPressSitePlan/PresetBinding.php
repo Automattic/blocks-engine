@@ -283,6 +283,12 @@ final class PresetBinding
      * or unknown roots, so a rem value names no token.
      */
     private ?float $rootPx = null;
+    /**
+     * While binding a provider's readable tree, only text and background
+     * colours bind: the provider keeps that tree's typography, spacing and
+     * borders as the source states them (its form presentation contract).
+     */
+    private bool $colorsOnly = false;
 
     /** Whether author class rules are retired for the document being bound. */
 
@@ -497,10 +503,13 @@ final class PresetBinding
      * blocks itself, so they never pass through the page markup binding: a
      * colour, font size or spacing an author class gives a readable block
      * would otherwise stay owned by that class, overriding the block's own
-     * controls and any colour a parent block sets. Each block binds exactly
-     * as its serialized form does in a page: its attributes and its own
-     * opening element change, its content does not. A form control's subtree
-     * stays as compiled: the provider rebuilds the control from its own facts.
+     * colour controls and any colour a parent block sets. Each block's text
+     * and background colours bind exactly as its serialized form does in a
+     * page: its attributes and its own opening element change, its content
+     * does not. Typography, spacing and borders stay as compiled: the form
+     * provider owns that presentation and reproduces the source's own values.
+     * Link blocks and a form control's subtree stay as compiled: the provider
+     * rebuilds the control from its own facts.
      *
      * @param array<int|string,mixed> $blocks
      * @return array<int|string,mixed>
@@ -508,9 +517,11 @@ final class PresetBinding
     public function bindBlockTree(array $blocks, ?string $source = null): array
     {
         $this->rootPx = $this->rootOf(null === $source ? array() : array($source));
+        $this->colorsOnly = true;
         try {
             return $this->bindTree($blocks);
         } finally {
+            $this->colorsOnly = false;
             $this->rootPx = $this->siteRootPx;
         }
     }
@@ -538,6 +549,9 @@ final class PresetBinding
         // Page binding reads core blocks only: their delimiters carry no namespace.
         if (1 !== preg_match('~^core/([\w-]+)$~', (string) $block['blockName'], $match)) return $block;
         $name = $match[1];
+        // A link block's look is the theme button's: binding its colours
+        // alone would split the look the page binding keeps whole.
+        if (in_array($name, self::LINK_BLOCKS, true)) return $block;
         $head = $block['innerContent'][0] ?? null;
         if (!is_string($head) || !is_array($block['attrs'] ?? null) || array() === $block['attrs']) return $block;
         $json = BlockAttributes::encode($block['attrs']);
@@ -551,9 +565,6 @@ final class PresetBinding
             if (!is_array($attrs)) return $block;
         }
         $between = substr($head, 0, $tagStart - strlen($opening));
-        if ('button' === $name && null !== ($slug = $this->system->buttonVariationSlug()) && str_contains($delimiter, 'is-style-' . $slug)) {
-            $between = (string) preg_replace('/\bclass="/', 'class="is-style-' . $slug . ' ', $between, 1);
-        }
         $newHead = $between . $tag . substr($head, $tagEnd - strlen($opening));
         $block['attrs'] = $attrs;
         $block['innerContent'][0] = $newHead;
@@ -1083,9 +1094,9 @@ final class PresetBinding
         $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
         $buttonLook = $isLink && (isset($this->system->elements['button']) || $variation);
         $d = new PresetBlockDraft($name, $html, $classes, $attributes, $style, $declarations, $tokens, $observed, $supports, $isLink, $deviceOverridden, $buttonLook);
-        $this->bindButtonLook($d, $variation);
+        if (!$this->colorsOnly) $this->bindButtonLook($d, $variation);
         $this->bindColorPresets($d);
-        if (in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
+        if (!$this->colorsOnly && in_array($name, array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS), true)) {
             $this->bindBorderColors($d);
             $this->bindTypography($d);
             $this->bindSpacing($d);

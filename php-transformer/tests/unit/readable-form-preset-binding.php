@@ -60,6 +60,12 @@ if ($chip['innerContent'][0] !== $chip['innerHTML']) {
     throw new RuntimeException('A bound readable paragraph keeps its innerContent in step with its innerHTML: ' . json_encode($chip));
 }
 
+// Only colours bind in the readable tree: the form provider keeps the
+// source's typography and spacing as compiled (its presentation contract).
+if (isset($chip['attrs']['fontSize']) || isset($chip['attrs']['style']['spacing']) || isset($chip['attrs']['style']['typography'])) {
+    throw new RuntimeException('A readable form block binds only its colours: ' . json_encode($chip['attrs']));
+}
+
 // The page's own copy of the same text binds the same way.
 $page = implode('', array_column($plan['pages'], 'canonical_block_markup'));
 if (!preg_match('/<!-- wp:paragraph (\{[^}]*\}) -->\s*<p\b[^>]*>Book your catering<\/p>/', $page, $match) || !str_contains($match[1], 'textColor')) {
