@@ -7,10 +7,13 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Closure;
 use DOMElement;
 use DOMNode;
@@ -76,6 +79,13 @@ use stdClass;
  * search/cart shells, inline text wrappers, figure captions and anchor
  * wrappers. Signals that need the session stay in their classes and are
  * passed in as closures or signal objects, evaluated lazily in today's order.
+ *
+ * Slice 5 adds the layout and RichText tables (see
+ * {@see self::layoutGuardStages()}): author-layout box chrome and lone
+ * styled inlines, the synthesized button save wrappers (the `css-owned`
+ * outcome), layout-shell wrapper restatement, the element conversion
+ * prelude's wrapper dispatch, and RichText styling-hook unwrapping and
+ * hoisting.
  */
 final class WrapperDecision
 {
@@ -1451,6 +1461,324 @@ final class WrapperDecision
                 'not_stretched_link_card' => self::STAGE_RESTATEMENT,
                 'link_restated_on_children' => self::STAGE_RESTATEMENT,
                 'link_wrapper_dropped' => self::STAGE_RESTATEMENT,
+            ),
+        );
+    }
+
+    /**
+     * Does a wrapper's own box paint chrome (padding, border, sizing) that a
+     * lone styled inline inside it must not absorb? Formerly
+     * {@see AuthorLayoutOwnership::hasBoxChromeWrapperStyling()}; the
+     * declarations are the wrapper's structural presentation.
+     *
+     * @param array<string, mixed> $declarations
+     */
+    public static function boxChromeWrapper(array $declarations): ?WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'box_chrome_styling', static function () use ($declarations): bool {
+                foreach ( array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' ) as $property ) {
+                    if ( isset($declarations[$property]) && CssValueInspector::isNonZero((string) $declarations[$property]) ) {
+                        return true;
+                    }
+                }
+                return false;
+            }),
+        ), WrapperDisposition::preserve(...));
+    }
+
+    /**
+     * Is a selector-addressed styled inline the only content of a flow
+     * wrapper that paints box chrome? Then the wrapper keeps its own box
+     * (`preserve`) and the inline lowers as a standalone leaf rather than a
+     * paragraph adding its own line box and spacing. A `fold` names why the
+     * inline takes the ordinary path. Formerly
+     * {@see AuthorLayoutOwnership::isLoneStyledInlineInFlowWrapper()}.
+     *
+     * @param Closure(): bool $richTextInlineContext
+     * @param Closure(DOMElement): bool $inlineParent
+     * @param Closure(DOMElement): bool $boxChromeParent
+     * @param Closure(): bool $selectorAddressed
+     */
+    public static function loneStyledInlineInFlowWrapper(DOMElement $element, Closure $richTextInlineContext, Closure $inlineParent, Closure $boxChromeParent, Closure $selectorAddressed): WrapperDisposition
+    {
+        $parent = $element->parentNode;
+
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'no_parent_element', fn (): bool => ! $parent instanceof DOMElement),
+            array(self::STAGE_RESTATEMENT, 'rich_text_inline_context', $richTextInlineContext),
+            array(self::STAGE_GEOMETRY, 'inline_parent', fn (): bool => $inlineParent($parent)),
+            array(self::STAGE_GEOMETRY, 'parent_not_inline_content_wrapper', fn (): bool => ! ShellLandmarkPolicy::isInlineContentWrapperTag($parent->tagName)),
+            array(self::STAGE_GEOMETRY, 'parent_without_box_chrome', fn (): bool => ! $boxChromeParent($parent)),
+            array(self::STAGE_RESTATEMENT, 'not_selector_addressed', fn (): bool => ! $selectorAddressed()),
+            array(self::STAGE_RESTATEMENT, 'parent_has_other_content', static function () use ($parent, $element): bool {
+                foreach ( $parent->childNodes as $child ) {
+                    if ( $child === $element || XML_COMMENT_NODE === $child->nodeType ) {
+                        continue;
+                    }
+                    if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                        continue;
+                    }
+                    return true;
+                }
+                return false;
+            }),
+        ), WrapperDisposition::fold(...))
+            ?? WrapperDisposition::preserve('lone_styled_inline_in_box_chrome_wrapper', self::STAGE_GEOMETRY);
+    }
+
+    /**
+     * The inner `.wp-block-button` save wrapper of a native control that is
+     * a flex/grid item: its box is flattened and the control's layout is
+     * owned by CSS on the link (`css-owned`), or it participates
+     * (`preserve`). Formerly {@see LayoutParticipation::flattensInnerSaveWrapper()}.
+     */
+    public static function innerSaveWrapper(LayoutParticipation $participation): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'native_control_layout_item', fn (): bool => $participation->isLayoutItem() && $participation->sourceIsNativeControl),
+        ), WrapperDisposition::cssOwned(...))
+            ?? WrapperDisposition::preserve('inner_save_wrapper_participates', self::STAGE_GEOMETRY);
+    }
+
+    /**
+     * Synthesized `core/buttons`: neutralized (`css-owned`) when its box
+     * would change the source control's participation or steal a positioned
+     * child's containing block; otherwise it keeps its flex box. Formerly
+     * {@see LayoutParticipation::neutralizeButtonsWrapper()}.
+     */
+    public static function buttonsSaveWrapper(LayoutParticipation $participation): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'positioned_control', fn (): bool => $participation->positioned),
+            // An inline control that fills an aligned line alone keeps the
+            // wrapper's flex box: it is the only box left to hold the
+            // restated justifyContent.
+            array(self::STAGE_GEOMETRY, 'inline_control_without_aligned_line', fn (): bool => $participation->isInline() && ! $participation->ownsAlignedLine),
+            array(self::STAGE_GEOMETRY, 'native_control_layout_item', fn (): bool => self::innerSaveWrapper($participation)->isCssOwned()),
+        ), WrapperDisposition::cssOwned(...))
+            ?? WrapperDisposition::preserve('buttons_wrapper_participates', self::STAGE_GEOMETRY);
+    }
+
+    /**
+     * Synthesized inner `.wp-block-button` wrapper: kept as the positioning
+     * box of an out-of-flow control, neutralized (`css-owned`) for inline
+     * controls and flattened native-control layout items, otherwise kept.
+     * Formerly {@see LayoutParticipation::neutralizeButtonWrapper()}.
+     */
+    public static function buttonSaveWrapper(LayoutParticipation $participation): WrapperDisposition
+    {
+        $preserve = self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'positioning_box_for_out_of_flow_control', fn (): bool => $participation->positioned),
+        ), WrapperDisposition::preserve(...));
+        if ( null !== $preserve ) {
+            return $preserve;
+        }
+
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'inline_control', fn (): bool => $participation->isInline()),
+            array(self::STAGE_GEOMETRY, 'native_control_layout_item', fn (): bool => self::innerSaveWrapper($participation)->isCssOwned()),
+        ), WrapperDisposition::cssOwned(...))
+            ?? WrapperDisposition::preserve('button_wrapper_participates', self::STAGE_GEOMETRY);
+    }
+
+    /**
+     * One source element kept as a layout-shell wrapper (`preserve`): the
+     * reason names whether its tag is restated (`div` for a custom element,
+     * or for a field-box `<label>` whose provider field renders its own
+     * label) or kept. Formerly inlined in
+     * {@see LayoutShellLowering::layoutShellWrapper()}.
+     *
+     * @return array{disposition: WrapperDisposition, tagName: string}
+     */
+    public static function layoutShellWrapper(DOMElement $element, bool $fieldBox): array
+    {
+        $sourceTagName = strtolower($element->tagName);
+        $disposition = self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'custom_element_restated_as_div', fn (): bool => str_contains($sourceTagName, '-')),
+            array(self::STAGE_RESTATEMENT, 'field_box_label_restated_as_div', fn (): bool => $fieldBox && 'label' === $sourceTagName),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::preserve('source_tag', self::STAGE_RESTATEMENT);
+
+        return array(
+            'disposition' => $disposition,
+            'tagName' => 'source_tag' === $disposition->reason ? $sourceTagName : 'div',
+        );
+    }
+
+    /**
+     * A layout-shell wrapper that keeps every source class verbatim
+     * (`preserve`), or null when only its promoted, marker, runtime and
+     * engine classes are restated. Formerly inlined in
+     * `LayoutShellLowering::layoutShellClassName()`.
+     */
+    public static function layoutShellSourceClasses(DOMElement $element): ?WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'capture_device_visibility_carrier', fn (): bool => SourceDom::isCaptureDeviceVisibilityCarrier($element)),
+        ), WrapperDisposition::preserve(...));
+    }
+
+    /**
+     * Why a raw source class is restated on a layout-shell wrapper, or null
+     * when it is not (promoted classes are restated separately).
+     *
+     * @param array<string, true> $runtimeClasses
+     */
+    public static function layoutShellRestatedClass(string $class, array $runtimeClasses): ?string
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'runtime_dom_selector_class', fn (): bool => isset($runtimeClasses[$class])),
+            array(self::STAGE_RESTATEMENT, 'engine_attribute_class', fn (): bool => 1 === preg_match('/^blocks-engine-(?:attribute|editor-anchor)-/', $class)),
+        ), WrapperDisposition::preserve(...))?->reason;
+    }
+
+    /**
+     * The wrapper decisions of the element conversion prelude, in dispatch
+     * order: inert scaffolding is dropped, a `<span>` around a form keeps a
+     * group of its own, and a standalone inline layout leaf folds its
+     * wrapper's paragraph away. Null continues the prelude. Formerly inlined
+     * in {@see ElementConversionPrelude::convert()}.
+     *
+     * @param Closure(): ?WrapperDisposition $inertScaffolding
+     * @param Closure(): bool $spanHoldsForm
+     * @param Closure(): bool $standaloneInlineLayoutLeaf
+     */
+    public static function preludeWrapper(Closure $inertScaffolding, Closure $spanHoldsForm, Closure $standaloneInlineLayoutLeaf): ?WrapperDisposition
+    {
+        $drop = $inertScaffolding();
+        if ( null !== $drop && $drop->isDrop() ) {
+            return $drop;
+        }
+
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'span_holds_form', $spanHoldsForm),
+        ), WrapperDisposition::preserve(...))
+            ?? self::firstMatch(array(
+                array(self::STAGE_GEOMETRY, 'standalone_inline_layout_leaf', $standaloneInlineLayoutLeaf),
+            ), WrapperDisposition::fold(...));
+    }
+
+    /**
+     * A RichText inline styling hook: unwrapped when it carries nothing
+     * (`fold`), restated on a RichText-safe mark (`preserve`), unwrapped
+     * because a span or unknown element is not representable (`fold`), or
+     * kept as an inline format. Formerly inlined in
+     * {@see RichTextStylingHookNormalizer::normalize()}. Restating on a mark
+     * mutates the DOM, so it runs only once the attribute-less guard passed.
+     *
+     * @param Closure(): bool $restatedOnMark
+     */
+    public static function richTextStylingHook(DOMElement $inline, Closure $restatedOnMark): WrapperDisposition
+    {
+        $tagName = strtolower($inline->tagName);
+
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'attributeless_font', fn (): bool => 'font' === $tagName && ! $inline->hasAttributes()),
+        ), WrapperDisposition::fold(...))
+            ?? self::firstMatch(array(
+                array(self::STAGE_RESTATEMENT, 'restated_on_mark', $restatedOnMark),
+            ), WrapperDisposition::preserve(...))
+            ?? self::firstMatch(array(
+                array(self::STAGE_RESTATEMENT, 'unrepresentable_inline_wrapper', fn (): bool => 'span' === $tagName || RichTextInlineTags::isUnknownHtmlElement($inline)),
+            ), WrapperDisposition::fold(...))
+            ?? WrapperDisposition::preserve('rich_text_inline_format', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * May a styling-hook span that wraps a block's whole RichText content be
+     * hoisted onto the block (`fold`, its classes and declarations restated
+     * there)? A list item with block content keeps its topology, and a span
+     * whose identity must stay on the saved carrier is kept (`preserve`).
+     * Formerly inlined in {@see RichTextStylingHookNormalizer::hoistContentWrappingSpans()}.
+     *
+     * @param array<string, string> $declarations
+     * @param Closure(): bool $hasSafeIdentity
+     */
+    public static function contentWrappingSpan(array $declarations, Closure $hasSafeIdentity): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'rich_text_safe_identity', $hasSafeIdentity),
+            array(self::STAGE_IDENTITY, 'rich_text_marker_declaration', fn (): bool => isset($declarations['--blocks-engine-richtext-marker'])),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::fold('content_wrapping_span_hoisted', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * A list item whose content carries block-level children keeps that
+     * topology: no wrapper is hoisted onto it (`preserve`). Null when
+     * hoisting may proceed.
+     *
+     * @param Closure(): bool $hasBlockContentChildren
+     */
+    public static function listItemContentHoisting(bool $isListItem, Closure $hasBlockContentChildren): ?WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'list_item_has_block_content', fn (): bool => $isListItem && $hasBlockContentChildren()),
+        ), WrapperDisposition::preserve(...));
+    }
+
+    /**
+     * Guard names of the slice-5 tables (#7471), in evaluation order, keyed
+     * to their stage. Pinned by `tests/unit/wrapper-decision-layout.php`.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function layoutGuardStages(): array
+    {
+        return array(
+            'box_chrome_wrapper' => array(
+                'box_chrome_styling' => self::STAGE_GEOMETRY,
+            ),
+            'lone_styled_inline_in_flow_wrapper' => array(
+                'no_parent_element' => self::STAGE_RESTATEMENT,
+                'rich_text_inline_context' => self::STAGE_RESTATEMENT,
+                'inline_parent' => self::STAGE_GEOMETRY,
+                'parent_not_inline_content_wrapper' => self::STAGE_GEOMETRY,
+                'parent_without_box_chrome' => self::STAGE_GEOMETRY,
+                'not_selector_addressed' => self::STAGE_RESTATEMENT,
+                'parent_has_other_content' => self::STAGE_RESTATEMENT,
+                'lone_styled_inline_in_box_chrome_wrapper' => self::STAGE_GEOMETRY,
+            ),
+            'inner_save_wrapper' => array(
+                'native_control_layout_item' => self::STAGE_GEOMETRY,
+                'inner_save_wrapper_participates' => self::STAGE_GEOMETRY,
+            ),
+            'buttons_save_wrapper' => array(
+                'positioned_control' => self::STAGE_GEOMETRY,
+                'inline_control_without_aligned_line' => self::STAGE_GEOMETRY,
+                'native_control_layout_item' => self::STAGE_GEOMETRY,
+                'buttons_wrapper_participates' => self::STAGE_GEOMETRY,
+            ),
+            'button_save_wrapper' => array(
+                'positioning_box_for_out_of_flow_control' => self::STAGE_GEOMETRY,
+                'inline_control' => self::STAGE_GEOMETRY,
+                'native_control_layout_item' => self::STAGE_GEOMETRY,
+                'button_wrapper_participates' => self::STAGE_GEOMETRY,
+            ),
+            'layout_shell_wrapper' => array(
+                'custom_element_restated_as_div' => self::STAGE_RESTATEMENT,
+                'field_box_label_restated_as_div' => self::STAGE_RESTATEMENT,
+                'source_tag' => self::STAGE_RESTATEMENT,
+                'capture_device_visibility_carrier' => self::STAGE_IDENTITY,
+                'runtime_dom_selector_class' => self::STAGE_IDENTITY,
+                'engine_attribute_class' => self::STAGE_RESTATEMENT,
+            ),
+            'prelude_wrapper' => array(
+                'span_holds_form' => self::STAGE_IDENTITY,
+                'standalone_inline_layout_leaf' => self::STAGE_GEOMETRY,
+            ),
+            'rich_text_styling_hook' => array(
+                'attributeless_font' => self::STAGE_IDENTITY,
+                'restated_on_mark' => self::STAGE_RESTATEMENT,
+                'unrepresentable_inline_wrapper' => self::STAGE_RESTATEMENT,
+                'rich_text_inline_format' => self::STAGE_RESTATEMENT,
+            ),
+            'content_wrapping_span' => array(
+                'list_item_has_block_content' => self::STAGE_RESTATEMENT,
+                'rich_text_safe_identity' => self::STAGE_IDENTITY,
+                'rich_text_marker_declaration' => self::STAGE_IDENTITY,
+                'content_wrapping_span_hoisted' => self::STAGE_RESTATEMENT,
             ),
         );
     }
