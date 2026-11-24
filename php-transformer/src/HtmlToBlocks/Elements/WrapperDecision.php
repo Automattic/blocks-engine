@@ -5,11 +5,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
+use DOMNode;
 use Generator;
 use stdClass;
 
@@ -57,6 +59,13 @@ use stdClass;
  * that this class's instance reads (the coalescer consumes
  * {@see EmptyVisualRetentionPolicy::soleElementChild()}). The guard order and
  * input gates are exactly those of the predicates they replace.
+ *
+ * Slice 3 adds the remaining coalescer and flow-container tables (see
+ * {@see self::loweringGuardStages()}): saved group-chain compression, the
+ * proof-backed, inherited-text and neutral-child coalescing paths, the
+ * single-child candidate and retention reads shared by flow containers,
+ * author-layout lowering and list items, the author-layout empty child, the
+ * script-state guard and the sole-element-child skip.
  */
 final class WrapperDecision
 {
@@ -437,6 +446,430 @@ final class WrapperDecision
                 'static_pseudo_element_rule' => self::STAGE_GEOMETRY,
                 'renderable_box_at_any_viewport' => self::STAGE_GEOMETRY,
                 'empty_visual_inline_candidate' => self::STAGE_GEOMETRY,
+            ),
+        );
+    }
+
+    /**
+     * Should a run of single-child saved `core/group` ancestors fold into one
+     * layout shell before their descendants normalize, because native
+     * nesting would breach the saved depth budget? Formerly the first
+     * inlined condition of {@see WrapperCoalescer::compressProjectedGroupChains()}.
+     * Returns a `fold` when the chain folds and a `preserve` naming the
+     * exemption otherwise.
+     *
+     * @param Closure(): bool $exceedsDepthBudget
+     */
+    public static function ancestorChainCompression(bool $nativeNavigationChain, int $chainLength, Closure $exceedsDepthBudget): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'native_navigation_chain', fn (): bool => $nativeNavigationChain),
+            array(self::STAGE_RESTATEMENT, 'single_wrapper_ancestry', fn (): bool => 2 > $chainLength),
+        ), WrapperDisposition::preserve(...))
+            ?? self::firstMatch(array(
+                array(self::STAGE_RESTATEMENT, 'saved_depth_exceeds_nesting_budget', $exceedsDepthBudget),
+            ), WrapperDisposition::fold(...))
+            ?? WrapperDisposition::preserve('within_nesting_budget', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * Does a collected saved group chain fold into a generated layout shell,
+     * or stay native nested groups? Formerly the second inlined condition of
+     * {@see WrapperCoalescer::compressProjectedGroupChains()}.
+     */
+    public static function projectedChainFold(bool $nativeGroupTree, int $chainLength, bool $terminalIsShell): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'native_group_tree_within_budget', fn (): bool => $nativeGroupTree),
+        ), WrapperDisposition::preserve(...))
+            ?? self::firstMatch(array(
+                array(self::STAGE_RESTATEMENT, 'wrapper_chain', fn (): bool => 2 <= $chainLength),
+                array(self::STAGE_RESTATEMENT, 'wrapper_around_layout_shell', fn (): bool => 0 < $chainLength && $terminalIsShell),
+            ), WrapperDisposition::fold(...))
+            ?? WrapperDisposition::preserve('no_foldable_chain', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * Wrapper guards of the proof-backed path, evaluated before its children
+     * are converted. Formerly the inlined condition of
+     * {@see WrapperCoalescer::proofBackedWrapperCoalescing()}.
+     *
+     * @param array<string, mixed>|null $proof
+     */
+    public function proofBackedWrapper(DOMElement $element, ?array $proof): ?WrapperDisposition
+    {
+        return $this->firstRefusal(array(
+            array(self::STAGE_GEOMETRY, 'no_layout_geometry_proof', fn (): bool => null === $proof),
+            array(self::STAGE_GEOMETRY, 'layout_geometry_corrective_target', fn (): bool => $this->signals->isLayoutGeometryCorrectiveTarget($element)),
+            array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
+            array(self::STAGE_IDENTITY, 'has_id_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'id'))),
+            array(self::STAGE_IDENTITY, 'has_role_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'role'))),
+            array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->describedInteractiveAttributes($element)),
+            array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
+        ));
+    }
+
+    /**
+     * Child guards of the proof-backed path, once the wrapper's children are
+     * converted: one native child block whose source element is the proof's
+     * target.
+     *
+     * @param array<int, array<string, mixed>> $children
+     * @param array<string, mixed> $proof
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement}
+     */
+    public function proofBackedChild(DOMElement $element, array $children, array $proof): array
+    {
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'not_single_child_block', fn (): bool => 1 !== count($children)),
+            array(self::STAGE_RESTATEMENT, 'unsupported_child_block_name', fn (): bool => ! in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true)),
+            array(self::STAGE_IDENTITY, 'child_is_binding_anchor', fn (): bool => $this->signals->isBindingAnchor($children[0])),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+        $sourceChild = $this->signals->soleElementChildOf($element);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'source_child_is_not_proof_target', fn (): bool => ! $sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)),
+        ));
+
+        return array(
+            'disposition' => $refusal ?? WrapperDisposition::coalesce('layout_geometry_proof', self::STAGE_GEOMETRY),
+            'source_child' => $sourceChild,
+        );
+    }
+
+    /**
+     * Wrapper guards of the inherited-text path: a text-only wrapper whose
+     * inherited declarations can be restated on the child block. Formerly
+     * the leading checks of `WrapperCoalescer::coalescedInheritedTextWrapper()`.
+     *
+     * @param array<string, mixed> $childBlock
+     */
+    public function inheritedTextWrapper(DOMElement $element, array $childBlock): ?WrapperDisposition
+    {
+        return $this->firstRefusal(array(
+            array(self::STAGE_IDENTITY, 'child_is_binding_anchor', fn (): bool => $this->signals->isBindingAnchor($childBlock)),
+            array(self::STAGE_GEOMETRY, 'not_inherited_text_wrapper', fn (): bool => ! $this->signals->isInheritedTextWrapper($element)),
+            array(self::STAGE_RESTATEMENT, 'unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? '', array('core/paragraph', 'core/heading', 'core/group', 'core/image', 'core/quote', 'core/list'), true)),
+        ));
+    }
+
+    /**
+     * Leaf guards of the inherited-text path, after the text-wrapper chain
+     * has been walked to `$leaf`.
+     *
+     * @param array<string, mixed> $childBlock
+     */
+    public function inheritedTextLeaf(DOMElement $element, array $childBlock, ?DOMElement $leaf): ?WrapperDisposition
+    {
+        return $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'missing_inherited_text_leaf', fn (): bool => ! $leaf instanceof DOMElement),
+            array(self::STAGE_RESTATEMENT, 'paragraph_leaf_is_not_p', fn (): bool => 'core/paragraph' === ($childBlock['blockName'] ?? '') && 'p' !== strtolower($leaf->tagName)),
+            array(self::STAGE_RESTATEMENT, 'selector_matching_does_not_survive_coalescing', fn (): bool => ! $this->signals->selectorMatchingSurvivesWrapperCoalescing($element, $leaf, true)),
+        ));
+    }
+
+    /**
+     * The last inherited-text guard: something is left to restate.
+     *
+     * @param array<string, string> $values
+     */
+    public static function inheritedTextValues(array $values): WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'no_inherited_text_declarations', fn (): bool => array() === $values),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::coalesce('inherited_text_restated', self::STAGE_RESTATEMENT);
+    }
+
+    /**
+     * May a padded wrapper absorb its render-neutral child (the child's box
+     * disappears, the wrapper's stays)? Formerly the inlined `if` chains of
+     * `WrapperCoalescer::absorbedNeutralChild()`, in the same order and with
+     * the same input gates: the wrapper's author declarations are read only
+     * once the wrapper guards pass, the source child only once the wrapper's
+     * box qualifies, and the child's declarations only once the child does.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement}
+     */
+    public function neutralChildAbsorption(DOMElement $element, array $childBlock): array
+    {
+        $name = $childBlock['blockName'] ?? '';
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'unsupported_child_block_name', fn (): bool => ! in_array($name, array('core/group', 'core/paragraph'), true)),
+            array(self::STAGE_RESTATEMENT, 'wrapper_is_not_div', fn (): bool => 'div' !== strtolower($element->tagName)),
+            array(self::STAGE_IDENTITY, 'saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
+            array(self::STAGE_IDENTITY, 'child_is_binding_anchor', fn (): bool => $this->signals->isBindingAnchor($childBlock)),
+            array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
+            array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
+            array(self::STAGE_IDENTITY, 'has_id_attribute', fn (): bool => '' !== SourceDom::attr($element, 'id')),
+            array(self::STAGE_IDENTITY, 'has_role_attribute', fn (): bool => '' !== SourceDom::attr($element, 'role')),
+            array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($element)),
+            array(self::STAGE_IDENTITY, 'has_data_attributes', fn (): bool => array() !== SourceDom::safeDataAttributes($element)),
+            array(self::STAGE_GEOMETRY, 'structural_layout_element', fn (): bool => $this->signals->isStructuralLayoutElement($element)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $parentDeclarations = $this->signals->matchingAuthorDeclarations($element);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_GEOMETRY, 'wrapper_has_no_padded_box', fn (): bool => ! $this->signals->hasPaddedBox($parentDeclarations)),
+            array(self::STAGE_GEOMETRY, 'paragraph_wrapper_paints_no_background', fn (): bool => 'core/paragraph' === $name && ! isset($parentDeclarations['background']) && ! isset($parentDeclarations['background-color'])),
+            array(self::STAGE_RESTATEMENT, 'wrapper_declares_inherited_text', fn (): bool => $this->signals->declaresInheritedText($parentDeclarations)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $child = $this->signals->soleElementChildOf($element);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'missing_sole_child', fn (): bool => ! $child instanceof DOMElement),
+            // Conversion may already have promoted a deeper styled descendant
+            // through this neutral source node. Its declarations, not this
+            // node's neutrality, own the converted block's box.
+            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', fn (): bool => $this->signals->matchingSourceChild($element, $childBlock) !== $child),
+            array(self::STAGE_RESTATEMENT, 'child_tag_mismatch', fn (): bool => ! in_array(strtolower($child->tagName), 'core/paragraph' === $name ? array('p') : array('div'), true)),
+            array(self::STAGE_IDENTITY, 'child_runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($child)),
+            array(self::STAGE_IDENTITY, 'child_has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($child)),
+            array(self::STAGE_IDENTITY, 'child_has_id_attribute', fn (): bool => '' !== SourceDom::attr($child, 'id')),
+            array(self::STAGE_IDENTITY, 'child_has_role_attribute', fn (): bool => '' !== SourceDom::attr($child, 'role')),
+            array(self::STAGE_IDENTITY, 'child_has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($child)),
+            array(self::STAGE_IDENTITY, 'child_has_data_attributes', fn (): bool => array() !== SourceDom::safeDataAttributes($child)),
+            array(self::STAGE_GEOMETRY, 'child_box_affecting_declarations_not_neutral', fn (): bool => ! $this->signals->hasOnlyRenderNeutralBoxAffectingDeclarations($child)),
+            array(self::STAGE_RESTATEMENT, 'selector_matching_does_not_survive_coalescing', fn (): bool => ! $this->signals->selectorMatchingSurvivesWrapperCoalescing($element, $child, true)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        // Neutral on the child does not mean neutral on the merged box:
+        // a child's zero margin/padding can reset the parent's spacing once
+        // their selector carriers share a host. Keep these two box owners
+        // separate rather than letting carrier specificity choose geometry.
+        $childDeclarations = $this->signals->matchingAuthorDeclarations($child);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'child_text_cascade_moves_onto_box', fn (): bool => $this->signals->childTextCascadeMovesOntoBox((string) $name, $parentDeclarations, $childDeclarations)),
+            array(self::STAGE_GEOMETRY, 'box_sizing_conflict', fn (): bool => $this->signals->boxSizingConflicts($parentDeclarations, $childDeclarations)),
+            array(self::STAGE_GEOMETRY, 'spacing_owners_overlap', fn (): bool => $this->signals->spacingOwnersOverlap($parentDeclarations, $childDeclarations)),
+            array(self::STAGE_GEOMETRY, 'border_owners_overlap', fn (): bool => $this->signals->borderOwnersOverlap($parentDeclarations, $childDeclarations)),
+            // Paragraphs have UA block margins even without author declarations.
+            array(self::STAGE_GEOMETRY, 'paragraph_user_agent_margins', fn (): bool => 'core/paragraph' === $name && $this->signals->hasUserAgentParagraphMargins($child)),
+        ));
+
+        return array(
+            'disposition' => $refusal ?? WrapperDisposition::coalesce('neutral_child_absorbed', self::STAGE_GEOMETRY),
+            'source_child' => $child,
+        );
+    }
+
+    /**
+     * Is a container with these converted children a single-child wrapper
+     * candidate at all? A `preserve` names why not; null means the caller
+     * asks the coalescing decision. Shared by flow containers, author-layout
+     * lowering and list items.
+     *
+     * @param array<int, array<string, mixed>> $children
+     */
+    public static function singleChildCandidate(array $children, bool $topologyChanged = false): ?WrapperDisposition
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_RESTATEMENT, 'not_single_child_block', fn (): bool => 1 !== count($children)),
+            array(self::STAGE_GEOMETRY, 'author_layout_topology_changed', fn (): bool => $topologyChanged),
+        ), WrapperDisposition::preserve(...));
+    }
+
+    /**
+     * A single-child flow wrapper that did not coalesce: keep its group
+     * (`preserve`) or emit the child in its place (`fold`)? Formerly inlined
+     * in {@see FlowContainerElementConverter::convert()}. The author-owned
+     * layout check is only evaluated when retention folds.
+     *
+     * @param Closure(): bool $isAuthorOwnedLayoutChild
+     */
+    public static function singleChildRetention(WrapperDisposition $retention, Closure $isAuthorOwnedLayoutChild): WrapperDisposition
+    {
+        if ($retention->isPreserve()) {
+            return $retention;
+        }
+
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'author_owned_layout_child', $isAuthorOwnedLayoutChild),
+        ), WrapperDisposition::preserve(...))
+            ?? WrapperDisposition::fold($retention->reason, $retention->stage);
+    }
+
+    /**
+     * An empty direct child of an author-owned layout: dropped when it is an
+     * inert out-of-flow box, kept as a spacer when its empty visual box is
+     * retained, otherwise null (it continues to the layout lowering).
+     *
+     * @param Closure(): bool $isInertOutOfFlow
+     * @param Closure(): WrapperDisposition $emptyVisual
+     */
+    public static function authorLayoutEmptyChild(Closure $isInertOutOfFlow, Closure $emptyVisual): ?WrapperDisposition
+    {
+        $drop = self::firstMatch(array(
+            // An out-of-flow layout item that paints nothing in any state
+            // and takes no input is not a box the author can see or edit.
+            array(self::STAGE_GEOMETRY, 'inert_out_of_flow_empty_element', $isInertOutOfFlow),
+        ), WrapperDisposition::drop(...));
+        if (null !== $drop) {
+            return $drop;
+        }
+        $retention = $emptyVisual();
+
+        return $retention->isPreserve() ? $retention : null;
+    }
+
+    /**
+     * Does the wrapper hold state a script observes (so it stays its own
+     * layout shell)? Formerly the body of
+     * {@see EmptyVisualRetentionPolicy::preservesScriptStateWrapper()}. The
+     * attribute guards run per attribute, in source attribute order.
+     */
+    public static function scriptState(EmptyVisualRetentionPolicy $signals, DOMElement $element): WrapperDisposition
+    {
+        $preserve = self::firstMatch(array(
+            array(self::STAGE_IDENTITY, 'capture_device_visibility_carrier', fn (): bool => SourceDom::isCaptureDeviceVisibilityCarrier($element)),
+        ), WrapperDisposition::preserve(...));
+        if (null !== $preserve) {
+            return $preserve;
+        }
+        $fold = self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'inert_hidden_empty_element', fn (): bool => $signals->isInertHiddenEmptyElement($element)),
+        ), WrapperDisposition::fold(...));
+        if (null !== $fold) {
+            return $fold;
+        }
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            $preserve = self::firstMatch(array(
+                array(self::STAGE_IDENTITY, 'boolean_state_attribute', fn (): bool => LayoutShellBlockGenerator::isBooleanAttribute($name)),
+                array(self::STAGE_IDENTITY, 'runtime_target_state_attribute', fn (): bool => $signals->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name )),
+            ), WrapperDisposition::preserve(...));
+            if (null !== $preserve) {
+                return $preserve;
+            }
+        }
+
+        return WrapperDisposition::fold('no_script_state', self::STAGE_IDENTITY);
+    }
+
+    /**
+     * Why a child node is ignored when looking for a wrapper's sole element
+     * child, or null when it counts. Formerly inlined in
+     * {@see EmptyVisualRetentionPolicy::soleElementChild()}.
+     */
+    public static function soleChildSkip(EmptyVisualRetentionPolicy $signals, DOMNode $node): ?string
+    {
+        return self::firstMatch(array(
+            array(self::STAGE_GEOMETRY, 'whitespace_text', fn (): bool => XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '')),
+            // Source comments carry no rendered, selector, or runtime boundary.
+            // Treating them as transparent lets generated exports shed an otherwise
+            // inert authoring wrapper without interpreting product-specific markup.
+            array(self::STAGE_IDENTITY, 'source_comment', fn (): bool => XML_COMMENT_NODE === $node->nodeType),
+            array(self::STAGE_GEOMETRY, 'inert_hidden_empty_element', fn (): bool => $node instanceof DOMElement && $signals->isInertHiddenEmptyElement($node)),
+            array(self::STAGE_GEOMETRY, 'display_none_empty_element', fn (): bool => $node instanceof DOMElement && $signals->isExplicitlyDisplayNoneEmptyElement($node)),
+        ), WrapperDisposition::drop(...))?->reason;
+    }
+
+    /**
+     * Guard names of the slice-3 tables (#7471), in evaluation order, keyed
+     * to their stage. Pinned by tests like {@see guardStages()}.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function loweringGuardStages(): array
+    {
+        return array(
+            'ancestor_chain_compression' => array(
+                'native_navigation_chain' => self::STAGE_IDENTITY,
+                'single_wrapper_ancestry' => self::STAGE_RESTATEMENT,
+                'saved_depth_exceeds_nesting_budget' => self::STAGE_RESTATEMENT,
+            ),
+            'projected_chain_fold' => array(
+                'native_group_tree_within_budget' => self::STAGE_RESTATEMENT,
+                'wrapper_chain' => self::STAGE_RESTATEMENT,
+                'wrapper_around_layout_shell' => self::STAGE_RESTATEMENT,
+            ),
+            'proof_backed_coalescing' => array(
+                'no_layout_geometry_proof' => self::STAGE_GEOMETRY,
+                'layout_geometry_corrective_target' => self::STAGE_GEOMETRY,
+                'runtime_dom_target' => self::STAGE_IDENTITY,
+                'has_id_attribute' => self::STAGE_IDENTITY,
+                'has_role_attribute' => self::STAGE_IDENTITY,
+                'has_interactive_attributes' => self::STAGE_IDENTITY,
+                'has_motion_structure_token' => self::STAGE_IDENTITY,
+                'not_single_child_block' => self::STAGE_RESTATEMENT,
+                'unsupported_child_block_name' => self::STAGE_RESTATEMENT,
+                'child_is_binding_anchor' => self::STAGE_IDENTITY,
+                'source_child_is_not_proof_target' => self::STAGE_RESTATEMENT,
+            ),
+            'inherited_text_coalescing' => array(
+                'child_is_binding_anchor' => self::STAGE_IDENTITY,
+                'not_inherited_text_wrapper' => self::STAGE_GEOMETRY,
+                'unsupported_child_block_name' => self::STAGE_RESTATEMENT,
+                'missing_inherited_text_leaf' => self::STAGE_RESTATEMENT,
+                'paragraph_leaf_is_not_p' => self::STAGE_RESTATEMENT,
+                'selector_matching_does_not_survive_coalescing' => self::STAGE_RESTATEMENT,
+                'no_inherited_text_declarations' => self::STAGE_RESTATEMENT,
+            ),
+            'neutral_child_absorption' => array(
+                'unsupported_child_block_name' => self::STAGE_RESTATEMENT,
+                'wrapper_is_not_div' => self::STAGE_RESTATEMENT,
+                'saved_group_boundary' => self::STAGE_IDENTITY,
+                'child_is_binding_anchor' => self::STAGE_IDENTITY,
+                'runtime_dom_target' => self::STAGE_IDENTITY,
+                'has_motion_structure_token' => self::STAGE_IDENTITY,
+                'has_id_attribute' => self::STAGE_IDENTITY,
+                'has_role_attribute' => self::STAGE_IDENTITY,
+                'has_interactive_attributes' => self::STAGE_IDENTITY,
+                'has_data_attributes' => self::STAGE_IDENTITY,
+                'structural_layout_element' => self::STAGE_GEOMETRY,
+                'wrapper_has_no_padded_box' => self::STAGE_GEOMETRY,
+                'paragraph_wrapper_paints_no_background' => self::STAGE_GEOMETRY,
+                'wrapper_declares_inherited_text' => self::STAGE_RESTATEMENT,
+                'missing_sole_child' => self::STAGE_RESTATEMENT,
+                'child_block_not_from_sole_child' => self::STAGE_RESTATEMENT,
+                'child_tag_mismatch' => self::STAGE_RESTATEMENT,
+                'child_runtime_dom_target' => self::STAGE_IDENTITY,
+                'child_has_motion_structure_token' => self::STAGE_IDENTITY,
+                'child_has_id_attribute' => self::STAGE_IDENTITY,
+                'child_has_role_attribute' => self::STAGE_IDENTITY,
+                'child_has_interactive_attributes' => self::STAGE_IDENTITY,
+                'child_has_data_attributes' => self::STAGE_IDENTITY,
+                'child_box_affecting_declarations_not_neutral' => self::STAGE_GEOMETRY,
+                'selector_matching_does_not_survive_coalescing' => self::STAGE_RESTATEMENT,
+                'child_text_cascade_moves_onto_box' => self::STAGE_RESTATEMENT,
+                'box_sizing_conflict' => self::STAGE_GEOMETRY,
+                'spacing_owners_overlap' => self::STAGE_GEOMETRY,
+                'border_owners_overlap' => self::STAGE_GEOMETRY,
+                'paragraph_user_agent_margins' => self::STAGE_GEOMETRY,
+            ),
+            'single_child_candidate' => array(
+                'not_single_child_block' => self::STAGE_RESTATEMENT,
+                'author_layout_topology_changed' => self::STAGE_GEOMETRY,
+            ),
+            'single_child_retention' => array(
+                'author_owned_layout_child' => self::STAGE_GEOMETRY,
+            ),
+            'author_layout_empty_child' => array(
+                'inert_out_of_flow_empty_element' => self::STAGE_GEOMETRY,
+            ),
+            'script_state' => array(
+                'capture_device_visibility_carrier' => self::STAGE_IDENTITY,
+                'inert_hidden_empty_element' => self::STAGE_GEOMETRY,
+                'boolean_state_attribute' => self::STAGE_IDENTITY,
+                'runtime_target_state_attribute' => self::STAGE_IDENTITY,
+            ),
+            'sole_element_child' => array(
+                'whitespace_text' => self::STAGE_GEOMETRY,
+                'source_comment' => self::STAGE_IDENTITY,
+                'inert_hidden_empty_element' => self::STAGE_GEOMETRY,
+                'display_none_empty_element' => self::STAGE_GEOMETRY,
             ),
         );
     }

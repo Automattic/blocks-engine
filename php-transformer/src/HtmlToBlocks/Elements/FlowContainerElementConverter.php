@@ -300,13 +300,12 @@ final class FlowContainerElementConverter implements ElementConverter
             && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true)
         ) {
             if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) ) {
-                // An out-of-flow layout item that paints nothing in any state
-                // and takes no input is not a box the author can see or edit.
-                if ( $this->context->isInertEmptyElement($element) ) {
-                    return ConversionOutcome::handled(null);
-                }
-                if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element) ) {
-                    return ConversionOutcome::handled($this->emptyVisualSpacers->emptyVisualSpacerBlock($element));
+                $emptyChild = WrapperDecision::authorLayoutEmptyChild(
+                    fn (): bool => $this->context->isInertEmptyElement($element),
+                    fn (): WrapperDisposition => $this->emptyVisualRetention->emptyVisualDisposition($element)
+                );
+                if ( null !== $emptyChild ) {
+                    return ConversionOutcome::handled($emptyChild->isDrop() ? null : $this->emptyVisualSpacers->emptyVisualSpacerBlock($element));
                 }
             }
             // A parent's CSS-authored layout must not hide a semantic widget
@@ -441,15 +440,16 @@ final class FlowContainerElementConverter implements ElementConverter
                 $children[] = $backgroundImage;
             }
         }
-        if ( 1 === count($children) ) {
+        if ( null === WrapperDecision::singleChildCandidate($children) ) {
             $block = $this->context->coalescedSingleGroupWrapper($element, $children[0]);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
-            if ( $this->context->shouldPreserveWrapper($element, $tagName) || $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element) ) {
-                return ConversionOutcome::handled($this->group($element, $children));
-            }
-            return ConversionOutcome::handled($children[0]);
+            $retention = WrapperDecision::singleChildRetention(
+                $this->context->wrapperDisposition($element, $tagName),
+                fn (): bool => $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element)
+            );
+            return ConversionOutcome::handled($retention->isPreserve() ? $this->group($element, $children) : $children[0]);
         }
         if ( array() !== $children ) {
             return ConversionOutcome::handled($this->group($element, $children));
@@ -462,7 +462,7 @@ final class FlowContainerElementConverter implements ElementConverter
 
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
     {
-        if ( 'nav' === strtolower($element->tagName) || ! $this->context->shouldPreserveWrapper($element) || $this->isVerifiedCollectionItemList($element) ) {
+        if ( 'nav' === strtolower($element->tagName) || ! $this->context->wrapperDisposition($element)->isPreserve() || $this->isVerifiedCollectionItemList($element) ) {
             return false;
         }
         if ( $this->isRepeatedLinkItemCluster($element)

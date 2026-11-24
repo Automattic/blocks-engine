@@ -16,7 +16,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\StyledSourceClassBoundary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use DOMElement;
 
 /**
@@ -158,16 +157,9 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
     {
         $child = null;
         foreach ( $element->childNodes as $node ) {
-            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
-                continue;
-            }
-            // Source comments carry no rendered, selector, or runtime boundary.
-            // Treating them as transparent lets generated exports shed an otherwise
-            // inert authoring wrapper without interpreting product-specific markup.
-            if ( XML_COMMENT_NODE === $node->nodeType ) {
-                continue;
-            }
-            if ( $node instanceof DOMElement && ($this->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
+            // {@see WrapperDecision::soleChildSkip()} names the nodes that
+            // carry no rendered, selector, or runtime boundary.
+            if ( null !== WrapperDecision::soleChildSkip($this, $node) ) {
                 continue;
             }
             if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
@@ -179,7 +171,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         return $child;
     }
 
-    private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
+    public function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
     {
         return 0 === SourceDom::childElementCount($element)
             && '' === trim($element->textContent ?? '')
@@ -368,19 +360,12 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
 
     public function preservesScriptStateWrapper(DOMElement $element): bool
     {
-        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return true;
-        if ( $this->isInertHiddenEmptyElement($element) ) {
-            return false;
-        }
-        foreach ( $element->attributes ?? array() as $attribute ) {
-            $name = strtolower($attribute->nodeName);
-            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
-                return true;
-            }
-            if ( $this->runtimeIslands->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name ) ) {
-                return true;
-            }
-        }
-        return false;
+        return $this->scriptStateDisposition($element)->isPreserve();
+    }
+
+    /** Whether, and why, a wrapper holds script-observed state: {@see WrapperDecision::scriptState()} (#7471). */
+    public function scriptStateDisposition(DOMElement $element): WrapperDisposition
+    {
+        return WrapperDecision::scriptState($this, $element);
     }
 }
