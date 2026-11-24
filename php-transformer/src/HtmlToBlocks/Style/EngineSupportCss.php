@@ -596,7 +596,7 @@ final class EngineSupportCss
      *
      * @return list<CascadeRule>
      */
-    public function generatedMarkupRepairCss(string $serializedBlocks): array
+    public function generatedMarkupRepairCss(string $serializedBlocks, bool $layeredProviderFormBoxMargin = false): array
     {
         $parts = array();
         if (str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::CLIPPED_SUBMENU_CLASS)) {
@@ -704,11 +704,13 @@ final class EngineSupportCss
             $parts[] = '.grunion-field-wrap .contact-form__field-hints:has(>.contact-form__field-format){display:contents}'
                 . "\n" . '.grunion-field-wrap .contact-form__field-hints>.contact-form__field-format{display:none}';
         }
-        if ( 1 === preg_match('/<form\b[^>]*\bclass="[^"]*\bwp-block-group\b/', $serializedBlocks) ) {
+        if ( $layeredProviderFormBoxMargin && 1 === preg_match('/<form\b[^>]*\bclass="[^"]*\bwp-block-group\b/', $serializedBlocks) ) {
             // A source form box survives as a Group inside the provider's
             // flex form block, whose Core flex-item reset (0,1,1) would erase
             // its authored margins (`mx-auto` centering, stacking). Hand the
-            // box's margin back to the layered author cascade.
+            // box's margin back to the layered author cascade. Only when every
+            // author margin on those boxes is layered: `revert-layer` here
+            // would also roll back an unlayered author margin.
             $parts[] = 'body :where(.wp-block-jetpack-contact-form.is-layout-flex)>div.wp-block-group{margin:revert-layer}';
         }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {

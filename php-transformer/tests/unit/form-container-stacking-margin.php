@@ -48,20 +48,36 @@ foreach ( array(
     $check('4px' === ($styles[1]['margin_bottom'] ?? null), $name . ': a margin authored on the control itself stays', json_encode($margins($styles[1] ?? array())));
 }
 
-$result = (new ArtifactCompiler())->compile(array(
-    'entrypoint' => 'index.html',
-    'files' => array(
-        'index.html' => '<html><head><link rel="stylesheet" href="s.css"></head><body><main>' . $form . '</main></body></html>',
-        's.css' => '@layer utilities { .mx-auto{margin-inline:auto} .max-w-2xl{max-width:42rem} .space-y-4>:not(:last-child){margin-block-end:1rem} }',
-    ),
-))->toArray();
-$stylesheet = implode("\n", array_map(
-    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
-    array_filter($result['assets'] ?? array(), 'is_array')
-));
+$compiledStylesheet = static function (string $css) use ($form): string {
+    $result = (new ArtifactCompiler())->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => '<html><head><link rel="stylesheet" href="s.css"></head><body><main>' . $form . '</main></body></html>',
+            's.css' => $css,
+        ),
+    ))->toArray();
+    return implode("\n", array_map(
+        static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+        array_filter($result['assets'] ?? array(), 'is_array')
+    ));
+};
+$repair = 'body :where(.wp-block-jetpack-contact-form.is-layout-flex)>div.wp-block-group{margin:revert-layer}';
 $check(
-    str_contains($stylesheet, 'body :where(.wp-block-jetpack-contact-form.is-layout-flex)>div.wp-block-group{margin:revert-layer}'),
-    'the source form box takes its authored margin back from the provider flex-item reset'
+    str_contains($compiledStylesheet('@layer utilities { .mx-auto{margin-inline:auto} .max-w-2xl{max-width:42rem} .space-y-4>:not(:last-child){margin-block-end:1rem} }'), $repair),
+    'the source form box takes its layered margin back from the provider flex-item reset'
+);
+// `revert-layer` would also roll back an unlayered author margin.
+$check(
+    ! str_contains($compiledStylesheet('.mx-auto{margin-inline:auto} .max-w-2xl{max-width:42rem}'), $repair),
+    'an unlayered form box margin is not reverted'
+);
+$check(
+    ! str_contains($compiledStylesheet('@layer utilities { .mx-auto{margin-inline:auto} } .space-y-4{margin-top:2rem}'), $repair),
+    'an unlayered margin on the form box vetoes the layered repair'
+);
+$check(
+    ! str_contains($compiledStylesheet('@layer utilities { .max-w-2xl{max-width:42rem} }'), $repair),
+    'a form box without an authored margin needs no repair'
 );
 
 if ( array() !== $failures ) {
