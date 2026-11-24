@@ -50,4 +50,26 @@ if (!preg_match('/<figcaption class="wp-element-caption">(.*?)<\/figcaption>/s',
 if (!str_contains($match[1], '<strong>plain</strong>')) {
     throw new RuntimeException('Caption text without its own colour must stay untouched: ' . $markup);
 }
-echo "PASS: desktop-only and caption text own their class colour natively\n";
+// An inline layout carrier keeps its source inline (a flex row label, a
+// pushed-right arrow) so its classes keep the layout. The text it holds must
+// still own its class colour, so a parent group's colour control is not
+// silently overridden by the retained class.
+$carrier = '<html><head><link rel="stylesheet" href="s.css"></head><body><main><section><ul>'
+    . '<li class="row"><span class="flex items-center gap-2 muted"><svg viewBox="0 0 24 24" class="icon"><circle cx="12" cy="12" r="10"></circle></svg>Monday</span><span class="strong">9 AM</span></li>'
+    . '</ul><a class="card" href="/more"><h3>More</h3><span class="ml-auto accent">&#8594;</span></a></section></main></body></html>';
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => $carrier),
+    array('path' => 's.css', 'content' => 'body{color:#2a2a28}.row{display:flex;justify-content:space-between;gap:1rem}.card{display:flex;align-items:center;gap:1rem}'
+        . '.flex{display:flex}.items-center{align-items:center}.gap-2{gap:.5rem}.ml-auto{margin-left:auto}.icon{width:1rem;height:1rem}'
+        . '.muted{color:rgb(21 40 31 / .75)}.strong{font-weight:600}.accent{--tw-text-opacity:1;color:rgb(28 54 43 / var(--tw-text-opacity, 1))}'),
+)))->toArray();
+$markup = implode('', array_column($result['source_reports']['wordpress_site_plan']['pages'], 'canonical_block_markup'));
+foreach (array('Monday', '→') as $text) {
+    if (!preg_match('/<p class="[^"]*blocks-engine-inline-layout-carrier[^"]*">(.*?)<\/p>/s', $markup, $unused) || !str_contains($markup, $text)) {
+        throw new RuntimeException("Missing inline layout carrier for {$text}: {$markup}");
+    }
+    if (!preg_match('/<(?:span|mark)\b[^>]*(?:style="[^"]*\bcolor:[^"]+"|class="[^"]*\bhas-[\w-]*color\b)[^>]*>(?:<img[^>]*>)?' . preg_quote($text, '/') . '</u', $markup)) {
+        throw new RuntimeException("Inline layout carrier text must own its class colour for {$text}: {$markup}");
+    }
+}
+echo "PASS: desktop-only, caption and inline layout carrier text own their class colour natively\n";
