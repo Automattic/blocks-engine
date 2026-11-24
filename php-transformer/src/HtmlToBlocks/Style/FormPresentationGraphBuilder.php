@@ -738,6 +738,7 @@ final class FormPresentationGraphBuilder
                 }
             }
             $this->carryFieldGroupGapOntoLabel($row, $control, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
+            $this->carryInlineLabelFlowOntoLabel($row, $control, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
             $container = $this->controlContainer($index, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
             if ( null !== $container ) {
                 $controlContainers[] = $container['container'];
@@ -1120,6 +1121,153 @@ final class FormPresentationGraphBuilder
             $this->truncated = true;
             $this->diagnostics[] = 'provenance_limit';
         }
+    }
+
+    /**
+     * A label left at its inline default, followed by its block-level control
+     * inside the exclusive field wrapper a provider flattens, is laid out on
+     * the wrapper's line: the line box is at least the wrapper's line-height
+     * (its strut), and the control's sibling-combinator margin (Tailwind v3
+     * `space-y-*` is `> * ~ *`) is the only space between label and control.
+     * A provider field shell renders that label as its own block box sized by
+     * the label's line-height, and spaces its fields with the form gap, so the
+     * label restates both: the strut as its line-height, and the control's
+     * block-start margin as its own margin-block-end, which then leaves the
+     * control.
+     *
+     * @param array<string, mixed> $row
+     * @param list<DOMElement> $ancestors
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     */
+    private function carryInlineLabelFlowOntoLabel(array &$row, DOMElement $control, array $ancestors, array $rules, array $customPropertyRules): void
+    {
+        $label = FormControlLabel::element($control);
+        $wrapper = $control->parentNode;
+        if ( ! $label instanceof DOMElement || ! $wrapper instanceof DOMElement || ! self::isWrappedFieldControl($control)
+            || ! $label->parentNode instanceof DOMElement || ! $label->parentNode->isSameNode($wrapper)
+            || ! $control->previousElementSibling instanceof DOMElement || ! $control->previousElementSibling->isSameNode($label)
+            || array() === array_filter($ancestors, static fn (DOMElement $ancestor): bool => $ancestor->isSameNode($wrapper)) ) {
+            return;
+        }
+        $displayOf = function (DOMElement $element) use ($rules, $customPropertyRules): string {
+            $facts = array_intersect_key($this->matched($element, $rules)['base'], array( 'display' => true ));
+            return CssValueInspector::comparable($this->styles($facts, $element, null, $customPropertyRules)['display'] ?? '');
+        };
+        // A flex or grid wrapper blockifies the label; only block flow puts it on a line.
+        $wrapperDisplay = $displayOf($wrapper);
+        $labelDisplay = $displayOf($label);
+        $controlDisplay = $displayOf($control);
+        if ( ! ( '' === $wrapperDisplay ? in_array(strtolower($wrapper->tagName), self::BLOCK_FLOW_TAGS, true) : in_array($wrapperDisplay, array( 'block', 'flow-root' ), true) )
+            || ! in_array($labelDisplay, array( '', 'inline' ), true)
+            || ! in_array($controlDisplay, array( 'block', 'flex', 'grid', 'flow-root', 'table' ), true) ) {
+            return;
+        }
+        $styles = is_array($row['label']['styles'] ?? null) ? $row['label']['styles'] : array();
+        $provenance = is_array($row['label']['provenance'] ?? null) ? $row['label']['provenance'] : array();
+        $carried = false;
+
+        $strut = $this->lineHeightPixels($wrapper, $rules, $customPropertyRules);
+        $own = $this->lineHeightPixels($label, $rules, $customPropertyRules);
+        if ( null !== $strut && null !== $own && $strut['px'] > $own['px'] + 0.01 && null !== $strut['fact'] && ! isset($row['label']['styles']['display']) ) {
+            $styles['line_height'] = CssLength::format($strut['px']);
+            if ( array() === array_filter($provenance, static fn (array $source): bool => in_array('line-height', $source['properties'] ?? array(), true)) ) {
+                $provenance = array_merge($provenance, $this->provenance(array( 'line-height' => $strut['fact'] ), null));
+            }
+            $carried = true;
+        }
+
+        $margin = $this->matched($control, $rules)['base']['margin-top'] ?? null;
+        $value = is_string($row['control']['styles']['margin_top'] ?? null) ? $row['control']['styles']['margin_top'] : '';
+        if ( is_array($margin) && '' !== $value && self::isSiblingSelector((string) ($margin['selector'] ?? ''))
+            && 0.0 !== CssLength::toPx($value) && ! isset($styles['margin_block_end']) && ! isset($styles['margin_bottom']) ) {
+            $styles['margin_block_end'] = preg_replace('/(?<![0-9])\.(\d+)/', '0.$1', $value) ?? $value;
+            $provenance = array_merge($provenance, $this->provenance(array( 'margin-block-end' => $margin ), null));
+            unset($row['control']['styles']['margin_top']);
+            foreach ( $row['control']['provenance'] as $key => $source ) {
+                $source['properties'] = array_values(array_diff($source['properties'], array( 'margin-top' )));
+                if ( array() === $source['properties'] ) {
+                    unset($row['control']['provenance'][$key]);
+                } else {
+                    $row['control']['provenance'][$key] = $source;
+                }
+            }
+            $row['control']['provenance'] = array_values($row['control']['provenance']);
+            $carried = true;
+        }
+        if ( ! $carried ) {
+            return;
+        }
+        ksort($styles);
+        if ( count($provenance) > self::MAX_PROVENANCE ) {
+            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
+            $this->truncated = true;
+            $this->diagnostics[] = 'provenance_limit';
+        }
+        $row['label'] = array( 'styles' => $styles, 'provenance' => $provenance );
+    }
+
+    /** Whether a selector reaches its subject through a sibling combinator (`~` or `+`). */
+    private static function isSiblingSelector(string $selector): bool
+    {
+        $selector = trim($selector);
+        while ( 1 === preg_match('/^:(?:where|is)\((.*)\)$/Dis', $selector, $match) ) {
+            $selector = trim($match[1]);
+        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        return $tokens['supported'] && array() !== $tokens['combinators'] && in_array($tokens['combinators'][count($tokens['combinators']) - 1], array( '~', '+' ), true);
+    }
+
+    /**
+     * The used line-height of an element in pixels, inherited down its chain:
+     * a unitless factor scales with each element's own font size, a length or
+     * percentage is fixed where it is declared. `normal` depends on font
+     * metrics and has no pixel value here. The fact is the nearest declaration.
+     *
+     * @return array{px: float, fact: ?array<string, mixed>}|null
+     */
+    private function lineHeightPixels(DOMElement $element, array $rules, array $customRules): ?array
+    {
+        $chain = array();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $chain[] = $node;
+        }
+        $font = 16.0;
+        $root = 16.0;
+        $factor = null;
+        $fixed = null;
+        $fact = null;
+        foreach ( array_reverse($chain) as $index => $node ) {
+            $facts = $this->layoutFacts($node, $rules, null);
+            $styles = $this->styles(array_intersect_key($facts, array( 'font-size' => true, 'line-height' => true )), $node, null, $customRules, true);
+            $size = $styles['font_size'] ?? '';
+            $font = str_ends_with($size, '%') ? $font * (float) $size / 100 : (CssLength::FONT_SIZE_KEYWORDS[$size] ?? CssLength::toPx($size, $root, $font) ?? $font);
+            if ( 0 === $index ) {
+                $root = $font;
+            }
+            $line = strtolower(trim($styles['line_height'] ?? 'inherit'));
+            if ( 'inherit' === $line ) {
+                continue;
+            }
+            $fact = $facts['line-height'];
+            if ( 1 === preg_match('/^(?:\d+\.?\d*|\.\d+)$/D', $line) ) {
+                $factor = (float) $line;
+                $fixed = null;
+            } elseif ( 1 === preg_match('/^((?:\d+\.?\d*|\.\d+))%$/D', $line, $percent) ) {
+                $factor = null;
+                $fixed = $font * (float) $percent[1] / 100;
+            } elseif ( null !== ($px = CssLength::toPx($line, $root, $font)) ) {
+                $factor = null;
+                $fixed = $px;
+            } else {
+                // `normal`, or a value this resolver cannot size.
+                $factor = null;
+                $fixed = null;
+                $fact = null;
+            }
+        }
+        $px = null !== $factor ? $factor * $font : $fixed;
+        return null === $px ? null : array( 'px' => round($px, 3), 'fact' => $fact );
     }
 
     /** Nearest shared ancestor per control pair, never a site wrapper outside the form. */
