@@ -7077,9 +7077,9 @@ final class StyleResolver implements ElementPresentationResolver
         );
     }
 
-    public function innerHtml(DOMElement $element): string
+    public function innerHtml(DOMElement $element, bool $keepEvidence = false): string
     {
-        return SourceDom::innerHtml($element, $this->serializedInlineStyle(...));
+        return SourceDom::innerHtml($element, $this->serializedInlineStyle(...), $keepEvidence);
     }
 
     /**

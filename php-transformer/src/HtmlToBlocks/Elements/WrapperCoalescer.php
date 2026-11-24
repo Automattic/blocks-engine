@@ -548,7 +548,7 @@ final class WrapperCoalescer
         if (null !== $absorbed) return $absorbed;
         $resolution = $this->decision()->resolve($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
-            return null;
+            return $this->restatedWrapperFold($element, $childBlock);
         }
         $proof = $resolution['proof'];
         $attrs = $resolution['attrs'];
@@ -564,6 +564,64 @@ final class WrapperCoalescer
         }
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
         if (null !== $proof) $this->session->layoutGeometryState()->recordProof($proof);
+
+        return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    private ?RestatedWrapperFold $restatementProof = null;
+
+    /** @var list<array{reason: string, stage: ?string, detail: ?string}> */
+    private array $restatedFoldDecisions = array();
+
+    /**
+     * The decisions {@see self::restatedWrapperFold()} took, in conversion
+     * order: one per single-child wrapper that reached it with box-tree
+     * evidence. Reasons and details are histogram keys.
+     *
+     * @return list<array{reason: string, stage: ?string, detail: ?string}>
+     */
+    public function restatedFoldDecisions(): array
+    {
+        return $this->restatedFoldDecisions;
+    }
+
+    /**
+     * A wrapper the coalescing guards kept, folded into its only child by
+     * restating its consumed class and id there (#7505). The wrapper's
+     * classes join the child's, its id becomes the child's anchor, and every
+     * author selector that reached the child through the wrapper gains the
+     * compound arm that still reaches it ({@see RestatedWrapperFold}).
+     *
+     * @param array<string, mixed> $childBlock @return array<string, mixed>|null
+     */
+    private function restatedWrapperFold(DOMElement $element, array $childBlock): ?array
+    {
+        $evidence = $this->session->boxTreeWrapperEvidence();
+        if (! $evidence->hasEvidence()) return null;
+        $this->restatementProof ??= new RestatedWrapperFold($this->session, fn (string $property): bool => $this->isInheritedTextProperty($property));
+        $decision = $this->decision()->restatedWrapperFold(
+            $element,
+            $childBlock,
+            $evidence,
+            fn (DOMElement $wrapper, DOMElement $child, string $movedId): array => $this->restatementProof->prove($wrapper, $child, $movedId, $evidence),
+            static function (DOMElement $wrapper): bool {
+                $parent = $wrapper->parentNode;
+                return $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array('body', 'html'), true);
+            }
+        );
+        $disposition = $decision['disposition'];
+        $this->restatedFoldDecisions[] = array('reason' => $disposition->reason, 'stage' => $disposition->stage, 'detail' => $disposition->detail);
+        $sourceChild = $decision['source_child'];
+        if (! $disposition->isFold() || ! $sourceChild instanceof DOMElement) return null;
+
+        $projections = $this->session->authorSelectorProjectionState();
+        foreach ($decision['arms'] as $selector => $arms) {
+            foreach ($arms as $arm) $projections->addRestatedSelectorArm($selector, $arm);
+        }
+        $childAttrs = ArrayField::array($childBlock, 'attrs');
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element));
+        if ('' !== $decision['moved_id']) $childAttrs['anchor'] = $decision['moved_id'];
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
 
         return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
     }

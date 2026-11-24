@@ -448,6 +448,37 @@ final class AuthorSelectorProjectionState
     /** @var array{styles: AuthorStyleAnalysis, elements: list<DOMElement>}|null */
     private ?array $socialAnchorSources = null;
 
+    /**
+     * Extra selector arms a restated wrapper fold needs (#7505): when a
+     * geometry-neutral wrapper folds and its classes and id move onto its
+     * only child, an authored selector that reached the child through the
+     * wrapper (`.col .block`) also needs the compound form (`.col.block`)
+     * to keep matching the same elements. Keyed by the authored selector,
+     * whitespace-normalized; every rule with that selector gains the arms.
+     *
+     * @var array<string, array<string, true>>
+     */
+    private array $restatedSelectorArms = array();
+
+    public function addRestatedSelectorArm(string $selector, string $arm): void
+    {
+        $this->restatedSelectorArms[self::restatedSelectorKey($selector)][trim($arm)] = true;
+    }
+
+    /** @return list<string> */
+    public function restatedSelectorArms(string $selector): array
+    {
+        if ( array() === $this->restatedSelectorArms ) {
+            return array();
+        }
+        return array_keys($this->restatedSelectorArms[self::restatedSelectorKey($selector)] ?? array());
+    }
+
+    private static function restatedSelectorKey(string $selector): string
+    {
+        return (string) preg_replace('/\s+/', ' ', trim($selector));
+    }
+
     public function markConsumedCoverBackground(string $path): void
     {
         if ( '' !== $path ) {

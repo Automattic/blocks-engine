@@ -94,9 +94,9 @@ final class SourceDom
     /** SVG definition elements that never render where they appear (SVG 2, 5.6 and 14). */
     private const NEVER_RENDERED_SVG_DEFINITIONS = array( 'clippath', 'filter', 'lineargradient', 'marker', 'mask', 'pattern', 'radialgradient', 'symbol' );
 
-    public static function innerHtml(DOMElement $element, ?callable $inlineStyleFor = null): string
+    public static function innerHtml(DOMElement $element, ?callable $inlineStyleFor = null, bool $keepEvidence = false): string
     {
-        $element = self::canonicalizedSerializationClone($element, $inlineStyleFor);
+        $element = self::canonicalizedSerializationClone($element, $inlineStyleFor, $keepEvidence);
         $html = '';
         foreach ( $element->childNodes as $child ) {
             $html .= $element->ownerDocument->saveHTML($child);
@@ -276,7 +276,8 @@ final class SourceDom
         return trim($element->ownerDocument->saveHTML($element) ?: '');
     }
 
-    public static function canonicalizedSerializationClone(DOMElement $element, ?callable $inlineStyleFor = null): DOMElement
+    /** @param bool $keepEvidence Keep capture node identity, for a source document read against box-tree evidence. */
+    public static function canonicalizedSerializationClone(DOMElement $element, ?callable $inlineStyleFor = null, bool $keepEvidence = false): DOMElement
     {
         $clone = $element->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) {
@@ -285,6 +286,7 @@ final class SourceDom
         self::canonicalizeLinkUrls($clone);
         if (null !== $inlineStyleFor) self::projectInlineStyles($element, $clone, $inlineStyleFor);
         // Capture node identity binds evidence to the source document, not the output.
+        if ( $keepEvidence ) return $clone;
         foreach ( self::subtreeElements($clone) as $node ) {
             foreach ( iterator_to_array($node->attributes) as $attribute ) {
                 if ( BoxTree::isEvidenceAttribute($attribute->nodeName) ) $node->removeAttributeNode($attribute);
@@ -1422,6 +1424,8 @@ final class SourceDom
         $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $html) ?? '';
         $html = preg_replace('@<link\b[^>]*\/?>@si', '', $html) ?? '';
         $html = preg_replace('/\s+' . preg_quote(CaptureEvidence::CURRENT_SOURCE, '/') . '\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+        // Capture node identity binds evidence to the source, never the output.
+        $html = preg_replace('/\s+' . preg_quote(BoxTree::NODE_ATTRIBUTE, '/') . '\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $source = $html;
         $html = preg_replace_callback(

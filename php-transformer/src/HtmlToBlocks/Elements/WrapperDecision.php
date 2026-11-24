@@ -730,6 +730,141 @@ final class WrapperDecision
             ?? WrapperDisposition::fold($retention->reason, $retention->stage);
     }
 
+    /** The fold reason of a wrapper whose consumed class and id were restated on its child. */
+    public const RESTATED_WRAPPER_FOLD = 'restated_consumed_identity';
+
+    /**
+     * A single-child wrapper that did not coalesce, kept only because emitted
+     * CSS consumes its class or id (#7505, #7471 stage 2): does it `fold`
+     * into its child by restating that class and id there, or is it kept
+     * (`preserve`)? Geometry and paint neutrality come from box-tree
+     * evidence ({@see BoxTreeWrapperEvidence}); without evidence the wrapper
+     * is kept, as before. The restatement proof ({@see RestatedWrapperFold})
+     * runs last, once, and each of its failures is a guard of its own. A
+     * refusal's `detail` names the failing property, selector or attribute.
+     *
+     * @param array<string, mixed> $childBlock
+     * @param Closure(DOMElement, DOMElement, string): array{failure: ?string, detail: string, arms: array<string, list<string>>} $prove
+     * @param Closure(DOMElement): bool $isDocumentEdge
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement, moved_id: string, attrs: array<string, mixed>, arms: array<string, list<string>>}
+     */
+    public function restatedWrapperFold(DOMElement $wrapper, array $childBlock, BoxTreeWrapperEvidence $evidence, Closure $prove, Closure $isDocumentEdge): array
+    {
+        $sourceChild = null;
+        $attrs = array();
+        $proof = null;
+        $detail = '';
+        $wrapperId = trim(SourceDom::attr($wrapper, 'id'));
+        $proven = function () use (&$proof, &$sourceChild, $wrapper, $wrapperId, $prove): array {
+            return $proof ??= $prove($wrapper, $sourceChild, $wrapperId);
+        };
+        $proofFails = function (string $failure) use ($proven, &$detail): bool {
+            if ($failure !== $proven()['failure']) return false;
+            $detail = $proven()['detail'];
+            return true;
+        };
+        $guards = array(
+            array(self::STAGE_GEOMETRY, 'no_box_tree_evidence', fn (): bool => ! $evidence->hasEvidence()),
+            array(self::STAGE_RESTATEMENT, 'wrapper_is_not_div', fn (): bool => 'div' !== strtolower($wrapper->tagName)),
+            array(self::STAGE_RESTATEMENT, 'child_block_not_group', fn (): bool => 'core/group' !== ($childBlock['blockName'] ?? null)),
+            array(self::STAGE_IDENTITY, 'saved_group_boundary', fn (): bool => SourceDom::hasClass($wrapper, 'wp-block-group')),
+            array(self::STAGE_IDENTITY, 'child_is_binding_anchor', fn (): bool => $this->signals->isBindingAnchor($childBlock)),
+            array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($wrapper)),
+            array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($wrapper)),
+            array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($wrapper)),
+            // Only the class and the id are restated; anything else the
+            // wrapper carries would be lost with it.
+            array(self::STAGE_IDENTITY, 'unrestatable_wrapper_attribute', static function () use ($wrapper, &$detail): bool {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($wrapper) as $attribute) {
+                    $name = strtolower($attribute->nodeName);
+                    if (in_array($name, array('class', 'id'), true)) continue;
+                    $detail = $name;
+                    return true;
+                }
+                return false;
+            }),
+            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', function () use ($wrapper, $childBlock, &$sourceChild): bool {
+                $sole = $this->signals->soleElementChildOf($wrapper);
+                $sourceChild = $this->signals->matchingSourceChild($wrapper, $childBlock);
+                return ! $sole instanceof DOMElement || $sole !== $sourceChild;
+            }),
+            array(self::STAGE_IDENTITY, 'child_runtime_dom_target', function () use (&$sourceChild): bool {
+                return $this->runtimeIslands->isRuntimeDomTarget($sourceChild) || $this->sourceElementClassifier->hasMotionStructureToken($sourceChild);
+            }),
+            // An id moves only onto a child that has none of its own.
+            array(self::STAGE_IDENTITY, 'child_has_own_id', static function () use (&$sourceChild, $wrapperId, $childBlock): bool {
+                return '' !== $wrapperId && ('' !== trim(SourceDom::attr($sourceChild, 'id')) || '' !== trim((string) ($childBlock['attrs']['anchor'] ?? '')));
+            }),
+            // Shell extraction reads page chrome from the groups at the
+            // document's edges; an id there names the shell.
+            array(self::STAGE_IDENTITY, 'document_edge_wrapper_id', fn (): bool => '' !== $wrapperId && $isDocumentEdge($wrapper)),
+            array(self::STAGE_GEOMETRY, 'geometry_not_neutral', static function () use ($evidence, $wrapper, &$detail): bool {
+                $answer = $evidence->classify($wrapper);
+                if (BoxTreeWrapperEvidence::NEUTRAL === $answer['state']) return false;
+                $detail = $answer['reason'];
+                return true;
+            }),
+            // A flex, grid or flow-root wrapper is a formatting context its
+            // child is laid out in, even when their boxes coincide.
+            array(self::STAGE_GEOMETRY, 'wrapper_formatting_context', static function () use ($evidence, $wrapper, &$detail): bool {
+                foreach ($evidence->usedValues($wrapper, 'display') ?? array('unobserved' => '') as $display) {
+                    if ('block' === $display) continue;
+                    $detail = '' === $display ? 'unobserved' : $display;
+                    return true;
+                }
+                return false;
+            }),
+            array(self::STAGE_GEOMETRY, 'unsupported_presentation_attributes', function () use ($wrapper, &$attrs, &$detail): bool {
+                $attrs = $this->styleResolver->presentationAttributes($wrapper);
+                $extra = array_diff(array_keys($attrs), array('className', 'anchor'));
+                if (array() === $extra) return false;
+                $detail = implode(',', $extra);
+                return true;
+            }),
+        );
+        foreach (self::restatementProofFailures() as $failure) {
+            $guards[] = array(self::STAGE_RESTATEMENT, $failure, fn (): bool => $proofFails($failure));
+        }
+        foreach ($guards as [$stage, $reason, $matches]) {
+            $detail = '';
+            if ($matches()) {
+                return array('disposition' => WrapperDisposition::preserve($reason, $stage)->withDetail($detail), 'source_child' => $sourceChild, 'moved_id' => '', 'attrs' => $attrs, 'arms' => array());
+            }
+        }
+
+        // The id the child takes must be the anchor the wrapper would emit.
+        $anchor = (string) ($attrs['anchor'] ?? '');
+        if ($anchor !== ('' === $wrapperId ? '' : SourceDom::anchorAttributeValue($wrapperId))) {
+            return array('disposition' => WrapperDisposition::preserve('anchor_not_restatable', self::STAGE_IDENTITY)->withDetail($anchor), 'source_child' => $sourceChild, 'moved_id' => '', 'attrs' => $attrs, 'arms' => array());
+        }
+        if (null !== $proven()['failure']) {
+            return array('disposition' => WrapperDisposition::preserve('restatement_not_proven', self::STAGE_RESTATEMENT)->withDetail((string) $proven()['failure']), 'source_child' => $sourceChild, 'moved_id' => '', 'attrs' => $attrs, 'arms' => array());
+        }
+
+        return array(
+            'disposition' => WrapperDisposition::fold(self::RESTATED_WRAPPER_FOLD, self::STAGE_RESTATEMENT),
+            'source_child' => $sourceChild,
+            'moved_id' => $wrapperId,
+            'attrs' => $attrs,
+            'arms' => $proven()['arms'],
+        );
+    }
+
+    /** @return list<string> The {@see RestatedWrapperFold} failures, in guard order. */
+    private static function restatementProofFailures(): array
+    {
+        return array(
+            RestatedWrapperFold::UNVERIFIABLE_SELECTOR,
+            RestatedWrapperFold::SELECTOR_CHECK_BUDGET,
+            RestatedWrapperFold::WRAPPER_RULE_NOT_RESTATED,
+            RestatedWrapperFold::SELECTOR_MATCH_CHANGED,
+            RestatedWrapperFold::INHERITED_TEXT_OVERRIDE,
+            RestatedWrapperFold::WRAPPER_DECLARATION_CONTESTED,
+            RestatedWrapperFold::WRAPPER_DECLARATION_UNRESTATABLE,
+            RestatedWrapperFold::CHILD_RELATIVE_TO_WRAPPER,
+        );
+    }
+
     /**
      * An empty direct child of an author-owned layout: dropped when it is an
      * inert out-of-flow box, kept as a spacer when its empty visual box is
@@ -877,6 +1012,34 @@ final class WrapperDecision
                 'spacing_owners_overlap' => self::STAGE_GEOMETRY,
                 'border_owners_overlap' => self::STAGE_GEOMETRY,
                 'paragraph_user_agent_margins' => self::STAGE_GEOMETRY,
+            ),
+            'restated_wrapper_fold' => array(
+                'no_box_tree_evidence' => self::STAGE_GEOMETRY,
+                'wrapper_is_not_div' => self::STAGE_RESTATEMENT,
+                'child_block_not_group' => self::STAGE_RESTATEMENT,
+                'saved_group_boundary' => self::STAGE_IDENTITY,
+                'child_is_binding_anchor' => self::STAGE_IDENTITY,
+                'runtime_dom_target' => self::STAGE_IDENTITY,
+                'has_motion_structure_token' => self::STAGE_IDENTITY,
+                'has_interactive_attributes' => self::STAGE_IDENTITY,
+                'unrestatable_wrapper_attribute' => self::STAGE_IDENTITY,
+                'child_block_not_from_sole_child' => self::STAGE_RESTATEMENT,
+                'child_runtime_dom_target' => self::STAGE_IDENTITY,
+                'child_has_own_id' => self::STAGE_IDENTITY,
+                'document_edge_wrapper_id' => self::STAGE_IDENTITY,
+                'geometry_not_neutral' => self::STAGE_GEOMETRY,
+                'wrapper_formatting_context' => self::STAGE_GEOMETRY,
+                'unsupported_presentation_attributes' => self::STAGE_GEOMETRY,
+                RestatedWrapperFold::UNVERIFIABLE_SELECTOR => self::STAGE_RESTATEMENT,
+                RestatedWrapperFold::SELECTOR_CHECK_BUDGET => self::STAGE_RESTATEMENT,
+                RestatedWrapperFold::WRAPPER_RULE_NOT_RESTATED => self::STAGE_RESTATEMENT,
+                RestatedWrapperFold::SELECTOR_MATCH_CHANGED => self::STAGE_RESTATEMENT,
+                RestatedWrapperFold::INHERITED_TEXT_OVERRIDE => self::STAGE_RESTATEMENT,
+                RestatedWrapperFold::WRAPPER_DECLARATION_CONTESTED => self::STAGE_RESTATEMENT,
+                RestatedWrapperFold::WRAPPER_DECLARATION_UNRESTATABLE => self::STAGE_RESTATEMENT,
+                RestatedWrapperFold::CHILD_RELATIVE_TO_WRAPPER => self::STAGE_RESTATEMENT,
+                'anchor_not_restatable' => self::STAGE_IDENTITY,
+                'restatement_not_proven' => self::STAGE_RESTATEMENT,
             ),
             'single_child_candidate' => array(
                 'not_single_child_block' => self::STAGE_RESTATEMENT,

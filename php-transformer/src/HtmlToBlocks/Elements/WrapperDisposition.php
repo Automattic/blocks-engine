@@ -26,7 +26,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
  *
  * A refusal also names the {@see WrapperDecision} stage (geometry, identity
  * or restatement) whose guard produced it, so a kept wrapper says not only
- * which signal kept it but which question that signal answered.
+ * which signal kept it but which question that signal answered. A
+ * refusal may also carry a `detail` naming the failing condition inside its
+ * guard (the property or selector that refused it), so refusals can be
+ * counted per condition, not only per guard.
  *
  * This value object is intentionally generic: {@see WrapperDecision} is its
  * owner (#1935, #7471), and the remaining wrapper call sites adopt it in
@@ -45,8 +48,15 @@ final class WrapperDisposition
     private function __construct(
         public readonly string $kind,
         public readonly string $reason,
-        public readonly ?string $stage = null
+        public readonly ?string $stage = null,
+        public readonly ?string $detail = null
     ) {
+    }
+
+    /** The same disposition, naming the condition inside its guard that produced it. */
+    public function withDetail(?string $detail): self
+    {
+        return null === $detail || '' === $detail ? $this : new self($this->kind, $this->reason, $this->stage, $detail);
     }
 
     public static function preserve(string $reason, ?string $stage = null): self

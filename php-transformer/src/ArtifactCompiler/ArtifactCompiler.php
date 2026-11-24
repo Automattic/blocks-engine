@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
@@ -1443,6 +1444,7 @@ final class ArtifactCompiler
             // a rule it left unprojected would bypass the page's projection.
             'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
+            'box_tree'                   => self::boxTreeForSource($files, $sourcePath),
         ));
         $blockCompilationOutput = $result->blockCompilationOutput;
         if (!$blockCompilationOutput instanceof BlockCompilationOutput) {
@@ -1481,6 +1483,42 @@ final class ArtifactCompiler
             'document_root_markers' => $blockCompilationOutput->documentRootMarkers,
             'design_usage' => $blockCompilationOutput->designUsage,
         );
+    }
+
+    /**
+     * The route's box-tree evidence (ADR 0006): the `box-tree/**.json`
+     * sidecar whose `source_path` names this document and whose
+     * `source_hash` is the SHA-256 of the document's original artifact
+     * bytes. That digest is taken once, at intake, before any normalizer or
+     * projector re-serializes the document ({@see BoxTree::INTAKE_HASH_FIELD});
+     * the bytes compiled here may differ, but node ids are attributes and
+     * survive, and an element a projector creates has no id and stays
+     * load-bearing. v2 and v3 sidecars read through {@see BoxTree::read()}.
+     * Missing, stale, ambiguous or malformed evidence yields none, and the
+     * route converts as without it.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>
+     */
+    private static function boxTreeForSource(array $files, string $sourcePath): array
+    {
+        $intakeHash = null;
+        foreach ($files as $file) {
+            if ($sourcePath === ($file['path'] ?? null) && 'html' === ($file['kind'] ?? null)) $intakeHash = $file[BoxTree::INTAKE_HASH_FIELD] ?? null;
+        }
+        if (!is_string($intakeHash) || '' === $intakeHash) return array();
+        $found = array();
+        foreach ($files as $file) {
+            if (!BoxTree::isSidecarPath((string) ($file['path'] ?? '')) || !is_string($file['content'] ?? null)) continue;
+            if (strlen($file['content']) > BoxTree::MAX_BYTES) continue;
+            // Read the binding before decoding the whole tree.
+            if (!str_contains($file['content'], $intakeHash) && !str_contains($file['content'], strtoupper($intakeHash))) continue;
+            $tree = BoxTree::read(json_decode($file['content'], true));
+            if (null === $tree || $sourcePath !== ($tree['source_path'] ?? null)) continue;
+            if (!is_string($tree['source_hash'] ?? null) || !hash_equals($intakeHash, strtolower($tree['source_hash']))) continue;
+            $found[] = $tree;
+        }
+        return 1 === count($found) ? $found[0] : array();
     }
 
     private function layoutGeometryProofForSource(array $files, string $sourcePath): array
