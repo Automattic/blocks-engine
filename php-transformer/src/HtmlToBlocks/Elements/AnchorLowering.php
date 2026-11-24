@@ -470,14 +470,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
      */
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
-        $interactive = false;
-        foreach ( array('a', 'button', 'input', 'select', 'textarea') as $tag ) {
-            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
-                $interactive = true;
-                break;
-            }
-        }
-        $eligible = ! $interactive && $this->isStretchedLinkCard($anchor);
+        $eligible = WrapperDecision::linkWrapper($anchor, fn (): bool => $this->isStretchedLinkCard($anchor))->isFold();
         $preserveContainers = ! $eligible;
         $children = $this->tree->children($anchor, $fallbacks, true, $preserveContainers && $this->sourceElementClassifier->isFlowContentAnchor($anchor));
         if ( array() === $children && $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
@@ -515,12 +508,15 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
             return $this->layoutShells->blockForElements(array($anchor), $children, $anchor);
         }
-        $propagated = false;
-        if ( ! $stretched && array() !== $linkAttrs ) {
-            $propagated = $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
-            if ( ! $propagated ) {
-                $this->recordDroppedLinkWrapper($anchor);
+        $propagation = WrapperDecision::linkWrapperPropagation(
+            $stretched,
+            array() !== $linkAttrs,
+            function () use (&$children, $linkAttrs): bool {
+                return $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
             }
+        );
+        if ( 'link_wrapper_dropped' === $propagation?->reason ) {
+            $this->recordDroppedLinkWrapper($anchor);
         }
         // ADR 0005: an anchor whose box the capture proved neutral apart from
         // its link emits no block once that link has moved onto its content.

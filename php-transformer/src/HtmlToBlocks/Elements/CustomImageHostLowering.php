@@ -161,36 +161,28 @@ final class CustomImageHostLowering implements ElementConverter
      */
     private function isNeutralPictureBox(DOMElement $host, DOMElement $picture, DOMElement $image): bool
     {
-        if (1 !== SourceDom::childElementCount($picture) || '' !== trim(SourceDom::attr($picture, 'id'))) {
-            return false;
-        }
-        foreach ($picture->attributes as $attribute) {
-            $name = strtolower($attribute->name);
-            if (in_array($name, array('class', 'style'), true)) {
-                continue;
-            }
-            if (! str_starts_with($name, 'data-') || DataAttributeReferences::isReferenced($this->session, $picture, $name)) {
+        return WrapperDecision::pictureBox(
+            $picture,
+            fn (string $name): bool => DataAttributeReferences::isReferenced($this->session, $picture, $name),
+            function () use ($host, $picture, $image): bool {
+                // An offsetless relative picture is only a containing block and a
+                // paint layer. Inside a positioned host, around an in-flow image,
+                // neither changes what renders.
+                $outOfFlow = array('absolute', 'fixed', 'sticky');
+                $hostPosition = $this->positionOf($host);
+                $inertPositioning = '' !== $hostPosition && 'static' !== $hostPosition
+                    && ! in_array($this->positionOf($image), $outOfFlow, true);
+                return $this->renderNeutral->isRenderNeutralWrapper($picture, true, true, $inertPositioning);
+            },
+            function () use ($image): bool {
+                foreach ($this->session->authorStyleRuleCandidates($image) as $candidate) {
+                    if (1 === preg_match('/(?<![\w-])picture(?![\w-])/i', (string) $candidate['selector'])) {
+                        return true;
+                    }
+                }
                 return false;
             }
-        }
-        // An offsetless relative picture is only a containing block and a
-        // paint layer. Inside a positioned host, around an in-flow image,
-        // neither changes what renders.
-        $outOfFlow = array('absolute', 'fixed', 'sticky');
-        $hostPosition = $this->positionOf($host);
-        $inertPositioning = '' !== $hostPosition && 'static' !== $hostPosition
-            && ! in_array($this->positionOf($image), $outOfFlow, true);
-        if (! $this->renderNeutral->isRenderNeutralWrapper($picture, true, true, $inertPositioning)) {
-            return false;
-        }
-        // Rules addressed through the picture (`picture > img`) would stop
-        // matching the image once the box is gone.
-        foreach ($this->session->authorStyleRuleCandidates($image) as $candidate) {
-            if (1 === preg_match('/(?<![\w-])picture(?![\w-])/i', (string) $candidate['selector'])) {
-                return false;
-            }
-        }
-        return true;
+        )->isCoalesce();
     }
 
     /**
@@ -274,21 +266,13 @@ final class CustomImageHostLowering implements ElementConverter
 
     private function hasOnlyInertImageHostAttributes(DOMElement $host): bool
     {
-        foreach ( $host->attributes as $attribute ) {
-            $name = strtolower($attribute->name);
-            if ( in_array($name, array( 'class', 'style' ), true) ) {
-                continue;
-            }
-            if ( ! str_starts_with($name, 'data-')
-                || $this->runtimeIslands->isRuntimeDomTarget($host)
-                || DataAttributeReferences::isReferenced($this->session, $host, $name) ) {
-                return false;
-            }
-        }
-
-        return ! $this->runtimeIslands->isRuntimeDomTarget($host)
-            && array() === $this->sourceElementDescription->interactiveAttributes($host)
-            && ! (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($host));
+        return null === WrapperDecision::imageHostIdentity(
+            $host,
+            fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($host),
+            fn (string $name): bool => DataAttributeReferences::isReferenced($this->session, $host, $name),
+            fn (): bool => array() !== $this->sourceElementDescription->interactiveAttributes($host),
+            fn (): bool => array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($host)
+        );
     }
 
     private function hasBlockFigureDisplay(DOMElement $host): bool
