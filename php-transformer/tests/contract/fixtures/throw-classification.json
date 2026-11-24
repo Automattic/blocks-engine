@@ -1702,6 +1702,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('A selector could not be read to publish its classes.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('Re-anchored runtime declarations no longer fit the plan.')": {
         "class": "integrity",
         "count": 1

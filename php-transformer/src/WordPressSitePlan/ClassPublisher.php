@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use InvalidArgumentException;
 
@@ -126,12 +127,14 @@ final class ClassPublisher
         $themeCss = null === $themeJson ? array() : self::themeCss($themeJson);
         $bootstrap = is_string($writes['functions.php']['payload']['data'] ?? null) ? $writes['functions.php']['payload']['data'] : '';
 
-        // What names engine classes outside block content.
-        $cssText = implode("\n", array_merge($stylesheets, $themeCss));
-        $cssClasses = self::selectorClasses($cssText);
+        // What names engine classes outside block content. Each stylesheet is
+        // read on its own: an unterminated string or comment ends with its
+        // sheet instead of swallowing the sheets after it.
+        $sheets = array_merge(array_values($stylesheets), $themeCss);
+        $cssClasses = self::selectorClasses($sheets);
         $runtimeText = $bootstrap . "\n" . implode("\n", $scripts);
         $pinned = self::idents((string) json_encode(array($plan['runtime_declarations'], $plan['runtime_records'] ?? array(), $plan['runtime_entity_records'], $plan['theme']['document_roots'] ?? array(), $plan['visual_repair'], array_column($plan['pages'], 'document_metadata'), array_column($plan['template_parts'], 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
-        $predicates = self::predicates($cssText . "\n" . $runtimeText);
+        $predicates = self::predicates(implode("\n", $sheets) . "\n" . $runtimeText);
 
         // What block content carries.
         $occurrences = array();
@@ -174,14 +177,14 @@ final class ClassPublisher
         // the namespace (`<namespace>-c0`), so publishing adds as few bytes
         // per occurrence as the namespace allows.
         $map = array();
-        foreach (self::selectorShims($cssText) as $shim => $_) {
+        foreach (self::selectorShims($sheets) as $shim => $_) {
             $base = $namespace . '-' . str_replace('-', '', substr($shim, 3));
             $name = $base;
             for ($suffix = 2; isset($taken[$name]); ++$suffix) $name = $base . '-' . $suffix;
             $taken[$name] = true;
             $map[$shim] = $name;
         }
-        $folds = self::folds($carriers, array_diff_key($order, $drop, $pinned, $map), $cssText);
+        $folds = self::folds($carriers, array_diff_key($order, $drop, $pinned, $map), $sheets);
         foreach ($order as $token => $_) {
             if (isset($drop[$token]) || isset($pinned[$token]) || isset($map[$token])) continue;
             $leader = $folds[$token] ?? $token;
@@ -548,7 +551,7 @@ final class ClassPublisher
      * @param array<string,int> $eligible
      * @return array<string,string>
      */
-    private static function folds(array $carriers, array $eligible, string $css): array
+    private static function folds(array $carriers, array $eligible, array $sheets): array
     {
         $groups = array();
         foreach ($eligible as $token => $_) {
@@ -558,7 +561,7 @@ final class ClassPublisher
         foreach ($groups as $tokens) {
             if (count($tokens) < 2) continue;
             $candidate = array_fill_keys($tokens, $tokens[0]);
-            if (self::foldPreservesCascade($css, $folds + $candidate)) $folds += $candidate;
+            if (self::foldPreservesCascade($sheets, $folds + $candidate)) $folds += $candidate;
         }
         return $folds;
     }
@@ -570,14 +573,15 @@ final class ClassPublisher
      * about runtime state, shorthand expansion, layers or stylesheet order.
      * Unknown selector syntax vetoes a specificity-changing fold, not publishing.
      *
+     * @param list<string> $sheets
      * @param array<string,string> $map
      */
-    private static function foldPreservesCascade(string $css, array $map): bool
+    private static function foldPreservesCascade(array $sheets, array $map): bool
     {
         $weights = array();
         $changed = false;
         $prelude = '';
-        foreach (self::cssPieces($css) as $piece) {
+        foreach ($sheets as $sheet) foreach (self::cssPieces($sheet) as $piece) {
             if ('{' === $piece) {
                 if (!str_starts_with(ltrim($prelude), '@')) {
                     foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
@@ -626,14 +630,16 @@ final class ClassPublisher
      */
     private static function renamedPrelude(string $prelude, array $map): string
     {
-        $pieces = preg_split('~(/\\*.*?\\*/|"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|\\[[^\\]]*\\]|[\\s>+\~,()]+)~s', $prelude, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array();
+        // An escape is one opaque unit: `\"` opens no string and `\(` no boundary.
+        $pieces = preg_split('~(\\\\[\\s\\S]|/\\*.*?\\*/|"(?:[^"\\\\]++|\\\\.)*+"|\'(?:[^\'\\\\]++|\\\\.)*+\'|\\[[^\\]]*\\]|[\\s>+\~,()]+)~s', $prelude, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (false === $pieces) throw new InvalidArgumentException('A selector could not be read to publish its classes.');
         $seen = array();
         $result = '';
         foreach ($pieces as $piece) {
             if (1 === preg_match('/^[\\s>+~,()]/', $piece)) {
                 $seen = array();
                 $result .= $piece;
-            } elseif (str_starts_with($piece, '/*') || in_array($piece[0] ?? '', array('"', "'", '['), true)) {
+            } elseif (str_starts_with($piece, '/*') || in_array($piece[0] ?? '', array('"', "'", '[', '\\'), true)) {
                 $result .= $piece;
             } else {
                 $result .= preg_replace_callback(self::CLASS_SELECTOR, static function (array $match) use ($map, &$seen): string {
@@ -683,31 +689,36 @@ final class ClassPublisher
         return $published . $prelude;
     }
 
-    /** @return array<string,true> Every class a rule prelude in `$css` names. */
-    private static function selectorClasses(string $css): array
+    /**
+     * @param list<string> $sheets
+     * @return array<string,true> Every class a rule prelude in `$sheets` names, outside its strings and comments.
+     */
+    private static function selectorClasses(array $sheets): array
     {
         $classes = array();
         $prelude = '';
-        foreach (self::cssPieces($css) as $piece) {
+        foreach ($sheets as $sheet) foreach (self::cssPieces($sheet) as $piece) {
             if ('{' === $piece) {
-                $stripped = (string) preg_replace('~/\*.*?\*/|"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'~s', '', $prelude);
-                if (preg_match_all(self::CLASS_SELECTOR, $stripped, $matches)) foreach ($matches[1] as $class) $classes[$class] = true;
+                if (preg_match_all(self::CLASS_SELECTOR, $prelude, $matches)) foreach ($matches[1] as $class) $classes[$class] = true;
                 $prelude = '';
             } elseif ('}' === $piece || ';' === $piece) {
                 $prelude = '';
-            } else {
+            } elseif (!self::isOpaquePiece($piece)) {
                 $prelude .= $piece;
             }
         }
         return $classes;
     }
 
-    /** @return array<string,true> Every specificity shim a rule prelude in `$css` names, as a class, type or id. */
-    private static function selectorShims(string $css): array
+    /**
+     * @param list<string> $sheets
+     * @return array<string,true> Every specificity shim a rule prelude in `$sheets` names, as a class, type or id.
+     */
+    private static function selectorShims(array $sheets): array
     {
         $shims = array();
         $prelude = '';
-        foreach (self::cssPieces($css) as $piece) {
+        foreach ($sheets as $sheet) foreach (self::cssPieces($sheet) as $piece) {
             if ('{' === $piece) {
                 if (preg_match_all(self::shimPattern(), $prelude, $matches)) foreach ($matches[0] as $shim) $shims[$shim] = true;
                 $prelude = '';
@@ -725,10 +736,49 @@ final class ClassPublisher
         return '/(?<![A-Za-z0-9_-])' . EngineMarker::specificityPatternBody() . '(?![A-Za-z0-9_-])/';
     }
 
-    /** @return list<string> Text, comments, strings and structural characters, in order. */
+    /**
+     * Text, comments, strings and structural characters, in order; the pieces
+     * concatenate to `$css`. CSS lexes them, so an escape outside a string
+     * (`[data-a=\"b\"]`, `.a\{b`) is text and never opens a string or a
+     * block, and no piece's length is bounded by a regex stack.
+     *
+     * @return list<string>
+     */
     private static function cssPieces(string $css): array
     {
-        return preg_split('~(/\*.*?(?:\*/|$)|"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|[{};])~s', $css, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: array();
+        $pieces = array();
+        $state = CssSyntaxScanner::state();
+        $length = strlen($css);
+        $start = 0;
+        for ($offset = 0; $offset < $length;) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{};');
+            if ($offset >= $length) break;
+            $character = $css[$offset];
+            $inert = '' !== $state['quote'] || $state['comment'];
+            if (!$inert && !$state['url'] && ('{' === $character || '}' === $character || ';' === $character)) {
+                if ($offset > $start) $pieces[] = substr($css, $start, $offset - $start);
+                $pieces[] = $character;
+                $start = ++$offset;
+                continue;
+            }
+            if (!$inert && !$state['url'] && ('"' === $character || "'" === $character || ('/' === $character && '*' === ($css[$offset + 1] ?? '')))) {
+                if ($offset > $start) $pieces[] = substr($css, $start, $offset - $start);
+                $start = $offset;
+            }
+            $offset = CssSyntaxScanner::consume($css, $offset, $state) ?? $offset + 1;
+            if ($inert && '' === $state['quote'] && !$state['comment']) {
+                $pieces[] = substr($css, $start, $offset - $start);
+                $start = $offset;
+            }
+        }
+        if ($start < $length) $pieces[] = substr($css, $start);
+        return $pieces;
+    }
+
+    /** Whether a cssPieces() piece is a string or a comment. */
+    private static function isOpaquePiece(string $piece): bool
+    {
+        return '"' === $piece[0] || "'" === $piece[0] || str_starts_with($piece, '/*');
     }
 
     private static function themeJson(mixed $write): ?object

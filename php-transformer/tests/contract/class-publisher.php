@@ -211,15 +211,38 @@ $unsafeArtifact['files']['site.css'] .= '.be-fold-a.be-fold-b{outline-width:6px}
 $unsafe = $compile($unsafeArtifact + array('class_namespace' => 'acme'));
 $assert($unsafe[ClassPublisher::MAP_KEY]['be-fold-a'] !== $unsafe[ClassPublisher::MAP_KEY]['be-fold-b'], 'A competing compound keeps the delivered hooks separate.');
 $guard = new ReflectionMethod(ClassPublisher::class, 'foldPreservesCascade');
-$assert(!$guard->invoke(null, '.be-a.be-b{color:red}.source.other{color:blue}', array('be-a' => 'x', 'be-b' => 'x')), 'A specificity-order change vetoes folding.');
-$assert($guard->invoke(null, '.be-a.be-b{color:red}', array('be-a' => 'x', 'be-b' => 'x')), 'An uncontested compound can fold.');
+$assert(!$guard->invoke(null, array('.be-a.be-b{color:red}', '.source.other{color:blue}'), array('be-a' => 'x', 'be-b' => 'x')), 'A specificity-order change in another stylesheet vetoes folding.');
+$assert($guard->invoke(null, array('.be-a.be-b{color:red}'), array('be-a' => 'x', 'be-b' => 'x')), 'An uncontested compound can fold.');
 $foldGroups = new ReflectionMethod(ClassPublisher::class, 'folds');
-$assert(array() === $foldGroups->invoke(null, array('be-a' => array(0, 1), 'be-b' => array(0)), array('be-a' => 0, 'be-b' => 1), '.be-a{color:red}.be-b{color:blue}'), 'One extra occurrence in another document prevents folding.');
-$assert(array() === $foldGroups->invoke(null, array(), array('be-a' => 0, 'be-b' => 1), '.be-a{color:red}.be-b{color:blue}'), 'CSS-only hooks have no equal element set to fold.');
+$assert(array() === $foldGroups->invoke(null, array('be-a' => array(0, 1), 'be-b' => array(0)), array('be-a' => 0, 'be-b' => 1), array('.be-a{color:red}.be-b{color:blue}')), 'One extra occurrence in another document prevents folding.');
+$assert(array() === $foldGroups->invoke(null, array(), array('be-a' => 0, 'be-b' => 1), array('.be-a{color:red}.be-b{color:blue}')), 'CSS-only hooks have no equal element set to fold.');
 
 // A numeric class attribute predicate (issue #7381) must not break publishing.
 $numeric = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>[class*="1"]{color:red}.box{display:flex;gap:20px;padding:10px}</style><main><div class="box" style="transform:translateX(4px)"><p>Left</p><p>Right</p></div></main>')) + array('class_namespace' => 'acme'));
 $assert(is_array($numeric[ClassPublisher::MAP_KEY] ?? null), 'A numeric class attribute selector still compiles a published plan.');
+
+// Publishing reads which classes the shipped CSS names as CSS lexes it. An
+// escaped quote outside a string (`[data-state=\{\"open\"\}]`) opens no
+// string, so the quote-free rules after it are still selectors. Read as a
+// string, they ran past the regex stack limit and the publisher saw no
+// selectors at all: it dropped every engine class only CSS names (the grid
+// container's attribute marker among them) and left CSS naming the old hooks,
+// so the container rendered display:block.
+$shadows = implode(',', array_map(static fn (int $index): string => '0 0 ' . ($index % 9) . 'px #000', range(0, 999)));
+$escapedQuote = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><title>Grid</title><style>'
+    . '[data-state=\\{\\"open\\"\\:true\\}]{color:red}'
+    . '.big{box-shadow:' . $shadows . '}'
+    . '[data-grid-id=row]{display:grid;grid-template-rows:1fr;grid-template-columns:1fr 1fr}'
+    . '[data-grid-id=row] > :is([id="c1"]){grid-area:1/1/2/2;background:#c33;height:100px}'
+    . '[data-grid-id=row] > :is([id="c2"]){grid-area:1/2/2/3;background:#33c;height:100px}'
+    . '</style></head><body><main><p data-state=\'{"open":true}\'>State</p><p class="big">Big</p>'
+    . '<div data-grid-id="row"><div id="c1"><p>One</p></div><div id="c2"><p>Two</p></div></div></main></body></html>')) + array('class_namespace' => 'acme'));
+$escapedCss = $stylesheets($escapedQuote);
+preg_match_all($engineIdent, $escapedCss, $escapedLeft);
+$assert(array() === $escapedLeft[0], 'CSS after an escaped quote is published too: ' . implode(', ', array_unique($escapedLeft[0])));
+$assert(1 === preg_match('/"className":"([^"]*)","metadata":\{"blocksEngineRuntimeAttributes":\{"data-grid-id":"row"/', $content($escapedQuote), $row), 'The grid container keeps its published classes.');
+$gridded = array_filter(explode(' ', $row[1]), static fn (string $class): bool => 1 === preg_match('/\.' . preg_quote($class, '/') . '\)[^{}]*\{[^}]*display:grid/', $escapedCss));
+$assert(array() !== $gridded, 'A class the grid container carries selects its display:grid rule: ' . $row[1]);
 
 $bootstrapMethod = new ReflectionMethod(ClassPublisher::class, 'publishedBootstrap');
 $runtimeFixture = $bootstrapMethod->invoke(null, "<?php\nfunction folded_runtime_probe( \$class ) { return str_starts_with( \$class, 'be-inline-geometry-' ); }\n", array('be-inline-geometry-example' => 'fold-hook', 'blocks-engine-example' => 'fold-hook'), 'fold-test');
