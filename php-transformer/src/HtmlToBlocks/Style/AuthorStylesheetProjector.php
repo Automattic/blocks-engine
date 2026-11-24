@@ -790,8 +790,20 @@ final class AuthorStylesheetProjector
             }
             $marginGroups[$marginPrelude][$property] = $value;
         }
+        // A button control's margins land on its core/buttons wrapper while the
+        // rule's other declarations land on the inner link. A custom property
+        // the same rule declares for its own margins (Tailwind's
+        // `--tw-space-y-reverse:0` beside `margin-top:calc(... var(--tw-space-y-reverse))`)
+        // must reach the wrapper too: the link is its descendant, so left there
+        // the wrapper's margin references an undefined variable and collapses to 0.
+        $marginVariables = array_filter($declarations, static fn (string $name): bool => str_starts_with($name, '--'), ARRAY_FILTER_USE_KEY);
+        if ( array() !== $marginVariables && array() === $this->buttonDeclarationRouting->buttonSizeSubjects($prelude, $context) ) {
+            $marginVariables = array();
+        }
         $marginRules = '';
         foreach ( $marginGroups as $marginPrelude => $marginDeclarations ) {
+            $referenced = array_filter($marginVariables, static fn (string $name): bool => 1 === preg_match('/var\(\s*' . preg_quote($name, '/') . '\s*[,)]/i', implode(';', $marginDeclarations)), ARRAY_FILTER_USE_KEY);
+            $marginDeclarations = $referenced + $marginDeclarations;
             $marginRules .= $marginPrelude . '{' . $this->styleResolver->cssDeclarationString($marginDeclarations) . '}';
         }
         $css = $rules
