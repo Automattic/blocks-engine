@@ -12,7 +12,7 @@ final class BoxTree
     public const SCHEMA = 'blocks-engine/box-tree/v2';
 
     /**
-     * Compact sidecars (data-liberation-agent#2063): each viewport's
+     * Compact sidecars: each viewport's
      * `used_styles`, and each `pseudo.*.used_styles`, is an integer index into
      * the top-level `styles` array.
      */
