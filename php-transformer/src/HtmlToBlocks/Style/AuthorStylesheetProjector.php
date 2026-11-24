@@ -791,8 +791,25 @@ final class AuthorStylesheetProjector
             $marginGroups[$marginPrelude][$property] = $value;
         }
         $marginRules = '';
+        $marginVariables = self::referencedCustomProperties($margins, $declarations);
         foreach ( $marginGroups as $marginPrelude => $marginDeclarations ) {
-            $marginRules .= $marginPrelude . '{' . $this->styleResolver->cssDeclarationString($marginDeclarations) . '}';
+            $marginCss = $this->styleResolver->cssDeclarationString($marginDeclarations);
+            [ $carriers, $others ] = array() === $marginVariables ? array( array(), array() ) : self::partitionButtonCarrierArms($marginPrelude);
+            if ( array() === $carriers ) {
+                $marginRules .= $marginPrelude . '{' . $marginCss . '}';
+                continue;
+            }
+            // The rest of this rule (its own custom properties included)
+            // projects onto the button link, but the margin lands on the
+            // outer carrier. Restate the variables that margin reads on that
+            // carrier: an undefined variable invalidates the margin at
+            // computed-value time and collapses the source spacing. Carrier
+            // arms select only button carriers, disjoint from the other arms,
+            // so splitting the rule keeps every element's cascade.
+            if ( array() !== $others ) {
+                $marginRules .= implode(',', $others) . '{' . $marginCss . '}';
+            }
+            $marginRules .= implode(',', $carriers) . '{' . $this->styleResolver->cssDeclarationString($marginVariables) . ';' . $marginCss . '}';
         }
         $css = $rules
             . $marginRules
@@ -804,6 +821,58 @@ final class AuthorStylesheetProjector
             . $navigationItemSpaceRule;
 
         return $this->withEditorProjectionRules($css, $prelude, $body, $context);
+    }
+
+    /**
+     * Custom properties declared by the same rule that its margins read,
+     * including variables those variables read in turn.
+     *
+     * @param array<string, string> $margins
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private static function referencedCustomProperties(array $margins, array $declarations): array
+    {
+        $referenced = array();
+        $pending = array_values($margins);
+        while ( array() !== $pending ) {
+            $value = (string) array_shift($pending);
+            if ( ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+                continue;
+            }
+            foreach ( $matches[1] as $name ) {
+                if ( isset($referenced[ $name ]) || ! isset($declarations[ $name ]) ) {
+                    continue;
+                }
+                $referenced[ $name ] = $declarations[ $name ];
+                $pending[] = $declarations[ $name ];
+            }
+        }
+        return $referenced;
+    }
+
+    /**
+     * Split projected arms into those that select a lowered button's outer
+     * carrier and all others.
+     *
+     * @return array{list<string>, list<string>}
+     */
+    private static function partitionButtonCarrierArms(string $prelude): array
+    {
+        $carriers = array();
+        $others = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array( $prelude ) as $arm ) {
+            // `:not(.wp-block-buttons)` guards exclude carriers; only a
+            // positive `:where(.wp-block-buttons)` compound selects one.
+            if ( ! str_contains($arm, 'wp-block-button__link')
+                && 1 === preg_match('/:where\([^()]*\.wp-block-buttons?\)/', $arm)
+            ) {
+                $carriers[] = $arm;
+            } else {
+                $others[] = $arm;
+            }
+        }
+        return array( $carriers, $others );
     }
 
     /**
