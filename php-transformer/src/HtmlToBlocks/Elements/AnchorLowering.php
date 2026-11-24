@@ -405,7 +405,8 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
         }
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true)
+                && ! ($hasHeading && $this->isTextCueSpan($child)) ) {
                 return false;
             }
         }
@@ -422,6 +423,19 @@ final class AnchorLowering implements ButtonLinkLeftovers
         return $hasSummary && ($hasHeading || $hasImage
             || (null !== SourceDom::firstChildElement($anchor, 'div')
                 && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * Whether a card child is a text-only phrasing cue (a trailing "→" or
+     * "View" label). It lowers to a non-interactive paragraph beside the
+     * card's heading, which still owns the single destination.
+     */
+    private function isTextCueSpan(DOMElement $child): bool
+    {
+        return 'span' === strtolower($child->tagName)
+            && 0 === $child->childElementCount
+            && ! $child->hasAttribute('role')
+            && '' !== trim($child->textContent);
     }
 
     /**

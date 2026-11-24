@@ -19,7 +19,9 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH,
 try {
     const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
     const measure = () => page.evaluate(() => [...document.querySelectorAll('h3')].map(h => {
-        const card = h.closest('a');
+        // The source card is an <a>; the import keeps its class on the native
+        // stretched-link group that replaces it.
+        const card = h.closest('.post');
         return Math.round(h.getBoundingClientRect().top - card.getBoundingClientRect().top);
     }));
     await page.setContent(html.replace('<link rel="stylesheet" href="s.css">', `<style>${css}</style>`));
