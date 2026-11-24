@@ -296,7 +296,7 @@ final class InlineGeometry
     /**
      * @return list<string>
      */
-    private function backgroundCarrierProperties(): array
+    public function backgroundCarrierProperties(): array
     {
         return array(
             'background',

@@ -290,7 +290,9 @@ final class StyleResolver implements ElementPresentationResolver
         // Purely additive, cross-route current hooks cannot be frozen into a
         // block's className. Selector projection restores their runtime paint;
         // class swaps retain their resting half and existing item-level logic.
-        if (isset($attrs['className'])) {
+        // The proof is per navigation item: the same utility authored on
+        // body content (a price in `text-primary`) is not route state.
+        if (isset($attrs['className']) && $this->session->reusableComponentState()->carriesRestingNavigation($element)) {
             $attrs['className'] = implode(' ', array_filter(SourceDom::tokens($attrs['className']), fn(string $class): bool => !$this->session->authorSelectorProjectionState()->isAdditiveCurrentNavigationClass($class)));
             if ('' === $attrs['className']) unset($attrs['className']);
         }
@@ -2084,6 +2086,33 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Inline background declarations an `<img>` paints in its own box.
+     *
+     * A source image can paint its picture as an inline background over a
+     * transparent placeholder `src` (an atlas or sprite photo positioned and
+     * scaled into the box). The painted image and the position and size that
+     * crop it belong to the image's box. core/image saves className on the
+     * figure, whose box can differ from the image's (author rules size and
+     * offset the leaf), so these declarations ride the leaf together rather
+     * than the figure, and the background image keeps its rewritten asset URL.
+     *
+     * @return list<string>
+     */
+    public function imageLeafBackgroundProperties(DOMElement $image): array
+    {
+        if ( 'img' !== strtolower($image->tagName) ) {
+            return array();
+        }
+        $declarations = SourceDeclarations::inline($image);
+        $paint = ($declarations['background-image'] ?? '') . ' ' . ($declarations['background'] ?? '');
+        if ( 1 !== preg_match('/\b(?:url|image-set|[a-z-]*gradient)\s*\(/i', $paint) ) {
+            return array();
+        }
+
+        return array_values(array_intersect($this->inlineGeometry()->backgroundCarrierProperties(), array_keys($declarations)));
+    }
+
+    /**
      * Carry runtime-authored inline image placement on the native image leaf.
      *
      * When the image keeps its source figure, the figure block is that box,
@@ -2096,7 +2125,10 @@ final class StyleResolver implements ElementPresentationResolver
     public function imageLeafPlacementClassName(DOMElement $image, bool $sourceFigure = false): string
     {
         $declarations = SourceDeclarations::inline($image);
-        $placement = array_keys(array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        $placement = array_merge(
+            array_keys(array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY)),
+            $this->imageLeafBackgroundProperties($image)
+        );
         $overrides = array();
         if ( $sourceFigure ) {
             $position = CssValueInspector::declared($declarations, 'position');
