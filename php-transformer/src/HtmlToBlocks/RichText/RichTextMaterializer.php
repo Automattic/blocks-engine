@@ -430,7 +430,9 @@ final class RichTextMaterializer implements RichTextMaterialization
      * typography stay owned by the retained classes. A colour that changes
      * with breakpoints or interaction states stays with its class rules: an
      * inline resting value would freeze it. Format tags (`<b>`, `<em>`) are
-     * kept by name only, so RichText would drop a style they carried.
+     * kept by name only, so RichText would drop a style they carried. A link
+     * is the core/link format, which keeps no style either: its colour stays
+     * with its class rule, as in paragraph RichText.
      */
     public function markupWithOwnedTextColors(DOMElement $element, bool $includeElement): string
     {
@@ -447,7 +449,7 @@ final class RichTextMaterializer implements RichTextMaterialization
         foreach ( $sources as $index => $source ) {
             $target = $targets[$index] ?? null;
             if ( ! $source instanceof DOMElement || ! $target instanceof DOMElement || '' === trim($source->textContent ?? '')
-                || 'svg' === strtolower($source->tagName) || isset(self::FORMAT_TAG_DEFAULTS[strtolower($source->tagName)]) || SourceDom::hasAncestorTag($source, array( 'svg' ))
+                || in_array(strtolower($source->tagName), array( 'svg', 'a' ), true) || isset(self::FORMAT_TAG_DEFAULTS[strtolower($source->tagName)]) || SourceDom::hasAncestorTag($source, array( 'svg' ))
                 || isset(SourceDeclarations::inline($source)['color']) || $this->styleResolver->hasStateStyleFamily($source, 'color') ) {
                 continue;
             }
