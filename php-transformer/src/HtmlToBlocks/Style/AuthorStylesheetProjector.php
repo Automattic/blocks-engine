@@ -340,7 +340,10 @@ final class AuthorStylesheetProjector
             // Only positive block targets own this escape. A projected arm in
             // a mixed selector list must not lend ownership to authored inline
             // subjects, nor do RichText carriers have Core block defaults.
+            // A pseudo-element is not valid inside `:is()`, so such an arm can
+            // never match there: shipping it only adds weight.
             $targets = array_filter(CssStylesheetTransformer::splitSelectorList($selector) ?? array(), static function (string $arm): bool {
+                if ( CssStylesheetTransformer::namesPseudoElement($arm) ) return false;
                 $positive = CssSelectorCompoundInspector::positiveSelector($arm);
                 return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-|is-layout-(?:flex|grid)\\b)/', $positive)
                     && ! preg_match('/\\.blocks-engine-(?:role-richtext\\b|richtext-)/', $positive);
