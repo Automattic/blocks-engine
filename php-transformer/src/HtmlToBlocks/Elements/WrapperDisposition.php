@@ -30,9 +30,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
  *
  * This value object is intentionally generic: {@see WrapperDecision} is its
  * owner (#1935, #7471), and the remaining wrapper call sites adopt it in
- * later byte-identical slices. `coalesce`, `preserve`, `fold` and `drop`
- * are produced so far; `css-owned` is named here so later slices do not
- * need to introduce a second, incompatible vocabulary.
+ * later byte-identical slices. Every outcome is now produced: `css-owned`
+ * names the synthesized button save wrappers whose box is neutralized and
+ * whose layout is restated as CSS on the participating control.
  */
 final class WrapperDisposition
 {
@@ -87,6 +87,11 @@ final class WrapperDisposition
     public function isFold(): bool
     {
         return self::FOLD === $this->kind;
+    }
+
+    public function isCssOwned(): bool
+    {
+        return self::CSS_OWNED === $this->kind;
     }
 
     public function isDrop(): bool
