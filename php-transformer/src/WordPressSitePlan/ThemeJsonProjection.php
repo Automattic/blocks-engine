@@ -913,6 +913,12 @@ final class ThemeJsonProjection
             if (array() === ($styles['elements'][$level]['color'] ?? array())) unset($styles['elements'][$level]['color']);
             if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
         }
+        // A heading level restating the heading element's typeface or colour
+        // renders nothing the `heading` element does not, but Global Styles
+        // prints the level rule after it, so the level copy would pin that
+        // value against every later edit of the heading element. Drop the
+        // restatement and let the level follow the heading element.
+        $styles = self::withoutRestatedHeadingLevels($styles);
         // Absence of a unanimous element look means inheritance, not absence
         // of an editable element in Global Styles. Keep that default explicit
         // without promoting a section's colour or a heading level's typeface
@@ -938,6 +944,31 @@ final class ThemeJsonProjection
         $theme['settings'] = $settings;
         $theme['styles'] = $styles;
         return $theme;
+    }
+
+    /**
+     * Drops `h1`–`h6` element typefaces and text colours equal to the
+     * `heading` element's, pruning what the drop leaves empty.
+     *
+     * @param array<string,mixed> $styles
+     * @return array<string,mixed>
+     */
+    private static function withoutRestatedHeadingLevels(array $styles): array
+    {
+        $heading = $styles['elements']['heading'] ?? null;
+        if (!is_array($heading)) return $styles;
+        foreach (array(array('typography', 'fontFamily'), array('color', 'text')) as [$group, $key]) {
+            $value = $heading[$group][$key] ?? null;
+            if (!is_string($value) || '' === trim($value)) continue;
+            foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $level) {
+                $written = $styles['elements'][$level][$group][$key] ?? null;
+                if (!is_string($written) || strtolower(trim($written)) !== strtolower(trim($value))) continue;
+                unset($styles['elements'][$level][$group][$key]);
+                if (array() === ($styles['elements'][$level][$group] ?? array())) unset($styles['elements'][$level][$group]);
+                if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
+            }
+        }
+        return $styles;
     }
 
     /**

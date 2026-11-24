@@ -249,6 +249,14 @@ final class PresetBinding
     private array $fontRules = array();
     /** @var array<string,true>|null OWN_FONT_PHRASING_TAGS the documents render; null when unknown. */
     private ?array $renderedOwnFontTags = null;
+    /**
+     * Classes the documents render, on any element and on headings; null
+     * when the markup is unknown. A font rule requiring a class the site
+     * renders but never on a heading cannot reach a heading.
+     *
+     * @var array{all:array<string,true>,headings:array<string,true>}|null
+     */
+    private ?array $renderedClasses = null;
     /** The theme's button element font family, resolved from its preset. */
     private ?string $buttonFontDefault = null;
     /** Memo of hasInheritedFontCompetitor() for the current theme defaults. */
@@ -296,6 +304,18 @@ final class PresetBinding
             foreach ($markups as $markup) {
                 if (preg_match_all('/<(' . implode('|', self::OWN_FONT_PHRASING_TAGS) . ')\b/i', $markup, $tags)) {
                     foreach ($tags[1] as $tag) $this->renderedOwnFontTags[strtolower($tag)] = true;
+                }
+            }
+            $this->renderedClasses = array('all' => array(), 'headings' => array());
+            foreach ($markups as $markup) {
+                if (!preg_match_all('/<([a-z][a-z0-9-]*)\b[^>]*?\sclass\s*=\s*("[^"]*"|\'[^\']*\')/i', $markup, $elements, PREG_SET_ORDER)) continue;
+                foreach ($elements as [, $tag, $classes]) {
+                    $tag = strtolower($tag);
+                    foreach (preg_split('/\s+/', trim(html_entity_decode(substr($classes, 1, -1), ENT_QUOTES))) ?: array() as $class) {
+                        if ('' === $class) continue;
+                        $this->renderedClasses['all'][$class] = true;
+                        if (1 === preg_match('/^h[1-6]$/', $tag)) $this->renderedClasses['headings'][$class] = true;
+                    }
                 }
             }
         }
@@ -1676,15 +1696,43 @@ final class PresetBinding
         foreach ($this->fontRules as $rule) {
             $subject = self::subjectCompound($rule['selector']);
             if (preg_match(self::TYPE_SELECTOR, $subject, $match) && strtolower($match[1]) !== $tag) continue;
+            if (self::selectsDocumentRoot($subject)) continue;
             $tokens = self::subjectTokens($rule['selector']);
             if (null === $tokens) continue;
             // Another block's class (`wp-block-navigation-link`,
             // `wp-block-navigation__responsive-container-open`) never selects
             // a core/heading, whose only block class is `wp-block-heading`.
             if (array() !== preg_grep('/^class:wp-block-(?!heading$)[a-z0-9_-]+$/', $tokens['tokens'])) continue;
+            if ($this->classNeverOnHeading($subject)) continue;
             if (null !== $rule['value'] && $this->rendersDefaultFont($tag, $rule['value'])) continue;
             if (null !== $rule['value'] && $this->classRendersOwnFont($rule['selector'], $rule['value'])) continue;
             return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether a subject compound requires a class the documents render on
+     * some element but never on a heading (`.font-logo` on a brand span). Classes inside functional pseudo-classes (`:not()`, `:is()`)
+     * and attribute selectors are not required. A class the markup never shows may still be
+     * published later, so it proves nothing.
+     */
+    private function classNeverOnHeading(string $subject): bool
+    {
+        if (null === $this->renderedClasses) return false;
+        // A single-compound `:where()`/`:is()` still requires its classes.
+        $subject = (string) preg_replace('/:(?:where|is)\(\s*((?:[^\s(),\\\\]|\\\\.)+)\s*\)/', '$1', $subject);
+        $required = '';
+        for ($i = 0, $depth = 0, $length = strlen($subject); $i < $length; $i++) {
+            if ('\\' === $subject[$i]) { if (0 === $depth) $required .= substr($subject, $i, 2); $i++; continue; }
+            if ('(' === $subject[$i] || '[' === $subject[$i]) $depth++;
+            elseif (')' === $subject[$i] || ']' === $subject[$i]) $depth = max(0, $depth - 1);
+            elseif (0 === $depth) $required .= $subject[$i];
+        }
+        if (!preg_match_all('/\.((?:\\\\.|[\w-])+)/', $required, $classes)) return false;
+        foreach ($classes[1] as $class) {
+            $class = stripslashes($class);
+            if (isset($this->renderedClasses['all'][$class]) && !isset($this->renderedClasses['headings'][$class])) return true;
         }
         return false;
     }
@@ -1746,7 +1794,7 @@ final class PresetBinding
             if ($rule['inherits'] || (null !== $rule['value'] && $this->rendersDefaultFont('body', $rule['value']))) continue;
             $subject = self::subjectCompound($rule['selector']);
             // A button's link holds its label's inline text, never blocks.
-            if (str_contains($subject, '::') || 1 === preg_match('/\.wp-block-button__link(?![\w-])/', $subject)) continue;
+            if (str_contains($subject, '::') || 1 === preg_match('/\.wp-block-button__link(?![\w-])/', $subject) || self::selectsDocumentRoot($subject)) continue;
             if (preg_match(self::TYPE_SELECTOR, $subject, $match) && in_array(strtolower($match[1]), array_merge(array('html', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), self::FONT_RESET_TAGS), true)) continue;
             return true;
         }
@@ -2782,6 +2830,18 @@ final class PresetBinding
         if (!$parsed['supported']) return false;
         $weight = CssSelectorMatcher::specificityCounts($parsed);
         return array($weight['ids'], $weight['classes'], $weight['types']) > array(0, 1, 0);
+    }
+
+    /**
+     * Whether a subject compound only ever selects the document root
+     * (`html`, `:root`, `:host`, which no light-DOM element matches) or its
+     * editor canvas mirror (`.editor-styles-wrapper`). Such a rule reaches
+     * block text only by inheritance through body, never past an element
+     * or body font Global Styles states.
+     */
+    private static function selectsDocumentRoot(string $subject): bool
+    {
+        return 1 === preg_match('/^(?:html|:root|:host)(?![\w-])|\.editor-styles-wrapper(?![\w-])/i', trim($subject));
     }
 
     /** The selector's last compound, after its final combinator. */
