@@ -124,6 +124,20 @@ final class RestatedWrapperFold
         'inset' => array('auto'),
     );
 
+    /** Dynamic states are evaluated in both truth assignments, never guessed from capture. */
+    private bool $stateSatisfied = true;
+
+    private static function statePattern(): string
+    {
+        return '/(?<!:):(hover|focus-visible|focus-within|focus|visited|active|-moz-placeholder|-ms-input-placeholder)(?![\w-])/i';
+    }
+
+    private function elementSelector(string $selector): string
+    {
+        $selector = self::withoutPseudoElement($selector)[0];
+        return (string) preg_replace(self::statePattern(), $this->stateSatisfied ? ':not(:not(*))' : ':not(*)', $selector);
+    }
+
     /** @var array<string, array{0: string, 1: array<string, mixed>}> The projected-attribute form of each rule reading one, for the proof under way. */
     private array $variants = array();
 
@@ -160,7 +174,14 @@ final class RestatedWrapperFold
     {
         $restoreChain = $this->collapsedChain($wrapper, $child, $chain);
         try {
-            return $this->proveFold($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, null !== $restoreChain);
+            $this->stateSatisfied = true;
+            $satisfied = $this->proveFold($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, null !== $restoreChain);
+            if (null !== $satisfied['failure']) return $satisfied;
+            $this->stateSatisfied = false;
+            $unsatisfied = $this->proveFold($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, null !== $restoreChain);
+            if (null !== $unsatisfied['failure']) return $unsatisfied;
+            foreach ($unsatisfied['arms'] as $selector => $arms) $satisfied['arms'][$selector] = array_values(array_unique(array_merge($satisfied['arms'][$selector] ?? array(), $arms)));
+            return $satisfied;
         } finally {
             if (null !== $restoreChain) $restoreChain();
         }
@@ -236,7 +257,7 @@ final class RestatedWrapperFold
         $siblingCombinator = false;
         foreach (array_keys($tokens) as $token) {
             foreach ($this->tokenSelectors()[$token] ?? array() as $entry) {
-                if (null === self::matchable($entry)) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $entry['selector']);
+                if (null === $this->matchable($entry)) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $entry['selector']);
                 $tokenEntries[$entry['key']] = $entry;
                 if (array_intersect($entry['parsed']['combinators'] ?? array(), array('+', '~'))) $siblingCombinator = true;
             }
@@ -249,7 +270,7 @@ final class RestatedWrapperFold
             $projected = self::projectedAttributeName($name);
             $armTokens['[' . $projected] = true;
             foreach ($this->tokenSelectors()['[' . strtolower($name)] ?? array() as $entry) {
-                if (null === self::matchable($entry)) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $entry['selector']);
+                if (null === $this->matchable($entry)) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $entry['selector']);
                 $text = self::withProjectedAttribute($variants[$entry['key']][0] ?? (string) $entry['selector'], $name, $projected);
                 if (null === $text) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $entry['selector']);
                 $variants[$entry['key']] = array($text, array());
@@ -258,7 +279,7 @@ final class RestatedWrapperFold
             }
         }
         foreach ($variants as $key => [$text]) {
-            $parsed = CssSelectorMatcher::parse(self::withoutPseudoElement($text)[0]);
+            $parsed = CssSelectorMatcher::parse($this->elementSelector($text));
             if (! ($parsed['supported'] ?? false)) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $tokenEntries[$key]['selector']);
             $variants[$key] = array($text, $parsed);
         }
@@ -281,13 +302,6 @@ final class RestatedWrapperFold
         $descendantsBefore = array_map(fn (DOMElement $node): array => $this->matched($node, $before, $tokenEntries), $descendants);
         $outsideBefore = array_map(fn (DOMElement $node): array => $this->matched($node, $before, $tokenEntries, true), $outside);
 
-        foreach ($wrapperRules as $key => $entry) {
-            // A pseudo-element rule that already reached the child (`*::selection`) reaches it after the fold too.
-            if (isset($childBefore[$key])) continue;
-            if (1 === preg_match('/::|:(?:before|after|first-line|first-letter|marker|placeholder|selection)\b/i', (string) $entry['selector'])) {
-                return self::failure(self::WRAPPER_RULE_NOT_RESTATED, (string) $entry['selector']);
-            }
-        }
 
         // Apply the fold to the source DOM, read, then restore it exactly.
         $childClass = $child->hasAttribute('class') ? $child->getAttribute('class') : null;
@@ -344,7 +358,7 @@ final class RestatedWrapperFold
             // reaches it, in the output, through the class that replaces it.
             $reachable = array_merge(array($child), $descendants, $outside);
             foreach ($variants as $key => [$text, $parsed]) {
-                $base = self::withoutPseudoElement($text)[0];
+                $base = $this->elementSelector($text);
                 foreach ($reachable as $node) {
                     if (! $after->matches($node, $base, $parsed, true)['matches']) continue;
                     $arms[$key][$text] = true;
@@ -356,12 +370,12 @@ final class RestatedWrapperFold
             foreach ($arms as $key => $selectorArms) {
                 $entry = $entriesByKey[$key];
                 foreach (array_keys($selectorArms) as $arm) {
-                    $parsed = CssSelectorMatcher::parse(self::withoutPseudoElement($arm)[0]);
+                    $parsed = CssSelectorMatcher::parse($this->elementSelector($arm));
                     $checked = array(array($child, isset($childBefore[$key]) || isset($wrapperRules[$key])));
                     foreach ($descendants as $index => $node) $checked[] = array($node, isset($descendantsBefore[$index][$key]));
                     foreach ($outside as $index => $node) $checked[] = array($node, isset($outsideBefore[$index][$key]));
                     foreach ($checked as [$node, $matchedBefore]) {
-                        if ($after->matches($node, self::withoutPseudoElement($arm)[0], $parsed, true)['matches'] && true !== $matchedBefore) return self::failure(self::SELECTOR_MATCH_CHANGED, 'arm:' . $arm);
+                        if ($after->matches($node, $this->elementSelector($arm), $parsed, true)['matches'] && true !== $matchedBefore) return self::failure(self::SELECTOR_MATCH_CHANGED, 'arm:' . $arm);
                     }
                 }
             }
@@ -406,7 +420,7 @@ final class RestatedWrapperFold
     {
         $competitors = array();
         foreach ($childRules as $key => $entry) {
-            if (isset($wrapperRules[$key])) continue;
+            if (isset($wrapperRules[$key]) || '' !== self::withoutPseudoElement((string) $entry['selector'])[1]) continue;
             foreach ($entry['declarations'] as $property => $value) {
                 $competitors[] = array('property' => (string) $property, 'value' => (string) $value, 'precedence' => self::precedence($entry), 'inline' => false);
             }
@@ -429,8 +443,18 @@ final class RestatedWrapperFold
             }
         }
         foreach ($wrapperRules as $key => $entry) {
+            $pseudo = self::withoutPseudoElement((string) $entry['selector'])[1];
+            if ('' !== $pseudo && ! isset($childRules[$key])) {
+                foreach ($childRules as $other) {
+                    $otherPseudo = self::withoutPseudoElement((string) $other['selector'])[1];
+                    if ('' !== $otherPseudo && ltrim($pseudo, ':') === ltrim($otherPseudo, ':')) return self::failure(self::WRAPPER_RULE_NOT_RESTATED, 'generated_box_collision:' . $entry['selector']);
+                }
+            }
             // A rule that already reached the child brings nothing new.
             if (isset($childRules[$key])) continue;
+            // Generated-box declarations style the pseudo-element, not its host.
+            // The geometry proof and host match proof move that box with its token.
+            if ('' !== self::withoutPseudoElement((string) $entry['selector'])[1]) continue;
             $precedence = self::precedence($entry);
             foreach ($entry['declarations'] as $property => $value) {
                 $property = strtolower((string) $property);
@@ -477,6 +501,7 @@ final class RestatedWrapperFold
     {
         // The evidence already proved the wrapper's float layout-neutral: it
         // fills its parent's content box, as the child fills it.
+        if ('position' === $property && 'relative' === $value) return $evidence->positionTransfersTo($wrapper, $child);
         if ('float' === $property) return null !== $evidence->usedValues($wrapper, 'float');
         if ('opacity' === $property) return self::observedEverywhere($evidence, $child, 'opacity', array('1', '1.0'));
         if (in_array($property, self::SIZE_PROPERTIES, true)) return $evidence->sizeTransfersTo($child);
@@ -533,7 +558,7 @@ final class RestatedWrapperFold
     /** @param array<string, mixed> $entry @return array{0: int, 1: int} */
     private static function precedence(array $entry): array
     {
-        return array(CssSelectorMatcher::specificity(self::matchable($entry)[1] ?? array()), (int) $entry['rule_order']);
+        return array(CssSelectorMatcher::specificity($entry['parsed'] ?? array()), (int) $entry['rule_order']);
     }
 
     /**
@@ -563,8 +588,8 @@ final class RestatedWrapperFold
                 $join = trim($join);
                 $arm .= ('' === $join ? ' ' : ' ' . $join . ' ') . $parts[$offset + 1];
             }
-            $parsed = CssSelectorMatcher::parse($arm);
-            if ($parsed['supported'] && $after->matches($node, $arm, $parsed, true)['matches']) return $arm . $pseudoElement;
+            $parsed = CssSelectorMatcher::parse($this->elementSelector($arm));
+            if ($parsed['supported'] && $after->matches($node, $this->elementSelector($arm), $parsed, true)['matches']) return $arm . $pseudoElement;
         }
         return null;
     }
@@ -602,8 +627,8 @@ final class RestatedWrapperFold
     {
         $document = $wrapper->ownerDocument;
         if (! $document instanceof DOMDocument) return true;
-        $arm = self::withoutPseudoElement($arm)[0];
-        $parsed = CssSelectorMatcher::parse($arm);
+        $arm = $this->elementSelector($arm);
+        $parsed = CssSelectorMatcher::parse($this->elementSelector($arm));
         if (! $parsed['supported']) return true;
         $xpath = new DOMXPath($document);
         $cache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
@@ -634,7 +659,7 @@ final class RestatedWrapperFold
     private static function withoutPseudoElement(string $selector): array
     {
         $selector = trim($selector);
-        if (1 !== preg_match('/^(.*?)((?:::?(?:before|after|first-line|first-letter|marker|placeholder|selection|backdrop|file-selector-button)|::[a-z-]+(?:\([^)]*\))?))$/is', $selector, $match)) return array($selector, '');
+        if (1 !== preg_match('/^(.*?)((?:::?(?:before|after|first-line|first-letter|marker|placeholder|-moz-placeholder|-ms-input-placeholder|selection|backdrop|file-selector-button)|::[a-z-]+(?:\([^)]*\))?))$/is', $selector, $match)) return array($selector, '');
         return '' === trim($match[1]) ? array($selector, '') : array($match[1], $match[2]);
     }
 
@@ -658,14 +683,14 @@ final class RestatedWrapperFold
         $candidates = $tokenEntriesOnly ? array() : $this->session->authorStyleRuleCandidates($node, $cache);
         foreach (array_merge($candidates, array_values($tokenEntries)) as $entry) {
             $key = (string) $entry['key'];
-            $matchable = isset($matched[$key]) ? null : self::matchable($entry);
+            $matchable = isset($matched[$key]) ? null : $this->matchable($entry);
             if (null === $matchable) continue;
             if ($cache->matches($node, $matchable[0], $matchable[1], true)['matches']) {
                 $matched[$key] = $entry;
                 continue;
             }
             $variant = $this->variants[$key] ?? null;
-            if (null !== $variant && $cache->matches($node, self::withoutPseudoElement($variant[0])[0], $variant[1], true)['matches']) $matched[$key] = $entry;
+            if (null !== $variant && $cache->matches($node, $this->elementSelector($variant[0]), $variant[1], true)['matches']) $matched[$key] = $entry;
         }
         return $matched;
     }
@@ -677,11 +702,14 @@ final class RestatedWrapperFold
      * @param array<string, mixed> $entry
      * @return array{0: string, 1: array<string, mixed>}|null
      */
-    private static function matchable(array $entry): ?array
+    private function matchable(array $entry): ?array
     {
-        if ($entry['parsed']['supported'] ?? false) return array((string) $entry['selector'], $entry['parsed']);
-        if (! ($entry['direct_child_parsed']['supported'] ?? false)) return null;
-        return array((string) (preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim((string) $entry['selector'])) ?? $entry['selector']), $entry['direct_child_parsed']);
+        // Two independent dynamic predicates need more than the two uniform
+        // truth assignments. Keep them until a per-element state proof exists.
+        if (preg_match_all(self::statePattern(), (string) $entry['selector']) > 1) return null;
+        $text = $this->elementSelector((string) $entry['selector']);
+        $parsed = CssSelectorMatcher::parse($text);
+        return ($parsed['supported'] ?? false) ? array($text, $parsed) : null;
     }
 
     /** @return array<string, list<array<string, mixed>>> */
