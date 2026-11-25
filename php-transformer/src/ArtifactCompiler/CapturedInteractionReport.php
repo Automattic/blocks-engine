@@ -11,7 +11,26 @@ final class CapturedInteractionReport
     /** Keep a bounded cache across projector instances and repeated route work. */
     private static array $cache = array();
 
+    /** Same four-entry bound as decoding; keys retain hashes, not page HTML. */
+    private static array $resolvedCache = array();
+
     public static function read(array $files): ?array
+    {
+        $report = self::decoded($files);
+        if (!self::valid($report)) return $report;
+        $key = CapturedComponentStates::inputKey($report, $files);
+        if (array_key_exists($key, self::$resolvedCache)) return self::$resolvedCache[$key];
+        $report = CapturedComponentStates::shareEvidence($report, $files);
+        foreach ($report['pages'] as &$page) {
+            if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
+            $page['components'] = CapturedStateUrls::rebase($page['components'], $page['sourceUrl']);
+        }
+        unset($page);
+        if (4 <= count(self::$resolvedCache)) array_shift(self::$resolvedCache);
+        return self::$resolvedCache[$key] = $report;
+    }
+
+    private static function decoded(array $files): ?array
     {
         foreach ($files as $file) {
             if (!is_string($file['path'] ?? null) || 'interaction-states.json' !== basename($file['path'])) continue;
@@ -22,15 +41,7 @@ final class CapturedInteractionReport
                 if (4 <= count(self::$cache)) array_shift(self::$cache);
                 self::$cache[$key] = self::decode($content);
             }
-            $report = CapturedComponentStates::shareEvidence(self::$cache[$key], $files);
-            if (self::valid($report)) {
-                foreach ($report['pages'] as &$page) {
-                    if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
-                    $page['components'] = CapturedStateUrls::rebase($page['components'], $page['sourceUrl']);
-                }
-                unset($page);
-            }
-            return $report;
+            return self::$cache[$key];
         }
         return null;
     }
@@ -42,9 +53,10 @@ final class CapturedInteractionReport
             && is_array($report['pages'] ?? null);
     }
 
+    /** Reader warnings depend only on decode/reference expansion, never on shared HTML evidence. */
     public static function diagnostics(array $files): array
     {
-        return array_merge(CaptureReceiptReport::diagnostics($files), self::read($files)['_reader_diagnostics'] ?? array());
+        return array_merge(CaptureReceiptReport::diagnostics($files), self::decoded($files)['_reader_diagnostics'] ?? array());
     }
 
     /** Merge projector findings, reporting the shared reader warning only once. */
