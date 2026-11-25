@@ -1179,6 +1179,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), $this->session->boxTreeWrapperEvidence()->hasEvidence()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
+        // Read capture node identity into the evidence and remove the carrier
+        // before any stage reads or serializes the source document.
+        if ($this->session->boxTreeWrapperEvidence()->hasEvidence()) $this->session->boxTreeWrapperEvidence()->bindSourceDocument($document, $html);
         CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
         if ( Support\SourceDocumentEnvelope::isDocument($html) ) {
             Classification\FormControlClassifier::registerWholeDocument($document);

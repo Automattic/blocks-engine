@@ -739,24 +739,32 @@ final class WrapperDecision
      * into its child by restating that class and id there, or is it kept
      * (`preserve`)? Geometry and paint neutrality come from box-tree
      * evidence ({@see BoxTreeWrapperEvidence}); without evidence the wrapper
-     * is kept, as before. The restatement proof ({@see RestatedWrapperFold})
-     * runs last, once, and each of its failures is a guard of its own. A
-     * refusal's `detail` names the failing property, selector or attribute.
+     * is kept, as before. What nothing reads is dropped with the wrapper: an
+     * inert `data-*` attribute, an unreferenced id. What something reads
+     * moves onto the child ({@see RestatedWrapperIdentity}). The restatement
+     * proof ({@see RestatedWrapperFold}) runs last, once, and each of its
+     * failures is a guard of its own. A refusal's `detail` names the failing
+     * property, selector or attribute.
      *
      * @param array<string, mixed> $childBlock
-     * @param Closure(DOMElement, DOMElement, string): array{failure: ?string, detail: string, arms: array<string, list<string>>} $prove
+     * @param Closure(DOMElement, DOMElement, string, array<string, string>): array{failure: ?string, detail: string, arms: array<string, list<string>>} $prove
      * @param Closure(DOMElement): bool $isDocumentEdge
-     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement, moved_id: string, attrs: array<string, mixed>, arms: array<string, list<string>>}
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement, moved_id: string, moved_attributes: array<string, string>, attrs: array<string, mixed>, arms: array<string, list<string>>}
      */
-    public function restatedWrapperFold(DOMElement $wrapper, array $childBlock, BoxTreeWrapperEvidence $evidence, Closure $prove, Closure $isDocumentEdge): array
+    public function restatedWrapperFold(DOMElement $wrapper, array $childBlock, BoxTreeWrapperEvidence $evidence, RestatedWrapperIdentity $identity, Closure $prove, Closure $isDocumentEdge): array
     {
         $sourceChild = null;
         $attrs = array();
         $proof = null;
         $detail = '';
+        $blockName = (string) ($childBlock['blockName'] ?? '');
         $wrapperId = trim(SourceDom::attr($wrapper, 'id'));
-        $proven = function () use (&$proof, &$sourceChild, $wrapper, $wrapperId, $prove): array {
-            return $proof ??= $prove($wrapper, $sourceChild, $wrapperId);
+        // The id the child takes: the wrapper's, unless nothing references it.
+        $movedId = $wrapperId;
+        /** @var array<string, string> $movedAttributes */
+        $movedAttributes = array();
+        $proven = function () use (&$proof, &$sourceChild, &$movedId, &$movedAttributes, $wrapper, $prove): array {
+            return $proof ??= $prove($wrapper, $sourceChild, $movedId, $movedAttributes);
         };
         $proofFails = function (string $failure) use ($proven, &$detail): bool {
             if ($failure !== $proven()['failure']) return false;
@@ -766,19 +774,30 @@ final class WrapperDecision
         $guards = array(
             array(self::STAGE_GEOMETRY, 'no_box_tree_evidence', fn (): bool => ! $evidence->hasEvidence()),
             array(self::STAGE_RESTATEMENT, 'wrapper_is_not_div', fn (): bool => 'div' !== strtolower($wrapper->tagName)),
-            array(self::STAGE_RESTATEMENT, 'child_block_not_group', fn (): bool => 'core/group' !== ($childBlock['blockName'] ?? null)),
+            // Any child block whose saved root takes a class can carry the wrapper's.
+            array(self::STAGE_RESTATEMENT, 'child_block_cannot_take_class', static function () use ($identity, $blockName, &$detail): bool {
+                if ($identity->childBlockTakesIdentity($blockName, false)) return false;
+                $detail = $blockName;
+                return true;
+            }),
             array(self::STAGE_IDENTITY, 'saved_group_boundary', fn (): bool => SourceDom::hasClass($wrapper, 'wp-block-group')),
             array(self::STAGE_IDENTITY, 'child_is_binding_anchor', fn (): bool => $this->signals->isBindingAnchor($childBlock)),
             array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($wrapper)),
             array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($wrapper)),
             array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($wrapper)),
-            // Only the class and the id are restated; anything else the
-            // wrapper carries would be lost with it.
-            array(self::STAGE_IDENTITY, 'unrestatable_wrapper_attribute', static function () use ($wrapper, &$detail): bool {
+            // Besides the class and the id, an inert attribute is dropped and
+            // a read one moves; any other keeps the wrapper.
+            array(self::STAGE_IDENTITY, 'unrestatable_wrapper_attribute', static function () use ($wrapper, $identity, &$movedAttributes, &$detail): bool {
                 foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($wrapper) as $attribute) {
                     $name = strtolower($attribute->nodeName);
                     if (in_array($name, array('class', 'id'), true)) continue;
-                    $detail = $name;
+                    [$use, $useDetail] = $identity->attributeUse($wrapper, $name);
+                    if (RestatedWrapperIdentity::DROP === $use) continue;
+                    if (RestatedWrapperIdentity::MOVE === $use) {
+                        $movedAttributes[$name] = (string) $attribute->nodeValue;
+                        continue;
+                    }
+                    $detail = $useDetail;
                     return true;
                 }
                 return false;
@@ -791,9 +810,41 @@ final class WrapperDecision
             array(self::STAGE_IDENTITY, 'child_runtime_dom_target', function () use (&$sourceChild): bool {
                 return $this->runtimeIslands->isRuntimeDomTarget($sourceChild) || $this->sourceElementClassifier->hasMotionStructureToken($sourceChild);
             }),
-            // An id moves only onto a child that has none of its own.
-            array(self::STAGE_IDENTITY, 'child_has_own_id', static function () use (&$sourceChild, $wrapperId, $childBlock): bool {
-                return '' !== $wrapperId && ('' !== trim(SourceDom::attr($sourceChild, 'id')) || '' !== trim((string) ($childBlock['attrs']['anchor'] ?? '')));
+            // A moved attribute lands only where the child does not already
+            // carry a different value of it.
+            array(self::STAGE_IDENTITY, 'child_has_moved_attribute', static function () use (&$sourceChild, &$movedAttributes, &$detail): bool {
+                foreach ($movedAttributes as $name => $value) {
+                    if (! $sourceChild->hasAttribute($name)) continue;
+                    if ($value === $sourceChild->getAttribute($name)) {
+                        unset($movedAttributes[$name]);
+                        continue;
+                    }
+                    $detail = $name;
+                    return true;
+                }
+                return false;
+            }),
+            // An unreferenced wrapper id is dropped. A referenced one moves
+            // onto the child, replacing the child's own id only when nothing
+            // references that one.
+            array(self::STAGE_IDENTITY, 'child_has_own_id', static function () use (&$sourceChild, &$movedId, &$detail, $wrapperId, $childBlock, $identity, $wrapper): bool {
+                if ('' === $wrapperId) return false;
+                if (null === $identity->idReference($wrapper, $wrapperId)) {
+                    $movedId = '';
+                    return false;
+                }
+                foreach (array_unique(array_filter(array(trim(SourceDom::attr($sourceChild, 'id')), trim((string) ($childBlock['attrs']['anchor'] ?? ''))))) as $childId) {
+                    $reference = $identity->idReference($sourceChild, $childId);
+                    if (null === $reference) continue;
+                    $detail = $childId . ':' . $reference;
+                    return true;
+                }
+                return false;
+            }),
+            array(self::STAGE_IDENTITY, 'child_block_cannot_take_anchor', static function () use ($identity, $blockName, &$movedId, &$detail): bool {
+                if ('' === $movedId || $identity->childBlockTakesIdentity($blockName, true)) return false;
+                $detail = $blockName;
+                return true;
             }),
             // Shell extraction reads page chrome from the groups at the
             // document's edges; an id there names the shell.
@@ -825,26 +876,30 @@ final class WrapperDecision
         foreach (self::restatementProofFailures() as $failure) {
             $guards[] = array(self::STAGE_RESTATEMENT, $failure, fn (): bool => $proofFails($failure));
         }
+        $kept = static function (WrapperDisposition $disposition) use (&$sourceChild, &$attrs): array {
+            return array('disposition' => $disposition, 'source_child' => $sourceChild, 'moved_id' => '', 'moved_attributes' => array(), 'attrs' => $attrs, 'arms' => array());
+        };
         foreach ($guards as [$stage, $reason, $matches]) {
             $detail = '';
             if ($matches()) {
-                return array('disposition' => WrapperDisposition::preserve($reason, $stage)->withDetail($detail), 'source_child' => $sourceChild, 'moved_id' => '', 'attrs' => $attrs, 'arms' => array());
+                return $kept(WrapperDisposition::preserve($reason, $stage)->withDetail($detail));
             }
         }
 
-        // The id the child takes must be the anchor the wrapper would emit.
+        // The id the wrapper would emit must be its source id.
         $anchor = (string) ($attrs['anchor'] ?? '');
         if ($anchor !== ('' === $wrapperId ? '' : SourceDom::anchorAttributeValue($wrapperId))) {
-            return array('disposition' => WrapperDisposition::preserve('anchor_not_restatable', self::STAGE_IDENTITY)->withDetail($anchor), 'source_child' => $sourceChild, 'moved_id' => '', 'attrs' => $attrs, 'arms' => array());
+            return $kept(WrapperDisposition::preserve('anchor_not_restatable', self::STAGE_IDENTITY)->withDetail($anchor));
         }
         if (null !== $proven()['failure']) {
-            return array('disposition' => WrapperDisposition::preserve('restatement_not_proven', self::STAGE_RESTATEMENT)->withDetail((string) $proven()['failure']), 'source_child' => $sourceChild, 'moved_id' => '', 'attrs' => $attrs, 'arms' => array());
+            return $kept(WrapperDisposition::preserve('restatement_not_proven', self::STAGE_RESTATEMENT)->withDetail((string) $proven()['failure']));
         }
 
         return array(
             'disposition' => WrapperDisposition::fold(self::RESTATED_WRAPPER_FOLD, self::STAGE_RESTATEMENT),
             'source_child' => $sourceChild,
-            'moved_id' => $wrapperId,
+            'moved_id' => $movedId,
+            'moved_attributes' => $movedAttributes,
             'attrs' => $attrs,
             'arms' => $proven()['arms'],
         );
@@ -1016,7 +1071,7 @@ final class WrapperDecision
             'restated_wrapper_fold' => array(
                 'no_box_tree_evidence' => self::STAGE_GEOMETRY,
                 'wrapper_is_not_div' => self::STAGE_RESTATEMENT,
-                'child_block_not_group' => self::STAGE_RESTATEMENT,
+                'child_block_cannot_take_class' => self::STAGE_RESTATEMENT,
                 'saved_group_boundary' => self::STAGE_IDENTITY,
                 'child_is_binding_anchor' => self::STAGE_IDENTITY,
                 'runtime_dom_target' => self::STAGE_IDENTITY,
@@ -1025,7 +1080,9 @@ final class WrapperDecision
                 'unrestatable_wrapper_attribute' => self::STAGE_IDENTITY,
                 'child_block_not_from_sole_child' => self::STAGE_RESTATEMENT,
                 'child_runtime_dom_target' => self::STAGE_IDENTITY,
+                'child_has_moved_attribute' => self::STAGE_IDENTITY,
                 'child_has_own_id' => self::STAGE_IDENTITY,
+                'child_block_cannot_take_anchor' => self::STAGE_IDENTITY,
                 'document_edge_wrapper_id' => self::STAGE_IDENTITY,
                 'geometry_not_neutral' => self::STAGE_GEOMETRY,
                 'wrapper_formatting_context' => self::STAGE_GEOMETRY,

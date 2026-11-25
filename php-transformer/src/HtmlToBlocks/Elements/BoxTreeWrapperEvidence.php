@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use DOMDocument;
 use DOMElement;
 use DOMText;
@@ -14,10 +15,13 @@ use DOMText;
  * {@see BoxTree::read()}) and answers, for a source wrapper, whether
  * its box is geometry-neutral at every captured viewport (ADR 0006, slice 1).
  *
- * Source elements map to evidence nodes by `data-blocks-engine-node-id`. An
- * element whose id is missing, unknown, invalid or duplicated in the document
- * has no evidence and is `load_bearing`. The identity attribute is read here
- * only; it never reaches compiled output.
+ * Source elements map to evidence nodes by `data-blocks-engine-node-id`. The
+ * carrier is read once, when the parsed source document is bound
+ * ({@see self::bindSourceDocument()}): each element's id is recorded here and
+ * the attribute is removed from the DOM, so the document every later stage
+ * reads and serializes is the one a route without evidence would read. An
+ * element whose id is missing, unknown, invalid or duplicated in the document,
+ * or that a later stage created, has no evidence and is `load_bearing`.
  *
  * A wrapper is `neutral` when at every viewport it is visible, paints nothing,
  * clips nothing, is static (or relative with inert offsets and no out-of-flow
@@ -42,12 +46,21 @@ final class BoxTreeWrapperEvidence
     /** @var array<string, array<string, mixed>> */
     private array $nodes = array();
 
-    /** @var \WeakMap<DOMDocument, array<string, int>>|null */
-    private ?\WeakMap $idCounts = null;
+    /**
+     * Bound source elements and their node ids. Strong references keep each
+     * element's PHP object, and so its identity, alive for the transform.
+     *
+     * @var \SplObjectStorage<DOMElement, string>
+     */
+    private \SplObjectStorage $boundIds;
+
+    /** The text of the bound document's inline scripts. */
+    private string $sourceScriptText = '';
 
     /** @param array<string, mixed> $tree A decoded box-tree sidecar, or an empty array. */
     public function __construct(array $tree = array())
     {
+        $this->boundIds = new \SplObjectStorage();
         $tree = BoxTree::read($tree);
         if (null === $tree || ! is_array($tree['viewports'] ?? null) || ! is_array($tree['nodes'] ?? null)) return;
         $viewports = array();
@@ -63,6 +76,48 @@ final class BoxTreeWrapperEvidence
         }
         $this->viewports = $viewports;
         $this->nodes = $nodes;
+    }
+
+    /**
+     * Reads and removes the capture node-id carrier from a parsed source
+     * document. Every element whose id names an evidence node, and is unique
+     * in the document, is bound to it; the carrier is removed from every
+     * element either way, so it never reaches any emitted artifact. Inline
+     * script text of the whole source (`$sourceHtml`) is kept as what page
+     * scripts may read.
+     */
+    public function bindSourceDocument(DOMDocument $document, string $sourceHtml = ''): void
+    {
+        $ids = array();
+        $counts = array();
+        foreach (iterator_to_array($document->getElementsByTagName('*')) as $element) {
+            if (! $element instanceof DOMElement || ! $element->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
+            $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
+            $element->removeAttribute(BoxTree::NODE_ATTRIBUTE);
+            if ('' === $id) continue;
+            $counts[$id] = ($counts[$id] ?? 0) + 1;
+            $ids[] = array($element, $id);
+        }
+        foreach ($ids as [$element, $id]) {
+            // A duplicated id identifies no single source element.
+            if (1 === $counts[$id] && isset($this->nodes[$id])) $this->boundIds[$element] = $id;
+        }
+        // Head and body scripts alike, as authored.
+        $scripts = array();
+        preg_match_all('@<script\b([^>]*)>(.*?)</script\s*>@is', CaptureReplayScripts::withoutReplayScripts($sourceHtml), $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            // Data blocks (JSON, templates) are not scripts.
+            if (1 === preg_match('/\btype\s*=\s*["\']?\s*([^"\'\s>]+)/i', $match[1], $type)
+                && ! in_array(strtolower($type[1]), array('module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'), true)) continue;
+            $scripts[] = $match[2];
+        }
+        $this->sourceScriptText = implode("\n", $scripts);
+    }
+
+    /** The bound source document's inline script text: what page scripts may read. */
+    public function sourceScriptText(): string
+    {
+        return $this->sourceScriptText;
     }
 
     /** Whether this route carries any usable evidence. */
@@ -103,7 +158,9 @@ final class BoxTreeWrapperEvidence
             if ('none' === self::style($styles, 'display') || $box['width'] <= 0.0) return self::answer(self::LOAD_BEARING, 'hidden:' . $viewport);
             $paint = self::paintReason($styles);
             if (null !== $paint) return self::answer(self::LOAD_BEARING, 'paint:' . $paint);
-            if ('none' !== self::style($styles, 'float')) return self::answer(self::LOAD_BEARING, 'float');
+            // A float that fills its parent's content box, as its child
+            // fills it, places nothing beside or after it differently.
+            if ('none' !== self::style($styles, 'float') && ! $this->fillsParentContentBox($wrapper, $box, $viewport)) return self::answer(self::LOAD_BEARING, 'float');
             if ('auto' !== self::style($styles, 'z-index')) return self::answer(self::LOAD_BEARING, 'z_index');
             $animation = $styles['animation-name'] ?? 'none';
             if (! is_string($animation) || 'none' !== self::comparable($animation)) return self::answer(self::LOAD_BEARING, 'animation');
@@ -164,6 +221,53 @@ final class BoxTreeWrapperEvidence
             $values[$viewport] = self::style($observation['used_styles'], $property);
         }
         return $values;
+    }
+
+    /**
+     * Whether `$box` equals the content box of the element's parent at the
+     * viewport: the parent's border box less its borders and padding.
+     *
+     * @param array{x: float, y: float, width: float, height: float} $box
+     */
+    private function fillsParentContentBox(DOMElement $element, array $box, string $viewport): bool
+    {
+        $parent = $element->parentNode;
+        if (! $parent instanceof DOMElement) return false;
+        $node = $this->node($parent);
+        $observation = null === $node ? null : self::observation($node, $viewport);
+        if (null === $observation) return false;
+        $styles = $observation['used_styles'];
+        $inset = array();
+        foreach (array('top', 'right', 'bottom', 'left') as $side) {
+            $border = self::pixels(self::borderWidth(self::style($styles, 'border-' . $side)));
+            $padding = self::pixels(self::style($styles, 'padding-' . $side));
+            if (null === $border || null === $padding) return false;
+            $inset[$side] = $border + $padding;
+        }
+        $parentBox = $observation['border_box'];
+        $content = array(
+            'x' => $parentBox['x'] + $inset['left'],
+            'y' => $parentBox['y'] + $inset['top'],
+            'width' => $parentBox['width'] - $inset['left'] - $inset['right'],
+            'height' => $parentBox['height'] - $inset['top'] - $inset['bottom'],
+        );
+        return self::sameBox($box, $content);
+    }
+
+    /** The width part of a computed border shorthand (`0px none rgb(0, 0, 0)`), `0px` when its style is none. */
+    private static function borderWidth(string $value): string
+    {
+        if ('' === $value) return '';
+        if (self::noBorder($value)) return '0px';
+        foreach (preg_split('/\s+/', $value) ?: array() as $part) {
+            if (preg_match('/^-?[0-9.]+(?:px)?$/', $part)) return $part;
+        }
+        return '';
+    }
+
+    private static function pixels(string $value): ?float
+    {
+        return 1 === preg_match('/^(-?(?:\d+(?:\.\d*)?|\.\d+))(?:px)?$/', $value, $match) ? (float) $match[1] : null;
     }
 
     /**
@@ -266,22 +370,8 @@ final class BoxTreeWrapperEvidence
     /** @return array<string, mixed>|null */
     private function node(DOMElement $element): ?array
     {
-        if (array() === $this->nodes) return null;
-        $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
-        if ('' === $id || ! isset($this->nodes[$id])) return null;
-        $document = $element->ownerDocument;
-        if (! $document instanceof DOMDocument) return null;
-        $this->idCounts ??= new \WeakMap();
-        if (! isset($this->idCounts[$document])) {
-            $counts = array();
-            foreach ($document->getElementsByTagName('*') as $candidate) {
-                $value = $candidate->getAttribute(BoxTree::NODE_ATTRIBUTE);
-                if ('' !== $value) $counts[$value] = ($counts[$value] ?? 0) + 1;
-            }
-            $this->idCounts[$document] = $counts;
-        }
-        // A duplicated id identifies no single source element.
-        return 1 === ($this->idCounts[$document][$id] ?? 0) ? $this->nodes[$id] : null;
+        if (array() === $this->nodes || ! $this->boundIds->offsetExists($element)) return null;
+        return $this->nodes[$this->boundIds[$element]] ?? null;
     }
 
     /** @return array{state: string, reason: string} */

@@ -42,7 +42,7 @@ $assert(11 === count($tables['proof_backed_coalescing']), 'proof-backed-guard-co
 $assert(7 === count($tables['inherited_text_coalescing']), 'inherited-text-guard-count', (string) count($tables['inherited_text_coalescing']));
 // #7505: the restated wrapper fold names every refusal; the proof's
 // failures are guards of their own so they count on a histogram.
-$assert(26 === count($tables['restated_wrapper_fold']), 'restated-fold-guard-count', (string) count($tables['restated_wrapper_fold']));
+$assert(28 === count($tables['restated_wrapper_fold']), 'restated-fold-guard-count', (string) count($tables['restated_wrapper_fold']));
 $assert('fold' === WrapperDisposition::fold(WrapperDecision::RESTATED_WRAPPER_FOLD, WrapperDecision::STAGE_RESTATEMENT)->kind, 'restated-fold-disposition');
 $detailed = WrapperDisposition::preserve('geometry_not_neutral', WrapperDecision::STAGE_GEOMETRY)->withDetail('paint:background-color');
 $assert('geometry_not_neutral' === $detailed->reason && 'paint:background-color' === $detailed->detail && WrapperDecision::STAGE_GEOMETRY === $detailed->stage, 'refusal-detail');

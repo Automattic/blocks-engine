@@ -12,8 +12,13 @@ declare(strict_types=1);
  *   (`.col .inner`) gains the compound arm (`.col.inner`) in the same rule.
  * - An inherited text declaration the child already overrides folds; one
  *   that would beat the child's own declaration keeps the wrapper.
- * - Painted evidence, a child with its own id and a contested box
- *   declaration keep the wrapper, and each refusal names its condition.
+ * - Painted evidence and a contested box declaration keep the wrapper, and
+ *   each refusal names its condition.
+ * - The node-id carrier never reaches an emitted artifact, and a route
+ *   whose wrappers do not fold emits what it emits without evidence.
+ * - A non-group child takes the class; an inert data attribute and an
+ *   unreferenced id are dropped; a full-width float is neutral; only two
+ *   referenced ids keep the wrapper.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -75,12 +80,60 @@ rwf_assert($wrapperKept($beating['markup']), 'an inherited declaration that woul
 // 5. Refusals keep the wrapper.
 $painted = array_replace($neutral, array('w' => array('box' => $box, 'styles' => array('background-color' => 'rgb(255, 0, 0)'))));
 rwf_assert($wrapperKept($compile($html, $css, $painted)['markup']), 'a painted wrapper should be kept');
-rwf_assert($wrapperKept($compile($page(' id="a"', ' id="b"'), $css . '#a{color:red}', $neutral)['markup']), 'a wrapper whose id cannot move should be kept');
 rwf_assert($wrapperKept($compile($html, '.col{margin-top:4px}.inner{margin-top:8px}', $neutral)['markup']), 'a contested box declaration should keep the wrapper');
 
-// 6. Every refusal is a named, staged reason.
+// 6. The capture node-id carrier never reaches an emitted artifact, and a
+//    route whose wrappers do not fold emits what it emits without evidence.
+$emitted = static function (string $html, string $css, ?array $nodes): array {
+    $files = array(array('path' => 'index.html', 'kind' => 'html', 'content' => $html), array('path' => 's.css', 'kind' => 'css', 'content' => $css));
+    if (null !== $nodes) $files[] = box_tree_fixture_sidecar('index.html', $html, $nodes);
+    $result = (new ArtifactCompiler())->compile(array('files' => $files))->toArray();
+    $strings = array();
+    array_walk_recursive($result, static function (mixed $value, mixed $key) use (&$strings, $html): void {
+        // The source document itself is echoed as input, not emitted.
+        if (is_string($value) && $value !== $html && ! str_contains($value, '"schema":"blocks-engine/box-tree/')) $strings[] = $value;
+    });
+    return array('markup' => (string) $result['serialized_blocks'], 'strings' => $strings);
+};
+foreach (array('folded' => $neutral, 'kept' => $painted) as $case => $nodes) {
+    foreach ($emitted($html, $css, $nodes)['strings'] as $value) {
+        rwf_assert(! str_contains($value, 'data-blocks-engine-node-id'), "the node-id carrier leaked into an emitted artifact ({$case}): " . substr($value, 0, 300));
+    }
+}
+rwf_assert($compile($html, $css, $painted) === $before, 'a route whose wrapper does not fold should emit exactly what it emits without evidence');
+
+// 7. A sole child that is not a group takes the wrapper's class.
+$paragraphPage = '<html><head><link rel="stylesheet" href="s.css"></head><body><header><p>Head</p></header><main><p>Intro</p>'
+    . '<div class="col" data-blocks-engine-node-id="w"><p class="inner" data-blocks-engine-node-id="c">Lead</p></div><p>Outro</p></main></body></html>';
+$paragraph = $compile($paragraphPage, '.col{font-family:serif}.col .inner{padding:1px}', array('w' => array('box' => $box), 'c' => array('box' => $box)));
+rwf_assert(1 === preg_match('/<p[^>]*class="(?=[^"]*\bcol\b)(?=[^"]*\binner\b)[^"]*"[^>]*>Lead/', $paragraph['markup']) && ! $wrapperKept($paragraph['markup']), 'a paragraph child should take the wrapper class: ' . $paragraph['markup']);
+
+// 8. An inert data attribute is dropped with the wrapper; one a selector reads keeps it.
+$inert = $compile($page(' data-section-label="hero"', ''), $css, $neutral);
+rwf_assert($folded($inert['markup']) && ! str_contains($inert['markup'], 'hero'), 'an inert data attribute should be dropped with the wrapper: ' . $inert['markup']);
+rwf_assert($wrapperKept($compile($page(' data-tone="dark"', ''), $css . '[data-tone] .inner{color:red}', $neutral)['markup']), 'a data attribute a descendant selector reads should keep the wrapper');
+
+// 9. An unreferenced wrapper id is dropped, even when the child has its own id.
+$unreferenced = $compile($page(' id="a"', ' id="b"'), $css, $neutral);
+rwf_assert($folded($unreferenced['markup']) && ! str_contains($unreferenced['markup'], '"anchor":"a"'), 'an unreferenced wrapper id should be dropped: ' . $unreferenced['markup']);
+// A referenced wrapper id replaces an unreferenced child id; two referenced ids keep the wrapper.
+$replaced = $compile($page(' id="a"', ' id="b"'), $css . '#a{color:red}', $neutral);
+rwf_assert($folded($replaced['markup']) && str_contains($replaced['markup'], '"anchor":"a"'), 'a referenced wrapper id should replace an unreferenced child id: ' . $replaced['markup']);
+rwf_assert($wrapperKept($compile($page(' id="a"', ' id="b"'), $css . '#a{color:red}#b{color:blue}', $neutral)['markup']), 'a wrapper whose id cannot move should be kept');
+
+// 10. A float that fills its parent's content box, as its child does, is neutral.
+$floatPage = str_replace('<main>', '<main data-blocks-engine-node-id="m">', $html);
+$floating = array_replace($neutral, array('m' => array('box' => $box), 'w' => array('box' => $box, 'styles' => array('float' => 'left'))));
+rwf_assert($folded($compile($floatPage, '.col{float:left}.col .inner{padding:1px}', $floating)['markup']), 'a full-width float should fold');
+$narrowParent = array_replace($floating, array('m' => array('box' => array(8, 120, 1424, 400))));
+rwf_assert($wrapperKept($compile($floatPage, '.col{float:left}.col .inner{padding:1px}', $narrowParent)['markup']), 'a float that does not fill its parent should be kept');
+
+// 11. A universal pseudo-element rule that already reached the child does not keep the wrapper.
+rwf_assert($folded($compile($html, '*::selection{background:yellow}' . $css, $neutral)['markup']), 'a universal ::selection rule should not keep the wrapper');
+
+// 12. Every refusal is a named, staged reason.
 $stages = WrapperDecision::loweringGuardStages()['restated_wrapper_fold'] ?? array();
-foreach (array('no_box_tree_evidence', 'geometry_not_neutral', 'child_has_own_id', RestatedWrapperFold::INHERITED_TEXT_OVERRIDE, RestatedWrapperFold::WRAPPER_DECLARATION_CONTESTED, RestatedWrapperFold::SELECTOR_MATCH_CHANGED) as $reason) {
+foreach (array('no_box_tree_evidence', 'geometry_not_neutral', 'child_has_own_id', 'child_block_cannot_take_class', 'child_has_moved_attribute', RestatedWrapperFold::INHERITED_TEXT_OVERRIDE, RestatedWrapperFold::WRAPPER_DECLARATION_CONTESTED, RestatedWrapperFold::SELECTOR_MATCH_CHANGED) as $reason) {
     rwf_assert(in_array($stages[$reason] ?? null, WrapperDecision::STAGES, true), "refusal {$reason} should be a staged guard");
 }
 
