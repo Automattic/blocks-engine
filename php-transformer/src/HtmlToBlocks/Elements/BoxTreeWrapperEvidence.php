@@ -134,7 +134,7 @@ final class BoxTreeWrapperEvidence
     /**
      * @return array{state: string, reason: string}
      */
-    public function classify(DOMElement $wrapper): array
+    public function classify(DOMElement $wrapper, bool $restate = false): array
     {
         $node = $this->node($wrapper);
         if (null === $node) return self::answer(self::LOAD_BEARING, 'no_evidence');
@@ -156,7 +156,9 @@ final class BoxTreeWrapperEvidence
             $styles = $observation['used_styles'];
             $box = $observation['border_box'];
             if ('none' === self::style($styles, 'display') || $box['width'] <= 0.0) return self::answer(self::LOAD_BEARING, 'hidden:' . $viewport);
-            $paint = self::paintReason($styles);
+            $paintStyles = $styles;
+            if ($restate && '1' === self::style($childObservation['used_styles'], 'opacity')) $paintStyles['opacity'] = '1';
+            $paint = self::paintReason($paintStyles);
             if (null !== $paint) return self::answer(self::LOAD_BEARING, 'paint:' . $paint);
             // A float that fills its parent's content box, as its child
             // fills it, places nothing beside or after it differently.
@@ -174,9 +176,62 @@ final class BoxTreeWrapperEvidence
             } elseif ('static' !== $position) {
                 return self::answer(self::LOAD_BEARING, 'position:' . $position);
             }
-            if (! self::sameBox($box, $childObservation['border_box'])) return self::answer(self::LOAD_BEARING, 'child_box_differs:' . $viewport);
+            if (! self::sameBox($box, $childObservation['border_box'])) {
+                $kind = self::geometryKind($styles);
+                if (! $restate || ! $this->insetTransfersTo($wrapper, $child)) {
+                    return self::answer(self::LOAD_BEARING, 'child_box_differs:' . $kind . ':' . $viewport);
+                }
+            }
         }
         return self::answer(self::NEUTRAL, 'neutral');
+    }
+
+    /** Classify the observed geometry, not selector or site names. */
+    private static function geometryKind(array $styles): string
+    {
+        foreach (array('top', 'right', 'bottom', 'left') as $side) {
+            $padding = self::pixels(self::style($styles, 'padding-' . $side));
+            if (null !== $padding && $padding > 0) return 'inset';
+        }
+        if ('auto' === self::style($styles, 'margin-left') && 'auto' === self::style($styles, 'margin-right')
+            && ('none' !== self::style($styles, 'max-width') || 'auto' !== self::style($styles, 'width'))) return 'width_centering';
+        $height = self::pixels(self::style($styles, 'min-height'));
+        return null !== $height && $height > 0 ? 'min_height' : 'other';
+    }
+
+    /**
+     * Inset restatement expands a paint-free, geometry-free child border box
+     * by exactly the wrapper padding. Its content stays at the same coordinates.
+     * Missing evidence, child sizing, margins and formatting contexts refuse.
+     */
+    public function insetTransfersTo(DOMElement $wrapper, DOMElement $child): bool
+    {
+        $parentNode = $this->node($wrapper);
+        $childNode = $this->node($child);
+        if (null === $parentNode || null === $childNode || $child->parentNode !== $wrapper) return false;
+        foreach ($this->viewports as $viewport) {
+            $parent = self::observation($parentNode, $viewport);
+            $leaf = self::observation($childNode, $viewport);
+            if (null === $parent || null === $leaf) return false;
+            $styles = $leaf['used_styles'];
+            if (null !== self::paintReason($styles) || 'block' !== self::style($styles, 'display')
+                || 'static' !== self::style($styles, 'position') || 'none' !== self::style($styles, 'float')) return false;
+            $expanded = $leaf['border_box'];
+            $padding = array();
+            foreach (array('top', 'right', 'bottom', 'left') as $side) {
+                if (! self::zeroLength(self::style($styles, 'padding-' . $side))
+                    || ! self::zeroLength(self::style($styles, 'margin-' . $side))
+                    || ! self::noBorder(self::style($styles, 'border-' . $side))) return false;
+                $padding[$side] = self::pixels(self::style($parent['used_styles'], 'padding-' . $side));
+                if (null === $padding[$side] || $padding[$side] < 0) return false;
+            }
+            $expanded['x'] -= $padding['left'];
+            $expanded['y'] -= $padding['top'];
+            $expanded['width'] += $padding['left'] + $padding['right'];
+            $expanded['height'] += $padding['top'] + $padding['bottom'];
+            if (! self::sameBox($expanded, $parent['border_box'])) return false;
+        }
+        return true;
     }
 
     /**
