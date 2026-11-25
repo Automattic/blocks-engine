@@ -287,11 +287,7 @@ final class SourceDom
         if (null !== $inlineStyleFor) self::projectInlineStyles($element, $clone, $inlineStyleFor);
         // Capture node identity binds evidence to the source document, not the output.
         if ( $keepEvidence ) return $clone;
-        foreach ( self::subtreeElements($clone) as $node ) {
-            foreach ( iterator_to_array($node->attributes) as $attribute ) {
-                if ( BoxTree::isEvidenceAttribute($attribute->nodeName) ) $node->removeAttributeNode($attribute);
-            }
-        }
+        BoxTree::removeEvidenceAttributes($clone);
         return $clone;
     }
 

@@ -435,6 +435,7 @@ final class CapturedChoiceGroupProjector
             if (! $stateRoot instanceof DOMElement) {
                 return 0;
             }
+            \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::removeEvidenceAttributes($stateRoot);
             $stateRoots[] = $stateRoot;
             $configStates[] = array(
                 'selectedIndex' => $state['selectedIndex'],

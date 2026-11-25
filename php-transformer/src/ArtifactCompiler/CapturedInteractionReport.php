@@ -23,6 +23,7 @@ final class CapturedInteractionReport
                 self::$cache[$key] = self::decode($content);
             }
             $report = CapturedComponentStates::shareEvidence(self::$cache[$key], $files);
+            if (is_array($report)) $report = self::cleanMarkup($report);
             if (self::valid($report)) {
                 foreach ($report['pages'] as &$page) {
                     if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
@@ -61,6 +62,29 @@ final class CapturedInteractionReport
             $result[] = $diagnostic;
         }
         return $result;
+    }
+
+    /** Clean all captured HTML shards, including nested semantic evidence and snapshots.
+     * The original sidecar stays untouched; only markup consumed by projectors is cleaned.
+     */
+    private static function cleanMarkup(array $evidence): array
+    {
+        foreach ($evidence as $key => $value) {
+            if (is_array($value)) {
+                $evidence[$key] = self::cleanMarkup($value);
+            } elseif (is_string($key) && is_string($value) && str_ends_with(strtolower($key), 'html')
+                && false !== stripos($value, \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)) {
+                $document = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::parseFragment('<div>' . $value . '</div>');
+                $root = $document->documentElement;
+                if (!$root instanceof \DOMElement) continue;
+                \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::removeEvidenceAttributes($root);
+                $html = '';
+                foreach ($root->childNodes as $child) $html .= $document->saveHTML($child);
+                $evidence[$key] = $html;
+                if (array_key_exists($key . 'Bytes', $evidence)) $evidence[$key . 'Bytes'] = strlen($html);
+            }
+        }
+        return $evidence;
     }
 
     private static function decode(string $content): ?array
