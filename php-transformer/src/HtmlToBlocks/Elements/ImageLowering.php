@@ -459,8 +459,11 @@ final class ImageLowering
         return $nodes;
     }
 
-    /** @return array<string, mixed>|null */
-    public function convertImage(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false): ?array
+    /**
+     * @param array<int, string> $figureMarkers Engine classes the caller knows the figure needs.
+     * @return array<string, mixed>|null
+     */
+    public function convertImage(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false, array $figureMarkers = array()): ?array
     {
         $this->imageDimensions->fillParentImageViewportPair($image);
         if ( null === $picture ) {
@@ -792,6 +795,9 @@ final class ImageLowering
             // following siblings wrapped beside it; an inline-block anchor
             // would contain the float and push that text below the image.
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS);
+        }
+        if ( array() !== $figureMarkers ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ...$figureMarkers);
         }
         $block = $this->blocks->createBlock('core/image', $attrs, array(), $figure ?? $image);
         // core/image saves the class list and anchor on the <figure>; an author

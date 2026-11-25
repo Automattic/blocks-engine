@@ -55,6 +55,11 @@ final class SourceBlockAttributeProjector
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
+    /**
+     * A figure lowered from the source's ratio frame around an image pinned
+     * out of flow inside it: the figure, not the image, owns that ratio box.
+     */
+    public const RATIO_FRAME_IMAGE_FIGURE_CLASS = 'blocks-engine-ratio-frame-image-figure';
     public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
     /** A fill image a later absolutely positioned sibling layer paints over. */
     public const COVERED_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-covered-fill-image';
@@ -113,6 +118,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+            self::RATIO_FRAME_IMAGE_FIGURE_CLASS,
             self::LAYER_FILL_IMAGE_FIGURE_CLASS,
             self::COVERED_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,

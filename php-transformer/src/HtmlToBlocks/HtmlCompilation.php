@@ -585,6 +585,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session
         ));
+        $imageFrames = new Elements\PositionedImageFrameLowering($this->imageLowering, $this->session, $this->runtimeIslands, $this->sourceElementDescription, $this->styleResolver);
         $inlineContentConverter = new InlineContentElementConverter($this->sourceElementClassifier, $this, $this->richTextMaterializer, new InlineContentElementContext(
             $this,
             $this->runtimeIslands,
@@ -598,7 +599,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $emptyVisualSpacers->emptyVisualSpacerBlock(...),
             $this->session->rememberNativeDisclosure(...),
             $this->runtimeIslands->retainsRuntimeTextLeafInRichText(...)
-        ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
+        ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector, $imageFrames);
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $formControlMetadataBuilder,
             $this->styleResolver->authoredPresentationDeclarations(...),
@@ -833,7 +834,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $readableFormControlBlockConverter,
             $this->authoredMarqueeRecognizer,
             $authoredCarouselGenerator,
-            $emptyVisualSpacers
+            $emptyVisualSpacers,
+            $imageFrames
         );
         $mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
             $this,
