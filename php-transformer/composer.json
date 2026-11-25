@@ -36,7 +36,8 @@
     "league/commonmark": "^2.5",
     "league/html-to-markdown": "^5.1",
     "php": ">=8.3",
-    "ext-mbstring": "*"
+    "ext-mbstring": "*",
+    "ext-zlib": "*"
   },
   "scripts": {
     "lint": ["@lint:php", "@lint:types"],

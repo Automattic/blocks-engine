@@ -43,7 +43,7 @@ final class UnreachableSelectorPruner
     /** Whether `is-` and `has-` names may be WordPress state the evidence cannot show. */
     private bool $wordPressStates = true;
 
-    /** @var array<string, true> */
+    /** @var list<string> Sorted vocabulary for compact, binary-searchable membership. */
     private array $live = array();
     /** @var array<string, true> Tokens a complete document spells only as tag or attribute names. */
     private array $markupNames = array();
@@ -68,20 +68,27 @@ final class UnreachableSelectorPruner
         // Source documents that are not WordPress output never receive
         // WordPress's runtime state classes before conversion.
         if ($pruneTypes && 1 === preg_match('/<html\b/i', $this->evidenceText)) $this->wordPressStates = 1 === preg_match(self::WORDPRESS_OUTPUT, $this->evidenceText);
-        $prefixes = $markup = array();
+        $prefixes = $markup = $live = array();
         foreach ($texts as $text) {
             // Set keys in place: a property union (`+=`) copies the whole set per text.
             $named = self::withoutMarkupNames($text);
-            if (preg_match_all('/[\w-]+/', $named, $matches)) foreach ($matches[0] as $token) $this->live[$token] = true;
+            if (preg_match_all('/[\w-]+/', $named, $matches)) foreach ($matches[0] as $token) $live[$token] = true;
+            unset($matches);
             if ($named !== $text && preg_match_all('/[\w-]+/', $text, $matches)) foreach ($matches[0] as $token) $markup[$token] = true;
+            unset($matches);
             if (preg_match_all('/[A-Za-z][\w-]*[-_](?=["\'`$+])/', $text, $matches)) $prefixes += array_fill_keys($matches[0], true);
         }
         $this->livePrefixes = array_keys($prefixes);
         // Markup names still evidence attribute subjects, never classes or ids.
         foreach ($markup as $token => $_) {
-            if (isset($this->live[$token])) continue;
-            $this->live[$token] = $this->markupNames[$token] = true;
+            if (isset($live[$token])) continue;
+            $live[$token] = $this->markupNames[$token] = true;
         }
+        unset($markup, $matches, $named, $prefixes);
+        $this->live = array_keys($live);
+        unset($live);
+        $this->live = array_map('strval', $this->live);
+        sort($this->live, SORT_STRING);
         // A property read only by arms that match nothing on the site is
         // read by no element: framework utilities the site never uses would
         // otherwise keep every reset token (and its registration) alive.
@@ -89,25 +96,32 @@ final class UnreachableSelectorPruner
         if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner(array_map(fn (string $css): string => $this->withoutUnreachableArms($css, true), $stylesheets), $texts);
     }
 
-    /** Portable indexes only: the shared plan already carries the evidence. */
+    /**
+     * Portable indexes only; evidence already lives in the shared plan.
+     * Compress each index separately to bound encoding scratch space and avoid
+     * retaining a second PHP array graph throughout in-process compilation.
+     */
     public function exportState(): array
     {
-        return array(
-            'live' => array_keys($this->live), 'markup_names' => array_keys($this->markupNames),
+        return array_map(static fn (mixed $value): string => base64_encode(gzdeflate(json_encode($value, JSON_THROW_ON_ERROR), 9)), array(
+            'live' => $this->live, 'markup_names' => array_keys($this->markupNames),
             'prefixes' => $this->livePrefixes, 'wordpress_states' => $this->wordPressStates,
             'types' => $this->typeNamed, 'contains' => $this->evidenceContains,
             'readers' => $this->propertyPruner?->exportState(),
             'arms' => $this->reachableSelectors,
-        );
+        ));
     }
 
     /** @param list<string> $texts Existing site evidence, never embedded in the index. */
-    public static function fromState(array $texts, array $state): self
+    public static function fromState(array $texts, array $encoded): self
     {
+        $decode = static fn (string $value): mixed => json_decode(gzinflate(base64_decode($value, true)), true, 512, JSON_THROW_ON_ERROR);
         $pruner = new self(array(), true);
         $pruner->evidenceText = implode("\n", $texts);
-        $pruner->live = array_fill_keys($state['live'], true);
-        $pruner->markupNames = array_fill_keys($state['markup_names'], true);
+        $pruner->live = $decode($encoded['live']);
+        $pruner->markupNames = array_fill_keys($decode($encoded['markup_names']), true);
+        unset($encoded['live'], $encoded['markup_names']);
+        $state = array_map($decode, $encoded);
         $pruner->livePrefixes = $state['prefixes'];
         $pruner->wordPressStates = $state['wordpress_states'];
         $pruner->typeNamed = $state['types'];
@@ -210,6 +224,20 @@ final class UnreachableSelectorPruner
     {
         $key = (int) $preserveIds . ':' . $selector;
         return $this->reachableSelectors[$key] ??= $this->computeReachable($selector, $preserveIds);
+    }
+
+    private function hasLiveToken(string $token): bool
+    {
+        $low = 0;
+        $high = count($this->live) - 1;
+        while ($low <= $high) {
+            $middle = intdiv($low + $high, 2);
+            $order = strcmp($this->live[$middle], $token);
+            if (0 === $order) return true;
+            if ($order < 0) $low = $middle + 1;
+            else $high = $middle - 1;
+        }
+        return false;
     }
 
     private function computeReachable(string $selector, bool $preserveIds): bool
@@ -323,7 +351,7 @@ final class UnreachableSelectorPruner
             }
             $token = $decoded;
         }
-        if ((isset($this->live[$token]) && !($classOrId && isset($this->markupNames[$token]))) || (1 === preg_match(self::MINTED, $token) && ($this->wordPressStates || 1 !== preg_match(self::WORDPRESS_STATE, $token))) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)
+        if (($this->hasLiveToken($token) && !($classOrId && isset($this->markupNames[$token]))) || (1 === preg_match(self::MINTED, $token) && ($this->wordPressStates || 1 !== preg_match(self::WORDPRESS_STATE, $token))) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)
             || SourceClassIdentity::containsCurrentStateToken($token)) return true;
         foreach ($this->livePrefixes as $prefix) {
             if (str_starts_with($token, $prefix)) return true;

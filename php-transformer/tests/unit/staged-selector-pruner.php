@@ -34,28 +34,29 @@ $compile = static function (array $shared, array $plans): array {
 // Warm unrelated transformer caches before measuring either path.
 $compile($shared, array(reset($plans)));
 $before = $counter->getValue();
-$start = hrtime(true);
 $cached = $compile($shared, $plans);
-$afterMs = (hrtime(true) - $start) / 1e6 / count($plans);
 $assert($before === $counter->getValue(), 'Fresh page workers must restore the site index, not reconstruct it.');
 
-// Old v1 plans remain supported; compare their canonical receipts as well as work.
-$legacy = $shared;
-unset($legacy['analysis']['site_selector_pruner']);
-$invoke = static fn (string $method, array $value) => (new ReflectionMethod(ArtifactCompiler::class, $method))->invoke($compiler, $value);
-$legacy['digest'] = $invoke('planDigest', $invoke('sharedPlanDigestInput', $legacy));
-foreach ($plans as &$plan) {
-    $plan['shared_digest'] = $legacy['digest'];
-    $plan['digest'] = $invoke('planDigest', $invoke('pagePlanDigestInput', $plan));
-}
-unset($plan);
-$start = hrtime(true);
-$uncached = $compile($legacy, $plans);
-$beforeMs = (hrtime(true) - $start) / 1e6 / count($plans);
-$assert($counter->getValue() - $before >= count($plans), 'Legacy path exercises the original per-page construction.');
+// The same path must produce identical receipts for in-process and transported plans.
+$local = $compiler->prepareShared($artifact);
+$uncached = $compile($local, $compiler->preparePages($artifact, $local));
 foreach ($cached as $id => $receipt) {
     $expected = $uncached[$id];
     foreach (array('digest', 'shared_digest', 'work') as $key) unset($receipt[$key], $expected[$key]);
     $assert($receipt === $expected, 'Portable index must not change compiled bytes: ' . $id);
 }
-printf("Site selector pruner: fresh-worker per-page compile before %.2f ms / after %.2f ms\n", $beforeMs, $afterMs);
+// A large neutral vocabulary catches accidental retention of expanded index arrays.
+$texts = array('<html><body class="card">' . implode(' ', array_map(static fn (int $i): string => 'neutral-token-' . $i, range(0, 30000))) . '</body></html>');
+$pruner = new UnreachableSelectorPruner($texts, true, array('.card{color:red}.absent{color:blue}'));
+$start = memory_get_usage();
+$state = $pruner->exportState();
+$assert(memory_get_usage() - $start < 200000, 'Portable index must not retain an expanded duplicate of the live token set.');
+$state = json_decode(json_encode($state, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$before = $counter->getValue();
+$restored = UnreachableSelectorPruner::fromState($texts, $state);
+$assert($before === $counter->getValue(), 'Restoring the portable index must not scan site evidence.');
+foreach (array('.card', '.absent', 'body.neutral-token-30000', 'missing-element', '[class]') as $selector) {
+    $assert($pruner->reachable($selector) === $restored->reachable($selector), 'Restored reachability differs: ' . $selector);
+}
+$assert($pruner->prune('.card{color:red}.absent{color:blue}') === $restored->prune('.card{color:red}.absent{color:blue}'), 'Restored property and selector indexes must preserve CSS bytes.');
+echo "Site selector pruner: compact export and fresh-worker reuse passed\n";

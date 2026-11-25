@@ -75,6 +75,7 @@ trait StagedTransport
             'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $artifact),
         );
         $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
+        $plan['analysis']['site_selector_pruner'] = $this->exportSharedSelectorPruner();
         $plan['digest'] = $this->planDigest($this->sharedPlanDigestInput($plan));
         return $plan;
     }
@@ -273,9 +274,7 @@ trait StagedTransport
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
         $stageCompiler->siteSelectorEvidence = $sharedPlan['analysis']['site_selector_evidence'] ?? null;
-        if (isset($sharedPlan['analysis']['site_selector_pruner'])) {
-            $stageCompiler->restoreSharedSelectorPruner($sharedPlan['analysis']);
-        }
+        if (null === $stageCompiler->sharedSelectorPruner) $stageCompiler->restoreSharedSelectorPruner($sharedPlan['analysis']);
         $stageCompiler->repeatedSubtrees = ArrayField::array($sharedPlan['analysis'], 'repeated_subtrees');
 
         $compiledDocuments = array();
@@ -873,6 +872,7 @@ trait StagedTransport
                 'glyph_colors' => $this->sharedGlyphColors($planArtifact['files'], $partition['pages'], $payloadReader),
                 'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact, $payloadReader),
             );
+            $plan['analysis']['site_selector_pruner'] = $this->exportSharedSelectorPruner();
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
         if ('page' === $scope) {
@@ -1171,9 +1171,9 @@ trait StagedTransport
     /** Shared-plan analysis: the normalized shared analysis plus the partition's entry and canonical facts. */
     private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
     {
+        $this->prepareSharedSelectorPruner($normalized['files'], $partition['site_selector_evidence']);
         return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
             'site_selector_evidence' => $partition['site_selector_evidence'],
-            'site_selector_pruner' => $this->prepareSharedSelectorPruner($normalized['files'], $partition['site_selector_evidence']),
             'entry_path' => $entryPath,
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
@@ -1191,7 +1191,7 @@ trait StagedTransport
     }
 
     /** Build the site reader index once, before compiling any shared shells. */
-    private function prepareSharedSelectorPruner(array $files, array $evidence): array
+    private function prepareSharedSelectorPruner(array $files, array $evidence): void
     {
         $stylesheets = $this->selectorStylesheets($files);
         $this->siteSelectorEvidence = $evidence;
@@ -1200,6 +1200,10 @@ trait StagedTransport
         // Projection can drop IDs whereas reader discovery preserves them.
         // Warm both modes so page workers never re-evaluate shared arms.
         foreach ($stylesheets as $css) $this->sharedSelectorPruner->prune($css);
+    }
+
+    private function exportSharedSelectorPruner(): array
+    {
         return array('stylesheets' => array_keys($this->sharedSelectorStylesheets), 'index' => $this->sharedSelectorPruner->exportState());
     }
 
