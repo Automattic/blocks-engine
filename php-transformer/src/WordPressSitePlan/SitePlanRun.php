@@ -447,6 +447,9 @@ final class SitePlanRun
         // each sheet visitors load into an editor-only extract after it.
         $known = array_column($assets, 'target_path');
         $assets = EditorCanvasStylesheets::split($assets);
+        // A shared sheet each route links carries every route's gated arms:
+        // each route's instance loads a copy holding only the arms it can match.
+        $assets = RouteStylesheetDeliveries::specialize($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments));
         $tokens = array_merge($tokens, $this->tokens(array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['target_path'] ?? null, $known, true)))));
         // Writing canonicalizes references and can still drop rules (a missing
         // font source drops its face). Emptiness is judged on the written bytes,
