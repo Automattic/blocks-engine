@@ -2860,6 +2860,10 @@ final class PresetBinding
     private static function stateSubjectApplies(array $subject, array $tokens): bool
     {
         if (isset($subject['compound']) && !self::stateSubjectMatches($subject['compound'], $tokens)) return false;
+        // The tokens of a link block hold its wrapper's className as well as
+        // the link's own classes: a wrapper class the rule's parent requires
+        // and the block lacks means the rule styles another control's link.
+        foreach ($subject['link_parent_classes'] ?? array() as $class) if (!isset($tokens['class:' . $class])) return false;
         if (array() !== array_intersect_key(array_flip($subject['negated']), $tokens)) return false;
         if (array() !== $subject['tokens'] && array() === array_intersect_key(array_flip($subject['tokens']), $tokens)) return false;
         if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
@@ -2936,6 +2940,18 @@ final class PresetBinding
             $parsed = CssSelectorMatcher::parse($resting);
             if ($parsed['supported'] && array() !== $parsed['compounds']) {
                 $subject['compound'] = $parsed['compounds'][array_key_last($parsed['compounds'])];
+                // A core button link's parent is its block wrapper, which
+                // carries the block's className. A rule for one control's
+                // link (`.subject-x > .wp-block-button__link:hover`) names
+                // that parent; keep its classes so it does not count as a
+                // state rule for every other button link.
+                $count = count($parsed['compounds']);
+                if ($count > 1 && '>' === ($parsed['combinators'][$count - 2] ?? null) && in_array('wp-block-button__link', $subject['compound']['classes'] ?? array(), true)) {
+                    $subject['link_parent_classes'] = array_values(array_filter(
+                        $parsed['compounds'][$count - 2]['classes'] ?? array(),
+                        static fn(string $class): bool => 1 !== preg_match('/^(?:wp-|has-|is-)/', $class)
+                    ));
+                }
             }
             $this->stateTokens[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
         }
