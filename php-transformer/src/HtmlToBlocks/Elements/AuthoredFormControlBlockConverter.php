@@ -95,10 +95,14 @@ final class AuthoredFormControlBlockConverter
             // Caption text, not an association: the caption is the core
             // paragraph's own box, carrying the label's classes and its text as
             // core RichText (a <label> inside RichText is structural markup the
-            // editor cannot edit). It keeps the block box every label of the
-            // materialized form takes, so the field lays out as before.
+            // editor cannot edit). A label the source leaves inline keeps an
+            // inline box: in block flow it sits on its wrapper's line, whose
+            // strut sizes it, exactly as the source label did. One the source
+            // lays out as a box keeps the paragraph's block box.
+            $classes = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS
+                . ($this->sourceLabelIsInline($label) ? '' : ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
             return $this->createBlock->createBlock('core/paragraph', array_filter(array(
-                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS),
+                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $classes),
                 'anchor' => (string) ($attrs['id'] ?? ''),
                 'content' => (string) ($attrs['content'] ?? ''),
             ), static fn (string $value): bool => '' !== $value), array(), $label);
@@ -107,6 +111,30 @@ final class AuthoredFormControlBlockConverter
         $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
+    }
+
+    /**
+     * Whether the source label keeps its initial inline display at every
+     * viewport: no stylesheet rule nor inline style gives it another.
+     */
+    private function sourceLabelIsInline(DOMElement $label): bool
+    {
+        if ( 1 === preg_match('/(?:^|;)\s*display\s*:/i', $label->getAttribute('style')) ) {
+            return false;
+        }
+        $declared = $this->presentation->declaredPresentation($label, 'display');
+        $values = array( $declared->base() );
+        foreach ( $declared->conditionStacks() as $stack ) {
+            $values[] = $declared->resolvedValueWhere(static fn (array $conditions): bool => $conditions === $stack);
+        }
+        foreach ( $values as $value ) {
+            $value = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
+            if ( '' !== $value && 'inline' !== $value ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

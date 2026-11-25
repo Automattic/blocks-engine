@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 // Issue #6453: in a whole document, a label whose `for` names no element
 // associates nothing. Beside the value it captions it is caption text: a core
-// paragraph box carries the label's classes and text as core RichText (no
-// structural <label> markup inside it). An empty one carries nothing. A
+// paragraph carries the label's classes and text as core RichText (no
+// structural <label> markup inside it), in the box the source label took. An empty one carries nothing. A
 // dangling label alone in its box stays authored copy, and real associations
 // keep the authored-label host.
 
@@ -35,7 +35,14 @@ $assert(array() === $empty['source_reports']['generated_blocks'], 'an empty dang
 $caption = $transform($document('<form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form>'));
 $assert(!in_array('custom/authored-label', $names($caption['blocks']), true), 'a dangling caption beside its value is not an authored-label');
 $assert(!in_array('authored-label', array_column($caption['source_reports']['generated_blocks'], 'name'), true), 'a dangling caption registers no authored-label definition');
-$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph">Service<\/p>/', $caption['serialized_blocks']), 'the dangling caption is a block-box core paragraph carrying the label classes');
+// The source label is inline: in its block-flow wrapper it sits on a line
+// whose strut is the wrapper's line-height, so the caption paragraph keeps an
+// inline box rather than a block box sized by the label's own line-height.
+$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph">Service<\/p>/', $caption['serialized_blocks']), 'an inline dangling caption is an inline core paragraph carrying the label classes');
+$boxed = $transform($document('<style>.caption{display:block;line-height:1}</style><form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form>'));
+$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph">Service<\/p>/', $boxed['serialized_blocks']), 'a dangling caption the source lays out as a block keeps the block-box paragraph');
+$responsive = $transform($document('<style>@media (min-width:640px){.caption{display:block}}</style><form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form>'));
+$assert(1 === preg_match('/<p class="caption blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph">Service<\/p>/', $responsive['serialized_blocks']), 'a caption that is a block at any viewport keeps the block-box paragraph');
 $assert(0 === $caption['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'], 'the caption paragraph carries no structural markup in its RichText content');
 
 $alone = $transform($document('<form><input id="f"><label for="f">First</label><div><label for="nowhere">Fields marked * are required</label></div></form>'));
