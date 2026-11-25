@@ -695,6 +695,79 @@ final class WrapperDecision
     }
 
     /**
+     * May a paint-free wrapper whose only box is vertical padding (a
+     * `section.py-20` spacing band) hand that padding to its sole group
+     * child (a centered `div.container`)? The wrapper spans its containing
+     * block and paints nothing, so the band is the child's box grown by the
+     * same padding: the child must paint nothing that the padding would
+     * enlarge, size nothing the padding would eat into, and keep no vertical
+     * margin the padding used to sit outside of. The wrapper's identity and
+     * tag move onto the child, which stays a native group.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement}
+     */
+    public function paddingShellAbsorption(DOMElement $element, array $childBlock): array
+    {
+        $tag = strtolower($element->tagName);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'unsupported_child_block_name', fn (): bool => 'core/group' !== ($childBlock['blockName'] ?? '')),
+            array(self::STAGE_RESTATEMENT, 'unsupported_wrapper_tag', fn (): bool => ! in_array($tag, array('div', 'section'), true)),
+            array(self::STAGE_RESTATEMENT, 'child_group_has_tag', fn (): bool => 'div' !== $tag && ! in_array((string) ($childBlock['attrs']['tagName'] ?? 'div'), array('', 'div'), true)),
+            array(self::STAGE_IDENTITY, 'saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
+            array(self::STAGE_IDENTITY, 'child_is_binding_anchor', fn (): bool => $this->signals->isBindingAnchor($childBlock)),
+            array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
+            array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
+            array(self::STAGE_IDENTITY, 'has_id_attribute', fn (): bool => '' !== SourceDom::attr($element, 'id')),
+            array(self::STAGE_IDENTITY, 'has_role_attribute', fn (): bool => '' !== SourceDom::attr($element, 'role')),
+            array(self::STAGE_IDENTITY, 'has_accessible_name', fn (): bool => '' !== SourceDom::attr($element, 'aria-label') || '' !== SourceDom::attr($element, 'aria-labelledby') || '' !== SourceDom::attr($element, 'title')),
+            array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($element)),
+            array(self::STAGE_IDENTITY, 'has_data_attributes', fn (): bool => array() !== SourceDom::safeDataAttributes($element)),
+            array(self::STAGE_GEOMETRY, 'structural_layout_element', fn (): bool => $this->signals->isStructuralLayoutElement($element)),
+            array(self::STAGE_GEOMETRY, 'structural_layout_child', fn (): bool => $this->signals->isDirectChildOfStructuralLayout($element)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $parentDeclarations = $this->signals->matchingAuthorDeclarations($element);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_GEOMETRY, 'wrapper_has_no_vertical_padding', fn (): bool => ! $this->signals->hasVerticalPadding($parentDeclarations)),
+            array(self::STAGE_GEOMETRY, 'wrapper_box_beyond_vertical_padding', fn (): bool => ! $this->signals->isVerticalPaddingOnlyBox($parentDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'wrapper_declares_inherited_text', fn (): bool => $this->signals->declaresInheritedText($parentDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'wrapper_state_or_pseudo_element_rule', fn (): bool => $this->signals->hasStateOrPseudoElementRule($element)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $child = $this->signals->soleElementChildOf($element);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'missing_sole_child', fn (): bool => ! $child instanceof DOMElement),
+            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', fn (): bool => $this->signals->matchingSourceChild($element, $childBlock) !== $child),
+            array(self::STAGE_RESTATEMENT, 'child_tag_mismatch', fn (): bool => 'div' !== strtolower($child->tagName)),
+            array(self::STAGE_IDENTITY, 'child_runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($child)),
+            array(self::STAGE_IDENTITY, 'child_has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($child)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $childDeclarations = $this->signals->matchingAuthorDeclarations($child);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_GEOMETRY, 'child_box_grows_with_padding', fn (): bool => $this->signals->boxChangesWithAddedVerticalPadding($childDeclarations)),
+            array(self::STAGE_GEOMETRY, 'spacing_owners_overlap', fn (): bool => $this->signals->spacingOwnersOverlap($parentDeclarations, $childDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'custom_property_owners_overlap', fn (): bool => $this->signals->customPropertyOwnersOverlap($parentDeclarations, $childDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'selector_matching_does_not_survive_coalescing', fn (): bool => ! $this->signals->selectorMatchingSurvivesWrapperCoalescing($element, $child, true, 'div' === $tag ? null : $tag)),
+        ));
+
+        return array(
+            'disposition' => $refusal ?? WrapperDisposition::coalesce('padding_shell_absorbed', self::STAGE_GEOMETRY),
+            'source_child' => $child,
+        );
+    }
+
+    /**
      * Is a container with these converted children a single-child wrapper
      * candidate at all? A `preserve` names why not; null means the caller
      * asks the coalescing decision. Shared by flow containers, author-layout
@@ -877,6 +950,35 @@ final class WrapperDecision
                 'spacing_owners_overlap' => self::STAGE_GEOMETRY,
                 'border_owners_overlap' => self::STAGE_GEOMETRY,
                 'paragraph_user_agent_margins' => self::STAGE_GEOMETRY,
+            ),
+            'padding_shell_absorption' => array(
+                'unsupported_child_block_name' => self::STAGE_RESTATEMENT,
+                'unsupported_wrapper_tag' => self::STAGE_RESTATEMENT,
+                'child_group_has_tag' => self::STAGE_RESTATEMENT,
+                'saved_group_boundary' => self::STAGE_IDENTITY,
+                'child_is_binding_anchor' => self::STAGE_IDENTITY,
+                'runtime_dom_target' => self::STAGE_IDENTITY,
+                'has_motion_structure_token' => self::STAGE_IDENTITY,
+                'has_id_attribute' => self::STAGE_IDENTITY,
+                'has_role_attribute' => self::STAGE_IDENTITY,
+                'has_accessible_name' => self::STAGE_IDENTITY,
+                'has_interactive_attributes' => self::STAGE_IDENTITY,
+                'has_data_attributes' => self::STAGE_IDENTITY,
+                'structural_layout_element' => self::STAGE_GEOMETRY,
+                'structural_layout_child' => self::STAGE_GEOMETRY,
+                'wrapper_has_no_vertical_padding' => self::STAGE_GEOMETRY,
+                'wrapper_box_beyond_vertical_padding' => self::STAGE_GEOMETRY,
+                'wrapper_declares_inherited_text' => self::STAGE_RESTATEMENT,
+                'wrapper_state_or_pseudo_element_rule' => self::STAGE_RESTATEMENT,
+                'missing_sole_child' => self::STAGE_RESTATEMENT,
+                'child_block_not_from_sole_child' => self::STAGE_RESTATEMENT,
+                'child_tag_mismatch' => self::STAGE_RESTATEMENT,
+                'child_runtime_dom_target' => self::STAGE_IDENTITY,
+                'child_has_motion_structure_token' => self::STAGE_IDENTITY,
+                'child_box_grows_with_padding' => self::STAGE_GEOMETRY,
+                'spacing_owners_overlap' => self::STAGE_GEOMETRY,
+                'custom_property_owners_overlap' => self::STAGE_RESTATEMENT,
+                'selector_matching_does_not_survive_coalescing' => self::STAGE_RESTATEMENT,
             ),
             'single_child_candidate' => array(
                 'not_single_child_block' => self::STAGE_RESTATEMENT,
