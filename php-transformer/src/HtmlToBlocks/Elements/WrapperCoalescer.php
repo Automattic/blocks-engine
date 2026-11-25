@@ -17,12 +17,15 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Closure;
 use DOMDocument;
@@ -548,7 +551,8 @@ final class WrapperCoalescer
         if (null !== $absorbed) return $absorbed;
         $resolution = $this->decision()->resolve($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
-            return $this->absorbedPaddingShell($element, $childBlock);
+            return $this->absorbedPaddingShell($element, $childBlock)
+                ?? $this->restatedWrapperFold($element, $childBlock);
         }
         $proof = $resolution['proof'];
         $attrs = $resolution['attrs'];
@@ -567,6 +571,101 @@ final class WrapperCoalescer
 
         return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
     }
+
+    private ?RestatedWrapperFold $restatementProof = null;
+
+    /** @var list<array{reason: string, stage: ?string, detail: ?string}> */
+    private array $restatedFoldDecisions = array();
+
+    /**
+     * The decisions {@see self::restatedWrapperFold()} took, in conversion
+     * order: one per single-child wrapper that reached it with box-tree
+     * evidence. Reasons and details are histogram keys.
+     *
+     * @return list<array{reason: string, stage: ?string, detail: ?string}>
+     */
+    public function restatedFoldDecisions(): array
+    {
+        return $this->restatedFoldDecisions;
+    }
+
+    /**
+     * A wrapper the coalescing guards kept, folded into its only child by
+     * restating its consumed class and id there (#7505). The wrapper's
+     * classes join the child's, a referenced id becomes the child's anchor,
+     * a consumed attribute moves onto the child, and every author selector
+     * that reached the child through the wrapper gains the compound arm that
+     * still reaches it ({@see RestatedWrapperFold}). An unreferenced id and
+     * inert attributes are dropped with the wrapper.
+     *
+     * @param array<string, mixed> $childBlock @return array<string, mixed>|null
+     */
+    private function restatedWrapperFold(DOMElement $element, array $childBlock): ?array
+    {
+        $evidence = $this->session->boxTreeWrapperEvidence();
+        if (! $evidence->hasEvidence()) return null;
+        $this->restatementProof ??= new RestatedWrapperFold($this->session, fn (string $property): bool => $this->isInheritedTextProperty($property));
+        $this->restatedIdentity ??= new RestatedWrapperIdentity($this->session, $this->runtimeIslands);
+        $decision = $this->decision()->restatedWrapperFold(
+            $element,
+            $childBlock,
+            $evidence,
+            $this->restatedIdentity,
+            fn (DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes, array $projectedAttributes, array $chain): array => $this->restatementProof->prove($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, $chain),
+            static function (DOMElement $wrapper): bool {
+                $parent = $wrapper->parentNode;
+                return $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array('body', 'html'), true);
+            }
+        );
+        $disposition = $decision['disposition'];
+        $this->restatedFoldDecisions[] = array('reason' => $disposition->reason, 'stage' => $disposition->stage, 'detail' => $disposition->detail);
+        $sourceChild = $decision['source_child'];
+        if (! $disposition->isFold() || ! $sourceChild instanceof DOMElement) return null;
+
+        $projections = $this->session->authorSelectorProjectionState();
+        // A projected attribute becomes an engine-owned class on the child;
+        // the arms that read it name that class.
+        $projectedClass = array() === $decision['projected_attributes']
+            ? ''
+            : $projections->ensureAttributeMarker($element->getNodePath() ?? '', 'restated-wrapper-fold');
+        foreach ($decision['arms'] as $selector => $arms) {
+            foreach ($arms as $arm) $projections->addRestatedSelectorArm($selector, '' === $projectedClass ? $arm : RestatedWrapperFold::projectedArm($arm, $projectedClass));
+        }
+        // What moves lands on the source child too, so every later reader of
+        // the child (attribute transport, direction) sees it there.
+        foreach ($decision['moved_attributes'] as $name => $value) $sourceChild->setAttribute($name, $value);
+        $childAttrs = ArrayField::array($childBlock, 'attrs');
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element), ...array_filter(array($projectedClass)));
+        if ('' !== $decision['moved_id']) $childAttrs['anchor'] = $decision['moved_id'];
+        // An id that did not survive the fold (the wrapper's, dropped; or the
+        // child's, replaced) takes its editor-anchor class with it.
+        $wrapperId = trim(SourceDom::attr($element, 'id'));
+        if ('' !== $wrapperId) {
+            $lost = '' === $decision['moved_id']
+                ? array($wrapperId)
+                : array_diff(array(trim(SourceDom::attr($sourceChild, 'id')), trim((string) ($childBlock['attrs']['anchor'] ?? ''))), array($decision['moved_id']));
+            $lostClasses = array_map(static fn (string $id): string => EngineMarker::editorAnchorClass(SourceDom::safeAnchor($id)), array_filter($lost));
+            $childAttrs['className'] = implode(' ', array_diff(SourceDom::tokens((string) $childAttrs['className']), $lostClasses));
+        }
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
+
+        if ('core/group' === ($childBlock['blockName'] ?? null)) {
+            return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+        }
+        // Any other child is already materialized: restate on its saved root.
+        $carried = array_intersect_key($decision['moved_attributes'], $this->runtimeIslands->runtimeAttributesCarriedBy($sourceChild, (string) $childBlock['blockName']));
+        if (array() !== $carried) {
+            $runtime = is_array($childAttrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY] ?? null) ? $childAttrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY] : array();
+            $runtime = array_merge($carried, $runtime);
+            ksort($runtime);
+            $childAttrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY] = $runtime;
+        }
+        return ($this->blockFactory ??= new BlockFactory())->rebuild($childBlock, $childAttrs);
+    }
+
+    private ?RestatedWrapperIdentity $restatedIdentity = null;
+
+    private ?BlockFactory $blockFactory = null;
 
     /**
      * Keep the parent's box, rather than requiring the parent to be neutral.
@@ -877,6 +976,34 @@ final class WrapperCoalescer
             $sourceChild = $this->imageLeafInGroupChain($element);
         }
         return $sourceChild;
+    }
+
+    /**
+     * The source element a wrapper's only child block was converted from,
+     * found down the wrapper's sole-element-child chain, with the elements
+     * between them (outermost first). Those elements did not emit a block of
+     * their own: the child block is the one their conversion returned, so
+     * each was already folded into it (#7505). Null when the block does not
+     * come from that chain.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array{0: DOMElement, 1: list<DOMElement>}|null
+     */
+    public function foldedChainSourceChild(DOMElement $element, array $childBlock): ?array
+    {
+        $target = $this->matchingSourceChild($element, $childBlock);
+        $provenanceId = $childBlock['_source_provenance_id'] ?? null;
+        $digest = is_int($provenanceId) ? (string) ($this->session->transformationProvenanceState()->source($provenanceId)['source_digest'] ?? '') : '';
+        if (! $target instanceof DOMElement && '' === $digest) return null;
+        $folded = array();
+        for ($node = ($this->soleElementChild)($element), $depth = 0; $node instanceof DOMElement && $depth < 32; $node = ($this->soleElementChild)($node), ++$depth) {
+            if ($node === $target) return array($node, $folded);
+            if (! $target instanceof DOMElement && hash('sha256', SourceDom::safeFallbackHtml($node, $this->session->authorSelectorProjectionState()->tagMarkers())) === $digest) {
+                return array($node, $folded);
+            }
+            $folded[] = $node;
+        }
+        return null;
     }
 
     /** @param array<string, mixed> $block */

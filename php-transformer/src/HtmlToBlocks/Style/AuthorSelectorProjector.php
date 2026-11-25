@@ -290,6 +290,12 @@ final class AuthorSelectorProjector
         $rewritten = array();
         foreach ( $selectors as $selector ) {
             array_push($rewritten, ...$this->rememberedSelectorArms($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+            // A restated wrapper fold moved the wrapper's classes and id onto
+            // its child; the compound arm keeps the selector's matches. It
+            // projects like any authored selector, in the same rule.
+            foreach ( $context->selectorProjections->restatedSelectorArms($selector) as $arm ) {
+                array_push($rewritten, ...$this->rememberedSelectorArms($arm, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+            }
         }
         $projected = implode(',', array_values(array_unique($rewritten)));
         if ( $projected !== $prelude && EngineMarker::matchesAny($projected) ) {
