@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 /**
  * Safely visits style-rule selector preludes without parsing or reserializing CSS.
  */
@@ -1596,7 +1598,10 @@ final class CssStylesheetTransformer
         return null;
     }
 
-    /** Class names WordPress, its editor or the engine may put on a document root. */
+    /**
+     * Class names WordPress, its editor or the engine may put on a document
+     * root, except the engine's block carrier hooks (see rootMayCarry()).
+     */
     private const ROOT_MINTED_CLASS = '/^(?:wp-|is-|has-|blocks-engine-|be-|route-class-|editor-|block-editor-|components-)/';
 
     /**
@@ -1659,7 +1664,11 @@ final class CssStylesheetTransformer
      */
     private static function rootMayCarry(string $name, bool $class, array $rootTokens): bool
     {
-        if ($class && 1 === preg_match(self::ROOT_MINTED_CLASS, $name)) return true;
+        // The engine installs allocated markers on a root for its attribute
+        // states, but role and subject classes (and editor anchors) only on
+        // the block carriers it compiles: such a class sits on a root only
+        // when a captured root or script names it, as any authored class.
+        if ($class && 1 === preg_match(self::ROOT_MINTED_CLASS, $name) && (null !== EngineMarker::markerKind($name) || !EngineMarker::isSelectorHook($name))) return true;
         preg_match_all('/[\w-]+/', $name, $runs);
         if (array() === $runs[0]) return true;
         foreach ($runs[0] as $run) {
