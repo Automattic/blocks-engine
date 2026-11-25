@@ -3497,6 +3497,17 @@ JS;
                 }
             }
             $candidateItems = $this->carouselListItems($candidate);
+            // A list-named wrapper (a `__slides-revealer`) around the real list
+            // is not a one-slide carousel: text in the slides makes the wrapped
+            // list read as its single item.
+            while ( 1 === count($candidateItems)
+                && $this->sourceElementClassifier->isCarouselList($candidateItems[0])
+                && ! $this->sourceElementClassifier->isCarouselSlideChild($candidateItems[0])
+                && 1 < count($nestedItems = $this->carouselListItems($candidateItems[0]))
+            ) {
+                $candidate = $candidateItems[0];
+                $candidateItems = $nestedItems;
+            }
             if ( count($candidateItems) > count($items) && $this->carouselItemsHaveContent($candidateItems) ) {
                 $list = $candidate;
                 $items = $candidateItems;
