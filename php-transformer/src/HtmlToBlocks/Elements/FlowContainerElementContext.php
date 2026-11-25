@@ -27,7 +27,7 @@ final class FlowContainerElementContext
         private readonly PatternContext $patternContext,
         private readonly Closure $visualTextWrapperBlock,
         private readonly Closure $coalescedSingleGroupWrapper,
-        private readonly Closure $shouldPreserveWrapper
+        private readonly Closure $wrapperDisposition
     ) {
     }
 
@@ -71,6 +71,6 @@ final class FlowContainerElementContext
 
     /** @param array<string, mixed> $child @return array<string, mixed>|null */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $child): ?array { return ($this->coalescedSingleGroupWrapper)($element, $child); }
-    public function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool { return ($this->shouldPreserveWrapper)($element, $asTag); }
+    public function wrapperDisposition(DOMElement $element, ?string $asTag = null): WrapperDisposition { return ($this->wrapperDisposition)($element, $asTag); }
 
 }

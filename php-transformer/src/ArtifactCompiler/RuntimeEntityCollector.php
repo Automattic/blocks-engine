@@ -213,7 +213,11 @@ final class RuntimeEntityCollector
             $name = is_scalar($product['name'] ?? null) ? trim((string) $product['name']) : '';
             $productSlug = ($this->slug)(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
             $regularPrice = ($this->price)($product['price'] ?? null);
-            if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
+            // A card vouched for by its priced siblings but publishing no
+            // price is a price-on-request product: its row omits the price.
+            $priceLabel = '' === $regularPrice && is_string($product['price_label'] ?? null) ? trim($product['price_label']) : '';
+            $priceOnRequest = '' !== $priceLabel;
+            if ( '' === $name || '' === $productSlug || ('' === $regularPrice && ! $priceOnRequest) ) continue;
             // Count card claims before product identity merging: two cards
             // pointing at one page are not unique page ownership evidence.
             if (is_string($product['url'] ?? null)) {
@@ -225,7 +229,7 @@ final class RuntimeEntityCollector
                     }
                 }
             }
-            $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
+            $row = array('name' => $name, 'slug' => $productSlug) + ($priceOnRequest ? array('price_label' => $priceLabel) : array('regular_price' => $regularPrice));
             if (is_string($product['url'] ?? null)) $row['url'] = $product['url'];
             $salePrice = ($this->price)($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
             if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
@@ -528,6 +532,11 @@ final class RuntimeEntityCollector
             // Detail-page descriptive evidence wins; cards fill only absent fields.
             foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations', 'controls', 'presentation_graph') as $field ) if ( isset($row[$field]) ) $this->products[$productSlug][$field] = $row[$field];
             foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($this->products[$productSlug][$field]) && isset($row[$field]) ) $this->products[$productSlug][$field] = $row[$field];
+            // A detail price replaces a card's price-on-request label.
+            if ( ! isset($this->products[$productSlug]['regular_price']) ) {
+                $this->products[$productSlug]['regular_price'] = $row['regular_price'];
+                unset($this->products[$productSlug]['price_label']);
+            }
         }
     }
 

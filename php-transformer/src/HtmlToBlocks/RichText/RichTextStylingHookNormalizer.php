@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -32,13 +33,9 @@ final class RichTextStylingHookNormalizer
     {
         // Remaining styling hooks stay on RichText-safe marks, without
         // assigning highlighted-text semantics to mechanical carriers.
+        // Which hooks are unwrapped or restated is WrapperDecision's (#7471).
         foreach ($this->richTextStylingHookElements($body) as $inline) {
-            if ('font' === strtolower($inline->tagName) && !$inline->hasAttributes()) {
-                SourceDom::unwrapElement($inline);
-                continue;
-            }
-            if ($this->replaceRichTextStylingHookWithMark($inline)) continue;
-            if ('span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline)) {
+            if (WrapperDecision::richTextStylingHook($inline, fn (): bool => $this->replaceRichTextStylingHookWithMark($inline))->isFold()) {
                 SourceDom::unwrapElement($inline);
             }
         }
@@ -348,6 +345,8 @@ final class RichTextStylingHookNormalizer
             if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
                 $declarations = $existingDeclarations;
             }
+        }
+        if ( '' !== $marker ) {
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
@@ -365,22 +364,8 @@ final class RichTextStylingHookNormalizer
             return false;
         }
 
-        // A box-tree carrier restyles the element it was captured on. On a
-        // format tag (`small`, `strong`) that element keeps its own box, so
-        // it keeps the carrier: on the nested mark, the format tag's own
-        // inline box would take the parent's font and line height.
-        $ownCarriers = array();
-        if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
-            $ownCarriers = array_values(array_filter(SourceDom::tokens(SourceDom::attr($element, 'class')), fn(string $class): bool => $this->session->layoutGeometryState()->isBoxTreeCarrier($class)));
-        }
         $mark = $document->createElement('mark');
         foreach ( $sourceIsLink ? array() : $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
-            if ( 'class' === $name && array() !== $ownCarriers ) {
-                $value = implode(' ', array_diff(SourceDom::tokens($value), $ownCarriers));
-                if ( '' === $value ) {
-                    continue;
-                }
-            }
             $mark->setAttribute($name, $value);
         }
         $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
@@ -413,9 +398,7 @@ final class RichTextStylingHookNormalizer
             return true;
         }
 
-        if ( array() !== $ownCarriers ) {
-            $element->setAttribute('class', implode(' ', $ownCarriers));
-        } elseif ( ! $sourceIsLink ) {
+        if ( ! $sourceIsLink ) {
             $element->removeAttribute('class');
         }
         $element->removeAttribute('style');
@@ -538,7 +521,7 @@ final class RichTextStylingHookNormalizer
             return $attrs;
         }
 
-        $listItemHasBlockContent = 'core/list-item' === $name && $this->sourceElementClassifier->hasBlockContentChildren($body);
+        $listItemHasBlockContent = null !== WrapperDecision::listItemContentHoisting('core/list-item' === $name, fn (): bool => $this->sourceElementClassifier->hasBlockContentChildren($body));
 
         $hoistedClasses      = '';
         $hoistedDeclarations = array();
@@ -548,7 +531,7 @@ final class RichTextStylingHookNormalizer
         // author selectors continue to address the saved RichText carrier.
         while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
             $wrapperDeclarations = SourceDeclarations::inline($wrapper);
-            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
+            if ( WrapperDecision::contentWrappingSpan($wrapperDeclarations, fn (): bool => array() !== $this->richTextSafeIdentityAttributes($wrapper))->isPreserve() ) {
                 break;
             }
             $hoistedClasses = trim($hoistedClasses . ' ' . SourceDom::attr($wrapper, 'class'));

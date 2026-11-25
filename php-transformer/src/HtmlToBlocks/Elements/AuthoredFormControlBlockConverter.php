@@ -51,7 +51,8 @@ final class AuthoredFormControlBlockConverter
         private readonly Closure $projectSourceTags,
         ?Closure $richTextLabelContent = null,
         ?Closure $editableLabelContent = null,
-        private readonly ?WrapperCoalescer $wrapperCoalescer = null
+        private readonly ?WrapperCoalescer $wrapperCoalescer = null,
+        private readonly ?Closure $controlTextColor = null
     ) {
         $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
         $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
@@ -500,7 +501,7 @@ final class AuthoredFormControlBlockConverter
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),
             'ariaLabel' => SourceDom::attr($button, 'aria-label'),
-            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class'), $this->presentation->boxTreeElementCarrier($button, true)),
+            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class')),
             'style' => SourceDom::attr($button, 'style'),
             'text' => '' === $text && array() !== $contentParts ? '' : $this->metadataBuilder->submitText($button, 'Submit'),
             'contentParts' => $contentParts,
@@ -602,15 +603,32 @@ final class AuthoredFormControlBlockConverter
             $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
         }
         if (!isset($attributes['type'])) $attributes['type'] = 'submit';
-        $label = $this->createBlock->createBlock('core/button', array(
+        $labelAttrs = array(
             'tagName' => 'button',
             'type' => $attributes['type'],
             'text' => $this->runtime->escapeHtml($button->textContent),
-        ), array());
+        );
+        $textColor = $this->sourceClassTextColor($button);
+        if ('' !== $textColor) $labelAttrs['style'] = array('color' => array('text' => $textColor));
+        $label = $this->createBlock->createBlock('core/button', $labelAttrs, array());
         return $this->createBlock->createBlock('core/group', array(
             'tagName' => 'div',
             'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button', 'blocksEngineControlLabel' => true),
         ), array($label), $button);
+    }
+
+    /**
+     * The text colour a source class recipe paints on a native control. The
+     * published control keeps its author classes, so without a block setting
+     * that class rule, not the block, decides the label's colour and a colour
+     * set on any containing block never reaches it. Promoting it to the
+     * label's native colour support makes the block own it (#7227). Colour
+     * the class does not own alone (inline, contextual, conditional) stays
+     * where it is.
+     */
+    private function sourceClassTextColor(DOMElement $control): string
+    {
+        return null === $this->controlTextColor ? '' : (string) ($this->controlTextColor)($control);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool
@@ -688,7 +706,7 @@ final class AuthoredFormControlBlockConverter
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),
             'ariaLabel' => $ariaLabel,
-            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class'), $this->presentation->boxTreeElementCarrier($button, true)),
+            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class')),
             'style' => SourceDom::attr($button, 'style'),
             'text' => array() === $parts ? trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '') : '',
             'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers($projected),
@@ -713,13 +731,6 @@ final class AuthoredFormControlBlockConverter
         if (!$projected instanceof DOMElement || $projected->isSameNode($control)) {
             $projected = $control->cloneNode(true);
             if (!$projected instanceof DOMElement) return $control;
-        }
-        $sources = iterator_to_array($control->getElementsByTagName('*'), false);
-        $targets = iterator_to_array($projected->getElementsByTagName('*'), false);
-        if (count($sources) !== count($targets)) return $projected;
-        foreach ($sources as $index => $source) {
-            $carrier = $this->presentation->boxTreeElementCarrier($source);
-            if ('' !== $carrier) $targets[$index]->setAttribute('class', SourceDom::mergeClassNames($targets[$index]->getAttribute('class'), $carrier));
         }
         return $projected;
     }

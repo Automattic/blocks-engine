@@ -47,6 +47,14 @@ shop imports. Rows retain `name`, `slug`, `regular_price` and existing optional
 metadata. Prices are decimal strings. Existing card fields win when JSON-LD
 supplies evidence for the same slug; missing commerce fields are filled in.
 
+A grid card that publishes no price ("Price on request") is a product only
+when a qualifying priced card of the same grid has the same tag and classes
+and the unpriced card shows a digit-free label where that sibling shows its
+price, plus its own name, image and detail link. Such a row omits
+`regular_price` and carries the captured label as `price_label`; it never
+qualifies a grid on its own. A later price (for example from JSON-LD) wins and
+consumers ignore the label.
+
 Caller catalogs declared as `entity_collection:products` with schema
 `generic/products/v1` merge with detected products by `slug`. Caller rows own
 `name`, `regular_price`, `sale_price`, `description`, `sku`, `image`, `images`, `tags`,

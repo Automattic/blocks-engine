@@ -10,6 +10,21 @@ namespace Automattic\BlocksEngine\PhpTransformer\Support;
  */
 final class HtmlTagScanner
 {
+    /** @var array<string,array<string,array>>|null */
+    private static ?array $documents = null;
+
+    /** Share source-preserving scans within one operation, never across imports. */
+    public static function run(callable $operation): mixed
+    {
+        if (null !== self::$documents) return $operation();
+        self::$documents = array();
+        try {
+            return $operation();
+        } finally {
+            self::$documents = null;
+        }
+    }
+
     /** Parse a start tag or its attribute text without treating quoted examples as attributes. @return array<string,string> */
     public static function attributes(string $tag): array
     {
@@ -75,6 +90,11 @@ final class HtmlTagScanner
 
     public static function scan(string $html, string $name): array
     {
+        $key = null === self::$documents ? null : hash('sha256', $html);
+        $cacheable = in_array(strtolower($name), array('style', 'script', 'link', '#comment'), true);
+        if (!$cacheable) $key = null;
+        if (null !== $key && isset(self::$documents[$key])) return self::$documents[$key][strtolower($name)] ?? array();
+        $all = array();
         $tags = array();
         $offset = 0;
         $length = strlen($html);
@@ -84,7 +104,11 @@ final class HtmlTagScanner
             if ('<!--' === substr($html, $open, 4)) {
                 $end = strpos($html, '-->', $open + 4);
                 $offset = false === $end ? $length : $end + 3;
-                if ('#comment' === $name) $tags[] = array('tag' => substr($html, $open, $offset - $open), 'attributes' => '', 'content' => '', 'offset' => $open, 'end_offset' => $offset, 'placement' => $inHead ? 'head' : 'body');
+                if (null !== $key || '#comment' === $name) {
+                    $comment = array('tag' => substr($html, $open, $offset - $open), 'attributes' => '', 'content' => '', 'offset' => $open, 'end_offset' => $offset, 'placement' => $inHead ? 'head' : 'body');
+                    if (null !== $key) $all['#comment'][] = $comment;
+                    if ('#comment' === $name) $tags[] = $comment;
+                }
                 continue;
             }
             if (in_array($html[$open + 1] ?? '', array('!', '?'), true)) {
@@ -117,7 +141,9 @@ final class HtmlTagScanner
                 $content = substr($html, $offset, $close['offset'] - $offset);
                 $offset = $close['end_offset'];
             }
-            if ($name === $tagName) $tags[] = array(
+            // Retain declarations, not a second copy of every document tag.
+            if ($name !== $tagName && (null === $key || !in_array($tagName, array('style', 'script', 'link'), true))) continue;
+            $record = array(
                 'tag' => substr($html, $open, $openEnd + 1 - $open),
                 'attributes' => substr($html, $attributeStart, $openEnd - $attributeStart),
                 'content' => $content,
@@ -125,30 +151,33 @@ final class HtmlTagScanner
                 'end_offset' => $offset,
                 'placement' => $inHead ? 'head' : 'body',
             );
+            if (null !== $key) $all[$tagName][] = $record;
+            if ($name === $tagName) $tags[] = $record;
         }
+        if (null !== $key) self::$documents[$key] = $all;
         return $tags;
     }
 
     private static function tagEnd(string $html, int $offset): ?int
     {
-        $quote = '';
-        $beforeValue = false;
-        $unquotedValue = false;
-        for ($index = $offset, $length = strlen($html); $index < $length; ++$index) {
-            $character = $html[$index];
-            if ('' !== $quote) {
-                if ($character === $quote) $quote = '';
-            } elseif ('>' === $character) {
-                return $index;
-            } elseif ($unquotedValue) {
-                if (ctype_space($character)) $unquotedValue = false;
-            } elseif ($beforeValue) {
-                if (ctype_space($character)) continue;
-                $beforeValue = false;
-                if ('"' === $character || "'" === $character) $quote = $character;
-                else $unquotedValue = true;
-            } elseif ('=' === $character) {
-                $beforeValue = true;
+        $length = strlen($html);
+        while ($offset < $length) {
+            $offset += strcspn($html, '=>', $offset);
+            if ($offset >= $length) break;
+            if ('>' === $html[$offset]) return $offset;
+            ++$offset;
+            $offset += strspn($html, " \t\n\r\v\f", $offset);
+            if ($offset >= $length) break;
+            if ('>' === $html[$offset]) return $offset;
+            if ('"' === $html[$offset] || "'" === $html[$offset]) {
+                $end = strpos($html, $html[$offset], $offset + 1);
+                if (false === $end) return null;
+                $offset = $end + 1;
+            } else {
+                // Quotes inside an unquoted value are ordinary bytes, not
+                // delimiters. Only whitespace or > terminates that value.
+                $offset += strcspn($html, " \t\n\r\v\f>", $offset);
+                if ($offset < $length && '>' === $html[$offset]) return $offset;
             }
         }
         return null;

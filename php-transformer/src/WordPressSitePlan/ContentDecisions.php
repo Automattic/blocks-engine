@@ -130,18 +130,41 @@ final class ContentDecisions
             $card = $anchor;
             while ($card instanceof \DOMElement && 0 === ($xpath->query('descendant-or-self::time', $card)->length ?? 0)) $card = $card->parentNode;
             if (!$card instanceof \DOMElement || 'body' === $card->nodeName || 'html' === $card->nodeName) continue;
-            $targets = array();
-            foreach ($xpath->query('descendant-or-self::a[@href]', $card) ?: array() as $link) {
-                $linked = self::hrefRoute((string) $link->getAttribute('href'), $route);
-                if (null !== $linked && isset($childRoutes[$linked])) $targets[$linked] = true;
-            }
+            if (null === self::datedCardTarget($card, $xpath, $route, $childRoutes)) continue;
             $times = $xpath->query('descendant-or-self::time', $card);
-            if (1 !== count($targets) || 1 !== $times->length) continue;
             $cards[$target][] = PublicationDate::fromVisibleText((string) $times->item(0)->textContent);
         }
         $dates = array();
-        foreach ($cards as $target => $found) if (1 === count($found)) $dates[$target] = $found[0];
+        // Several links in one card (image, title, date) name the same entry.
+        foreach ($cards as $target => $found) if (1 === count(array_unique($found))) $dates[$target] = $found[0];
         return $dates;
+    }
+
+    /** Whether a node sits inside a link to a route other than $route. */
+    private static function linksElsewhere(\DOMNode $node, \DOMXPath $xpath, string $route): bool
+    {
+        foreach ($xpath->query('ancestor::a[@href]', $node) ?: array() as $link) {
+            $linked = self::hrefRoute((string) $link->getAttribute('href'), $route);
+            if (null !== $linked && $route !== $linked) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A dated card describes one linked route, not its containing document.
+     * An optional route set limits the links considered to a listing's children.
+     *
+     * @param array<string,bool>|null $targetRoutes
+     */
+    private static function datedCardTarget(\DOMElement $card, \DOMXPath $xpath, string $route, ?array $targetRoutes = null): ?string
+    {
+        if (1 !== $xpath->query('descendant-or-self::time', $card)->length) return null;
+        $targets = array();
+        foreach ($xpath->query('descendant-or-self::a[@href]', $card) ?: array() as $link) {
+            $linked = self::hrefRoute((string) $link->getAttribute('href'), $route);
+            if (null !== $linked && (null === $targetRoutes || isset($targetRoutes[$linked]))) $targets[$linked] = true;
+        }
+        return 1 === count($targets) ? array_key_first($targets) : null;
     }
 
     /** @param array<int,array<string,string>> $evidence */
@@ -425,7 +448,13 @@ final class ContentDecisions
     public static function isDateArchive(array $document): bool
     {
         $classes = DocumentRootContext::bodyClasses($document);
-        return in_array('archive', $classes, true) && in_array('date', $classes, true);
+        if (in_array('archive', $classes, true) && in_array('date', $classes, true)) return true;
+        $route = $document['metadata']['route_path'] ?? PageRoute::fromSource((string) ($document['source_path'] ?? ''), PageRoute::entryRoot(array($document)));
+        // A date-only suffix is an archive only when the document lists dated
+        // entries elsewhere. A dated permalink or a lone article is content.
+        if (!is_string($route) || !preg_match('~/[0-9]{4}/(?:0[1-9]|1[0-2])(?:/(?:0[1-9]|[12][0-9]|3[01]))?/?$~', $route)) return false;
+        $targets = array_fill_keys(array_diff(self::documentLinkedRoutes($document, $route), array(rtrim($route, '/'))), true);
+        return count(array_filter(self::listingCardDates($document, $route, $targets), static fn(?string $date): bool => null !== $date)) >= 1;
     }
 
     /** @param array<string,mixed> $document */
@@ -506,7 +535,7 @@ final class ContentDecisions
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach (self::jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : PageRoute::fromSource((string) $document['source_path'], PageRoute::entryRoot(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
-        foreach (self::visiblePublicationEvidence($html, $timestamp, $dateSlots) as $row) {
+        foreach (self::visiblePublicationEvidence($html, $route, $timestamp, $dateSlots) as $row) {
             $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         }
         $routeDay = self::routeDayShownOnPage($html, $route);
@@ -529,21 +558,30 @@ final class ContentDecisions
     }
 
     /** @param array<string,array<string,string>> $dateSlots @return array<int,array<string,string>> */
-    private static function visiblePublicationEvidence(string $html, callable $timestamp, array &$dateSlots): array
+    private static function visiblePublicationEvidence(string $html, string $route, callable $timestamp, array &$dateSlots): array
     {
         $rows = array();
         foreach (self::publicationHtmlFragments($html) as $fragment) {
-            // A lone article gives its lone time a stable source slot. As with
-            // builder IDs below, only variation across siblings proves it is
+            // An article's lone own time gives it a stable source slot. Times
+            // inside links to other routes (related posts, pagers, dated cards)
+            // describe those routes. Copies of one article (responsive variants)
+            // each carry the same instant; an undated article, a second time or
+            // a disagreement is ambiguous. Only variation across siblings proves
             // publication evidence; compare UTC instants, not display text or
-            // offset spellings. Multiple articles/times are ambiguous.
+            // offset spellings.
             $xpath = new \DOMXPath(HtmlSerialization::parseDocument($fragment));
-            $articles = $xpath->query('//article');
-            if (1 === $articles->length) {
-                $times = $xpath->query('.//time', $articles->item(0));
-                if (1 === $times->length && null !== ($parsed = $timestamp($times->item(0)->getAttribute('datetime')))) {
-                    $dateSlots['article:time:datetime'] = array('text' => $parsed, 'publication_timestamp' => $parsed);
+            $instants = array();
+            foreach ($xpath->query('//article') ?: array() as $article) {
+                $target = self::datedCardTarget($article, $xpath, $route);
+                if (null !== $target && $route !== $target) continue;
+                $own = array();
+                foreach ($xpath->query('.//time', $article) ?: array() as $time) {
+                    if (!self::linksElsewhere($time, $xpath, $route)) $own[] = $time;
                 }
+                $instants[] = 1 === count($own) ? $timestamp($own[0]->getAttribute('datetime')) : null;
+            }
+            if (array() !== $instants && 1 === count(array_unique($instants)) && null !== ($parsed = $instants[0])) {
+                $dateSlots['article:time:datetime'] = array('text' => $parsed, 'publication_timestamp' => $parsed);
             }
             foreach (HtmlMarkupParser::htmlMarkupNodes($fragment) as $node) {
                 if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {

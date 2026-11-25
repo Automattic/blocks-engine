@@ -69,10 +69,10 @@ final class LayoutShellLowering
      */
     private function layoutShellWrapper(DOMElement $element, bool $fieldBox = false, string $className = ''): array
     {
-        $sourceTagName = strtolower($element->tagName);
-        $tagName = str_contains($sourceTagName, '-') || ($fieldBox && 'label' === $sourceTagName) ? 'div' : $sourceTagName;
+        // The tag restatement is WrapperDecision's (#7471).
+        $tagName = WrapperDecision::layoutShellWrapper($element, $fieldBox)['tagName'];
         $attributes = SourceDom::htmlAttributes($element);
-        if ($fieldBox && 'label' === $sourceTagName) {
+        if ($fieldBox && 'label' === strtolower($element->tagName)) {
             unset($attributes['for']);
         }
         $className = SourceDom::mergeClassNames($this->layoutShellClassName($element), $className);
@@ -112,7 +112,7 @@ final class LayoutShellLowering
         if ( '' !== $tagMarker ) {
             $classes[] = $tagMarker;
         }
-        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
+        if (null !== WrapperDecision::layoutShellSourceClasses($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -120,7 +120,7 @@ final class LayoutShellLowering
             }
         }
         foreach ( SourceDom::classNames($element) as $class ) {
-            if ( isset($runtime[$class]) || 1 === preg_match('/^blocks-engine-(?:attribute|editor-anchor)-/', $class) ) {
+            if ( null !== WrapperDecision::layoutShellRestatedClass($class, $runtime) ) {
                 $classes[] = $class;
             }
         }

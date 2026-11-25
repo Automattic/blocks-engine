@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -60,6 +61,15 @@ final class FormPresentationGraphBuilder
         'font' => array( 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'line-height' ),
         'margin' => array( 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ),
         'padding' => array( 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ),
+        'border' => array(
+            'border-width', 'border-style', 'border-color',
+            'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+            'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+            'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+        ),
+        'border-width' => array( 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width' ),
+        'border-style' => array( 'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style' ),
+        'border-color' => array( 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color' ),
     );
     /**
      * The box a button's caption carrier paints behind the caption: a sliding-door
@@ -97,6 +107,9 @@ final class FormPresentationGraphBuilder
         'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
         'border-radius', 'background-color',
+        // The frame's padding insets its members, so a padded stepper keeps its box.
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+        'padding-block', 'padding-inline', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end',
     );
     private const ROW_ITEM_PROPERTIES = array('flex-grow', 'flex-shrink', 'flex-basis', 'width', 'min-width', 'max-width');
     /** Elements whose default display opens a block box; a member of this kind breaks the shared line. */
@@ -623,6 +636,9 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
+                if ( 'control' === $role && self::isWrappedFieldControl($element) ) {
+                    $matched = self::withoutParentSlotMargins($matched);
+                }
                 if ('control' === $role && $element->parentNode instanceof DOMElement
                     && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
                     $parent = $this->matched($element->parentNode, $analysis['rules']);
@@ -864,7 +880,7 @@ final class FormPresentationGraphBuilder
         }
         $rowLayouts = array();
         foreach ($v3 ? $graph['control_rows'] : array() as $row) {
-            if ('stacked' === ($row['flow'] ?? null) || in_array($row['styles']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$row['index']] = true;
+            if (in_array($row['flow'] ?? null, array('stacked', 'inline'), true) || in_array($row['styles']['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) $rowLayouts[$row['index']] = true;
         }
         $containerVariants = array();
         foreach ( $graph['variants'] as $variant ) {
@@ -1132,7 +1148,7 @@ final class FormPresentationGraphBuilder
             // A shared ancestor is nearest only when controls occupy distinct children.
             $paths = array_map(static fn (DOMElement $item): string => $item->getNodePath(), $members);
             if (count(array_unique($paths)) < 2) continue;
-            // Candidates arrive innermost first; only the nearest ancestor of a control set can stack it.
+            // Candidates arrive innermost first; only the nearest ancestor records a control set's flow.
             $set = implode(',', array_keys($members));
             $isNearest = !isset($nearest[$set]);
             $nearest[$set] = true;
@@ -1148,12 +1164,12 @@ final class FormPresentationGraphBuilder
                 $layout = $layout || in_array($patch['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
             }
             // A <form>'s own flow is the default field stacking every consumer renders; wrappers make it a fact.
-            $stacked = !$layout && $isNearest && 'form' !== strtolower($element->tagName) && $this->stacksInBlockFlow($element, $members, $rules, $customRules);
-            if (!$layout && !$stacked) continue;
+            $flow = !$layout && $isNearest && 'form' !== strtolower($element->tagName) ? $this->blockFlow($element, $members, $rules, $customRules) : null;
+            if (!$layout && null === $flow) continue;
             if (count($rows) >= self::MAX_CONTROLS) { $this->truncated = true; $this->diagnostics[] = 'control_row_limit'; break; }
             $rowIndex = count($rows);
             $row = array('index' => $rowIndex) + $this->rowRole($element, self::ROW_PROPERTIES, 'control_row', $rowIndex, null, $rules, $customRules, $variants);
-            if ($stacked) $row['flow'] = 'stacked';
+            if (null !== $flow) $row['flow'] = $flow;
             $row['members'] = array();
             foreach ($members as $index => $item) {
                 $row['members'][] = array('index' => $index) + $this->rowRole($item, self::ROW_ITEM_PROPERTIES, 'control_row_item', $rowIndex, $index, $rules, $customRules, $variants);
@@ -1165,19 +1181,21 @@ final class FormPresentationGraphBuilder
 
     /**
      * A block container lays its children out line by line: one block-level
-     * member breaks the shared line, so the controls are stacked.
+     * member breaks the shared line, so the controls are stacked. Otherwise,
+     * inline-level members share a line in a plain block container.
      *
      * @param array<int, DOMElement> $members
      */
-    private function stacksInBlockFlow(DOMElement $element, array $members, array $rules, array $customRules): bool
+    private function blockFlow(DOMElement $element, array $members, array $rules, array $customRules): ?string
     {
         $own = $this->styles(array_intersect_key($this->matched($element, $rules, true)['base'], array('display' => true)), $element, null, $customRules)['display'] ?? null;
-        if (null !== $own && !in_array($own, array('block', 'flow-root', 'list-item'), true)) return false;
+        if (null !== $own && !in_array($own, array('block', 'flow-root', 'list-item'), true)) return null;
         foreach ($members as $item) {
             $display = $this->styles(array_intersect_key($this->matched($item, $rules, true)['base'], array('display' => true)), $item, null, $customRules)['display'] ?? null;
-            if (null === $display ? in_array(strtolower($item->tagName), self::BLOCK_FLOW_TAGS, true) : in_array($display, array('block', 'flex', 'grid', 'flow-root', 'list-item', 'table'), true)) return true;
+            if (null === $display ? in_array(strtolower($item->tagName), self::BLOCK_FLOW_TAGS, true) : in_array($display, array('block', 'flex', 'grid', 'flow-root', 'list-item', 'table'), true)) return 'stacked';
         }
-        return false;
+        // With no block-level member, a plain block container shares an inline line.
+        return null !== $own || in_array(strtolower($element->tagName), self::BLOCK_FLOW_TAGS, true) ? 'inline' : null;
     }
 
     private function rowRole(DOMElement $element, array $properties, string $role, int $rowIndex, ?int $memberIndex, array $rules, array $customRules, array &$variants): array
@@ -1219,9 +1237,9 @@ final class FormPresentationGraphBuilder
         if (!is_array($rows) || !array_is_list($rows) || !$rows || count($rows) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control rows are invalid.');
         $owners = array();
         foreach ($rows as $row) {
-            $stacked = is_array($row) && array_key_exists('flow', $row);
-            if ($stacked && 'stacked' !== $row['flow']) throw new InvalidArgumentException('Form control row flow is invalid.');
-            self::assertRowFact($row, array_merge(array('index', 'source_selector', 'styles', 'provenance', 'members'), $stacked ? array('flow') : array()), self::ROW_PROPERTIES);
+            $hasFlow = is_array($row) && array_key_exists('flow', $row);
+            if ($hasFlow && !in_array($row['flow'], array('stacked', 'inline'), true)) throw new InvalidArgumentException('Form control row flow is invalid.');
+            self::assertRowFact($row, array_merge(array('index', 'source_selector', 'styles', 'provenance', 'members'), $hasFlow ? array('flow') : array()), self::ROW_PROPERTIES);
             if (isset($owners[$row['index']]) || !is_array($row['members']) || !array_is_list($row['members']) || count($row['members']) < 2 || count($row['members']) > self::MAX_CONTROLS) throw new InvalidArgumentException('Form control row members are invalid.');
             $owners[$row['index']] = array();
             foreach ($row['members'] as $member) {
@@ -1634,6 +1652,82 @@ final class FormPresentationGraphBuilder
             'diagnostics' => $diagnostics,
         );
         return $result;
+    }
+
+    /**
+     * Whether a provider renders this control inside its own field wrapper:
+     * a native input, select or textarea. Buttons become core/button and
+     * hidden-native painters keep their own box, so they are not wrapped.
+     */
+    private static function isWrappedFieldControl(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( 'select' === $tag || 'textarea' === $tag ) {
+            return true;
+        }
+        return 'input' === $tag && ! in_array(strtolower(trim($element->getAttribute('type'))), array( 'submit', 'button', 'reset', 'image', 'hidden' ), true);
+    }
+
+    /**
+     * Drop margins a parent assigns to its child slots (`.stack > *`,
+     * Tailwind v4's `:where(.space-y-4 > :not(:last-child))`).
+     *
+     * Such a margin belongs to whatever box occupies the slot, not to the
+     * control. The materialized container keeps the parent's classes, and a
+     * provider puts its field wrapper in that slot, so the author stylesheet
+     * already spaces the wrapper. Carrying the margin on the control too
+     * added the same spacing a second time inside every field.
+     *
+     * @param array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} $matched
+     * @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}
+     */
+    private static function withoutParentSlotMargins(array $matched): array
+    {
+        $filter = static function (array $facts): array {
+            foreach ( $facts as $property => $fact ) {
+                if ( str_starts_with((string) $property, 'margin') && self::isParentSlotSelector((string) ($fact['selector'] ?? '')) ) {
+                    unset($facts[$property]);
+                }
+            }
+            return $facts;
+        };
+        $matched['base'] = $filter($matched['base']);
+        foreach ( $matched['conditional'] as $encoded => $facts ) {
+            $matched['conditional'][$encoded] = $filter($facts);
+        }
+        return $matched;
+    }
+
+    /**
+     * Whether a complex selector reaches its subject through a child
+     * combinator and the subject compound names no type, class, id or
+     * attribute of its own: it selects a parent's child slot, whatever fills
+     * it. A single top-level `:where()`/`:is()` wrapper is looked through.
+     */
+    private static function isParentSlotSelector(string $selector): bool
+    {
+        $selector = trim($selector);
+        while ( 1 === preg_match('/^:(?:where|is)\((.*)\)$/Dis', $selector, $match) ) {
+            $inner = trim($match[1]);
+            $tokens = CssSelectorTokenizer::tokenize($inner);
+            if ( ! $tokens['supported'] ) {
+                // `:is(a, b)` or unbalanced parentheses: not a single wrapper.
+                return false;
+            }
+            $selector = $inner;
+        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if ( ! $tokens['supported'] || array() === $tokens['combinators'] || '>' !== $tokens['combinators'][count($tokens['combinators']) - 1] ) {
+            return false;
+        }
+        $subject = $tokens['rightmost_compound'];
+        // Functional pseudo-class arguments (`:not(:last-child)`) do not name
+        // the subject; only its top-level simple selectors do.
+        do {
+            $subject = preg_replace('/\([^()]*\)/', '', (string) $subject, -1, $count);
+        } while ( $count > 0 );
+        $subject = preg_replace('/^\*/', '', (string) $subject);
+        return 1 !== preg_match('/[.#\[]|^[A-Za-z_\\-]|::/', (string) $subject);
     }
 
     /** Hits of the per-builder {@see matched()} memo, for regression tests. */
