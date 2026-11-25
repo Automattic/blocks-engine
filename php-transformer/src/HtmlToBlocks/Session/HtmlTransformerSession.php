@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\BoxTreeWrapperEvidence;
 use DOMElement;
 
 /**
@@ -53,6 +54,7 @@ final class HtmlTransformerSession
     private readonly PresentationResolutionCache $presentationResolutionCache;
     private readonly SourceStyleResolutionState $sourceStyleResolutionState;
     private ?LayoutGeometryState $layoutGeometryState = null;
+    private ?BoxTreeWrapperEvidence $boxTreeWrapperEvidence = null;
     private readonly FallbackEmitter $fallbackEmitter;
 
     public function __construct(Runtime $runtime, SourceElementDescription $sourceElementDescription)
@@ -100,6 +102,12 @@ final class HtmlTransformerSession
     {
         return $this->layoutGeometryState
             ?? throw new \LogicException('Layout geometry state has not been prepared for this transform.');
+    }
+
+    /** Box-tree evidence for this route; empty when the import carries none. */
+    public function boxTreeWrapperEvidence(): BoxTreeWrapperEvidence
+    {
+        return $this->boxTreeWrapperEvidence ??= new BoxTreeWrapperEvidence();
     }
 
     public function installGeneratedBlockRegistry(GeneratedBlockRegistry $registry): void
@@ -353,6 +361,7 @@ final class HtmlTransformerSession
             TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
             TransformOptions::runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors')
         ));
+        $this->boxTreeWrapperEvidence = new BoxTreeWrapperEvidence(ArrayField::array($options, 'box_tree'));
         $this->installLayoutGeometryState(new LayoutGeometryState(
             is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
         ));
