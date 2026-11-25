@@ -920,6 +920,14 @@ final class ThemeJsonProjection
         // restatement and let the level follow the heading element. Level
         // colours stay: authored CSS restates them as the level's own paint.
         $styles = self::withoutRestatedHeadingLevels($styles);
+        // A button typeface restating the root typeface is the family every
+        // button already inherits from the text around it. Stated on the
+        // button element (or its block style variation), it pins buttons to
+        // that preset, so a Global Styles edit of the site typeface leaves
+        // every button behind. Let buttons inherit, as links do, but only
+        // where every source button sits in root-family text: inside a
+        // section set in another face, `inherit` would repaint the button.
+        if (true === ($system->root['button_family_inherited'] ?? false)) $styles = self::withInheritedRootButtonFamily($styles);
         // Absence of a unanimous element look means inheritance, not absence
         // of an editable element in Global Styles. Keep that default explicit
         // without promoting a section's colour or a heading level's typeface
@@ -968,6 +976,27 @@ final class ThemeJsonProjection
                 if (array() === ($styles['elements'][$level][$group] ?? array())) unset($styles['elements'][$level][$group]);
                 if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
             }
+        }
+        return $styles;
+    }
+
+    /**
+     * Replaces a button element or button variation typeface equal to the
+     * root typeface with `inherit`. The caller applies it only when every
+     * source button inherits the root typeface from the text around it
+     * (DesignSystem root `button_family_inherited`).
+     *
+     * @param array<string,mixed> $styles
+     * @return array<string,mixed>
+     */
+    private static function withInheritedRootButtonFamily(array $styles): array
+    {
+        $root = $styles['typography']['fontFamily'] ?? null;
+        if (!is_string($root) || '' === trim($root) || 'inherit' === strtolower(trim($root))) return $styles;
+        $restates = static fn(mixed $value): bool => is_string($value) && strtolower(trim($value)) === strtolower(trim($root));
+        if ($restates($styles['elements']['button']['typography']['fontFamily'] ?? null)) $styles['elements']['button']['typography']['fontFamily'] = 'inherit';
+        foreach (array_keys(is_array($styles['blocks']['core/button']['variations'] ?? null) ? $styles['blocks']['core/button']['variations'] : array()) as $slug) {
+            if ($restates($styles['blocks']['core/button']['variations'][$slug]['typography']['fontFamily'] ?? null)) $styles['blocks']['core/button']['variations'][$slug]['typography']['fontFamily'] = 'inherit';
         }
         return $styles;
     }

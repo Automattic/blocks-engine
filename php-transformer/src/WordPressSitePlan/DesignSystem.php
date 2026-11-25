@@ -368,6 +368,7 @@ final class DesignSystem
         $rootFontPx = array() === $rootPx ? 16.0 : (float) rtrim((string) array_key_first($rootPx), 'px');
 
         $root = self::unanimousRoot($usageBySource);
+        if (isset($root['font_family']) && self::buttonsInheritRootFamily($usageBySource, $root['font_family'])) $root['button_family_inherited'] = true;
         // An explicit pixel size replaces the UA medium keyword, which also
         // changes bare monospace sizing. Require root author evidence on every
         // document before applying the rendered size site-wide.
@@ -2204,6 +2205,26 @@ final class DesignSystem
     {
         if (!is_string($value) || !CssColor::opaque($value)) return null;
         return CssColor::hex($value);
+    }
+
+    /**
+     * Whether every rendered button control sits in text of the root
+     * family, so `inherit` renders each the root typeface a button element
+     * style would otherwise pin. A button in a section of another family
+     * (a footer set in the heading face) would take that family instead.
+     *
+     * @param array<string,array<string,mixed>> $usageBySource
+     */
+    private static function buttonsInheritRootFamily(array $usageBySource, string $rootFamily): bool
+    {
+        $key = self::familyKey($rootFamily);
+        if ('' === $key) return false;
+        foreach ($usageBySource as $usage) {
+            foreach (array_keys(ArrayField::array($usage, 'button_context_families')) as $family) {
+                if (self::familyKey((string) $family) !== $key) return false;
+            }
+        }
+        return true;
     }
 
     /**
