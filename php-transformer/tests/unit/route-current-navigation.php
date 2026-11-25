@@ -94,6 +94,7 @@ function get_queried_object_id(): int { return 42; }
 function is_front_page(): bool { return false; }
 function get_post_type(int $id): string { global $navigationPostType; return $navigationPostType; }
 function get_page_uri(int $id): string { return 'unrelated-page'; }
+function get_permalink(int $id): string { global $navigationPermalink; return $navigationPermalink; }
 function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
     global $navigationServed, $navigationFilterCalls;
     if ('blocks_engine_served_route' !== $hook) return $value;
@@ -112,7 +113,14 @@ foreach (array(
     // Section links on a one-page site target part of the page, not the page.
     array('/', array('/', '/#about', '/#contact'), '/', false),
     array('/about', array('/#about', '/about/#team'), null, false),
-) as [$navigationServed, $urls, $expected, $ancestor]) {
+    // A link to the document's own permalink is current even when the served
+    // route names its source route (an imported product's breadcrumb).
+    array('/accessories/sticker', array('/', '/accessories/', '/product/sticker/'), '/product/sticker/', false),
+    array(null, array('/', '/product/sticker/'), '/product/sticker/', false),
+    // A plain permalink (/?page_id=42) is not the site root.
+    array('/day-1', array('/', '/day-13'), null, false, 'https://example.test/?page_id=42'),
+) as $row) {
+    [$navigationServed, $urls, $expected, $ancestor, $navigationPermalink] = $row + array(4 => 'https://example.test/product/sticker/');
     foreach (array('product', 'page') as $navigationPostType) {
         foreach (array('navigation-link', 'navigation-submenu') as $itemType) {
             $navigationFilterCalls = array();

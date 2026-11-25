@@ -60,6 +60,7 @@ function is_singular(): bool { return true; }
 function get_queried_object_id(): int { return 42; }
 function apply_filters(string $hook, mixed $value): mixed { return $value; }
 function get_post_type(int $id): string { return 'page'; }
+function get_permalink($id): string { return 'https://example.test/?page_id=42'; }
 function get_page_uri(int $id): string { global $served; return trim($served, '/'); }
 
 $toggle = '<li class="wp-block-navigation-item has-child wp-block-navigation-submenu"><a class="wp-block-navigation-item__content" href="#">About</a><ul class="wp-block-navigation__submenu-container">'
