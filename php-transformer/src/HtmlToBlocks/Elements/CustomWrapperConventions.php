@@ -64,12 +64,14 @@ final class CustomWrapperConventions
             }
             $attributeSelectors ??= $this->authorDataAttributeSelectors($staticCss);
             foreach ( $elements as $element ) {
-                if ( $this->renderNeutral->isRenderNeutralWrapper($element, false) ) {
-                    if ( $this->authorAttributeSelectorAddresses($element, $attributeSelectors) ) {
-                        $retainedHooks[] = $element;
-                    } else {
-                        SourceDom::unwrapElement($element);
-                    }
+                $disposition = WrapperDecision::conventionInstance(
+                    fn (): bool => $this->renderNeutral->isRenderNeutralWrapper($element, false),
+                    fn (): bool => $this->authorAttributeSelectorAddresses($element, $attributeSelectors)
+                );
+                if ( $disposition->isFold() ) {
+                    SourceDom::unwrapElement($element);
+                } elseif ( 'author_attribute_selector_hook' === $disposition->reason ) {
+                    $retainedHooks[] = $element;
                 }
             }
         }
@@ -135,26 +137,21 @@ final class CustomWrapperConventions
      */
     private function isWrapperConventionTag(string $tag, array $elements, string $staticCss): bool
     {
-        if ( self::WRAPPER_CONVENTION_MIN_INSTANCES > count($elements) ) {
-            return false;
-        }
-
-        // A tag that carries presentation of its own is not render-neutral.
-        // `display:contents` is the exception that proves the rule: it states
-        // the element generates no box and renders as its children.
-        if ( ! $this->customElementCssIsRenderNeutral($tag, $staticCss) ) {
-            return false;
-        }
-
-        $shapes = array();
-        foreach ( $elements as $element ) {
-            $shapes[$this->wrappedContentShape($element)] = true;
-            if ( 1 < count($shapes) ) {
-                return true;
+        return WrapperDecision::conventionTag(
+            count($elements),
+            self::WRAPPER_CONVENTION_MIN_INSTANCES,
+            fn (): bool => $this->customElementCssIsRenderNeutral($tag, $staticCss),
+            function () use ($elements): bool {
+                $shapes = array();
+                foreach ( $elements as $element ) {
+                    $shapes[$this->wrappedContentShape($element)] = true;
+                    if ( 1 < count($shapes) ) {
+                        return true;
+                    }
+                }
+                return false;
             }
-        }
-
-        return false;
+        )->isFold();
     }
 
     /**

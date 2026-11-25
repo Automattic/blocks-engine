@@ -45,15 +45,16 @@ final class InlineTextWrapperLowering
 
     public function visualTextWrapperBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || $this->sourceElementClassifier->hasBlockContentChildren($element) ) {
+        if ( null !== WrapperDecision::visualTextWrapperCandidate(
+            $element,
+            fn (): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
+            fn (): bool => $this->session->authorSelectorProjectionState()->hasSemanticMarkedChild($element),
+            fn (): bool => $this->hasRichTextMarkedDescendant($element)
+        ) ) {
             return null;
         }
 
-        if ( $this->session->authorSelectorProjectionState()->hasSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
-            return null;
-        }
-
-        if ( $this->emptyVisualRetention->hasEmptyVisualInlineChild($element) ) {
+        if ( null !== WrapperDecision::inlineTextWrapperEmptyVisualChild(fn (): bool => $this->emptyVisualRetention->hasEmptyVisualInlineChild($element)) ) {
             $fallbacks = array();
             $children = $this->tree->children($element, $fallbacks, true);
             if ( array() !== $children ) {
@@ -66,7 +67,7 @@ final class InlineTextWrapperLowering
             return null;
         }
 
-        if ( ! $this->hasVisualTextWrapperSignal($element) ) {
+        if ( ! WrapperDecision::visualTextWrapperFold(fn (): bool => $this->hasVisualTextWrapperSignal($element))->isFold() ) {
             return null;
         }
 
@@ -179,7 +180,7 @@ final class InlineTextWrapperLowering
             }
         }
 
-        if ( $this->emptyVisualRetention->hasEmptyVisualInlineChild($element) ) {
+        if ( null !== WrapperDecision::inlineTextWrapperEmptyVisualChild(fn (): bool => $this->emptyVisualRetention->hasEmptyVisualInlineChild($element)) ) {
             $fallbacks = array();
             $children = $this->tree->children($element, $fallbacks, true);
             if ( array() !== $children ) {

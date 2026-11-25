@@ -6,7 +6,6 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanonicalizer;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\EditorStaticStateAssets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\EmptyStylesheets;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\EvidenceRouteStylesheets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\StylesheetScopes;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeAssetWrites;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
@@ -19,7 +18,7 @@ foreach (array('index.html', 'page-1.html') as $i => $source) {
         'source_path' => $source, 'post_type' => 'page', 'slug' => 'page-' . $i,
         'reconciliation_identity' => 'page:' . $source, 'route' => array('path' => '/' . $i),
         'canonical_block_markup' => '<p class="paint">Page</p>',
-        'document_metadata' => array('links' => array(), 'engine_owned_styles' => 1 === $i),
+        'document_metadata' => array('links' => array()),
     );
     $path = 'assets/css/editor-static-state-' . $i . '.css';
     $assets[] = array(
@@ -28,9 +27,6 @@ foreach (array('index.html', 'page-1.html') as $i => $source) {
         'content' => $shared[0] . (1 === $i ? '.paint{padding:3px}' : '.paint{margin:4px}') . $shared[1],
         'stylesheet_target' => 'editor', 'stylesheet_placement' => 'after-author', 'media' => 'screen',
         'stylesheet_instances' => array(array('source_path' => $source, 'order' => 0, 'media' => 'screen')),
-        // Engine repairs survive retirement. The second page's author-state
-        // projection shares those resources but its unique rule must retire.
-        'source_role' => 0 === $i ? 'engine-owned' : 'author',
     );
 }
 $references = new AssetReferenceCanonicalizer(array());
@@ -44,9 +40,14 @@ $paths = $owner['stylesheet_parts'];
 $documents = StylesheetScopes::documentsBySource($pages, array());
 $folded = StylesheetScopes::foldSupport($split, $documents, StylesheetScopes::canonicalDocuments($documents));
 if ($split !== $folded) throw new RuntimeException('Support folding must not empty editor static state.');
-$retired = EvidenceRouteStylesheets::retire($folded, $pages);
+// Simulate a page-specific part becoming empty after CSS normalization.
+$retired = $folded;
+foreach ($retired as &$asset) {
+    if ($asset['target_path'] === $paths[1]) $asset['content'] = '';
+}
+unset($asset);
 $byTarget = array_column($retired, null, 'target_path');
-if (!EmptyStylesheets::isEmpty($byTarget[$paths[1]])) throw new RuntimeException('Evidence retirement must empty the page-specific part.');
+if (!EmptyStylesheets::isEmpty($byTarget[$paths[1]])) throw new RuntimeException('The page-specific part must be empty.');
 $writes = (new ThemeAssetWrites())->writes($retired, $references);
 $result = EmptyStylesheets::elide($retired, array('pages' => $pages), $pages, array(), '', $writes);
 $kept = array_column($result['assets'], null, 'target_path');

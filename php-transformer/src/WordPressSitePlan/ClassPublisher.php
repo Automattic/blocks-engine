@@ -1,0 +1,886 @@
+<?php
+declare(strict_types=1);
+
+namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
+
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use InvalidArgumentException;
+
+/**
+ * The publish step: engine vocabulary leaves the plan in the theme's own names.
+ *
+ * Engine stages name their class hooks in an internal vocabulary
+ * (`blocks-engine-*`, `be-*`) and recognize them by prefix. That vocabulary is
+ * a protocol between stages, not something the site owner should inherit. Once
+ * a site plan is complete, and only when the caller supplies a class namespace
+ * (the theme slug), this one pass computes a single site-wide name map and
+ * applies it to everything the plan ships:
+ *
+ * - block content (pages, templates, parts, patterns, menus, archive
+ *   presentation): the block comment `className` and the rendered `class`
+ *   change together, so serialized blocks stay valid;
+ * - every delivered stylesheet and theme.json CSS, selectors only;
+ * - delivered scripts and the theme bootstrap, whose emitted runtimes receive
+ *   the map instead of matching an engine prefix.
+ *
+ * Each engine class is decided once. One no shipped stylesheet, script or
+ * runtime names is removed from content. A referenced one becomes
+ * `<namespace>-<semantic>`, the semantic part taken from a co-occurring
+ * source class, then the block's name or landmark, then its block type;
+ * collisions take `-2`, `-3`. Hooks carried by exactly the same elements
+ * share a name when doing so preserves selector specificity ordering.
+ * A class runtime declarations or document roots
+ * name is part of a contract this pass cannot see into, so it keeps its
+ * internal name. When the published plan would not validate, the plan ships
+ * unpublished with a finding instead.
+ */
+final class ClassPublisher
+{
+    public const DIAGNOSTIC = 'wordpress_site_plan_class_publish_skipped';
+
+    /** The plan key that maps each renamed engine class to its published name. */
+    public const MAP_KEY = 'published_class_names';
+
+    private const ENGINE_CLASS = '/^(?:blocks-engine-|be-)[A-Za-z0-9_-]+$/D';
+
+    /** An engine identifier read whole; `\b` in an emitted regex still bounds it. */
+    private const ENGINE_IDENT = '/(?:(?<![A-Za-z0-9_-])|(?<=\\\\b))(?:blocks-engine-|be-)[A-Za-z0-9_-]+/';
+
+    private const HTML_CLASS = '/(\sclass=")([^"]*)(")/';
+
+    /** A block delimiter or a start tag carrying a class attribute, in document order. */
+    private const MARKUP_EVENT = '/<!--\s+(\/?)wp:([a-z0-9\/-]+)(?:\s+(\{.*?\}))?\s+(\/?)-->|<([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*?\sclass="([^"]*)"/s';
+
+    private const CLASS_SELECTOR = '/\.(-?[A-Za-z_][A-Za-z0-9_-]*)/';
+
+    private const CLASS_PREDICATE = '/\[\s*class\s*[*^$|~]?=\s*(?:"([^"\\\\]*)"|\'([^\'\\\\]*)\'|([A-Za-z0-9_-]+))/';
+
+    private const LANDMARKS = array('header', 'footer', 'main', 'nav', 'aside', 'section', 'article', 'form');
+
+    private const SEMANTIC_MAX = 40;
+
+    /** Markup groups whose block content ships. */
+    private const UNIT_GROUPS = array('pages', 'template_parts', 'templates', 'synced_patterns', 'menus', 'taxonomy_entities', 'author_entities');
+
+    /**
+     * The class namespace a compile option names, as a class-name slug; null
+     * when it names none.
+     */
+    public static function namespaceSlug(mixed $value): ?string
+    {
+        if (!is_string($value)) return null;
+        $slug = self::slug($value);
+        if ('' === $slug) return null;
+        // A published name is a CSS identifier, which starts with a letter,
+        // and never reads as an engine class.
+        return 1 !== preg_match('/^[a-z]/', $slug) || 1 === preg_match(self::ENGINE_CLASS, $slug . '-x') ? 'theme-' . $slug : $slug;
+    }
+
+    /**
+     * The plan with every shipped artifact in published names, or the plan
+     * unchanged with a finding when publishing would leave it invalid.
+     *
+     * @param array<string,mixed> $plan A complete plan, without its identity.
+     * @return array<string,mixed>
+     */
+    public static function publish(array $plan, string $namespace): array
+    {
+        try {
+            $published = self::published($plan, $namespace);
+            $published['plan_identity'] = WordPressSitePlan::planIdentity($published);
+            WordPressSitePlan::assertValid($published);
+            unset($published['plan_identity']);
+            return $published;
+        } catch (InvalidArgumentException $exception) {
+            return self::skipped($plan, $exception->getMessage());
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $plan
+     * @return array<string,mixed>
+     */
+    private static function published(array $plan, string $namespace): array
+    {
+        $units = array();
+        foreach (self::UNIT_GROUPS as $group) if (is_array($plan[$group] ?? null)) $units[$group] = array_values($plan[$group]);
+        $markups = UnreferencedEngineClasses::markups($units);
+        $published = self::publishedAssetSources($plan);
+        $stylesheets = array();
+        $scripts = array();
+        foreach ($plan['assets'] as $index => $asset) {
+            if (!in_array($asset['kind'] ?? null, array('css', 'js'), true)) continue;
+            if (!is_string($asset['content'] ?? null)) {
+                if (isset($asset['payload_reference']) || is_string($asset['content_base64'] ?? null)) throw new InvalidArgumentException('A delivered stylesheet or script is not readable text, so what it names is unknown.');
+                continue;
+            }
+            if ('css' === $asset['kind']) $stylesheets[$index] = $asset['content'];
+            else $scripts[$index] = $asset['content'];
+        }
+        $writes = array_column($plan['writes'], null, 'target_path');
+        $themeJson = self::themeJson($writes['theme.json'] ?? null);
+        $themeCss = null === $themeJson ? array() : self::themeCss($themeJson);
+        $bootstrap = is_string($writes['functions.php']['payload']['data'] ?? null) ? $writes['functions.php']['payload']['data'] : '';
+
+        // What names engine classes outside block content. Each stylesheet is
+        // read on its own: an unterminated string or comment ends with its
+        // sheet instead of swallowing the sheets after it.
+        $sheets = array_merge(array_values($stylesheets), $themeCss);
+        $cssClasses = self::selectorClasses($sheets);
+        $runtimeText = $bootstrap . "\n" . implode("\n", $scripts);
+        $pinned = self::idents((string) json_encode(array($plan['runtime_declarations'], $plan['runtime_records'] ?? array(), $plan['runtime_entity_records'], $plan['theme']['document_roots'] ?? array(), $plan['visual_repair'], array_column($plan['pages'], 'document_metadata'), array_column($plan['template_parts'], 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        $predicates = self::predicates(implode("\n", $sheets) . "\n" . $runtimeText);
+
+        // What block content carries.
+        $occurrences = array();
+        $order = array();
+        $taken = array();
+        $listed = array();
+        $outside = array();
+        $carriers = array();
+        $element = 0;
+        foreach ($markups as $markup) {
+            // Include block attributes as well as rendered elements: dynamic
+            // blocks may have no saved HTML. Each document has its own IDs.
+            foreach (self::classLists($markup) as $list) {
+                foreach (array_unique(self::tokens($list['value'])) as $token) $carriers[$token][] = $element;
+                ++$element;
+            }
+            foreach (self::occurrences($markup) as $occurrence) {
+                $token = $occurrence['token'];
+                $listed[$token] = true;
+                $order[$token] ??= count($order);
+                $occurrences[$token][] = $occurrence;
+            }
+            foreach (self::classLists($markup) as $list) foreach (self::tokens($list['value']) as $token) if (1 !== preg_match(self::ENGINE_CLASS, $token)) $taken[$token] = true;
+            $outside += self::idents(self::withoutClassLists($markup));
+            $pinned += self::saveOwnedClasses($markup);
+        }
+        foreach ($cssClasses as $class => $_) {
+            if (1 === preg_match(self::ENGINE_CLASS, $class)) $order[$class] ??= count($order);
+            else $taken[$class] = true;
+        }
+        foreach ($order as $token => $_) {
+            if (self::predicateNames($token, $predicates)) $pinned[$token] = true;
+        }
+        $referenced = $cssClasses + self::idents($runtimeText) + $outside + $pinned;
+        $drop = self::droppable($markups, array_diff_key($listed, $referenced));
+
+        // One name for each class that stays, in first-occurrence order. A
+        // specificity shim matches nothing by construction, whatever names it,
+        // and selectors repeat it in nearly every arm: it takes no word past
+        // the namespace (`<namespace>-c0`), so publishing adds as few bytes
+        // per occurrence as the namespace allows.
+        $map = array();
+        foreach (self::selectorShims($sheets) as $shim => $_) {
+            $base = $namespace . '-' . str_replace('-', '', substr($shim, 3));
+            $name = $base;
+            for ($suffix = 2; isset($taken[$name]); ++$suffix) $name = $base . '-' . $suffix;
+            $taken[$name] = true;
+            $map[$shim] = $name;
+        }
+        $folds = self::folds($carriers, array_diff_key($order, $drop, $pinned, $map), $sheets);
+        foreach ($order as $token => $_) {
+            if (isset($drop[$token]) || isset($pinned[$token]) || isset($map[$token])) continue;
+            $leader = $folds[$token] ?? $token;
+            if (isset($map[$leader])) {
+                $map[$token] = $map[$leader];
+                continue;
+            }
+            $semantic = isset($occurrences[$token]) ? self::semantic($occurrences[$token], $namespace) : '';
+            if ('' === $semantic) $semantic = self::internalSemantic($token, $namespace);
+            $name = $namespace . '-' . $semantic;
+            // Classes that share evidence read apart by their own role first.
+            if (isset($taken[$name])) $semantic = self::roleSemantic($semantic, self::internalSemantic($token, $namespace), $namespace);
+            $name = $namespace . '-' . $semantic;
+            for ($suffix = 2; isset($taken[$name]); ++$suffix) $name = $namespace . '-' . $semantic . '-' . $suffix;
+            $taken[$name] = true;
+            $map[$token] = $name;
+        }
+        if (array() === $map && array() === $drop) return $plan + array(self::MAP_KEY => array());
+
+        $rewrite = static fn (string $markup): string => self::renamedMarkup(UnreferencedEngineClasses::without($markup, $drop), $map);
+        $plan = self::withMarkup($plan, $markups, $rewrite);
+        foreach ($plan['assets'] as $index => $asset) {
+            if (isset($published[$asset['source_path'] ?? ''])) continue;
+            if (isset($stylesheets[$index])) $content = self::renamedSelectors($asset['content'], $map);
+            elseif (isset($scripts[$index])) $content = self::renamed($asset['content'], $map);
+            else continue;
+            if ($content !== $asset['content']) $plan['assets'][$index] = CompiledAssets::withRewrittenTextContent($asset, $content);
+        }
+        $kinds = array_column($plan['assets'], 'kind', 'target_path');
+        foreach ($plan['writes'] as $index => $write) {
+            if ('utf8' !== ($write['payload']['encoding'] ?? null) || !is_string($write['payload']['data'] ?? null)) continue;
+            $data = $write['payload']['data'];
+            $target = (string) $write['target_path'];
+            $published_data = match (true) {
+                in_array($write['kind'] ?? null, array('theme_template', 'theme_template_part'), true) => $rewrite($data),
+                'theme_asset' === ($write['kind'] ?? null) && isset($published[$write['source_path'] ?? '']) => $data,
+                'theme_asset' === ($write['kind'] ?? null) && 'css' === ($kinds[$target] ?? null) => self::renamedSelectors($data, $map),
+                'theme_asset' === ($write['kind'] ?? null) && 'js' === ($kinds[$target] ?? null) => self::renamed($data, $map),
+                'theme.json' === $target => self::publishedThemeJson($data, $map),
+                'functions.php' === $target => self::publishedBootstrap($data, $map, $namespace),
+                default => $data,
+            };
+            if ($published_data === $data) continue;
+            $plan['writes'][$index]['payload']['data'] = $published_data;
+            $plan['writes'][$index]['payload_hash'] = WordPressSitePlan::contentHash($published_data);
+        }
+        $plan = self::withIntegrity($plan);
+        $runtimeRecords = $plan['runtime_records'] ?? array();
+        $plan['pages'] = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['runtime_entity_records']);
+        ksort($map, SORT_STRING);
+        $plan[self::MAP_KEY] = $map;
+        $plan['quality']['metrics'] = array_merge($plan['quality']['metrics'], UnreferencedEngineClasses::metrics($plan));
+        return $plan;
+    }
+
+    /**
+     * Every shipped markup rewritten, with runtime bindings re-anchored on
+     * the rewritten documents.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<string,string> $markups
+     * @param callable(string):string $rewrite
+     * @return array<string,mixed>
+     */
+    private static function withMarkup(array $plan, array $markups, callable $rewrite): array
+    {
+        $before = array();
+        $after = array();
+        $groups = array();
+        foreach ($markups as $key => $markup) {
+            [$group, $index, $field] = explode("\0", $key);
+            $groups[$group] ??= array_keys($plan[$group]);
+            $planIndex = $groups[$group][(int) $index];
+            $published = $rewrite($markup);
+            if ('archive' === $field) {
+                $plan[$group][$planIndex]['archive']['presentation_markup'] = $published;
+                continue;
+            }
+            if (is_string($plan[$group][$planIndex]['source_path'] ?? null) && 'canonical_block_markup' === $field) {
+                $before[$plan[$group][$planIndex]['source_path']] = $markup;
+                $after[$plan[$group][$planIndex]['source_path']] = $published;
+            }
+            if ($published === $markup) continue;
+            $plan[$group][$planIndex][$field] = $published;
+            if (isset($plan[$group][$planIndex]['content_hash']) && ('canonical_block_markup' === $field || !isset($plan[$group][$planIndex]['canonical_block_markup']))) $plan[$group][$planIndex]['content_hash'] = WordPressSitePlan::contentHash($published);
+        }
+        if (!self::hasMovedBindings($plan, $before, $after)) return $plan;
+        $declarations = RuntimeDeclarations::materialize($plan['runtime_declarations'], $plan['runtime_records'] ?? array());
+        $rebased = BindingAnchors::rebased($declarations, $plan['runtime_entity_records'], $before, $after, $rewrite);
+        if (null === $rebased) throw new InvalidArgumentException('A runtime binding would not survive publishing byte for byte.');
+        $factored = RuntimeDeclarations::factor($rebased['declarations']);
+        if (array() !== $factored['diagnostics']) throw new InvalidArgumentException('Re-anchored runtime declarations no longer fit the plan.');
+        $plan['runtime_declarations'] = $factored['declarations'];
+        $plan['runtime_records'] = $factored['records'];
+        $plan['runtime_entity_records'] = array() === $factored['entity_records'] ? $rebased['records'] : RuntimeEntityManifest::normalizeRecords(array_values(array_column(array_merge($rebased['records'], $factored['entity_records']), null, 'content_hash')));
+        return $plan;
+    }
+
+    /**
+     * @param array<string,mixed> $plan
+     * @param array<string,string> $before
+     * @param array<string,string> $after
+     */
+    private static function hasMovedBindings(array $plan, array $before, array $after): bool
+    {
+        $changed = array();
+        foreach ($before as $source => $markup) if ($markup !== $after[$source]) $changed[$source] = true;
+        if (array() === $changed) return false;
+        $declarations = BindingAnchors::anchoredDeclarations($plan, RuntimeDeclarations::normalizeRecords($plan['runtime_records'] ?? array()), $plan['runtime_entity_records']);
+        foreach ($declarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) {
+            foreach (is_array($entity) && is_array($entity['bindings'] ?? null) ? $entity['bindings'] : array() as $binding) {
+                if (isset($changed[$binding['source_path'] ?? ''])) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Declared integrity describes the served bytes, so it follows the
+     * published stylesheets and scripts, in the documents and the bootstrap.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,mixed>
+     */
+    private static function withIntegrity(array $plan): array
+    {
+        $integrity = new SubresourceIntegrity($plan['writes'], $plan['reference_tokens']);
+        $replacements = array();
+        foreach (array('pages', 'template_parts') as $group) {
+            $documents = $integrity->documents($plan[$group]);
+            foreach ($documents as $index => $document) foreach (array('links', 'scripts') as $kind) foreach ($plan[$group][$index]['document_metadata'][$kind] ?? array() as $row => $declaration) {
+                $old = is_array($declaration) ? ($declaration['integrity'] ?? null) : null;
+                $new = $document['document_metadata'][$kind][$row]['integrity'] ?? null;
+                if (is_string($old) && is_string($new) && $old !== $new) $replacements[$old] = $new;
+            }
+            $plan[$group] = $documents;
+        }
+        if (array() === $replacements) return $plan;
+        foreach ($plan['writes'] as $index => $write) {
+            if ('functions.php' !== ($write['target_path'] ?? null) || !is_string($write['payload']['data'] ?? null)) continue;
+            $data = strtr($write['payload']['data'], $replacements);
+            $plan['writes'][$index]['payload']['data'] = $data;
+            $plan['writes'][$index]['payload_hash'] = WordPressSitePlan::contentHash($data);
+        }
+        return $plan;
+    }
+
+    /**
+     * Assets an asset publication declaration pins by content hash.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,true>
+     */
+    private static function publishedAssetSources(array $plan): array
+    {
+        $sources = array();
+        foreach (RuntimeDeclarations::materialize($plan['runtime_declarations'], $plan['runtime_records'] ?? array()) as $declaration) {
+            if ('asset_publication' === ($declaration['kind'] ?? null) && is_string($declaration['source_path'] ?? null)) $sources[$declaration['source_path']] = true;
+        }
+        return $sources;
+    }
+
+    /**
+     * Every engine class in a class list, with the semantic evidence of the
+     * element and block that carry it.
+     *
+     * @return list<array{token:string,level:int,semantic:string}>
+     */
+    private static function occurrences(string $markup): array
+    {
+        if (!preg_match_all(self::MARKUP_EVENT, $markup, $events, PREG_SET_ORDER)) return array();
+        $stack = array();
+        $occurrences = array();
+        foreach ($events as $event) {
+            if ('' !== ($event[2] ?? '')) {
+                if ('/' === $event[1]) {
+                    array_pop($stack);
+                    continue;
+                }
+                $attributes = json_decode($event[3] ?? '', true);
+                $attributes = is_array($attributes) ? $attributes : array();
+                $block = array('name' => $event[2], 'attributes' => $attributes);
+                foreach (array('className', 'class') as $key) {
+                    if (is_string($attributes[$key] ?? null)) array_push($occurrences, ...self::listOccurrences($attributes[$key], $block, null));
+                }
+                if ('/' !== ($event[4] ?? '')) $stack[] = $block;
+                continue;
+            }
+            $block = end($stack);
+            array_push($occurrences, ...self::listOccurrences(html_entity_decode($event[6], ENT_QUOTES | ENT_HTML5), false === $block ? null : $block, strtolower($event[5])));
+        }
+        return $occurrences;
+    }
+
+    /**
+     * Engine classes a non-core block's save() writes on its own elements
+     * without reading them from a block attribute.
+     *
+     * Core blocks derive their saved classes from attributes this pass
+     * rewrites alongside the HTML. A generated or third-party block's save()
+     * is code the plan does not carry: a class its saved HTML holds that no
+     * `className`/`class` attribute of that block supplies is a literal in
+     * that code. Renaming or dropping it in content alone would make the
+     * stored markup disagree with save(), so it keeps its name.
+     *
+     * @return array<string,true>
+     */
+    private static function saveOwnedClasses(string $markup): array
+    {
+        if (!preg_match_all(self::MARKUP_EVENT, $markup, $events, PREG_SET_ORDER)) return array();
+        $stack = array();
+        $owned = array();
+        foreach ($events as $event) {
+            if ('' !== ($event[2] ?? '')) {
+                if ('/' === $event[1]) {
+                    array_pop($stack);
+                    continue;
+                }
+                if ('/' === ($event[4] ?? '')) continue;
+                $supplied = array();
+                foreach (BlockCommentClasses::values($event[0]) as $value) foreach (self::tokens($value) as $token) $supplied[$token] = true;
+                $stack[] = array('core' => !str_contains($event[2], '/') || str_starts_with($event[2], 'core/'), 'supplied' => $supplied);
+                continue;
+            }
+            $block = end($stack);
+            if (false === $block || $block['core']) continue;
+            foreach (self::tokens(html_entity_decode($event[6], ENT_QUOTES | ENT_HTML5)) as $token) {
+                if (1 === preg_match(self::ENGINE_CLASS, $token) && !isset($block['supplied'][$token])) $owned[$token] = true;
+            }
+        }
+        return $owned;
+    }
+
+    /**
+     * @param array{name:string,attributes:array<string,mixed>}|null $block
+     * @return list<array{token:string,level:int,semantic:string}>
+     */
+    private static function listOccurrences(string $value, ?array $block, ?string $tag): array
+    {
+        $tokens = self::tokens($value);
+        $engine = array_values(array_filter($tokens, static fn (string $token): bool => 1 === preg_match(self::ENGINE_CLASS, $token)));
+        if (array() === $engine) return array();
+        $candidates = array();
+        foreach ($tokens as $token) {
+            if (1 === preg_match(self::ENGINE_CLASS, $token) || 1 === preg_match('/^(?:wp-|has-|is-|align(?:left|right|center|wide|full)$)/', $token)) continue;
+            $candidates[] = array(0, $token);
+            break;
+        }
+        $name = $block['attributes']['metadata']['name'] ?? null;
+        if (is_string($name)) $candidates[] = array(1, $name);
+        $landmark = is_string($block['attributes']['tagName'] ?? null) ? strtolower($block['attributes']['tagName']) : $tag;
+        if (in_array($landmark, self::LANDMARKS, true)) $candidates[] = array(1, (string) $landmark);
+        if (null !== $block) $candidates[] = array(2, substr($block['name'], (int) strrpos('/' . $block['name'], '/')));
+        $level = 3;
+        $semantic = '';
+        foreach ($candidates as [$candidateLevel, $candidate]) {
+            $slug = self::slug($candidate);
+            if ('' === $slug) continue;
+            $level = $candidateLevel;
+            $semantic = $slug;
+            break;
+        }
+        return array_map(static fn (string $token): array => array('token' => $token, 'level' => $level, 'semantic' => $semantic), $engine);
+    }
+
+    /**
+     * The semantic a class's occurrences agree on: the strongest evidence,
+     * then the most frequent, then the first.
+     *
+     * @param list<array{token:string,level:int,semantic:string}> $occurrences
+     */
+    private static function semantic(array $occurrences, string $namespace): string
+    {
+        $best = min(array_column($occurrences, 'level'));
+        $counts = array();
+        foreach ($occurrences as $occurrence) if ($best === $occurrence['level'] && '' !== $occurrence['semantic']) $counts[$occurrence['semantic']] = ($counts[$occurrence['semantic']] ?? 0) + 1;
+        if (array() === $counts) return '';
+        $top = max($counts);
+        foreach ($counts as $semantic => $count) if ($top === $count) return self::bounded((string) $semantic, $namespace);
+        return '';
+    }
+
+    /** Evidence qualified by the role an engine class names, without repeating words. */
+    private static function roleSemantic(string $semantic, string $role, string $namespace): string
+    {
+        $words = explode('-', $semantic);
+        $extra = array_values(array_filter(explode('-', $role), static fn (string $word): bool => !in_array($word, $words, true) && !in_array($word, array('native', 'navigation', 'style'), true)));
+        return array() === $extra ? $semantic : self::bounded($semantic . '-' . implode('-', $extra), $namespace);
+    }
+
+    /** A class only stylesheets or runtimes name reads as what it is for. */
+    private static function internalSemantic(string $token, string $namespace): string
+    {
+        $parts = explode('-', (string) preg_replace('/^(?:blocks-engine-|be-)/', '', $token));
+        $parts = array_filter($parts, static fn (string $part): bool => '' !== $part && 1 !== preg_match('/^(?:\d+|[a-f0-9]{8,})$/', $part));
+        $semantic = self::bounded(self::slug(implode('-', $parts)), $namespace);
+        return '' === $semantic ? 'style' : $semantic;
+    }
+
+    private static function bounded(string $semantic, string $namespace): string
+    {
+        if (str_starts_with($semantic, $namespace . '-')) $semantic = substr($semantic, strlen($namespace) + 1);
+        if (strlen($semantic) > self::SEMANTIC_MAX) $semantic = rtrim(substr($semantic, 0, self::SEMANTIC_MAX), '-');
+        return $semantic;
+    }
+
+    private static function slug(string $value): string
+    {
+        return trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($value)), '-');
+    }
+
+    /**
+     * Unreferenced classes whose removal leaves every carrier at least one
+     * class: an emptied class attribute could change what matches it.
+     *
+     * @param array<string,string> $markups
+     * @param array<string,true> $candidates
+     * @return array<string,true>
+     */
+    private static function droppable(array $markups, array $candidates): array
+    {
+        if (array() === $candidates) return array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all(self::HTML_CLASS, $markup, $matches)) continue;
+            foreach ($matches[2] as $value) {
+                $tokens = self::tokens(html_entity_decode($value, ENT_QUOTES | ENT_HTML5));
+                if (array() !== $tokens && array() === array_diff($tokens, array_keys($candidates))) foreach ($tokens as $token) unset($candidates[$token]);
+            }
+        }
+        return $candidates;
+    }
+
+    /** @param list<string> $predicates */
+    private static function predicateNames(string $token, array $predicates): bool
+    {
+        foreach ($predicates as $predicate) if (str_contains($token, $predicate) || str_contains($predicate, $token)) return true;
+        return false;
+    }
+
+    /** @return list<string> Values class attribute predicates test. */
+    private static function predicates(string $text): array
+    {
+        if (!str_contains($text, 'class') || !preg_match_all(self::CLASS_PREDICATE, $text, $matches, PREG_SET_ORDER)) return array();
+        $values = array();
+        foreach ($matches as $match) {
+            $value = ($match[1] ?? '') . ($match[2] ?? '') . ($match[3] ?? '');
+            if ('' !== trim($value)) $values[$value] = true;
+        }
+        // Numeric-string keys become ints; restore strings for str_contains().
+        return array_map('strval', array_keys($values));
+    }
+
+    /** @return array<string,true> */
+    private static function idents(string $text): array
+    {
+        return preg_match_all(self::ENGINE_IDENT, $text, $matches) ? array_fill_keys($matches[0], true) : array();
+    }
+
+    /**
+     * Equal carrier vectors mean equal membership in every shipped document.
+     * Missing carriers never fold (CSS-only and runtime-only hooks included).
+     *
+     * @param array<string,list<int>> $carriers
+     * @param array<string,int> $eligible
+     * @return array<string,string>
+     */
+    private static function folds(array $carriers, array $eligible, array $sheets): array
+    {
+        $groups = array();
+        foreach ($eligible as $token => $_) {
+            if (isset($carriers[$token])) $groups[implode(',', $carriers[$token])][] = $token;
+        }
+        $folds = array();
+        foreach ($groups as $tokens) {
+            if (count($tokens) < 2) continue;
+            $candidate = array_fill_keys($tokens, $tokens[0]);
+            if (self::foldPreservesCascade($sheets, $folds + $candidate)) $folds += $candidate;
+        }
+        return $folds;
+    }
+
+    /**
+     * A conservative cascade proof: if any selector loses weight, require its
+     * ordering against every other selector to stay unchanged. Comparing even
+     * disjoint rules/properties/conditions is deliberate: we need no assumptions
+     * about runtime state, shorthand expansion, layers or stylesheet order.
+     * Unknown selector syntax vetoes a specificity-changing fold, not publishing.
+     *
+     * @param list<string> $sheets
+     * @param array<string,string> $map
+     */
+    private static function foldPreservesCascade(array $sheets, array $map): bool
+    {
+        $weights = array();
+        $changed = false;
+        $prelude = '';
+        foreach ($sheets as $sheet) foreach (self::cssPieces($sheet) as $piece) {
+            if ('{' === $piece) {
+                if (!str_starts_with(ltrim($prelude), '@')) {
+                    foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
+                        $after = self::renamedPrelude($selector, $map);
+                        $beforeParsed = CssSelectorMatcher::parse(trim($selector));
+                        $afterParsed = CssSelectorMatcher::parse(trim($after));
+                        $known = $beforeParsed['supported'] && $afterParsed['supported'];
+                        $before = $known ? CssSelectorMatcher::specificity($beforeParsed) : null;
+                        $afterWeight = $known ? CssSelectorMatcher::specificity($afterParsed) : null;
+                        $weights[] = array($before, $afterWeight);
+                        if (preg_match_all(self::CLASS_SELECTOR, $after) < preg_match_all(self::CLASS_SELECTOR, $selector) && (!$known || $before !== $afterWeight)) $changed = true;
+                    }
+                }
+                $prelude = '';
+            } elseif ('}' === $piece || ';' === $piece) {
+                $prelude = '';
+            } else {
+                $prelude .= $piece;
+            }
+        }
+        if (!$changed) return true;
+        foreach ($weights as [$before, $after]) {
+            if (null === $before) return false;
+            if ($before === $after) continue;
+            foreach ($weights as [$otherBefore, $otherAfter]) {
+                if (null === $otherBefore || ($before <=> $otherBefore) !== ($after <=> $otherAfter)) return false;
+            }
+        }
+        return true;
+    }
+
+    /** @param array<string,string> $map */
+    private static function renamedMarkup(string $markup, array $map): string
+    {
+        $markup = BlockCommentClasses::rewrite($markup, static fn (string $value): string => implode(' ', array_unique(self::tokens(self::renamed($value, $map)))));
+        $markup = self::renamed($markup, $map);
+        return preg_replace_callback(self::HTML_CLASS, static fn (array $match): string => $match[1] . implode(' ', array_unique(self::tokens($match[2]))) . $match[3], $markup) ?? $markup;
+    }
+
+    /**
+     * Only collapse different original tokens mapped to the same class within
+     * one compound. Combinators and functional pseudo boundaries reset the set;
+     * strings, comments and attribute predicates are opaque.
+     *
+     * @param array<string,string> $map
+     */
+    private static function renamedPrelude(string $prelude, array $map): string
+    {
+        // An escape is one opaque unit: `\"` opens no string and `\(` no boundary.
+        $pieces = preg_split('~(\\\\[\\s\\S]|/\\*.*?\\*/|"(?:[^"\\\\]++|\\\\.)*+"|\'(?:[^\'\\\\]++|\\\\.)*+\'|\\[[^\\]]*\\]|[\\s>+\~,()]+)~s', $prelude, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (false === $pieces) throw new InvalidArgumentException('A selector could not be read to publish its classes.');
+        $seen = array();
+        $result = '';
+        foreach ($pieces as $piece) {
+            if (1 === preg_match('/^[\\s>+~,()]/', $piece)) {
+                $seen = array();
+                $result .= $piece;
+            } elseif (str_starts_with($piece, '/*') || in_array($piece[0] ?? '', array('"', "'", '[', '\\'), true)) {
+                $result .= $piece;
+            } else {
+                $result .= preg_replace_callback(self::CLASS_SELECTOR, static function (array $match) use ($map, &$seen): string {
+                    $token = $match[1];
+                    if (!isset($map[$token])) return $match[0];
+                    $name = $map[$token];
+                    if (isset($seen[$name]) && $seen[$name] !== $token) return '';
+                    $seen[$name] = $token;
+                    return '.' . $name;
+                }, $piece) ?? $piece;
+            }
+        }
+        return $result;
+    }
+
+    /** @param array<string,string> $map */
+    private static function renamed(string $text, array $map): string
+    {
+        if (array() === $map) return $text;
+        return preg_replace_callback(self::ENGINE_IDENT, static fn (array $match): string => $map[$match[0]] ?? $match[0], $text) ?? $text;
+    }
+
+    /**
+     * Class selectors renamed in each rule prelude; declarations, strings
+     * and comments keep their bytes.
+     *
+     * @param array<string,string> $map
+     */
+    public static function renamedSelectors(string $css, array $map): string
+    {
+        if (array() === $map || (!str_contains($css, 'blocks-engine-') && !str_contains($css, 'be-'))) return $css;
+        $published = '';
+        $prelude = '';
+        foreach (self::cssPieces($css) as $piece) {
+            if ('{' === $piece) {
+                $prelude = self::renamedPrelude($prelude, $map);
+                // A type or id shim is no class selector, but its name is engine vocabulary too.
+                $published .= preg_replace_callback(self::shimPattern(), static fn (array $match): string => $map[$match[0]] ?? $match[0], $prelude) . '{';
+                $prelude = '';
+            } elseif ('}' === $piece || ';' === $piece) {
+                $published .= $prelude . $piece;
+                $prelude = '';
+            } else {
+                $prelude .= $piece;
+            }
+        }
+        return $published . $prelude;
+    }
+
+    /**
+     * @param list<string> $sheets
+     * @return array<string,true> Every class a rule prelude in `$sheets` names, outside its strings and comments.
+     */
+    private static function selectorClasses(array $sheets): array
+    {
+        $classes = array();
+        $prelude = '';
+        foreach ($sheets as $sheet) foreach (self::cssPieces($sheet) as $piece) {
+            if ('{' === $piece) {
+                if (preg_match_all(self::CLASS_SELECTOR, $prelude, $matches)) foreach ($matches[1] as $class) $classes[$class] = true;
+                $prelude = '';
+            } elseif ('}' === $piece || ';' === $piece) {
+                $prelude = '';
+            } elseif (!self::isOpaquePiece($piece)) {
+                $prelude .= $piece;
+            }
+        }
+        return $classes;
+    }
+
+    /**
+     * @param list<string> $sheets
+     * @return array<string,true> Every specificity shim a rule prelude in `$sheets` names, as a class, type or id.
+     */
+    private static function selectorShims(array $sheets): array
+    {
+        $shims = array();
+        $prelude = '';
+        foreach ($sheets as $sheet) foreach (self::cssPieces($sheet) as $piece) {
+            if ('{' === $piece) {
+                if (preg_match_all(self::shimPattern(), $prelude, $matches)) foreach ($matches[0] as $shim) $shims[$shim] = true;
+                $prelude = '';
+            } elseif ('}' === $piece || ';' === $piece) {
+                $prelude = '';
+            } else {
+                $prelude .= $piece;
+            }
+        }
+        return $shims;
+    }
+
+    private static function shimPattern(): string
+    {
+        return '/(?<![A-Za-z0-9_-])' . EngineMarker::specificityPatternBody() . '(?![A-Za-z0-9_-])/';
+    }
+
+    /**
+     * Text, comments, strings and structural characters, in order; the pieces
+     * concatenate to `$css`. CSS lexes them, so an escape outside a string
+     * (`[data-a=\"b\"]`, `.a\{b`) is text and never opens a string or a
+     * block, and no piece's length is bounded by a regex stack.
+     *
+     * @return list<string>
+     */
+    private static function cssPieces(string $css): array
+    {
+        $pieces = array();
+        $state = CssSyntaxScanner::state();
+        $length = strlen($css);
+        $start = 0;
+        for ($offset = 0; $offset < $length;) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{};');
+            if ($offset >= $length) break;
+            $character = $css[$offset];
+            $inert = '' !== $state['quote'] || $state['comment'];
+            if (!$inert && !$state['url'] && ('{' === $character || '}' === $character || ';' === $character)) {
+                if ($offset > $start) $pieces[] = substr($css, $start, $offset - $start);
+                $pieces[] = $character;
+                $start = ++$offset;
+                continue;
+            }
+            if (!$inert && !$state['url'] && ('"' === $character || "'" === $character || ('/' === $character && '*' === ($css[$offset + 1] ?? '')))) {
+                if ($offset > $start) $pieces[] = substr($css, $start, $offset - $start);
+                $start = $offset;
+            }
+            $offset = CssSyntaxScanner::consume($css, $offset, $state) ?? $offset + 1;
+            if ($inert && '' === $state['quote'] && !$state['comment']) {
+                $pieces[] = substr($css, $start, $offset - $start);
+                $start = $offset;
+            }
+        }
+        if ($start < $length) $pieces[] = substr($css, $start);
+        return $pieces;
+    }
+
+    /** Whether a cssPieces() piece is a string or a comment. */
+    private static function isOpaquePiece(string $piece): bool
+    {
+        return '"' === $piece[0] || "'" === $piece[0] || str_starts_with($piece, '/*');
+    }
+
+    private static function themeJson(mixed $write): ?object
+    {
+        if (!is_array($write) || !is_string($write['payload']['data'] ?? null)) return null;
+        $theme = json_decode($write['payload']['data']);
+        return $theme instanceof \stdClass ? $theme : null;
+    }
+
+    /** @return list<string> */
+    private static function themeCss(object $theme): array
+    {
+        $css = array();
+        $walk = static function (mixed $node) use (&$walk, &$css): void {
+            if (!is_object($node) && !is_array($node)) return;
+            foreach ((array) $node as $key => $value) {
+                if ('css' === $key && is_string($value)) $css[] = $value;
+                else $walk($value);
+            }
+        };
+        $walk($theme->styles ?? null);
+        return $css;
+    }
+
+    /** @param array<string,string> $map */
+    private static function publishedThemeJson(string $data, array $map): string
+    {
+        $theme = json_decode($data);
+        if (!$theme instanceof \stdClass || !isset($theme->styles)) return $data;
+        $changed = false;
+        $walk = static function (object|array $node) use (&$walk, &$changed, $map): object|array {
+            foreach ($node as $key => $value) {
+                if ('css' === $key && is_string($value)) {
+                    $published = self::renamedSelectors($value, $map);
+                    $changed = $changed || $published !== $value;
+                    $value = $published;
+                } elseif (is_object($value) || is_array($value)) {
+                    $value = $walk($value);
+                }
+                if (is_object($node)) $node->{$key} = $value;
+                else $node[$key] = $value;
+            }
+            return $node;
+        };
+        $theme->styles = $walk($theme->styles);
+        return $changed ? json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n" : $data;
+    }
+
+    /**
+     * The bootstrap in published names. Emitted runtimes that recognize an
+     * engine class by prefix or pattern test all internal hooks for the name;
+     * one that composes an engine class reads its published name.
+     *
+     * @param array<string,string> $map
+     */
+    private static function publishedBootstrap(string $php, array $map, string $namespace): string
+    {
+        $function = str_replace('-', '_', preg_match('/^[a-z]/', $namespace) ? $namespace : 'theme_' . $namespace);
+        $matchers = array_merge(InlineSvgImageRuntime::PUBLISHED_CLASS_MATCHERS, RuntimeAttributesRuntime::PUBLISHED_CLASS_MATCHERS, NavigationAnchorRuntime::PUBLISHED_CLASS_MATCHERS);
+        $rewritten = $php;
+        foreach ($matchers as $matcher => $published) $rewritten = str_replace($matcher, str_replace('__PUBLISHED__', $function, $published), $rewritten);
+        $helpers = $rewritten !== $php;
+        $rewritten = self::renamed($rewritten, $map);
+        if (!$helpers || !str_starts_with($rewritten, "<?php\n")) return $rewritten;
+        $names = var_export($map, true);
+        $source = "function {$function}_published_class_names(): array {\n    static \$names = {$names};\n    return \$names;\n}\n"
+            . "function {$function}_published_class( string \$class ): string {\n    return {$function}_published_class_names()[ \$class ] ?? \$class;\n}\n";
+        $source .= "function {$function}_has_engine_prefix( string \$class, string \$prefix ): bool {\n    foreach ( {$function}_published_class_names() as \$engine => \$published ) {\n        if ( \$class === \$published && str_starts_with( \$engine, \$prefix ) ) return true;\n    }\n    return str_starts_with( \$class, \$prefix );\n}\n"
+            . "function {$function}_matches_engine_class( string \$pattern, string \$class ): bool {\n    foreach ( {$function}_published_class_names() as \$engine => \$published ) {\n        if ( \$class === \$published && preg_match( \$pattern, \$engine ) ) return true;\n    }\n    return 1 === preg_match( \$pattern, \$class );\n}\n";
+        return "<?php\n" . $source . substr($rewritten, strlen("<?php\n"));
+    }
+
+    /**
+     * @param array<string,mixed> $plan
+     * @return array<string,mixed>
+     */
+    private static function skipped(array $plan, string $reason): array
+    {
+        $diagnostic = array('code' => self::DIAGNOSTIC, 'severity' => 'warning', 'message' => 'Engine classes keep their internal names: ' . $reason, 'source' => self::class);
+        $plan['diagnostics'][] = $diagnostic;
+        $plan['reporting']['diagnostic_codes'][] = self::DIAGNOSTIC;
+        $plan['quality']['status'] = UnitFindings::status($plan['quality']['status'], array($diagnostic));
+        return $plan;
+    }
+
+    /** @return list<array{context:string,value:string}> */
+    private static function classLists(string $markup): array
+    {
+        $lists = array();
+        if (preg_match_all(self::HTML_CLASS, $markup, $matches)) foreach ($matches[2] as $value) $lists[] = array('context' => 'html', 'value' => html_entity_decode($value, ENT_QUOTES | ENT_HTML5));
+        foreach (BlockCommentClasses::values($markup) as $value) $lists[] = array('context' => 'comment', 'value' => $value);
+        return $lists;
+    }
+
+    private static function withoutClassLists(string $markup): string
+    {
+        return (string) preg_replace(self::HTML_CLASS, '', BlockCommentClasses::rewrite($markup, static fn (string $value): string => ''));
+    }
+
+    /** @return list<string> */
+    private static function tokens(string $value): array
+    {
+        return preg_split('/\s+/', trim($value), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+    }
+}

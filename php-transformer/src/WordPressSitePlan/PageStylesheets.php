@@ -96,7 +96,6 @@ final class PageStylesheets
         $linkedIndexes = array();
         $firstOccurrences = array();
         foreach ($pages as $page) {
-            if (!empty($page['document_metadata']['engine_owned_styles'])) continue;
             // The Nth stylesheet link sorts at 2N+1 and a <style> preceded by
             // N stylesheet links sorts at 2N, placing it before that link.
             $sequence = array();
@@ -136,7 +135,6 @@ final class PageStylesheets
 
         return array_values($assets);
     }
-
 
     /**
      * Every stylesheet instance names a canonical document, an order and its

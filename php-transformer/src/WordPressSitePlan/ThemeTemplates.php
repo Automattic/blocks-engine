@@ -15,6 +15,12 @@ use InvalidArgumentException;
 final class ThemeTemplates
 {
     /**
+     * The template WordPress renders a page authored after the import with,
+     * while captured pages share page.html and keep their content-owned layout.
+     */
+    public const AUTHORED_PAGE = 'authored-page';
+
+    /**
      * The generated templates without those that repeat the template
      * WordPress falls back to.
      *
@@ -97,8 +103,10 @@ final class ThemeTemplates
      * @param array<string,string> $sharedTemplateTitles
      * @return array<string,mixed>
      */
-    public static function withCustomTemplates(array $themeProjection, array $pages, array $sharedTemplateTitles): array
+    public static function withCustomTemplates(array $themeProjection, array $pages, array $sharedTemplateTitles, array $templates = array()): array
     {
+        // Authors can also assign the new-page template explicitly.
+        if (in_array(self::AUTHORED_PAGE, array_column($templates, 'slug'), true)) $themeProjection['theme']['customTemplates'][] = array('name' => self::AUTHORED_PAGE, 'title' => 'New page', 'postTypes' => array('page'));
         $registeredTemplates = array();
         foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
             $registeredTemplates[$page['route_template']] = true;
@@ -176,6 +184,31 @@ final class ThemeTemplates
         return $titles;
     }
 
+    /**
+     * Whether the captured entry page (else the first captured page) shows
+     * its own title as a heading, which a page authored later renders as its
+     * native post title.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function entryShowsTitle(array $pages): bool
+    {
+        $captured = array_values(array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? 'page')));
+        $entry = array_values(array_filter($captured, static fn(array $page): bool => !empty($page['entrypoint'])))[0] ?? $captured[0] ?? null;
+        $title = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode((string) ($entry['title'] ?? ''), ENT_QUOTES | ENT_HTML5)));
+        if ('' === $title) return false;
+        $dom = HtmlSerialization::parseDocument('<html><body>' . $entry['canonical_block_markup'] . '</body></html>');
+        foreach (array('h1', 'h2') as $tag) foreach ($dom->getElementsByTagName($tag) as $heading) {
+            if ($title === trim((string) preg_replace('/\s+/u', ' ', $heading->textContent))) return true;
+        }
+        return false;
+    }
+
+    private static function px(float $value): string
+    {
+        return round($value, 3) . 'px';
+    }
+
     /** Captured landmarks remain content-owned until shell extraction removes them. */
     public static function contentCarriesChrome(string $markup, string $area): bool
     {
@@ -194,10 +227,19 @@ final class ThemeTemplates
      * @param array<int,array<string,mixed>> $taxonomyEntities
      * @param array<string,array<string,mixed>> $frames
      * @param array<string,string> $documentChrome Shared document chrome by template slug.
+     * @param array{prose_width?:float|int|null,prose_padding?:list<float|int>|null,prose_columns?:list<array<string,mixed>>,separate?:bool} $authoredPage
+     *        The captured entry document's prose column, which pages authored
+     *        after the import render in. `separate` when captured pages other
+     *        than a lone entry page render through page.html.
      * @return array<int,array<string,mixed>>
      */
-    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array(), ?float $fallbackProseWidth = null, array $fallbackProseColumns = array(), bool $preserveParagraphMargin = false): array
+    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array(), array $authoredPage = array(), bool $preserveParagraphMargin = false): array
      {
+         $fallbackProseWidth = isset($authoredPage['prose_width']) ? (float) $authoredPage['prose_width'] : null;
+         $fallbackProsePadding = array_map('floatval', $authoredPage['prose_padding'] ?? array(0, 0));
+         $fallbackProseColumns = $authoredPage['prose_columns'] ?? array();
+         $separateAuthoredPage = !empty($authoredPage['separate']);
+         $authoredTitle = self::entryShowsTitle($pages);
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
              $priority = array('header' => 0, 'footer' => 2);
@@ -205,7 +247,7 @@ final class ThemeTemplates
          });
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages, $fallbackProseWidth, $fallbackProseColumns, $preserveParagraphMargin): string {
+         $markup = static function (string $templateSlug, bool $authored = false) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages, $fallbackProseWidth, $fallbackProsePadding, $fallbackProseColumns, $authoredTitle, $preserveParagraphMargin): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || TemplateSlugs::partAppliesToOverride($part, $templateSlug)
@@ -237,13 +279,21 @@ final class ThemeTemplates
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
              }
-            // A lone captured entry page owns its bespoke layout in content.
-            // New pages use its prose column, not its full-width app shell.
-            if ('page' === $templateSlug && null !== $fallbackProseWidth && '<!-- wp:post-content /-->' === $content) {
-                $attrs = json_encode(array('layout' => array('type' => 'constrained', 'contentSize' => $fallbackProseWidth . 'px')), JSON_UNESCAPED_SLASHES);
-                $content = '<!-- wp:group ' . $attrs . ' --><div class="wp-block-group"><!-- wp:post-content {"layout":{"type":"constrained"}} /--></div><!-- /wp:group -->';
+            // Captured pages own their bespoke layout, title included, in
+            // content. New pages use the entry's prose column, not its
+            // full-width app shell, and show their own title where the entry
+            // shows its title as a heading.
+            $title = $authored && $authoredTitle ? '<!-- wp:post-title {"level":1} /-->' : '';
+            if ($authored && null !== $fallbackProseWidth && '<!-- wp:post-content /-->' === $content) {
+                $layout = array('layout' => array('type' => 'constrained', 'contentSize' => self::px($fallbackProseWidth)));
+                $style = '';
+                if ($fallbackProsePadding[0] > 0 || $fallbackProsePadding[1] > 0) {
+                    $layout = array('style' => array('spacing' => array('padding' => array('left' => self::px($fallbackProsePadding[0]), 'right' => self::px($fallbackProsePadding[1]))))) + $layout;
+                    $style = ' style="padding-right:' . self::px($fallbackProsePadding[1]) . ';padding-left:' . self::px($fallbackProsePadding[0]) . '"';
+                }
+                $content = '<!-- wp:group ' . json_encode($layout, JSON_UNESCAPED_SLASHES) . ' --><div class="wp-block-group"' . $style . '>' . $title . '<!-- wp:post-content {"layout":{"type":"constrained"}} /--></div><!-- /wp:group -->';
             }
-            if ('page' === $templateSlug && array() !== $fallbackProseColumns && !isset($postTemplates['page'])) {
+            if ($authored && array() !== $fallbackProseColumns && !isset($postTemplates['page'])) {
                 usort($fallbackProseColumns, static fn(array $a, array $b): int => $a['viewport'] <=> $b['viewport']);
                 $first = $fallbackProseColumns[0];
                 $last = $fallbackProseColumns[count($fallbackProseColumns) - 1];
@@ -256,7 +306,7 @@ final class ThemeTemplates
                 $left = $margin($first['left'], $last['left']);
                 $right = $margin($first['viewport'] - $first['left'] - $first['width'], $last['viewport'] - $last['left'] - $last['width']);
                 $attrs = json_encode(array('layout' => array('type' => 'default'), 'style' => array('spacing' => array('margin' => array('left' => $left, 'right' => $right)))), JSON_UNESCAPED_SLASHES);
-                $content = '<!-- wp:group ' . $attrs . ' --><div class="wp-block-group" style="margin-right:' . $right . ';margin-left:' . $left . '"><!-- wp:post-content {"layout":{"type":"default"}} /--></div><!-- /wp:group -->';
+                $content = '<!-- wp:group ' . $attrs . ' --><div class="wp-block-group" style="margin-right:' . $right . ';margin-left:' . $left . '">' . $title . '<!-- wp:post-content {"layout":{"type":"default"}} /--></div><!-- /wp:group -->';
             }
             if ($hasCommentForm && !str_contains($content, '<!-- wp:post-comments-form') && ('single' === $templateSlug || str_starts_with($templateSlug, 'single-'))) {
                 $content .= "\n" . '<!-- wp:comments --><div class="wp-block-comments"><!-- wp:post-comments-form /--></div><!-- /wp:comments -->';
@@ -278,7 +328,10 @@ final class ThemeTemplates
          $templates[] = $make('single', 'templates/single.html', $markup('single'));
          $templates[] = $make('archive', 'templates/archive.html', $markup('archive'));
          $templates[] = $make('404', 'templates/404.html', $markup('404'));
-        if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
+        if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page', !$separateAuthoredPage));
+        // Captured pages share page.html, so pages authored after the import
+        // render through their own template (ThemeBootstrap selects it).
+        if ( array() !== $pages && $separateAuthoredPage && ($authoredMarkup = $markup('page', true)) !== $markup('page') ) $templates[] = $make(self::AUTHORED_PAGE, 'templates/' . self::AUTHORED_PAGE . '.html', $authoredMarkup);
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(TemplateSlugs::overrides($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
         foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
@@ -286,19 +339,20 @@ final class ThemeTemplates
         $overrides = array_intersect_key($overrides, $liveOverrides);
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) {
-            if (!isset($documentChrome[$template['slug']])) continue;
+            $lifecycle = self::AUTHORED_PAGE === $template['slug'] ? 'page' : $template['slug'];
+            if (!isset($documentChrome[$lifecycle])) continue;
             // Document chrome frames the post content (leading and trailing side
             // regions around the slot), so it replaces the template's own slot and
             // keeps that slot's attributes. A template without a slot keeps the
             // chrome after its markup.
-            $chrome = $documentChrome[$template['slug']];
+            $chrome = $documentChrome[$lifecycle];
             $framed = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $slot): string => str_replace('<!-- wp:post-content /-->', $slot[0], $chrome), $template['canonical_block_markup'], 1, $count);
             $template['canonical_block_markup'] = 1 === $count ? (string) $framed : $template['canonical_block_markup'] . "\n" . $chrome;
             $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
         }
         unset($template);
         $templates = self::withoutRedundant($templates, $pages);
-        foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
+        foreach ($templates as &$template) if (isset($frames[$lifecycle = self::AUTHORED_PAGE === $template['slug'] ? 'page' : $template['slug']])) $template['shell_frame'] = $frames[$lifecycle]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
          $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));
          foreach ($surfaces as $surface) {
@@ -374,6 +428,8 @@ final class ThemeTemplates
         }
         if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
         if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (isset($entity['archive']) && in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((TemplateSlugs::forArchive($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
+        // The new-page template renders the page lifecycle's chrome.
+        if (in_array('page', $boundTemplates, true)) $boundTemplates[] = self::AUTHORED_PAGE;
         foreach ( $plan['templates'] as $template ) {
             $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
             // An inline shell is bound where it sits, so a template that

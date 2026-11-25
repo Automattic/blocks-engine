@@ -1,9 +1,0 @@
-:root{--space-base:1em;--type-base:calc(1.6em + 0.5vw);--type-medium:90%;--type-large:125%}
-@media (min-width: 48em){:root{--type-base:calc(1.3em + 0.9vw)}}
-@media (min-width: 90em){:root{--type-base:2.7em}}
-html{font-size:10px;line-height:1.5em;margin:0;padding:0}
-body{margin:0;padding:0;font-size:var(--type-base)}
-h1{margin-bottom:1rem;line-height:1.1}
-h2{margin:var(--space-base) 0;font-size:var(--type-large)}
-p{font-size:var(--type-medium);margin:0 0 var(--space-base) 0;line-height:1.7}
-.container{max-width:95rem;padding:2rem 1.5rem;margin-left:auto;margin-right:auto}

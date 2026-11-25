@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -635,6 +636,9 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
+                if ( 'control' === $role && self::isWrappedFieldControl($element) ) {
+                    $matched = self::withoutParentSlotMargins($matched);
+                }
                 if ('control' === $role && $element->parentNode instanceof DOMElement
                     && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
                     $parent = $this->matched($element->parentNode, $analysis['rules']);
@@ -1648,6 +1652,82 @@ final class FormPresentationGraphBuilder
             'diagnostics' => $diagnostics,
         );
         return $result;
+    }
+
+    /**
+     * Whether a provider renders this control inside its own field wrapper:
+     * a native input, select or textarea. Buttons become core/button and
+     * hidden-native painters keep their own box, so they are not wrapped.
+     */
+    private static function isWrappedFieldControl(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( 'select' === $tag || 'textarea' === $tag ) {
+            return true;
+        }
+        return 'input' === $tag && ! in_array(strtolower(trim($element->getAttribute('type'))), array( 'submit', 'button', 'reset', 'image', 'hidden' ), true);
+    }
+
+    /**
+     * Drop margins a parent assigns to its child slots (`.stack > *`,
+     * Tailwind v4's `:where(.space-y-4 > :not(:last-child))`).
+     *
+     * Such a margin belongs to whatever box occupies the slot, not to the
+     * control. The materialized container keeps the parent's classes, and a
+     * provider puts its field wrapper in that slot, so the author stylesheet
+     * already spaces the wrapper. Carrying the margin on the control too
+     * added the same spacing a second time inside every field.
+     *
+     * @param array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} $matched
+     * @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}
+     */
+    private static function withoutParentSlotMargins(array $matched): array
+    {
+        $filter = static function (array $facts): array {
+            foreach ( $facts as $property => $fact ) {
+                if ( str_starts_with((string) $property, 'margin') && self::isParentSlotSelector((string) ($fact['selector'] ?? '')) ) {
+                    unset($facts[$property]);
+                }
+            }
+            return $facts;
+        };
+        $matched['base'] = $filter($matched['base']);
+        foreach ( $matched['conditional'] as $encoded => $facts ) {
+            $matched['conditional'][$encoded] = $filter($facts);
+        }
+        return $matched;
+    }
+
+    /**
+     * Whether a complex selector reaches its subject through a child
+     * combinator and the subject compound names no type, class, id or
+     * attribute of its own: it selects a parent's child slot, whatever fills
+     * it. A single top-level `:where()`/`:is()` wrapper is looked through.
+     */
+    private static function isParentSlotSelector(string $selector): bool
+    {
+        $selector = trim($selector);
+        while ( 1 === preg_match('/^:(?:where|is)\((.*)\)$/Dis', $selector, $match) ) {
+            $inner = trim($match[1]);
+            $tokens = CssSelectorTokenizer::tokenize($inner);
+            if ( ! $tokens['supported'] ) {
+                // `:is(a, b)` or unbalanced parentheses: not a single wrapper.
+                return false;
+            }
+            $selector = $inner;
+        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if ( ! $tokens['supported'] || array() === $tokens['combinators'] || '>' !== $tokens['combinators'][count($tokens['combinators']) - 1] ) {
+            return false;
+        }
+        $subject = $tokens['rightmost_compound'];
+        // Functional pseudo-class arguments (`:not(:last-child)`) do not name
+        // the subject; only its top-level simple selectors do.
+        do {
+            $subject = preg_replace('/\([^()]*\)/', '', (string) $subject, -1, $count);
+        } while ( $count > 0 );
+        $subject = preg_replace('/^\*/', '', (string) $subject);
+        return 1 !== preg_match('/[.#\[]|^[A-Za-z_\\-]|::/', (string) $subject);
     }
 
     /** Hits of the per-builder {@see matched()} memo, for regression tests. */

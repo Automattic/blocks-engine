@@ -316,11 +316,25 @@ final class AuthorSelectorProjectionState
     public function selectsRestingNavigationState(string $selector): bool
     {
         if (array() === $this->restingNavigationClasses || $this->selectsCurrentNavigationState($selector)) return false;
-        preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
+        preg_match_all('/\.((?:\\\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
             if (isset($this->restingNavigationClasses[stripslashes($class)])) return true;
         }
         return false;
+    }
+
+    /** @var array<string,true> */
+    private array $additiveCurrentNavigationClasses = array();
+
+    /** @param list<string> $classes */
+    public function markAdditiveCurrentNavigationClasses(array $classes): void
+    {
+        foreach ($classes as $class) $this->additiveCurrentNavigationClasses[$class] = true;
+    }
+
+    public function isAdditiveCurrentNavigationClass(string $class): bool
+    {
+        return isset($this->additiveCurrentNavigationClasses[$class]);
     }
 
     public function isCurrentNavigationClass(string $class, ?DOMElement $element = null): bool
@@ -339,11 +353,40 @@ final class AuthorSelectorProjectionState
             || 1 === preg_match('/(?:^|\s)(?:current-menu-item|current_page_item|current-menu-ancestor|current-menu-parent|current_page_parent|current_page_ancestor)(?:\s|$)/', $element->getAttribute('class'));
     }
 
+    /** @var array<string, array{current:?string, rest:?string}> */
+    private array $currentNavigationAttributes = array();
+
+    /**
+     * @param array<string,mixed> $current
+     * @param array<string,mixed> $rest
+     */
+    public function markCurrentNavigationAttributes(array $current, array $rest): void
+    {
+        foreach ($current as $name => $value) {
+            if (!str_starts_with($name, 'data-') || str_starts_with($name, 'data-blocks-engine-') || null === $value) continue;
+            $this->currentNavigationAttributes[$name] = array('current' => (string) $value, 'rest' => $rest[$name] ?? null);
+        }
+    }
+
+    /** Remove only proven current data predicates when finding runtime navigation subjects. */
+    public function withoutCurrentNavigationAttributes(string $selector): string
+    {
+        return preg_replace_callback('/\[\s*(data-[a-z0-9_-]+)[^\]]*\]/i', fn(array $match): string => isset($this->currentNavigationAttributes[strtolower($match[1])]) && $this->selectsCurrentNavigationState($match[0]) ? '' : $match[0], $selector) ?? $selector;
+    }
+
     /** Whether a selector addresses the served route's current-item state. */
     public function selectsCurrentNavigationState(string $selector, ?DOMElement $element = null): bool
     {
+        foreach ($this->currentNavigationAttributes as $name => $state) {
+            preg_match_all('/\[\s*' . preg_quote($name, '/') . '\s*(?:=\s*["\']?([^"\'\]\\s]+)["\']?\s*)?\]/i', $selector, $attributes, PREG_SET_ORDER);
+            foreach ($attributes as $attribute) {
+                if (isset($attribute[1]) ? $attribute[1] === $state['current'] : null === $state['rest']) return true;
+            }
+        }
         if (1 === preg_match('/\[\s*(?:aria-current\b|data-status\s*=\s*["\']?active\b)/i', $selector)) return true;
-        preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
+        // Match a CSS escape, not any character: compound selectors such as
+        // .item.is-sel name two classes, not one `item.is-sel` class.
+        preg_match_all('/\.((?:\\\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
             // Recognize class-only router state before a captured current item
             // has been visited. Otherwise its conditional paint alone creates
@@ -372,7 +415,15 @@ final class AuthorSelectorProjectionState
         // A URL-less section toggle is current through its item, which the
         // runtime marks current-menu-item; its own submenu's items are not.
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
+            $labelOffset = strpos($subject, ' .wp-block-navigation-item__label');
+            if (false !== $labelOffset) {
+                return self::currentNavigationSubject(substr($subject, 0, $labelOffset)) . substr($subject, $labelOffset);
+            }
             return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item :is(.wp-block-navigation-item__content[aria-current="page"],:where(.wp-block-navigation-submenu.current-menu-item>.wp-block-navigation-item__content,.wp-block-navigation-submenu.current-menu-item>:not(.wp-block-navigation__submenu-container) .wp-block-navigation-item__content))', $subject, 1);
+        }
+        if (str_contains($subject, ' .wp-block-navigation-item__label') && !str_contains($subject, ' .wp-block-navigation-item:')) {
+            $anchor = str_replace(' .wp-block-navigation-item__label', ' .wp-block-navigation-item .wp-block-navigation-item__content', $subject);
+            return self::currentNavigationSubject($anchor) . ' .wp-block-navigation-item__label';
         }
         // Every route's served item reaches here with its own position; the
         // runtime current link already names the item, so no position stays.
@@ -396,6 +447,37 @@ final class AuthorSelectorProjectionState
     private array $socialAnchorMarkers = array();
     /** @var array{styles: AuthorStyleAnalysis, elements: list<DOMElement>}|null */
     private ?array $socialAnchorSources = null;
+
+    /**
+     * Extra selector arms a restated wrapper fold needs (#7505): when a
+     * geometry-neutral wrapper folds and its classes and id move onto its
+     * only child, an authored selector that reached the child through the
+     * wrapper (`.col .block`) also needs the compound form (`.col.block`)
+     * to keep matching the same elements. Keyed by the authored selector,
+     * whitespace-normalized; every rule with that selector gains the arms.
+     *
+     * @var array<string, array<string, true>>
+     */
+    private array $restatedSelectorArms = array();
+
+    public function addRestatedSelectorArm(string $selector, string $arm): void
+    {
+        $this->restatedSelectorArms[self::restatedSelectorKey($selector)][trim($arm)] = true;
+    }
+
+    /** @return list<string> */
+    public function restatedSelectorArms(string $selector): array
+    {
+        if ( array() === $this->restatedSelectorArms ) {
+            return array();
+        }
+        return array_keys($this->restatedSelectorArms[self::restatedSelectorKey($selector)] ?? array());
+    }
+
+    private static function restatedSelectorKey(string $selector): string
+    {
+        return (string) preg_replace('/\s+/', ' ', trim($selector));
+    }
 
     public function markConsumedCoverBackground(string $path): void
     {

@@ -638,6 +638,11 @@ final class SourceElementClassifier
     {
         $images = $element->getElementsByTagName('img');
         $image = $images->length ? $images->item(0) : null;
+        // The capture recorded which rendition the browser chose at this
+        // copy's viewport, so the sources no longer select anything.
+        if ( $image instanceof DOMElement && '' !== SourceDom::capturedPictureRendition($image) ) {
+            return false;
+        }
         $imageUrls = $image instanceof DOMElement
             ? array_unique(array_merge(
                 '' !== SourceDom::attr($image, 'src') ? array(SourceDom::attr($image, 'src')) : array(),

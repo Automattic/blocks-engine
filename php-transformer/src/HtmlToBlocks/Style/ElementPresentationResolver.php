@@ -42,5 +42,4 @@ interface ElementPresentationResolver
     public function isDisplayNoneAtEveryViewport(DOMElement $element): bool;
 
     /** On an evidence route, the carrier class restating the observed box of source markup a block saves (or of that block itself); '' otherwise. */
-    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string;
 }

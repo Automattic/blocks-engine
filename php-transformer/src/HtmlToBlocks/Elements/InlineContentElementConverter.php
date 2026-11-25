@@ -33,7 +33,8 @@ final class InlineContentElementConverter implements ElementConverter
         private readonly InlineContentElementContext $context,
         private readonly StyleResolver $styleResolver,
         private readonly Runtime $runtime,
-        private readonly SourceBlockAttributeProjector $sourceAttributes
+        private readonly SourceBlockAttributeProjector $sourceAttributes,
+        private readonly ?PositionedImageFrameLowering $imageFrames = null
     ) {
     }
 
@@ -79,6 +80,12 @@ final class InlineContentElementConverter implements ElementConverter
                 $attrs['ariaLabel'] = $label;
             }
             return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, $this->context->convertChildren($element, $fallbacks), $element));
+        }
+
+        // A ratio frame its lone image fills is that image's figure.
+        $framedImage = $this->imageFrames?->block($element);
+        if ( null !== $framedImage ) {
+            return ConversionOutcome::handled($framedImage);
         }
 
         // Captured markup can place flow content inside an inline wrapper. A

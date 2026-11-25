@@ -22,11 +22,12 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * - all shim negations fold into one, `:not(be-t-0#be-i-0.be-c-0.be-c-0)`;
  * - a class the compound names twice is named once, its second weight folded
  *   in as a class shim;
- * - inside `:where()`, which weighs nothing, shims are dropped.
- *
- * A `:where()` the engine wraps a carrier in stays as written: it is how
- * stylesheets address engine markers and role classes, so only the shims
- * beside it fold.
+ * - inside `:where()`, which weighs nothing, shims are dropped;
+ * - a shim beside a one-compound `:where()` is paid by a simple selector the
+ *   `:where()` already requires, named outside it instead:
+ *   `:where(.role.subject.x):not(.be-c-0)` is `.x:where(.role.subject)`.
+ *   The compound requires the same simple selectors, so it matches the same
+ *   elements, and the lifted selector weighs what the shim did.
  *
  * Arguments of `:is()`, `:not()` and `:where()` are compacted the same way:
  * each argument keeps its matches and weight, so the list keeps both. Every
@@ -144,6 +145,7 @@ final class CssSpecificityShimCompactor
             $kept[] = $piece;
         }
         $pieces = $kept;
+        if (!$weightless) $pieces = self::withLiftedWeight($pieces, $shims, $classes);
 
         if (array() === $pieces && array() === $shims['type'] && array() === $shims['id'] && array() === $shims['class']) return $compound;
 
@@ -162,6 +164,68 @@ final class CssSpecificityShimCompactor
         foreach ($shims['type'] as $type) $head .= ':not(' . $type . ')';
         $result = $head . $tail;
         return strlen($result) <= strlen($compound) ? $result : $compound;
+    }
+
+    /**
+     * Pays class and type shims with the classes and type a one-compound
+     * `:where()` of the same compound requires: `:where(.a.b):not(.be-c-0)`
+     * becomes `.b:where(.a)`, `:where(figure):not(be-t-0)` becomes `figure`.
+     * A class the compound already names outside is not lifted (it would
+     * weigh twice), nor a type beside another one.
+     *
+     * @param list<array{kind: string, text: string, name?: string, args?: string}> $pieces
+     * @param array{type: list<string>, id: list<string>, class: list<string>} $shims
+     * @param array<string,true> $classes
+     * @return list<array{kind: string, text: string, name?: string, args?: string}>
+     */
+    private static function withLiftedWeight(array $pieces, array &$shims, array $classes): array
+    {
+        if (array() === $shims['class'] && array() === $shims['type']) return $pieces;
+        $typed = isset($pieces[0]) && 'type' === $pieces[0]['kind'];
+        $result = array();
+        $element = false;
+        foreach ($pieces as $piece) {
+            if ('element' === $piece['kind']) $element = true;
+            if ($element || 'pseudo' !== $piece['kind'] || 'where' !== $piece['name'] || (array() === $shims['class'] && (array() === $shims['type'] || $typed))) {
+                $result[] = $piece;
+                continue;
+            }
+            $inner = self::pieces(trim((string) $piece['args']));
+            if (null === $inner || array() === $inner || in_array('element', array_column($inner, 'kind'), true)) {
+                $result[] = $piece;
+                continue;
+            }
+            // The last classes are lifted first: a carrier's own subject
+            // class follows the role classes it is scoped by.
+            $lift = array();
+            foreach (array_reverse($inner, true) as $index => $simple) {
+                if ('class' === $simple['kind'] && array() !== $shims['class'] && !isset($classes[$simple['text']])) {
+                    array_pop($shims['class']);
+                    $classes[$simple['text']] = true;
+                    $lift[$index] = true;
+                } elseif ('type' === $simple['kind'] && '*' !== $simple['text'] && !$typed && array() !== $shims['type']) {
+                    array_pop($shims['type']);
+                    $typed = true;
+                    $lift[$index] = true;
+                }
+            }
+            $lifted = array();
+            $rest = array();
+            foreach ($inner as $index => $simple) {
+                if (isset($lift[$index])) $lifted[] = $simple;
+                elseif ('type' !== $simple['kind'] || '*' !== $simple['text'] || array() === $lift) $rest[] = $simple;
+            }
+            if (array() === $lifted) {
+                $result[] = $piece;
+                continue;
+            }
+            foreach ($lifted as $simple) $result[] = $simple;
+            if (array() !== $rest) {
+                $args = implode('', array_column($rest, 'text'));
+                $result[] = array('kind' => 'pseudo', 'text' => ':where(' . $args . ')', 'name' => 'where', 'args' => $args);
+            }
+        }
+        return $result;
     }
 
     /**

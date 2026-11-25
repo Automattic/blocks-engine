@@ -1469,12 +1469,27 @@ final class CommerceFallbackReporter
         // since most grids never need it. `null` means "not computed yet";
         // `array()` means "computed and could not be resolved" (declined).
         $collectionBinding = null;
+        $cards = array();
         foreach ( $container->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
+            if ( $child instanceof DOMElement ) {
+                $cards[] = array($child, $this->recognizer->productCardData($child));
             }
-
-            $product = $this->recognizer->productCardData($child);
+        }
+        // Priced cards that qualify the grid on their own also vouch for
+        // unpriced siblings of the same card kind (see
+        // `CommerceStructureRecognizer::unpricedSiblingCardData()`). They never
+        // count toward qualifying the grid itself.
+        $priced = array_values(array_filter($cards, static fn (array $card): bool => null !== $card[1]));
+        $strong = array_filter($priced, fn (array $card): bool => $this->recognizer->isSchemaProductCard($card[0]) || null !== $this->recognizer->cartControlElement($card[0]));
+        if ( count($priced) >= 2 && ( array() !== $strong || count($priced) >= self::MIN_IMAGE_ONLY_QUALIFIED_CARDS ) ) {
+            $pricedElements = array_column($priced, 0);
+            foreach ( $cards as $index => $card ) {
+                if ( null === $card[1] ) {
+                    $cards[$index][1] = $this->recognizer->unpricedSiblingCardData($card[0], $pricedElements);
+                }
+            }
+        }
+        foreach ( $cards as [$child, $product] ) {
             if ( null !== $product ) {
                 // Internal marker consumed and stripped by the caller
                 // (`appendProductGridFallbacks()`) before this reaches a

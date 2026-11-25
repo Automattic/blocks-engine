@@ -81,9 +81,10 @@ foreach ( array( '#one', '#two' ) as $href ) {
     $link = strpos($buttonMarkup, 'href="' . $href . '"');
     $assert(false !== $link, 'the ' . $href . ' control keeps its destination', $buttonMarkup);
 }
-$assert(2 === preg_match_all('/\\.be-inline-geometry-[0-9a-f]+>\\.wp-block-button__link\\{box-shadow:inset 0 0 0 1px #383838 !important\\}/', $buttonCss), 'both controls paint the shadow on their links', $buttonCss);
+$shadowCarrier = preg_match('/\\.(be-inline-geometry-[0-9a-f]+)>\\.wp-block-button__link\\{box-shadow:inset 0 0 0 1px #383838 !important\\}/', $buttonCss, $shadowMatch) ? $shadowMatch[1] : '';
+$assert('' !== $shadowCarrier && 2 === preg_match_all('/<div class="wp-block-button [^"]*\\b' . $shadowCarrier . '\\b/', $buttonMarkup), 'both controls carry the one shared shadow rule on their links', $buttonMarkup . "\n" . $buttonCss);
 $assert(1 === preg_match('/\\.be-inline-geometry-[0-9a-f]+\\{width:180px !important\\}/', $buttonCss), 'the existing width geometry stays on its carrier', $buttonCss);
-$assert(2 === substr_count($buttonCss, 'box-shadow:inset 0 0 0 1px #383838'), 'both controls keep their shadow exactly once in the generated CSS', $buttonCss);
+$assert(1 === substr_count($buttonCss, 'box-shadow:inset 0 0 0 1px #383838'), 'the identical shadow is emitted once for both controls', $buttonCss);
 $assert('pass' === ( $buttonResult['source_reports']['wp_block_validity']['status'] ?? '' ), 'the lowered buttons remain valid', (string) json_encode($buttonResult['source_reports']['wp_block_validity'] ?? array()));
 
 // A standalone control paints its background on the link, not the carrier div.

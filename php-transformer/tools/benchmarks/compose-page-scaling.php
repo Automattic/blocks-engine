@@ -15,6 +15,13 @@ declare(strict_types=1);
  * Usage: php compose-page-scaling.php [fixture-dir] [sizes]
  *   fixture-dir defaults to fixtures/websites/28-enterprise-b2b
  *   sizes is a comma list of page counts, default 10,20,40
+ * fixture-dir `synthetic` instead builds a neutral site (no brand content):
+ * every route links one large shared stylesheet of
+ * COMPOSE_SCALING_SHARED_CSS_RULES rules (default 2000) and carries the
+ * same shell, one of four body templates and a small per-route delta, so a
+ * cost that grows with routes x shared rules shows up as rising ms/page.
+ * Each row also reports author_stylesheet_projections_ms, the summed
+ * compose.author_stylesheet_projections.* steps.
  * COMPOSE_SCALING_PAGE_CSS_RULES=<n> gives every page n page-owned author
  * rules (with a media variant) so total author CSS grows with the page count.
  * COMPOSE_SCALING_ARTIFACT_OUT=<dir> writes each synthetic artifact as JSON,
@@ -29,6 +36,7 @@ require $transformerRoot . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $fixture = ($argv[1] ?? '') ?: dirname(__DIR__, 3) . '/fixtures/websites/28-enterprise-b2b';
+$sharedCssRules = (int) (getenv('COMPOSE_SCALING_SHARED_CSS_RULES') ?: 2000);
 $sizes = array_map('intval', explode(',', $argv[2] ?? '10,20,40'));
 
 /** @return array<string,string> path => content */
@@ -42,6 +50,54 @@ function fixtureFiles(string $root): array
         }
     }
     ksort($files, SORT_STRING);
+    return $files;
+}
+
+/**
+ * A neutral site: one shared stylesheet with `$rules` rules over a shared
+ * shell and four body templates, linked by every page.
+ *
+ * @return array<string,string> path => content
+ */
+function neutralFiles(int $rules): array
+{
+    // Per-route delta rules lead the sheet, so every later shared rule that
+    // sets one of their families must be proven not to compete on each route.
+    $css = '';
+    for ($d = 0; $d < 256; ++$d) {
+        $css .= '.delta-' . $d . '{color:#' . substr(md5('d' . $d), 0, 6) . ';margin:' . ($d % 5) . 'px;padding:1px;border-color:red;font-size:13px;background:#fff}';
+    }
+    for ($r = 0; $r < $rules; ++$r) {
+        $color = substr(md5('u' . $r), 0, 6);
+        $css .= match ($r % 5) {
+            0 => '.u-' . $r . '{color:#' . $color . ';margin:' . ($r % 7) . 'px}',
+            1 => '.shell .nav-' . ($r % 40) . ' a.u-' . ($r % 400) . '{padding:' . ($r % 9) . 'px}',
+            2 => '.sec-' . ($r % 20) . ' p,.site-footer > .u-' . ($r % 400) . '{border-color:#' . $color . '}',
+            3 => '@media (max-width:' . (600 + $r % 4 * 100) . 'px){.card-' . ($r % 50) . ' .u-' . ($r % 400) . '{font-size:' . (12 + $r % 9) . 'px}}',
+            default => '.u-' . ($r % 400) . ':hover,.card-' . ($r % 50) . ':focus-within .u-' . ($r % 400) . '{background:#' . $color . '}',
+        };
+    }
+    $nav = '';
+    for ($n = 0; $n < 40; ++$n) $nav .= '<li class="nav-' . $n . '"><a class="u-' . ($n * 10) . '" href="#n' . $n . '">Item ' . $n . '</a></li>';
+    $footer = '';
+    for ($f = 0; $f < 300; ++$f) $footer .= '<p class="u-' . ($f * 5 + 1) . '">Footer line ' . $f . '</p>';
+    $files = array('css/site.css' => $css);
+    for ($t = 0; $t < 4; ++$t) {
+        $body = '';
+        for ($s = 0; $s < 10; ++$s) {
+            $section = ($s * 2 + $t) % 20;
+            $body .= '<section class="sec-' . $section . '"><h2>Section ' . $s . '</h2>';
+            for ($c = 0; $c < 5; ++$c) {
+                $card = ($section * 5 + $c + $t) % 50;
+                $body .= '<div class="card-' . $card . '"><p class="u-' . (($card * 8 + $t) % 400) . '">Card text ' . $c . '</p><span class="u-' . (($card * 8 + 3) % 400) . '">Note</span></div>';
+            }
+            $body .= '</section>';
+        }
+        $files['template-' . $t . '.html'] = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Template ' . $t . '</title><link rel="stylesheet" href="css/site.css"></head><body>'
+            . '<header class="shell"><nav><ul>' . $nav . '</ul></nav></header><main><h1>Template ' . $t . '</h1><!--route-delta-->' . $body . '</main>'
+            . '<footer class="shell site-footer">' . $footer . '</footer></body></html>';
+    }
+    $files['index.html'] = str_replace('Template 0', 'Home', $files['template-0.html']);
     return $files;
 }
 
@@ -68,6 +124,7 @@ function syntheticArtifact(array $sourceFiles, int $pages, int $pageCss): array
         ++$i;
         $content = preg_replace('~<title>(.*?)</title>~s', '<title>$1 ' . $path . '</title>', $sourceFiles[$template], 1);
         $content = preg_replace('~(<h1[^>]*>)~', '$1' . $path . ' ', (string) $content, 1);
+        $content = str_replace('<!--route-delta-->', '<div class="route-delta"><p>Route ' . $i . '</p><span class="delta-' . ($i % 256) . '">delta</span></div>', (string) $content);
         if ($pageCss > 0) {
             // Page-owned author CSS, as a captured builder page carries: total
             // stylesheet bytes then grow with the page count.
@@ -89,7 +146,7 @@ function syntheticArtifact(array $sourceFiles, int $pages, int $pageCss): array
 }
 
 $pageCss = (int) (getenv('COMPOSE_SCALING_PAGE_CSS_RULES') ?: 0);
-$sourceFiles = fixtureFiles($fixture);
+$sourceFiles = 'synthetic' === $fixture ? neutralFiles($sharedCssRules) : fixtureFiles($fixture);
 $rows = array();
 foreach ($sizes as $size) {
     $compiler = new ArtifactCompiler();
@@ -104,6 +161,7 @@ foreach ($sizes as $size) {
     $result = $compiler->compose($shared, $receipts);
     $ms = (hrtime(true) - $started) / 1e6;
     $steps = $result->metrics['step_timings'] ?? array();
+    $projectionMs = array_sum(array_map(static fn(array $step): float => str_starts_with($step['step'], 'compose.author_stylesheet_projections') ? (float) $step['ms'] : 0.0, $steps));
     usort($steps, static fn(array $l, array $r): int => $r['ms'] <=> $l['ms']);
     $plan = $result->sourceReports['wordpress_site_plan'] ?? array();
     $hash = hash('sha256', json_encode($plan, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
@@ -114,6 +172,7 @@ foreach ($sizes as $size) {
         'pages' => count($receipts),
         'compose_ms' => round($ms, 1),
         'ms_per_page' => round($ms / max(1, count($receipts)), 1),
+        'author_stylesheet_projections_ms' => round($projectionMs, 1),
         'plan_sha256' => $hash,
         'top_steps' => array_map(static fn(array $step): array => array('step' => $step['step'], 'ms' => round($step['ms'], 1)), array_slice($steps, 0, 5)),
     );

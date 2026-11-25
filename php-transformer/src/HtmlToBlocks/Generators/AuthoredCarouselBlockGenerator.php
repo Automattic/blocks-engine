@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
@@ -744,6 +745,7 @@ JS;
 
         return array(
             'name' => self::LOCAL_NAME,
+            'runtime_class_names' => self::savedClassNames(),
             'block_json' => array(
                 'apiVersion' => 3,
                 'name' => $blockName,
@@ -768,6 +770,19 @@ JS;
                 'view.js' => array('@wordpress/interactivity'),
             ),
         );
+    }
+
+    /** @return list<string> Classes reconstructed by the companion save function. */
+    private static function savedClassNames(): array
+    {
+        $root = 'blocks-engine-authored-carousel';
+        $classes = array($root);
+        foreach (array('track', 'slideshow', 'src-swap', 'full-bleed', 'thumbnails', 'stage-aspect', 'transition-fade', 'transition-slide', 'source-control-artwork', 'show-status', 'source-control-topology') as $modifier) $classes[] = $root . '--' . $modifier;
+        foreach (range(1, 6) as $items) $classes[] = $root . '--items-' . $items;
+        foreach (array('left', 'right', 'top', 'bottom') as $position) $classes[] = $root . '--thumbnails-' . $position;
+        foreach (array('controls', 'previous', 'next', 'control--oriented', 'viewport', 'track', 'source-stage', 'sequence', 'dot', 'dots', 'playback', 'thumbnails', 'thumbnail', 'status') as $part) $classes[] = $root . '__' . $part;
+        foreach (array('top-left', 'top-right', 'bottom-left', 'bottom-right') as $position) $classes[] = $root . '__playback--' . $position;
+        return $classes;
     }
 
     /** @param array<string, mixed> $attributes @return array{opening: string, closing: string} */
@@ -1609,7 +1624,7 @@ JS;
         $exposedTogether = count(array_filter($items, static fn (DOMElement $item): bool => 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))));
         $visibleCount = 1 < $exposedTogether && count($exposed) === $exposedTogether && $exposedTogether < count($items) ? $exposedTogether : 0;
         if ( 0 === $visibleCount && count($exposed) < count($items) ) {
-            $visibleCount = $this->translatedTrackWindowCount($element, $list, array_values($exposed), count($items));
+            $visibleCount = $this->translatedTrackWindowCount($element, $list, array_values($exposed), count($items), $styleResolver);
         }
         // A slideshow name (a `__slideshow-holder` wrapper around a track) is
         // only a hint; a measured multi-up track window outweighs it.
@@ -1634,7 +1649,7 @@ JS;
     /**
      * How many exposed slides a translated track window shows. Slides that
      * are not hidden from assistive technology, while their siblings are,
-     * form the rendered window; each sits at an inline horizontal translate
+     * form the rendered window; each sits at an effective horizontal translate
      * on one regular pitch, and the window starts at offset zero. Offsets
      * inside the clipping holder are on view. Without a measured holder, a
      * leading buffer (slides at negative offsets) is mirrored by the same
@@ -1648,20 +1663,50 @@ JS;
      * @param list<DOMElement> $exposed
      * @return int The visible slide count, or 0 when the geometry is not a regular track window.
      */
-    private function translatedTrackWindowCount(DOMElement $element, DOMElement $list, array $exposed, int $slideCount): int
+    private function translatedTrackWindowCount(DOMElement $element, DOMElement $list, array $exposed, int $slideCount, StyleResolver $styleResolver): int
     {
         if ( count($exposed) < 2 ) {
             return 0;
         }
         $offsets = array();
         foreach ( $exposed as $item ) {
-            $transform = strtolower(SourceDeclarations::inline($item)['transform'] ?? '');
+            // The structural allow-list omits transforms. Read the full author
+            // cascade so capture fluid rules (including !important) and inline
+            // positions resolve by the same rules as the rendered source.
+            $transform = CssValueInspector::declared($styleResolver->authorViewport->reference($item, array('transform')), 'transform');
             if ( 1 !== preg_match('/^translate(?:3d|x)?\(\s*(-?\d+(?:\.\d+)?)px(?:\s*,\s*-?0(?:\.0+)?(?:px)?){0,2}\s*\)$/D', trim($transform), $match) ) {
                 return 0;
             }
             $offsets[] = (float) $match[1];
         }
         sort($offsets);
+        $count = $this->translatedOffsetWindowCount($element, $list, $offsets, $slideCount);
+        if ( $count > 0 ) {
+            return $count;
+        }
+        // A capture can catch one recycled slide overlapping the window or
+        // moving between slots. Ignore that position only when at least three
+        // remaining positions independently establish a regular origin window.
+        if ( count($offsets) >= 4 ) {
+            foreach ( array_keys($offsets) as $index ) {
+                $remaining = $offsets;
+                array_splice($remaining, $index, 1);
+                $count = $this->translatedOffsetWindowCount($element, $list, $remaining, $slideCount);
+                if ( $count >= 3 ) {
+                    return $count;
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Measure a sorted set of translated slide positions, excluding parked buffers.
+     *
+     * @param list<float> $offsets
+     */
+    private function translatedOffsetWindowCount(DOMElement $element, DOMElement $list, array $offsets, int $slideCount): int
+    {
         $pitch = 0.0;
         foreach ( $offsets as $index => $offset ) {
             $gap = $index > 0 ? $offset - $offsets[$index - 1] : 0.0;
@@ -1700,9 +1745,12 @@ JS;
             }
         }
         $leading = count(array_filter($offsets, static fn (float $offset): bool => $offset < 0.0));
+        // Parked slides can replace trailing buffers only when a matching
+        // leading buffer exists. An exposed parked slide without that buffer
+        // is recycled offstage, not an additional visible slot.
         $inView = $holderWidth > 0.0
             ? count(array_filter($offsets, static fn (float $offset): bool => $offset >= 0.0 && $offset < $holderWidth))
-            : count($offsets) + $parked - 2 * $leading;
+            : count($offsets) + min($parked, $leading) - 2 * $leading;
 
         return $inView >= 2 ? $inView : 0;
     }
@@ -3198,17 +3246,14 @@ JS;
             foreach ($ancestor->attributes as $attribute) {
                 $name = strtolower($attribute->name);
                 $value = $attribute->value;
-                if (preg_match('/^(?:id|tabindex|role|(?:data|aria)-[a-zA-Z0-9_-]+)$/D', $name)
-                    && !str_starts_with($name, 'data-wp-')
-                    && !preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)
-                    && strlen($value) <= 512
-                ) {
+                if (WrapperDecision::carouselStageWrapperAttribute($name, $value)) {
                     $attributes[$name] = $value;
                 }
             }
             $sourceGeometry = $styleResolver->sourceGeometryPresentationDeclarations($ancestor);
             $inlineStyle = $this->safeInlineStyle($styleResolver->cssDeclarationString($sourceGeometry) . ';' . SourceDom::attr($ancestor, 'style'));
-            if ('' !== $className || array() !== $attributes || '' !== $inlineStyle) {
+            // Whether the stage ancestor is restated or folded is WrapperDecision's (#7471).
+            if (WrapperDecision::carouselStageWrapper($className, $attributes, $inlineStyle)->isPreserve()) {
                 array_unshift($ancestors, array('className' => $className, 'attributes' => $attributes, 'style' => $inlineStyle));
             }
         }

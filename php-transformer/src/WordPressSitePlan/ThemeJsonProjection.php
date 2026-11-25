@@ -913,6 +913,21 @@ final class ThemeJsonProjection
             if (array() === ($styles['elements'][$level]['color'] ?? array())) unset($styles['elements'][$level]['color']);
             if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
         }
+        // A heading level restating the heading element's typeface renders
+        // nothing the `heading` element does not, but Global Styles prints
+        // the level rule after it, so the level copy would pin that typeface
+        // against every later edit of the heading element. Drop the
+        // restatement and let the level follow the heading element. Level
+        // colours stay: authored CSS restates them as the level's own paint.
+        $styles = self::withoutRestatedHeadingLevels($styles);
+        // A button typeface restating the root typeface is the family every
+        // button already inherits from the text around it. Stated on the
+        // button element (or its block style variation), it pins buttons to
+        // that preset, so a Global Styles edit of the site typeface leaves
+        // every button behind. Let buttons inherit, as links do, but only
+        // where every source button sits in root-family text: inside a
+        // section set in another face, `inherit` would repaint the button.
+        if (true === ($system->root['button_family_inherited'] ?? false)) $styles = self::withInheritedRootButtonFamily($styles);
         // Absence of a unanimous element look means inheritance, not absence
         // of an editable element in Global Styles. Keep that default explicit
         // without promoting a section's colour or a heading level's typeface
@@ -938,6 +953,52 @@ final class ThemeJsonProjection
         $theme['settings'] = $settings;
         $theme['styles'] = $styles;
         return $theme;
+    }
+
+    /**
+     * Drops `h1`–`h6` element typefaces equal to the `heading` element's,
+     * pruning what the drop leaves empty.
+     *
+     * @param array<string,mixed> $styles
+     * @return array<string,mixed>
+     */
+    private static function withoutRestatedHeadingLevels(array $styles): array
+    {
+        $heading = $styles['elements']['heading'] ?? null;
+        if (!is_array($heading)) return $styles;
+        foreach (array(array('typography', 'fontFamily')) as [$group, $key]) {
+            $value = $heading[$group][$key] ?? null;
+            if (!is_string($value) || '' === trim($value)) continue;
+            foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $level) {
+                $written = $styles['elements'][$level][$group][$key] ?? null;
+                if (!is_string($written) || strtolower(trim($written)) !== strtolower(trim($value))) continue;
+                unset($styles['elements'][$level][$group][$key]);
+                if (array() === ($styles['elements'][$level][$group] ?? array())) unset($styles['elements'][$level][$group]);
+                if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
+            }
+        }
+        return $styles;
+    }
+
+    /**
+     * Replaces a button element or button variation typeface equal to the
+     * root typeface with `inherit`. The caller applies it only when every
+     * source button inherits the root typeface from the text around it
+     * (DesignSystem root `button_family_inherited`).
+     *
+     * @param array<string,mixed> $styles
+     * @return array<string,mixed>
+     */
+    private static function withInheritedRootButtonFamily(array $styles): array
+    {
+        $root = $styles['typography']['fontFamily'] ?? null;
+        if (!is_string($root) || '' === trim($root) || 'inherit' === strtolower(trim($root))) return $styles;
+        $restates = static fn(mixed $value): bool => is_string($value) && strtolower(trim($value)) === strtolower(trim($root));
+        if ($restates($styles['elements']['button']['typography']['fontFamily'] ?? null)) $styles['elements']['button']['typography']['fontFamily'] = 'inherit';
+        foreach (array_keys(is_array($styles['blocks']['core/button']['variations'] ?? null) ? $styles['blocks']['core/button']['variations'] : array()) as $slug) {
+            if ($restates($styles['blocks']['core/button']['variations'][$slug]['typography']['fontFamily'] ?? null)) $styles['blocks']['core/button']['variations'][$slug]['typography']['fontFamily'] = 'inherit';
+        }
+        return $styles;
     }
 
     /**
@@ -1021,6 +1082,12 @@ final class ThemeJsonProjection
         // and the editor gap control enabled.
         if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = false;
         $settings['spacing']['blockGap'] = true;
+        // Core leaves the margin, padding, border, line height, link color and
+        // position controls off unless a theme opts in, so an imported page
+        // could not be restyled in the editor. The opt-in only fills settings
+        // the theme has not set: blockGap above is already explicit, so it
+        // does not change which layout gap CSS core emits.
+        $settings['appearanceTools'] = true;
         // Authored CSS also owns root padding that is not projected (a
         // shorthand, a responsive override, a calc()). WordPress's own
         // theme.json sets `styles.spacing.padding` to 0px on every side, and
