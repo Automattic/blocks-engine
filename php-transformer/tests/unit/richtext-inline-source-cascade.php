@@ -19,7 +19,7 @@ $html = <<<'HTML'
 </style>
 <header><nav class="navUser"><ul class="navUser-section navUser-section--alt">
  <li class="navUser-item show"><a class="navUser-action navUser-item--compare" href="/compare"><span class="icon-random show theme-icon" data-icon="&#xe900;"></span> <span class="show countPill countPill--positive countPill--alt"></span></a></li>
- <li class="navUser-item navUser-item--cart show"><a class="navUser-action" href="/cart.php"><span class="icon-shopping-cart show theme-icon" data-icon="&#xe901;"></span> <span class="navUser-item-cartLabel show">Cart</span> <span class="countPill cart-quantity show">0</span></a><div class="dropdown-menu" aria-hidden="true"></div></li>
+ <li class="navUser-item navUser-item--cart show"><a class="navUser-action" href="/cart.php"><span class="icon-shopping-cart show theme-icon" data-icon="&#xe901;"></span> <span class="navUser-item-cartLabel show">Cart</span> <span class="countPill cart-quantity show">0</span><span class="cart-decoration" aria-hidden="true" id="cart-decoration"></span></a><div class="dropdown-menu" aria-hidden="true"></div></li>
 </ul></nav></header><main><p>x</p></main>
 HTML;
 $result = (new HtmlTransformer())->transform($html, array('source' => 'website/index.html'))->toArray();
@@ -70,5 +70,10 @@ foreach ($cases as [$class, $pseudo, $expected]) {
         }
     }
 }
+
+// Carrying contextual selector identity must not materialize away unrelated
+// decorative descendants of the same outer link.
+$decoration = $xpath->query('//a[@href="/cart.php"]/span[@id="cart-decoration" and @class="cart-decoration" and @aria-hidden="true"]');
+if (1 !== $decoration->length) throw new RuntimeException('Cart decorative descendant must survive outer serialization unchanged');
 
 echo "RichText inline source cascade passed\n";

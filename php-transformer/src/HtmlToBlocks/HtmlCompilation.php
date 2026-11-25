@@ -1005,8 +1005,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->formRuntimeIslandRecorder,
             $this->anchors,
             $this->runtime,
-            $this->runtimeAuthoredButton(...),
-            $this->richTextMaterializer
+            $this->runtimeAuthoredButton(...)
         );
     }
 

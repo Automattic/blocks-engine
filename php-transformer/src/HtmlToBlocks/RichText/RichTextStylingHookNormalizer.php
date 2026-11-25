@@ -346,6 +346,11 @@ final class RichTextStylingHookNormalizer
                 $declarations = $existingDeclarations;
             }
         }
+        if ( SourceDom::hasClass($element, 'blocks-engine-role-semantic') ) {
+            // Semantic carriers answer the projected source cascade. Matching
+            // base classes on this detached fragment would freeze losing values.
+            $declarations = $existingDeclarations;
+        }
         if ( '' !== $marker ) {
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
@@ -355,7 +360,7 @@ final class RichTextStylingHookNormalizer
         if ( '' === $marker && ! isset($declarations['background-color']) && ! isset($declarations['background']) ) {
             $declarations['background-color'] = 'transparent';
         }
-        if ( '' === $marker && ! isset($declarations['color']) ) {
+        if ( '' === $marker && ! SourceDom::hasClass($element, 'blocks-engine-role-semantic') && ! isset($declarations['color']) ) {
             $declarations['color'] = 'inherit';
         }
 
