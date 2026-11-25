@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -22,6 +23,7 @@ final class StructuredInlineItemLowering
         private readonly Runtime $runtime,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly StyleResolver $styleResolver,
+        private readonly HtmlTransformerSession $session,
         private readonly InlineSvgTextGroupLowering $inlineSvgTextGroups,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer
     ) {
@@ -35,14 +37,21 @@ final class StructuredInlineItemLowering
         // Paragraph elements introduce innerText paragraph separators even when
         // CSS paints them inline. Keep a genuinely inline source run in one
         // RichText carrier instead of manufacturing boundaries between items.
-        // An unspecified display is not proof of inline layout: retain the
-        // established per-item carriers for unstyled fragments.
+        // Capture evidence includes UA defaults (a span need not author
+        // display:inline). Require inline flow at every observed viewport;
+        // absent evidence, only an explicitly resolved display proves it.
         $hasIndependentBox = false;
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement
-                && ! in_array($this->styleResolver->resolvedDeclaration($child, 'display'), array( 'inline', 'none' ), true) ) {
-                $hasIndependentBox = true;
-                break;
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $displays = $this->session->boxTreeWrapperEvidence()->usedValues($child, 'display')
+                ?? array($this->styleResolver->resolvedDeclaration($child, 'display'));
+            foreach ( $displays as $display ) {
+                if ( ! in_array($display, array( 'inline', 'none' ), true) ) {
+                    $hasIndependentBox = true;
+                    break 2;
+                }
             }
         }
         if ( ! $hasIndependentBox ) {

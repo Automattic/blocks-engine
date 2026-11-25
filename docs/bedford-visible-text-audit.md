@@ -32,7 +32,7 @@ Deltas below are imported minus source. Each column names an actual comparison c
 
 No extra words. `#siteInfo` contains adjacent `.site-address`, `.site-phone`, and `.site-email` elements with no intervening source text nodes. The copy inserts normalized paragraph separators after `459 BROADWAY, NEW YORK` and `(212) 555-0123`. At mobile the source already has line boundaries, masking the discrepancy.
 
-Owner: `StructuredInlineItemLowering` turns each phrasing item into a paragraph, even when its display is inline. Inline paragraphs still introduce `innerText` paragraph separators. The fix keeps genuinely inline items together in editable RichText, retaining independent carriers for atomic inline-block items. No site-specific selectors are used.
+Owner: `StructuredInlineItemLowering` turns each phrasing item into a paragraph, even when its display is inline. Inline paragraphs still introduce `innerText` paragraph separators. Bedford never authors `display` on these items: their inline display is the *computed* one, so the inline signal is the capture's box-tree used `display`, required to be `inline` (or `none`) at every captured viewport. The fix keeps such items together in editable RichText, retaining independent carriers for atomic inline-block items and for items with any non-inline viewport. Without capture evidence, only an explicitly resolved inline display merges; otherwise per-item lowering stays. No site-specific selectors are used.
 
 ### Blog posts
 
@@ -53,11 +53,12 @@ Home Alt has a separate slideshow discrepancy: imported typography includes `Sli
 Public-interface regression tests added:
 
 - `tests/unit/inline-item-text-boundaries.php`: adjacent inline items, responsive display, independent atomic items.
+- `tests/contract/captured-inline-item-text-boundaries.php`: captured computed-inline items with no authored display merge; absent, partial, atomic, or responsive-block evidence keeps per-item carriers.
 - `tests/unit/article-pagination-visible-captions.php`: directional article links retain surrounding captions.
 
 Narrow checks passed: both new tests, `exact-fit-inline-flow.php`, and `form-visible-required-asterisk.php`.
 
-Remaining work: importer form seeding must not invent a submit absent from the source, and required-marker materialization must preserve the source text boundary. Those owning importer changes and their public-interface tests are not included in this checkout. The task is consequently only partially delivered.
+Out of scope: importer form seeding inventing a `Submit`, and the missing space before `(required)`, are importer-side and filed separately in static-site-importer.
 
 ## Measurement status
 
