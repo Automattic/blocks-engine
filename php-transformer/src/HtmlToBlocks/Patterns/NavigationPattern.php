@@ -323,6 +323,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             && !$this->hasNavigationSignal($element)) {
             return null;
         }
+        // Directional article pagination is not a menu. Its surrounding
+        // captions (outside the anchors) are visible content, which reducing
+        // the landmark to navigation-link labels would silently discard.
+        foreach ( $element->getElementsByTagName('a') as $link ) {
+            $relations = SourceDom::tokens(strtolower(SourceDom::attr($link, 'rel')));
+            if ( array() !== array_intersect(array( 'prev', 'next' ), $relations) ) {
+                return null;
+            }
+        }
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $this->createBlock->createBlock(...);
