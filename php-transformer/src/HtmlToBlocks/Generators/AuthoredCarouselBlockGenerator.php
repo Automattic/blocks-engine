@@ -1101,6 +1101,7 @@ JS;
             return null;
         }
         [$list, $items, $localList] = $ownedList;
+        $items = $this->withoutLoopCopies($items);
         $paginationCount = $this->carouselPaginationCount($element);
         // An image-only control cluster beside the slides is the source's own
         // slide selector, so it is pagination even when the builder ships no
@@ -3620,6 +3621,46 @@ JS;
             if ($child instanceof DOMElement && $this->isSlideStatus($child) && 'off' !== SourceDom::attr($child, 'aria-live')) return $child;
         }
         return null;
+    }
+
+    /**
+     * The slides without the copies an infinite source carousel appends to loop:
+     * the whole sequence repeated, in order, with the same text, media and links.
+     *
+     * @param array<int, DOMElement> $items
+     * @return array<int, DOMElement>
+     */
+    private function withoutLoopCopies(array $items): array
+    {
+        $count = count($items);
+        $signatures = array();
+        foreach ( $items as $item ) {
+            $signature = array(trim((string) preg_replace('/\s+/u', ' ', $item->textContent ?? '')));
+            foreach ( $item->getElementsByTagName('*') as $descendant ) {
+                foreach ( array('src', 'href') as $name ) {
+                    if ( '' !== ($value = trim(SourceDom::attr($descendant, $name))) ) {
+                        $signature[] = $name . ':' . $value;
+                    }
+                }
+            }
+            if ( array('') === $signature ) {
+                return $items;
+            }
+            $signatures[] = implode("\n", $signature);
+        }
+        for ( $period = 2; $period <= intdiv($count, 2); ++$period ) {
+            if ( 0 !== $count % $period || count(array_unique(array_slice($signatures, 0, $period))) !== $period ) {
+                continue;
+            }
+            $repeats = true;
+            for ( $index = $period; $index < $count && $repeats; ++$index ) {
+                $repeats = $signatures[$index] === $signatures[$index - $period];
+            }
+            if ( $repeats ) {
+                return array_slice($items, 0, $period);
+            }
+        }
+        return $items;
     }
 
     /** @return array<int, DOMElement> */
