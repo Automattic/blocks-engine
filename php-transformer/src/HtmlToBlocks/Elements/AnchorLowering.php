@@ -16,7 +16,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
@@ -406,7 +405,8 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
         }
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true)
+                && ! ($hasHeading && $this->isTextCueSpan($child)) ) {
                 return false;
             }
         }
@@ -423,6 +423,19 @@ final class AnchorLowering implements ButtonLinkLeftovers
         return $hasSummary && ($hasHeading || $hasImage
             || (null !== SourceDom::firstChildElement($anchor, 'div')
                 && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * Whether a card child is a text-only phrasing cue (a trailing "→" or
+     * "View" label). It lowers to a non-interactive paragraph beside the
+     * card's heading, which still owns the single destination.
+     */
+    private function isTextCueSpan(DOMElement $child): bool
+    {
+        return 'span' === strtolower($child->tagName)
+            && 0 === $child->childElementCount
+            && ! $child->hasAttribute('role')
+            && '' !== trim($child->textContent);
     }
 
     /**
@@ -457,14 +470,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
      */
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
-        $interactive = false;
-        foreach ( array('a', 'button', 'input', 'select', 'textarea') as $tag ) {
-            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
-                $interactive = true;
-                break;
-            }
-        }
-        $eligible = ! $interactive && $this->isStretchedLinkCard($anchor);
+        $eligible = WrapperDecision::linkWrapper($anchor, fn (): bool => $this->isStretchedLinkCard($anchor))->isFold();
         $preserveContainers = ! $eligible;
         $children = $this->tree->children($anchor, $fallbacks, true, $preserveContainers && $this->sourceElementClassifier->isFlowContentAnchor($anchor));
         if ( array() === $children && $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
@@ -502,19 +508,18 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
             return $this->layoutShells->blockForElements(array($anchor), $children, $anchor);
         }
-        $propagated = false;
-        if ( ! $stretched && array() !== $linkAttrs ) {
-            $propagated = $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
-            if ( ! $propagated ) {
-                $this->recordDroppedLinkWrapper($anchor);
+        $propagation = WrapperDecision::linkWrapperPropagation(
+            $stretched,
+            array() !== $linkAttrs,
+            function () use (&$children, $linkAttrs): bool {
+                return $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
             }
+        );
+        if ( 'link_wrapper_dropped' === $propagation?->reason ) {
+            $this->recordDroppedLinkWrapper($anchor);
         }
         // ADR 0005: an anchor whose box the capture proved neutral apart from
         // its link emits no block once that link has moved onto its content.
-        if ( $propagated && 1 === count($children) && $this->session->isLinkCarrierBox($anchor) ) {
-            $this->session->collapseBoxTreeNodes(array( $anchor->getAttribute(BoxTree::NODE_ATTRIBUTE) ));
-            return $children[0];
-        }
         // The link now lives on the children, so the group is the anchor's box.
         // An author rule that selects the anchor (a card link laid out as a
         // flex column) must follow it onto the group via a semantic marker.

@@ -7,7 +7,9 @@ declare(strict_types=1);
 // with its family (#6754, restoring #3043), while the default render stays
 // pixel-exact: the derivation reproduces the source value at the default
 // palette, after a literal fallback. The palette itself stays consolidated:
-// `base` #ffffff and `contrast` #111111 only.
+// `base` #ffffff and `contrast` #111111 are its only independent colours; a
+// near shade a block paints as text adds a token whose value is that same
+// derivation, so the block owns its text colour without a new colour.
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -42,7 +44,8 @@ foreach ($plan['writes'] as $write) {
     if (str_ends_with($write['target_path'], '.css')) $css .= $write['payload']['data'];
 }
 $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
-$assert(array('base' => '#ffffff', 'contrast' => '#111111') === $palette, 'The palette stays consolidated: near shades do not re-enter it (' . json_encode($palette) . ').');
+$note = 'rgb(from var(--wp--preset--color--contrast) calc(r + 4) calc(g + 4) calc(b + 4))';
+$assert(array('base' => '#ffffff', 'contrast' => '#111111', 'contrast-shade-bfbfbf' => $note) === $palette, 'The palette stays consolidated: near shades re-enter it only as derivations of their representative (' . json_encode($palette) . ').');
 $assert((CssColor::distance('#f7f7f4', '#ffffff') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE && (CssColor::distance('#151515', '#111111') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'The fixture shades are near shades of base and contrast.');
 $assert(array('#151515' => '#111111', '#f7f7f4' => '#ffffff') === ($plan['theme']['design_system']['near_shades'] ?? null), 'The report names each omitted shade and its representative.');
 
@@ -50,7 +53,6 @@ $assert(array('#151515' => '#111111', '#f7f7f4' => '#ffffff') === ($plan['theme'
 // derives the shade from the representative preset.
 $supports = '@supports (color:rgb(from red r g b))';
 $paper = 'rgb(from var(--wp--preset--color--base) calc(r - 8) calc(g - 8) calc(b - 11))';
-$note = 'rgb(from var(--wp--preset--color--contrast) calc(r + 4) calc(g + 4) calc(b + 4))';
 $assert(str_contains($css, ':root{--paper:#f7f7f4}' . $supports . '{:root{--paper:' . $paper . '}}'), 'The --paper custom property keeps its literal and derives from base (' . $css . ').');
 $assert(str_contains($css, '.band{padding:40px;background:var(--paper)}'), 'The .band rule reads --paper unchanged, so it follows the derivation (' . $css . ').');
 $assert(str_contains($css, '.note{color:#151515}' . $supports . '{.note{color:' . $note . '}}'), 'The .note colour keeps its literal and derives from contrast (' . $css . ').');
@@ -69,7 +71,8 @@ $restyled = array('base' => '#1d2433', 'contrast' => '#f2f2f2');
 $assert('#151c28' === $paint($paper, $restyled) && '#f6f6f6' === $paint($note, $restyled), 'Overriding base and contrast repaints .band and .note with their family.');
 
 // Blocks carry no derivation (safecss strips it from inline styles) and no
-// representative preset (it would repaint the shade): the class rules paint.
+// representative preset (it would repaint the shade). The .note text names
+// its derived near-shade token; the .band background stays with its rule.
 $markup = $plan['pages'][0]['canonical_block_markup'];
 preg_match_all('/<!-- wp:(group|paragraph) (\{[^\n]*?\}) -->/', $markup, $blocks, PREG_SET_ORDER);
 $painted = array();
@@ -78,7 +81,7 @@ foreach ($blocks as [, $name, $json]) {
     if (!in_array($attributes['className'] ?? null, array('band', 'note'), true)) continue;
     $painted[] = $attributes['className'] . ':' . json_encode(array_intersect_key($attributes, array_flip(array('backgroundColor', 'textColor'))) + array_intersect_key($attributes['style'] ?? array(), array('color' => true)));
 }
-$assert(array('band:[]', 'note:[]', 'band:[]', 'note:[]') === $painted, 'The .band and .note blocks carry no colour attribute (' . json_encode($painted) . ').');
+$assert(array('band:[]', 'note:{"textColor":"contrast-shade-bfbfbf"}', 'band:[]', 'note:{"textColor":"contrast-shade-bfbfbf"}') === $painted, 'Only the .note text binds, to its derived near-shade token (' . json_encode($painted) . ').');
 $assert(!str_contains($markup, 'rgb(from'), 'No block markup carries a relative colour.');
 
 echo "Near shade family binding contract passed.\n";

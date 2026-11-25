@@ -7,23 +7,24 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  * Conservative, dimension-checked evaluator for captured fluid lengths.
  *
  * Evaluates px, viewport units (including the small, large and dynamic
- * `sv*`/`lv*`/`dv*` forms), `%` and `em` (when their bases are known)
+ * `sv*`/`lv*`/`dv*` forms), `%`, `em` and `rem` (when their bases are known)
  * combined with `calc()`, `min()`, `max()` and `clamp()` at one viewport.
- * Anything else (container units, `rem`, keywords, unresolved `var()`)
- * returns null, so the caller keeps observed pixels.
+ * Anything else (container units, keywords, unresolved `var()`) returns
+ * null, so the caller keeps observed pixels.
  */
 final class CssFluidLength
 {
     /**
      * @param float|null $percent Pixels `100%` resolves to, when known.
      * @param float|null $em Pixels `1em` resolves to, when known.
+     * @param float|null $rem Pixels `1rem` resolves to, when known.
      */
-    public static function evaluate(string $value, float $width, float $height, ?float $percent = null, ?float $em = null): ?float
+    public static function evaluate(string $value, float $width, float $height, ?float $percent = null, ?float $em = null, ?float $rem = null): ?float
     {
         $offset = 0;
         $tokens = array();
         while ($offset < strlen($value)) {
-            if (!preg_match('/\G\s*(?:(\d*\.?\d+)(px|[sld]?v(?:w|h|i|b|min|max)|em|%)?|([a-z]+)|([()+*,\/\-]))/Ai', $value, $m, 0, $offset)) {
+            if (!preg_match('/\G\s*(?:(\d*\.?\d+)(px|[sld]?v(?:w|h|i|b|min|max)|rem|em|%)?|([a-z]+)|([()+*,\/\-]))/Ai', $value, $m, 0, $offset)) {
                 if ('' === trim(substr($value, $offset))) break;
                 return null;
             }
@@ -32,7 +33,7 @@ final class CssFluidLength
         }
         $index = 0;
         $expression = null;
-        $atom = function () use (&$atom, &$expression, &$index, $tokens, $width, $height, $percent, $em): ?array {
+        $atom = function () use (&$atom, &$expression, &$index, $tokens, $width, $height, $percent, $em, $rem): ?array {
             $t = $tokens[$index++] ?? null;
             if (null === $t) return null;
             if ('' !== $t[0]) {
@@ -43,7 +44,7 @@ final class CssFluidLength
                     '' , 'px' => 1.0, 'vw', 'vi' => $width / 100, 'vh', 'vb' => $height / 100,
                     'vmin' => min($width, $height) / 100, 'vmax' => max($width, $height) / 100,
                     '%' => null === $percent ? null : $percent / 100,
-                    'em' => $em, default => null,
+                    'em' => $em, 'rem' => $rem, default => null,
                 };
                 return null === $factor ? null : array((float) $t[0] * $factor, '' === $t[1] ? 0 : 1);
             }

@@ -54,6 +54,15 @@ final class BlockMaterializer
                     $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
                 }
             }
+            if ($sourceFacts->sourceElement->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE)) {
+                $entrance = json_decode($sourceFacts->sourceElement->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
+                foreach (array_keys($entrance['attributes'] ?? array()) as $attribute) {
+                    if (\Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isFoldRuntimeAttribute($attribute)
+                        && $sourceFacts->sourceElement->hasAttribute($attribute)) {
+                        $runtimeAttributes[$attribute] = $sourceFacts->sourceElement->getAttribute($attribute);
+                    }
+                }
+            }
             // A synthetic paragraph is only a validity carrier. Its retained
             // anchor already owns the entrance evidence and live class tokens.
             if ('core/paragraph' === $name

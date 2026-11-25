@@ -28,6 +28,12 @@ final class RuntimeSelectorState
     }
 
     /** @return array<string, bool> */
+    public function behavioralSelectors(): array
+    {
+        return $this->behavioral;
+    }
+
+    /** @return array<string, bool> */
     public function canvasSelectors(): array
     {
         return $this->canvas;

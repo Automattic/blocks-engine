@@ -26,7 +26,7 @@ $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
 $pages = array_column($plan['pages'], null, 'source_path');
 $variants = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area'] && str_contains((string) $part['canonical_block_markup'], 'Accelerator')));
 $assert(1 === count($variants), 'The two identical route headers render from one variant part: ' . json_encode(array_column($variants, 'slug')));
-$assert(array('website/breakfast/index.html', 'website/summit/index.html') === array_values(array_unique(array_merge(...array_map(static fn(array $part): array => $part['placement']['source_paths'] ?? array(), $variants)))), 'The variant part names both routes as its sources.');
+$assert(array('website/breakfast/index.html', 'website/summit/index.html') === array_values(array_unique(array_merge(...array_map(static fn(array $part): array => $part['placement']['source_paths'] ?? array_keys($part['provenance']['sources'] ?? array()), $variants)))), 'The variant part names both routes as its sources.');
 foreach (array('website/summit/index.html', 'website/breakfast/index.html') as $source) {
     $template = (string) ($templates[$pages[$source]['route_template'] ?? ''] ?? '');
     $assert(str_contains($template, '"slug":"' . $variants[0]['slug'] . '"') && !str_contains($pages[$source]['canonical_block_markup'], '"tagName":"header"'), "{$source} renders the shared variant part from its template: {$template}");

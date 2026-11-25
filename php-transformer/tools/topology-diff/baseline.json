@@ -413,6 +413,7 @@
             "retagged svg>img": 1
         },
         "29-multilingual-i18n": {
+            "added a": 4,
             "added div [blocks-engine-control]": 12,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 2,
@@ -421,6 +422,7 @@
             "removed bdi": 5,
             "removed svg": 2,
             "removed ul": 2,
+            "retagged a>div [blocks-engine-stretched-link]": 4,
             "retagged nav>div [blocks-engine-zero-core-group-padding]": 1,
             "retagged span>div [blocks-engine-semantic]": 4,
             "retagged span>mark": 14,
@@ -451,6 +453,7 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 20
         },
         "32-wedding-microsite": {
+            "added a": 3,
             "added div [blocks-engine-control]": 6,
             "added mark": 1,
             "added p [blocks-engine-inline-layout-carrier]": 9,
@@ -459,6 +462,7 @@
             "removed button": 1,
             "removed nav": 3,
             "removed strong": 1,
+            "retagged a>div [blocks-engine-stretched-link]": 3,
             "retagged div>p [blocks-engine-editor-anchor-welcome-heading]": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 3,

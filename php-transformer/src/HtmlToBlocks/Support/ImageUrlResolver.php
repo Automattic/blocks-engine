@@ -15,6 +15,10 @@ final class ImageUrlResolver
 
     public function sourceUrl(DOMElement $image): string
     {
+        $rendered = SourceDom::capturedPictureRendition($image);
+        if ( '' !== $rendered ) {
+            return $rendered;
+        }
         $src = $this->safeUrl(SourceDom::attr($image, 'src'));
         if ( '' !== $src && ! str_starts_with(strtolower($src), 'data:') ) {
             return $src;
@@ -75,6 +79,49 @@ final class ImageUrlResolver
                 }
             }
         }
+    }
+
+    /**
+     * The original behind a media service's box fill rendition, or ''.
+     *
+     * Image services (Wix media, and hosts built on it) serve
+     * `<original>/v1/fill/w_W,h_H,al_c,.../<name>`: the original scaled to cover
+     * a W x H box and cropped about its centre. Builders regenerate that URL for
+     * the box the image has at each viewport, so the captured URL is only the
+     * capture viewport's crop. Any other operation (a crop step, a focal point,
+     * an off-centre alignment, a blur) changes the picture and keeps the URL.
+     */
+    public static function boxFillOriginal(string $url): string
+    {
+        if ( 1 !== preg_match('~^(https?://[^?#]+?\.(?:jpe?g|png|webp|avif|gif))/v1/fill/([^/?#]+)/[^/?#]+$~i', trim($url), $matches) ) {
+            return '';
+        }
+        $size = array();
+        foreach ( explode(',', $matches[2]) as $parameter ) {
+            if ( 1 === preg_match('/^([wh])_[1-9]\d*$/', $parameter, $axis) ) {
+                $size[$axis[1]] = true;
+            } elseif ( 1 !== preg_match('/^(?:al_c|q_\d+|usm_[\d._]+|enc_[a-z0-9]+|quality_auto|lg_\d+)$/i', $parameter) ) {
+                return '';
+            }
+        }
+
+        return 2 === count($size) ? $matches[1] : '';
+    }
+
+    /**
+     * The original a referenced image was box-filled from, or ''. A capture
+     * that localized the media keeps the rendition's source URL only in its
+     * receipt, so the artifact asset carries the original's artifact path; an
+     * unlocalized reference is read from its own URL.
+     */
+    public function boxFillOriginalReference(string $url): string
+    {
+        $original = $this->assetMetadata($url)['box_fill_original'] ?? null;
+        if ( is_string($original) && '' !== $original ) {
+            return $original;
+        }
+
+        return self::boxFillOriginal($url);
     }
 
     public function safeUrl(string $url): string

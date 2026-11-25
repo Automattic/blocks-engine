@@ -106,6 +106,13 @@ final class LogoPattern implements PatternRecognizerInterface
             $label = $materializeSvgImages($element, $innerHtml($element)) ?? $innerHtml($element);
             $content = substr($html, 0, (int) strpos($html, '>') + 1) . $label . '</a>';
             $attrs = LoweredLinkHost::attributes($presentationAttributes($element), $element);
+            // The carrier is boxless; the source anchor it keeps paints the
+            // box. Box settings on the carrier would read as the block's own
+            // spacing and border controls, which give the carrier a box.
+            if ( is_array($attrs['style'] ?? null) ) {
+                unset($attrs['style']['spacing'], $attrs['style']['border']);
+                if ( array() === $attrs['style'] ) unset($attrs['style']);
+            }
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-layout-carrier');
             return $createBlock('core/paragraph', array_merge($attrs, array('content' => $content, 'preserveInlineLayoutLeaf' => true)), array(), $element);
         }

@@ -389,19 +389,12 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         $declarations = array_intersect_key($declarations, $allowed);
-        // With box-tree evidence the author stylesheet is not shipped (ADR
-        // 0005), so the author custom properties a carried value reads are
-        // undefined on the route: `font-family:var(--font-heading)` would be
-        // invalid at computed-value time and outrank the evidence carrier.
-        // Carry the value it resolves to in the source instead.
-        if ( array() !== $this->session->boxTreeViewports() ) {
-            foreach ( $declarations as $property => $value ) {
-                $declarations[$property] = $this->styleResolver->customProperties->resolve((string) $value, $element);
-            }
+        // Core gives [style*="border-color"] a solid border. Preserve CSS's
+        // initial none when only a color was authored; prepend it so any
+        // authored per-side borders still override the default.
+        if ( isset($declarations['border-color']) && ! isset($declarations['border']) && ! isset($declarations['border-style']) ) {
+            $declarations = array( 'border-style' => 'none' ) + $declarations;
         }
-        // The source inline's custom properties feed the author rules and
-        // carried values that style it (`font-family: var(--font)`); the
-        // carrier replaces its inline style, so it must define them too.
         $declarations += $this->styleResolver->consumedInlineCustomProperties($element, $declarations);
         if ( ! SourceDom::hasAncestorTag($element, array( 'header' )) ) {
             unset($declarations['place-items']);
@@ -426,6 +419,54 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         return $declarations;
+    }
+
+    /**
+     * Source markup kept verbatim as RichText (an image caption, an inline
+     * layout carrier) whose text-bearing elements also carry their resolved
+     * text colour inline, as paragraph RichText does. A retained author class
+     * that paints text would otherwise silently override the colour control
+     * of the block holding it. Only colour moves: box, layout and other
+     * typography stay owned by the retained classes. A colour that changes
+     * with breakpoints or interaction states stays with its class rules: an
+     * inline resting value would freeze it. Format tags (`<b>`, `<em>`) are
+     * kept by name only, so RichText would drop a style they carried. A link
+     * is the core/link format, which keeps no style either: its colour stays
+     * with its class rule, as in paragraph RichText.
+     */
+    public function markupWithOwnedTextColors(DOMElement $element, bool $includeElement): string
+    {
+        $copy = $element->cloneNode(true);
+        if ( ! $copy instanceof DOMElement ) {
+            return $includeElement ? SourceDom::outerHtml($element) : SourceDom::innerHtml($element);
+        }
+        $sources = iterator_to_array($element->getElementsByTagName('*'));
+        $targets = iterator_to_array($copy->getElementsByTagName('*'));
+        if ( $includeElement ) {
+            array_unshift($sources, $element);
+            array_unshift($targets, $copy);
+        }
+        foreach ( $sources as $index => $source ) {
+            $target = $targets[$index] ?? null;
+            if ( ! $source instanceof DOMElement || ! $target instanceof DOMElement || '' === trim($source->textContent ?? '')
+                || in_array(strtolower($source->tagName), array( 'svg', 'a' ), true) || isset(self::FORMAT_TAG_DEFAULTS[strtolower($source->tagName)]) || SourceDom::hasAncestorTag($source, array( 'svg' ))
+                || isset(SourceDeclarations::inline($source)['color']) || $this->styleResolver->hasStateStyleFamily($source, 'color') ) {
+                continue;
+            }
+            $color = $this->inlineVisualDeclarations($source)['color'] ?? null;
+            if ( ! is_string($color) ) {
+                continue;
+            }
+            $color = $this->styleResolver->stripResponsiveClassOwnedDeclarations($source, array( 'color' => $color ), true)['color'] ?? null;
+            if ( ! is_string($color) || in_array(strtolower(trim($color)), array( 'inherit', 'unset', 'initial', 'currentcolor' ), true) ) {
+                continue;
+            }
+            $declarations = SourceDeclarations::inline($target);
+            $declarations['color'] = $color;
+            $target->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
+        }
+
+        return $includeElement ? SourceDom::outerHtml($copy) : SourceDom::innerHtml($copy);
     }
 
     public function contentWithoutDecorativeSvg(DOMElement $element): string

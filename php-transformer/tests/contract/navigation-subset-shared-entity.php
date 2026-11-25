@@ -46,6 +46,7 @@ $assert(2 === count($compile(array('Home', 'Services'), array('Home', 'Services'
 function add_filter(string $hook, callable $callback): void { $GLOBALS['subset_filters'][$hook] = $callback; }
 function apply_filters(string $hook, $value) { return $value; }
 function wp_strip_all_tags(string $value): string { return strip_tags($value); }
+function home_url(string $path = ''): string { return 'https://site.example' . $path; }
 function is_front_page(): bool { return false; }
 function is_singular(): bool { return false; }
 function get_queried_object_id(): int { return 0; }

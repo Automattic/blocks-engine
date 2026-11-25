@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMeta
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperCoalescer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
@@ -168,6 +169,30 @@ $assert('missing_matching_source_child' === $missingChildReason, 'missing-source
 
 $motionTokenReason = $makeCoalescer()->coalescingDisposition($elementFrom('<div class="slider"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('has_motion_structure_token' === $motionTokenReason, 'motion-structure-token-names-reason', $motionTokenReason);
+
+// WrapperDecision (#7471) owns the guard table: every refusal names the
+// stage whose guard produced it, and the table is the inventory of guards.
+$stages = WrapperDecision::guardStages();
+$assert(25 === count($stages), 'decision-guard-inventory-size', (string) count($stages));
+$assert(array() === array_diff(array_unique(array_values($stages)), WrapperDecision::STAGES), 'decision-guards-belong-to-known-stages');
+$stageCases = array(
+    array('<div id="hero"><p>Copy</p></div>', 'core/group', 'has_id_attribute', WrapperDecision::STAGE_IDENTITY),
+    array('<div tabindex="0"><p>Copy</p></div>', 'core/group', 'has_interactive_attributes', WrapperDecision::STAGE_IDENTITY),
+    array('<div style="padding:4px"><p>Copy</p></div>', 'core/group', 'non_neutral_geometry_without_proof', WrapperDecision::STAGE_GEOMETRY),
+    array('<span><p>Copy</p></span>', 'core/group', 'unrepresentable_wrapper_tag', WrapperDecision::STAGE_RESTATEMENT),
+    array('<div><p>Copy</p></div>', 'core/group', 'missing_matching_source_child', WrapperDecision::STAGE_RESTATEMENT),
+);
+foreach ($stageCases as [$html, $blockName, $expectedReason, $expectedStage]) {
+    $decided = $makeCoalescer()->decision()->decide($elementFrom($html), array('blockName' => $blockName));
+    $assert($decided->isPreserve() && $expectedReason === $decided->reason, 'decision-reason-' . $expectedReason, $decided->reason);
+    $assert($expectedStage === $decided->stage, 'decision-stage-' . $expectedReason, (string) $decided->stage);
+    $assert(($stages[$decided->reason] ?? null) === $decided->stage, 'decision-stage-matches-inventory-' . $expectedReason);
+}
+$scriptState = $makeCoalescer(array(), array('preservesScriptStateWrapper' => static fn (DOMElement $e): bool => true))
+    ->decision()->decide($elementFrom('<div><p>Copy</p></div>'), array('blockName' => 'core/group', '_source_provenance_id' => 1));
+$assert('preserves_script_state' === $scriptState->reason && WrapperDecision::STAGE_IDENTITY === $scriptState->stage, 'decision-preflight-script-state', $scriptState->reason);
+$coalesced = $makeCoalescer()->decision()->decide($elementFrom('<div><p>Copy</p></div>'), array('blockName' => 'core/group', '_source_provenance_id' => 1));
+$assert($coalesced->isCoalesce() && null === $coalesced->stage, 'decision-coalesce-has-no-refusing-stage');
 
 $geometry = 'be-inline-geometry-0123456789abcdef';
 $geometryGroup = array(

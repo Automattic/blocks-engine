@@ -17,12 +17,15 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Closure;
 use DOMDocument;
@@ -124,9 +127,8 @@ final class WrapperCoalescer
         $hasSemanticRegion = in_array($cursor['attrs']['tagName'] ?? null, $semanticTags, true)
             || array() !== array_filter($ancestorChain, static fn (array $entry): bool => in_array($entry['descriptor']['tagName'], $semanticTags, true));
         $depthBudget = $hasSemanticRegion && ! $semanticRegion ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
-        if (! $nativeNavigationChain && 2 <= count($ancestorChain)
-            && ($wrapperHeight > $depthBudget
-                || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
+        if (WrapperDecision::ancestorChainCompression($nativeNavigationChain, count($ancestorChain), static fn (): bool => $wrapperHeight > $depthBudget
+                || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)->isFold()) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
 
@@ -176,7 +178,7 @@ final class WrapperCoalescer
             $nativeGroupTree = $nativeMetrics['wrapper_to_content_ratio'] <= EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
         }
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
-        if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
+        if (WrapperDecision::projectedChainFold($nativeGroupTree, count($chain), $terminalIsShell)->isFold()) {
             // Decide the parent's saved shape before normalizing descendants.
             // The chain becomes one level; using its old depth can needlessly
             // turn otherwise native descendants into generated shells.
@@ -399,7 +401,21 @@ final class WrapperCoalescer
      */
     public function coalescingDisposition(DOMElement $element, array $childBlock): WrapperDisposition
     {
-        return $this->coalescingResolution($element, $childBlock)['disposition'];
+        return $this->decision()->resolve($element, $childBlock)['disposition'];
+    }
+
+    private ?WrapperDecision $decision = null;
+
+    /** The guard table that owns every single-child keep/drop decision. */
+    public function decision(): WrapperDecision
+    {
+        return $this->decision ??= new WrapperDecision(
+            $this,
+            $this->sourceElementClassifier,
+            $this->runtimeIslands,
+            $this->styleResolver,
+            $this->preservesScriptStateWrapper
+        );
     }
 
     /** @var array<string, true> */
@@ -415,8 +431,7 @@ final class WrapperCoalescer
      */
     private function coalescedInheritedTextWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ($this->isBindingAnchor($childBlock) || ! $this->isInheritedTextWrapper($element)) return null;
-        if (! in_array($childBlock['blockName'] ?? '', array('core/paragraph', 'core/heading', 'core/group', 'core/image', 'core/quote', 'core/list'), true)) return null;
+        if (null !== $this->decision()->inheritedTextWrapper($element, $childBlock)) return null;
         $chain = array($element);
         $leaf = ($this->soleElementChild)($element);
         while ($leaf instanceof DOMElement && $this->isInheritedTextWrapper($leaf)) {
@@ -426,9 +441,7 @@ final class WrapperCoalescer
             $chain[] = $leaf;
             $leaf = $next;
         }
-        if (! $leaf instanceof DOMElement) return null;
-        if ('core/paragraph' === ($childBlock['blockName'] ?? '') && 'p' !== strtolower($leaf->tagName)) return null;
-        if (! $this->selectorMatchingSurvivesWrapperCoalescing($element, $leaf, true)) return null;
+        if (null !== $this->decision()->inheritedTextLeaf($element, $childBlock, $leaf) || ! $leaf instanceof DOMElement) return null;
         $chain[] = $leaf;
         $values = array();
         foreach ($chain as $node) {
@@ -445,7 +458,7 @@ final class WrapperCoalescer
         if ('core/paragraph' === ($childBlock['blockName'] ?? '') && ! array_key_exists('content', $attrs) && preg_match('/^\s*<p\b[^>]*>(.*)<\/p>\s*$/is', (string) ($childBlock['innerHTML'] ?? ''), $m)) $attrs['content'] = $m[1];
         $textAlign = $attrs['style']['typography']['textAlign'] ?? $attrs['align'] ?? null;
         if (isset($textAlign, $values['text-align']) && $textAlign === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
-        if (array() === $values) return null;
+        if (! WrapperDecision::inheritedTextValues($values)->isCoalesce()) return null;
         $carrier = $this->styleResolver->inheritedTextCarrier($values);
         $wrapperAttrs = $this->styleResolver->presentationAttributes($element);
         foreach (array('fontSize', 'fontFamily', 'textColor', 'align') as $attribute) {
@@ -472,7 +485,7 @@ final class WrapperCoalescer
         return str_starts_with($name, 'font-') || in_array($name, array('font', 'white-space', 'text-wrap', 'text-wrap-mode', 'text-wrap-style', 'white-space-collapse', 'color', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent'), true);
     }
 
-    private function isInheritedTextWrapper(DOMElement $element): bool
+    public function isInheritedTextWrapper(DOMElement $element): bool
     {
         if ('div' !== strtolower($element->tagName)
             || SourceDom::hasClass($element, 'wp-block-group')
@@ -529,19 +542,17 @@ final class WrapperCoalescer
      */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( $this->boxTreeClassifierOwnsWrappers()
-            || ($this->preservesScriptStateWrapper)($element)
-            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes'])
-            || $this->isLayoutGeometryCorrectiveTarget($element) ) {
+        if ( null !== $this->decision()->preflight($element, $childBlock) ) {
             return null;
         }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
         $absorbed = $this->absorbedNeutralChild($element, $childBlock);
         if (null !== $absorbed) return $absorbed;
-        $resolution = $this->coalescingResolution($element, $childBlock);
+        $resolution = $this->decision()->resolve($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
-            return null;
+            return $this->absorbedPaddingShell($element, $childBlock)
+                ?? $this->restatedWrapperFold($element, $childBlock);
         }
         $proof = $resolution['proof'];
         $attrs = $resolution['attrs'];
@@ -561,6 +572,104 @@ final class WrapperCoalescer
         return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
     }
 
+    private ?RestatedWrapperFold $restatementProof = null;
+
+    /** @var list<array{reason: string, stage: ?string, detail: ?string}> */
+    private array $restatedFoldDecisions = array();
+
+    /**
+     * The decisions {@see self::restatedWrapperFold()} took, in conversion
+     * order: one per single-child wrapper that reached it with box-tree
+     * evidence. Reasons and details are histogram keys.
+     *
+     * @return list<array{reason: string, stage: ?string, detail: ?string}>
+     */
+    public function restatedFoldDecisions(): array
+    {
+        return $this->restatedFoldDecisions;
+    }
+
+    /**
+     * A wrapper the coalescing guards kept, folded into its only child by
+     * restating its consumed class and id there (#7505). The wrapper's
+     * classes join the child's, a referenced id becomes the child's anchor,
+     * a consumed attribute moves onto the child, and every author selector
+     * that reached the child through the wrapper gains the compound arm that
+     * still reaches it ({@see RestatedWrapperFold}). An unreferenced id and
+     * inert attributes are dropped with the wrapper.
+     *
+     * @param array<string, mixed> $childBlock @return array<string, mixed>|null
+     */
+    private function restatedWrapperFold(DOMElement $element, array $childBlock): ?array
+    {
+        $evidence = $this->session->boxTreeWrapperEvidence();
+        if (! $evidence->hasEvidence()) return null;
+        $this->restatementProof ??= new RestatedWrapperFold($this->session, fn (string $property): bool => $this->isInheritedTextProperty($property));
+        $this->restatedIdentity ??= new RestatedWrapperIdentity($this->session, $this->runtimeIslands);
+        $decision = $this->decision()->restatedWrapperFold(
+            $element,
+            $childBlock,
+            $evidence,
+            $this->restatedIdentity,
+            fn (DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes, array $projectedAttributes, array $chain): array => $this->restatementProof->prove($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, $chain),
+            static function (DOMElement $wrapper): bool {
+                $parent = $wrapper->parentNode;
+                return $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array('body', 'html'), true);
+            }
+        );
+        $disposition = $decision['disposition'];
+        $this->restatedFoldDecisions[] = array('reason' => $disposition->reason, 'stage' => $disposition->stage, 'detail' => $disposition->detail);
+        $sourceChild = $decision['source_child'];
+        if (! $disposition->isFold() || ! $sourceChild instanceof DOMElement) return null;
+
+        $projections = $this->session->authorSelectorProjectionState();
+        // A projected attribute becomes an engine-owned class on the child;
+        // the arms that read it name that class.
+        $projectedClass = array() === $decision['projected_attributes']
+            ? ''
+            : $projections->ensureAttributeMarker($element->getNodePath() ?? '', 'restated-wrapper-fold');
+        foreach ($decision['arms'] as $selector => $arms) {
+            foreach ($arms as $arm) $projections->addRestatedSelectorArm($selector, '' === $projectedClass ? $arm : RestatedWrapperFold::projectedArm($arm, $projectedClass));
+        }
+        // What moves lands on the source child too, so every later reader of
+        // the child (attribute transport, direction) sees it there.
+        foreach ($decision['moved_attributes'] as $name => $value) $sourceChild->setAttribute($name, $value);
+        $childAttrs = ArrayField::array($childBlock, 'attrs');
+        if (isset($decision['attrs']['style'])) {
+            $childAttrs['style'] = array_replace_recursive($decision['attrs']['style'], $childAttrs['style'] ?? array());
+        }
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element), ...array_filter(array($projectedClass)));
+        if ('' !== $decision['moved_id']) $childAttrs['anchor'] = $decision['moved_id'];
+        // An id that did not survive the fold (the wrapper's, dropped; or the
+        // child's, replaced) takes its editor-anchor class with it.
+        $wrapperId = trim(SourceDom::attr($element, 'id'));
+        if ('' !== $wrapperId) {
+            $lost = '' === $decision['moved_id']
+                ? array($wrapperId)
+                : array_diff(array(trim(SourceDom::attr($sourceChild, 'id')), trim((string) ($childBlock['attrs']['anchor'] ?? ''))), array($decision['moved_id']));
+            $lostClasses = array_map(static fn (string $id): string => EngineMarker::editorAnchorClass(SourceDom::safeAnchor($id)), array_filter($lost));
+            $childAttrs['className'] = implode(' ', array_diff(SourceDom::tokens((string) $childAttrs['className']), $lostClasses));
+        }
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
+
+        if ('core/group' === ($childBlock['blockName'] ?? null)) {
+            return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+        }
+        // Any other child is already materialized: restate on its saved root.
+        $carried = array_intersect_key($decision['moved_attributes'], $this->runtimeIslands->runtimeAttributesCarriedBy($sourceChild, (string) $childBlock['blockName']));
+        if (array() !== $carried) {
+            $runtime = is_array($childAttrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY] ?? null) ? $childAttrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY] : array();
+            $runtime = array_merge($carried, $runtime);
+            ksort($runtime);
+            $childAttrs['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY] = $runtime;
+        }
+        return ($this->blockFactory ??= new BlockFactory())->rebuild($childBlock, $childAttrs);
+    }
+
+    private ?RestatedWrapperIdentity $restatedIdentity = null;
+
+    private ?BlockFactory $blockFactory = null;
+
     /**
      * Keep the parent's box, rather than requiring the parent to be neutral.
      * A normal-flow neutral child contributes no independent geometry. This
@@ -571,229 +680,281 @@ final class WrapperCoalescer
      */
     private function absorbedNeutralChild(DOMElement $element, array $childBlock): ?array
     {
-        $name = $childBlock['blockName'] ?? '';
-        if (!in_array($name, array('core/group', 'core/paragraph'), true)
-            || 'div' !== strtolower($element->tagName)
-            || SourceDom::hasClass($element, 'wp-block-group')
-            || $this->isBindingAnchor($childBlock)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->sourceElementClassifier->hasMotionStructureToken($element)
-            || '' !== SourceDom::attr($element, 'id')
-            || '' !== SourceDom::attr($element, 'role')
-            || array() !== $this->interactiveAttributes($element)
-            || array() !== SourceDom::safeDataAttributes($element)
-            || $this->isStructuralLayoutElement($element)) return null;
-        $parentDeclarations = $this->matchingAuthorDeclarations($element);
-        // Paragraphs may absorb a painted text surface, not a sizing or
-        // centering container. Groups likewise need an actual padded box.
-        // Keep this box's flex/grid item identity: unlike parent promotion,
-        // absorbing its neutral child does not remove the layout item.
-        // Padding longhands are equivalent evidence to the shorthand.
-        // A universal padding:0 reset does not establish a padded box.
-        // Otherwise unrelated wrappers (including animation hosts) qualify.
-        $hasPadding = false;
-        foreach ($parentDeclarations as $property => $value) {
-            if (in_array($property, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left'), true)
-                && !$this->isRenderNeutralGeometryDeclaration($property, $value)) $hasPadding = true;
-        }
-        if (!$hasPadding
-            || ('core/paragraph' === $name && !isset($parentDeclarations['background']) && !isset($parentDeclarations['background-color']))) return null;
-        foreach ($parentDeclarations as $property => $value) {
-            if ($this->isInheritedTextProperty($property)) return null;
-        }
-        $child = ($this->soleElementChild)($element);
-        if (!$child instanceof DOMElement
-            // Conversion may already have promoted a deeper styled descendant
-            // through this neutral source node. Its declarations, not this
-            // node's neutrality, own the converted block's box.
-            || $this->matchingSourceChild($element, $childBlock) !== $child
-            || !in_array(strtolower($child->tagName), 'core/paragraph' === $name ? array('p') : array('div'), true)
-            || $this->runtimeIslands->isRuntimeDomTarget($child)
-            || $this->sourceElementClassifier->hasMotionStructureToken($child)
-            || '' !== SourceDom::attr($child, 'id')
-            || '' !== SourceDom::attr($child, 'role')
-            || array() !== $this->interactiveAttributes($child)
-            || array() !== SourceDom::safeDataAttributes($child)
-            || !$this->hasOnlyRenderNeutralBoxAffectingDeclarations($child)
-            || !$this->selectorMatchingSurvivesWrapperCoalescing($element, $child, true)) return null;
-        // Neutral on the child does not mean neutral on the merged box:
-        // a child's zero margin/padding can reset the parent's spacing once
-        // their selector carriers share a host. Keep these two box owners
-        // separate rather than letting carrier specificity choose geometry.
-        $childDeclarations = $this->matchingAuthorDeclarations($child);
-        // A child's text cascade belongs inside the parent's box. Moving it
-        // onto that box can change em-based padding and sizing, or borders
-        // painted with currentColor, even though the child has no geometry.
-        // A paragraph's line-height only changes its own text layout, unless
-        // the retained box uses line-height-relative lengths. Other text
-        // properties can change em sizing or currentColor paint.
-        $textOnlyLineHeight = 'core/paragraph' === $name;
-        foreach ($parentDeclarations as $value) {
-            if (preg_match('/[0-9.](?:r?lh)\b/i', $value)) $textOnlyLineHeight = false;
-        }
-        foreach ($childDeclarations as $property => $value) {
-            if (($this->isInheritedTextProperty($property) && !('line-height' === $property && $textOnlyLineHeight))
-                || str_starts_with($property, '--')) return null;
-        }
-        // Box sizing is inert on the unpadded child, but not on the padded
-        // parent it would share after absorption. An undeclared parent uses
-        // the initial content-box model; do not let a child carrier reset it.
-        if (isset($childDeclarations['box-sizing'])
-            && CssValueInspector::comparable($childDeclarations['box-sizing']) !== CssValueInspector::comparable((string) ($parentDeclarations['box-sizing'] ?? 'content-box'))) return null;
-        foreach ($parentDeclarations as $property => $value) {
-            if (!preg_match('/^(margin|padding)(?:-(top|right|bottom|left))?$/', $property, $spacing)
-                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
-            foreach (array_keys($childDeclarations) as $childProperty) {
-                if ($childProperty === $spacing[1]
-                    || $childProperty === $property
-                    || ($property === $spacing[1] && str_starts_with($childProperty, $property . '-'))) return null;
-            }
-        }
-        // Zero-width child borders are neutral only on their original box.
-        // After absorption their selectors would also reset the parent's paint.
-        // Keep border owners separate, including shorthand/longhand overlaps;
-        // border-radius has its own reset family (border does not reset it).
-        foreach ($parentDeclarations as $property => $value) {
-            if (!str_starts_with($property, 'border')
-                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
-            $radius = str_contains($property, 'radius');
-            foreach (array_keys($childDeclarations) as $childProperty) {
-                if (str_starts_with($childProperty, 'border')
-                    && $radius === str_contains($childProperty, 'radius')) return null;
-            }
-        }
-        // Paragraphs have UA block margins even without author declarations.
-        if ('core/paragraph' === $name) {
-            $declarations = $this->matchingAuthorDeclarations($child);
-            foreach (array('margin-top', 'margin-bottom') as $property) {
-                if (!in_array(CssValueInspector::comparable((string) ($declarations[$property] ?? $declarations['margin'] ?? '')), array('0', '0px'), true)) return null;
-            }
-        }
+        $absorption = $this->decision()->neutralChildAbsorption($element, $childBlock);
+        $child = $absorption['source_child'];
+        if (! $absorption['disposition']->isCoalesce() || ! $child instanceof DOMElement) return null;
+        $name = (string) $childBlock['blockName'];
         $attrs = array_replace_recursive($this->styleResolver->presentationAttributes($element), ArrayField::array($childBlock, 'attrs'));
         $attrs['className'] = SourceDom::mergeClassNames((string) ($this->styleResolver->presentationAttributes($element)['className'] ?? ''), (string) ($childBlock['attrs']['className'] ?? ''), SourceDom::attr($element, 'class'));
         return $this->createBlock->createBlock($name, $attrs, $childBlock['innerBlocks'] ?? array(), $child);
     }
 
     /**
-     * On a box-tree evidence route the ADR 0005 classifier alone decides which
-     * source boxes collapse (HtmlCompilation drops neutral boxes before they
-     * convert), so no selector-survival heuristic folds a wrapper here.
-     */
-    private function boxTreeClassifierOwnsWrappers(): bool
-    {
-        return array() !== $this->session->boxTreeViewports();
-    }
-
-    /**
-     * Runs the same three disqualification phases, in the same
-     * short-circuiting order, that the original single boolean expression
-     * evaluated — so a disqualification reason here changes nothing about
-     * which wrappers coalesce, only whether the decision is named.
+     * A paint-free vertical-padding band hands its padding, classes and tag
+     * to its sole group child: one native group instead of a band the editor
+     * has to click through to reach the container it spaces.
      *
-     * @param array<string, mixed> $childBlock
-     * @return array{disposition: WrapperDisposition, proof: ?array<string, mixed>, attrs: array<string, mixed>, source_child: ?DOMElement}
+     * @param array<string,mixed> $childBlock
+     * @return array<string,mixed>|null
      */
-    private function coalescingResolution(DOMElement $element, array $childBlock): array
+    private function absorbedPaddingShell(DOMElement $element, array $childBlock): ?array
     {
-        if ($this->boxTreeClassifierOwnsWrappers()) {
-            return array('disposition' => WrapperDisposition::preserve('box_tree_classified'), 'proof' => null, 'attrs' => array(), 'source_child' => null);
-        }
-        $proof = $this->layoutGeometryProofFor($element);
-        $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
-        $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);
+        $absorption = $this->decision()->paddingShellAbsorption($element, $childBlock);
+        $child = $absorption['source_child'];
+        if (! $absorption['disposition']->isCoalesce() || ! $child instanceof DOMElement) return null;
+        $wrapperAttrs = $this->styleResolver->presentationAttributes($element);
+        $attrs = array_replace_recursive($wrapperAttrs, ArrayField::array($childBlock, 'attrs'));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($wrapperAttrs['className'] ?? ''), (string) ($childBlock['attrs']['className'] ?? ''), SourceDom::attr($element, 'class'));
+        $tag = strtolower($element->tagName);
+        if ('div' !== $tag) $attrs['tagName'] = $tag;
+        $attrs = array_filter($attrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
+        return $this->createBlock->createBlock((string) $childBlock['blockName'], $attrs, $childBlock['innerBlocks'] ?? array(), $child);
+    }
 
-        $reason = $this->firstDisqualification($this->eligibilityDisqualifications($element, $childBlock, $proof, $fullWidthTransparentShell, $redundantNestedLayout));
-        if (null !== $reason) {
-            return array('disposition' => WrapperDisposition::preserve($reason), 'proof' => $proof, 'attrs' => array(), 'source_child' => null);
+    /** @param array<string, string> $declarations */
+    public function hasVerticalPadding(array $declarations): bool
+    {
+        foreach (array('padding-top', 'padding-bottom', 'padding-block', 'padding-block-start', 'padding-block-end') as $property) {
+            if (isset($declarations[$property]) && !$this->isRenderNeutralGeometryDeclaration('padding-top', $declarations[$property])) return true;
         }
-
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        $reason = $this->firstDisqualification($this->presentationAttributeDisqualifications($attrs, $redundantNestedLayout));
-        if (null !== $reason) {
-            return array('disposition' => WrapperDisposition::preserve($reason), 'proof' => $proof, 'attrs' => $attrs, 'source_child' => null);
-        }
-
-        $sourceChild = $this->matchingSourceChild($element, $childBlock);
-        $reason = $this->firstDisqualification($this->sourceChildDisqualifications($element, $childBlock, $sourceChild, $proof, $fullWidthTransparentShell, $redundantNestedLayout));
-        if (null !== $reason) {
-            return array('disposition' => WrapperDisposition::preserve($reason), 'proof' => $proof, 'attrs' => $attrs, 'source_child' => $sourceChild);
-        }
-
-        return array('disposition' => WrapperDisposition::coalesce('single_child_wrapper_absorbed'), 'proof' => $proof, 'attrs' => $attrs, 'source_child' => $sourceChild);
+        return false;
     }
 
     /**
-     * The original gate: is this even the shape wrapper coalescing applies
-     * to (a representable wrapper around a single supported child, with no
-     * id/role/interactivity/data/structure signal of its own — unless a
-     * layout-geometry proof or a redundant-nested-layout finding already
-     * accounts for it)? Each disjunct of the original boolean expression is
-     * named here in the same order, so the first one that matches is the
-     * reason the wrapper is preserved.
+     * The box is its vertical padding and nothing else: no paint, no
+     * horizontal spacing, sizing, positioning or formatting context of its
+     * own. Text and custom properties are judged by their own guards.
      *
-     * @param array<string, mixed> $childBlock
-     * @param array<string, mixed>|null $proof
-     * @return array<int, array{0: string, 1: Closure(): bool}>
+     * @param array<string, string> $declarations
      */
-    private function eligibilityDisqualifications(DOMElement $element, array $childBlock, ?array $proof, bool $fullWidthTransparentShell, bool $redundantNestedLayout): array
+    public function isVerticalPaddingOnlyBox(array $declarations): bool
     {
-        return array(
-            // A saved core/group boundary is a coalescing decision already made:
-            // its save shape no longer carries the source signals (data
-            // attributes, an anchor tag) that kept it, so re-deciding from the
-            // saved markup would fold a wrapper the first transform preserved.
-            array('saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
-            array('child_is_binding_anchor', fn (): bool => $this->isBindingAnchor($childBlock)),
-            array('unrepresentable_wrapper_tag', fn (): bool => ! $this->wrapperTagIsRepresentableOnChild($element, $childBlock)),
-            array('unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array( 'core/group', 'core/image' ), true)),
-            array('full_width_shell_requires_group_child', fn (): bool => $fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null)),
-            array('runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
-            array('structural_layout_child_without_proof', fn (): bool => null === $proof && $this->isDirectChildOfStructuralLayout($element) && ! $redundantNestedLayout),
-            array('has_id_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'id'))),
-            array('has_role_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'role'))),
-            array('non_neutral_geometry_without_proof', fn (): bool => null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout),
-            array('has_interactive_attributes', fn (): bool => array() !== $this->interactiveAttributes($element)),
-            array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== SourceDom::safeDataAttributes($element)),
-            array('has_structure_signals_without_proof', fn (): bool => null === $proof && $this->hasBlockingStructureSignals($element, $childBlock) && ! $redundantNestedLayout),
-            array('has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
-        );
+        $zeroWidthBorder = (new StyleAttributeMapper())->allBorderWidthsZero($declarations);
+        foreach ($declarations as $property => $value) {
+            $value = CssValueInspector::comparable($value);
+            if (str_starts_with($property, '--') || $this->isInheritedTextProperty($property)) continue;
+            if (in_array($property, array('padding-top', 'padding-bottom', 'padding-block', 'padding-block-start', 'padding-block-end', 'box-sizing', 'outline-color', 'outline-offset', 'border-color'), true)) continue;
+            if ($zeroWidthBorder && preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?$/', $property)) continue;
+            if ('display' === $property && 'block' === $value) continue;
+            if ('position' === $property && 'static' === $value) continue;
+            if ('width' === $property && in_array($value, array('auto', '100%'), true)) continue;
+            if (in_array($property, array('outline', 'outline-style'), true) && in_array($value, array('0', 'none'), true)) continue;
+            if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?$/', $property) && $this->isRenderNeutralGeometryDeclaration('padding', $value)) continue;
+            return false;
+        }
+        return true;
     }
 
     /**
-     * @param array<string, mixed> $attrs
-     * @return array<int, array{0: string, 1: Closure(): bool}>
-     */
-    private function presentationAttributeDisqualifications(array $attrs, bool $redundantNestedLayout): array
-    {
-        return array(
-            array('unsupported_presentation_attributes', fn (): bool => ! $redundantNestedLayout && array() !== array_diff(array_keys($attrs), array( 'className', 'style' ))),
-        );
-    }
-
-    /**
-     * Once eligibility holds, the wrapper still only coalesces if a single
-     * source child actually carries the child block's identity forward
-     * cleanly: it exists, its tag matches what the child block expects, it
-     * carries no motion token of its own, its box-affecting declarations are
-     * neutral (or already proven/redundant), and — the expensive check,
-     * evaluated last exactly as before — removing the wrapper would not
-     * change which author selectors match.
+     * Whether giving this box extra vertical padding changes what renders:
+     * it paints or clips its padding box, sizes its height, is a containing
+     * block for positioned descendants, sits out of flow, or has a vertical
+     * margin the padding used to sit outside of.
      *
-     * @param array<string, mixed> $childBlock
-     * @param array<string, mixed>|null $proof
-     * @return array<int, array{0: string, 1: Closure(): bool}>
+     * @param array<string, string> $declarations
      */
-    private function sourceChildDisqualifications(DOMElement $element, array $childBlock, ?DOMElement $sourceChild, ?array $proof, bool $fullWidthTransparentShell, bool $redundantNestedLayout): array
+    public function boxChangesWithAddedVerticalPadding(array $declarations): bool
     {
-        return array(
-            array('missing_matching_source_child', fn (): bool => ! $sourceChild instanceof DOMElement),
-            array('image_source_child_type_mismatch', fn (): bool => 'core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-')),
-            array('source_child_has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($sourceChild)),
-            array('box_affecting_declarations_not_neutral', fn (): bool => null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))),
-            array('full_width_shell_child_not_normal_flow', fn (): bool => null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild)),
-            array('containing_block_dependent_declarations', fn (): bool => 'core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)),
-            array('selector_matching_does_not_survive_coalescing', fn (): bool => null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell)),
-        );
+        $mapper = new StyleAttributeMapper();
+        $hasBorderWidth = false;
+        foreach ($declarations as $property => $value) {
+            $value = CssValueInspector::comparable($value);
+            if (str_starts_with($property, '--')) continue;
+            if (preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-width)?$/', $property)) $hasBorderWidth = true;
+            if (preg_match('/^(?:height|min-height|max-height|block-size|min-block-size|max-block-size|aspect-ratio)$/', $property)
+                && !in_array($value, array('auto', 'none', '0', '0px'), true)) return true;
+            if (preg_match('/^(?:background|background-color|background-image|box-shadow|outline|outline-style|backdrop-filter|filter|clip-path|mask|mask-image|transform|translate|scale|rotate|container-type|contain)$/', $property)
+                && !in_array($value, array('none', 'transparent', 'normal', 'initial', '0', 'rgba(0,0,0,0)', 'rgba(0, 0, 0, 0)'), true)) return true;
+            if (str_starts_with($property, 'overflow') && !in_array($value, array('visible', ''), true)) return true;
+            if ('position' === $property && 'static' !== $value) return true;
+            if ('float' === $property && 'none' !== $value) return true;
+            if ('display' === $property && !in_array($value, array('block', 'flow-root', 'flex', 'grid'), true)) return true;
+            if (in_array($property, array('margin-top', 'margin-bottom', 'margin-block', 'margin-block-start', 'margin-block-end'), true)
+                && !in_array($value, array('0', '0px', '0rem', '0em', 'auto'), true)) return true;
+            if ('margin' === $property) {
+                $sides = CssValueInspector::expandBoxShorthand($value);
+                foreach (array($sides[0] ?? '', $sides[2] ?? '') as $side) {
+                    if (!in_array(trim($side), array('0', '0px', '0rem', '0em', 'auto'), true)) return true;
+                }
+            }
+        }
+        return $hasBorderWidth && !$mapper->allBorderWidthsZero($declarations);
+    }
+
+    /**
+     * @param array<string, string> $parentDeclarations
+     * @param array<string, string> $childDeclarations
+     */
+    public function customPropertyOwnersOverlap(array $parentDeclarations, array $childDeclarations): bool
+    {
+        foreach ($parentDeclarations as $property => $value) {
+            if (str_starts_with($property, '--') && isset($childDeclarations[$property])
+                && CssValueInspector::comparable($childDeclarations[$property]) !== CssValueInspector::comparable($value)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A rule for the element's state (`:hover`, `:focus-within`) or its
+     * generated content (`::before`) is not in its resting declarations, so
+     * resting neutrality cannot prove the box is safe to move. Rules whose
+     * subject is only the universal selector reach every box alike.
+     */
+    public function hasStateOrPseudoElementRule(DOMElement $element): bool
+    {
+        foreach ($this->session->authorStyleRuleCandidates($element) as $rule) {
+            $subject = $this->selectorSubjectCompound((string) ($rule['selector'] ?? ''));
+            if (!preg_match('/::?(?:before|after|first-line|first-letter|marker|hover|focus|focus-within|focus-visible|active|target)\b/i', $subject)) continue;
+            $bare = trim((string) preg_replace('/::?[a-z-]+(?:\([^()]*\))?/i', '', $subject));
+            if ('' === $bare || '*' === $bare) continue;
+            return true;
+        }
+        return false;
+    }
+
+    private function selectorSubjectCompound(string $selector): string
+    {
+        $depth = 0;
+        $start = 0;
+        $length = strlen($selector);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $selector[$i];
+            if ('\\' === $char) { $i++; continue; }
+            if ('(' === $char || '[' === $char) $depth++;
+            elseif (')' === $char || ']' === $char) $depth--;
+            elseif (0 === $depth && in_array($char, array(' ', '>', '+', '~'), true)) $start = $i + 1;
+        }
+        return trim(substr($selector, $start));
+    }
+
+    /**
+     * Paragraphs may absorb a painted text surface, not a sizing or
+     * centering container. Groups likewise need an actual padded box.
+     * Keep this box's flex/grid item identity: unlike parent promotion,
+     * absorbing its neutral child does not remove the layout item.
+     * Padding longhands are equivalent evidence to the shorthand.
+     * A universal padding:0 reset does not establish a padded box.
+     * Otherwise unrelated wrappers (including animation hosts) qualify.
+     *
+     * @param array<string, string> $parentDeclarations
+     */
+    public function hasPaddedBox(array $parentDeclarations): bool
+    {
+        $hasPadding = false;
+        foreach ($parentDeclarations as $property => $value) {
+            if (in_array($property, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left'), true)
+                && !$this->isRenderNeutralGeometryDeclaration($property, $value)) $hasPadding = true;
+        }
+        return $hasPadding;
+    }
+
+    /** @param array<string, string> $declarations */
+    public function declaresInheritedText(array $declarations): bool
+    {
+        foreach ($declarations as $property => $value) {
+            if ($this->isInheritedTextProperty($property)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A child's text cascade belongs inside the parent's box. Moving it
+     * onto that box can change em-based padding and sizing, or borders
+     * painted with currentColor, even though the child has no geometry.
+     * A paragraph's line-height only changes its own text layout, unless
+     * the retained box uses line-height-relative lengths. Other text
+     * properties can change em sizing or currentColor paint.
+     *
+     * @param array<string, string> $parentDeclarations
+     * @param array<string, string> $childDeclarations
+     */
+    public function childTextCascadeMovesOntoBox(string $name, array $parentDeclarations, array $childDeclarations): bool
+    {
+        $textOnlyLineHeight = 'core/paragraph' === $name;
+        foreach ($parentDeclarations as $value) {
+            if (preg_match('/[0-9.](?:r?lh)\b/i', $value)) $textOnlyLineHeight = false;
+        }
+        foreach ($childDeclarations as $property => $value) {
+            if (($this->isInheritedTextProperty($property) && !('line-height' === $property && $textOnlyLineHeight))
+                || str_starts_with($property, '--')) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Box sizing is inert on the unpadded child, but not on the padded
+     * parent it would share after absorption. An undeclared parent uses
+     * the initial content-box model; do not let a child carrier reset it.
+     *
+     * @param array<string, string> $parentDeclarations
+     * @param array<string, string> $childDeclarations
+     */
+    public function boxSizingConflicts(array $parentDeclarations, array $childDeclarations): bool
+    {
+        return isset($childDeclarations['box-sizing'])
+            && CssValueInspector::comparable($childDeclarations['box-sizing']) !== CssValueInspector::comparable((string) ($parentDeclarations['box-sizing'] ?? 'content-box'));
+    }
+
+    /**
+     * @param array<string, string> $parentDeclarations
+     * @param array<string, string> $childDeclarations
+     */
+    public function spacingOwnersOverlap(array $parentDeclarations, array $childDeclarations): bool
+    {
+        foreach ($parentDeclarations as $property => $value) {
+            if (!preg_match('/^(margin|padding)(?:-(top|right|bottom|left))?$/', $property, $spacing)
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if ($childProperty === $spacing[1]
+                    || $childProperty === $property
+                    || ($property === $spacing[1] && str_starts_with($childProperty, $property . '-'))) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Zero-width child borders are neutral only on their original box.
+     * After absorption their selectors would also reset the parent's paint.
+     * Keep border owners separate, including shorthand/longhand overlaps;
+     * border-radius has its own reset family (border does not reset it).
+     *
+     * @param array<string, string> $parentDeclarations
+     * @param array<string, string> $childDeclarations
+     */
+    public function borderOwnersOverlap(array $parentDeclarations, array $childDeclarations): bool
+    {
+        foreach ($parentDeclarations as $property => $value) {
+            if (!str_starts_with($property, 'border')
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            $radius = str_contains($property, 'radius');
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if (str_starts_with($childProperty, 'border')
+                    && $radius === str_contains($childProperty, 'radius')) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Paragraphs have UA block margins even without author declarations. */
+    public function hasUserAgentParagraphMargins(DOMElement $child): bool
+    {
+        $declarations = $this->matchingAuthorDeclarations($child);
+        foreach (array('margin-top', 'margin-bottom') as $property) {
+            if (!in_array(CssValueInspector::comparable((string) ($declarations[$property] ?? $declarations['margin'] ?? '')), array('0', '0px'), true)) return true;
+        }
+        return false;
+    }
+
+    public function soleElementChildOf(DOMElement $element): ?DOMElement
+    {
+        return ($this->soleElementChild)($element);
+    }
+
+    /** @return array<string, mixed> */
+    public function describedInteractiveAttributes(DOMElement $element): array
+    {
+        return $this->sourceElementDescription->interactiveAttributes($element);
     }
 
     /**
@@ -802,24 +963,13 @@ final class WrapperCoalescer
      *
      * @param array<string, mixed> $block
      */
-    private function isBindingAnchor(array $block): bool
+    public function isBindingAnchor(array $block): bool
     {
         return $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null);
     }
 
-    /** @param array<int, array{0: string, 1: Closure(): bool}> $checks */
-    private function firstDisqualification(array $checks): ?string
-    {
-        foreach ( $checks as [$reason, $isDisqualified] ) {
-            if ( $isDisqualified() ) {
-                return $reason;
-            }
-        }
-        return null;
-    }
-
     /** @param array<string, mixed> $childBlock */
-    private function matchingSourceChild(DOMElement $element, array $childBlock): ?DOMElement
+    public function matchingSourceChild(DOMElement $element, array $childBlock): ?DOMElement
     {
         $provenanceId = $childBlock['_source_provenance_id'] ?? null;
         $sourceChild = is_int($provenanceId)
@@ -831,8 +981,36 @@ final class WrapperCoalescer
         return $sourceChild;
     }
 
+    /**
+     * The source element a wrapper's only child block was converted from,
+     * found down the wrapper's sole-element-child chain, with the elements
+     * between them (outermost first). Those elements did not emit a block of
+     * their own: the child block is the one their conversion returned, so
+     * each was already folded into it (#7505). Null when the block does not
+     * come from that chain.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array{0: DOMElement, 1: list<DOMElement>}|null
+     */
+    public function foldedChainSourceChild(DOMElement $element, array $childBlock): ?array
+    {
+        $target = $this->matchingSourceChild($element, $childBlock);
+        $provenanceId = $childBlock['_source_provenance_id'] ?? null;
+        $digest = is_int($provenanceId) ? (string) ($this->session->transformationProvenanceState()->source($provenanceId)['source_digest'] ?? '') : '';
+        if (! $target instanceof DOMElement && '' === $digest) return null;
+        $folded = array();
+        for ($node = ($this->soleElementChild)($element), $depth = 0; $node instanceof DOMElement && $depth < 32; $node = ($this->soleElementChild)($node), ++$depth) {
+            if ($node === $target) return array($node, $folded);
+            if (! $target instanceof DOMElement && hash('sha256', SourceDom::safeFallbackHtml($node, $this->session->authorSelectorProjectionState()->tagMarkers())) === $digest) {
+                return array($node, $folded);
+            }
+            $folded[] = $node;
+        }
+        return null;
+    }
+
     /** @param array<string, mixed> $block */
-    private function syntheticImageGeometryLeaf(array $block): bool
+    public function syntheticImageGeometryLeaf(array $block): bool
     {
         $className = (string) ($block['attrs']['className'] ?? '');
         return 'core/image' === ($block['blockName'] ?? null)
@@ -840,7 +1018,7 @@ final class WrapperCoalescer
             && (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $className);
     }
 
-    public function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
+    public function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false, ?string $restatedTag = null): bool
     {
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement ) {
@@ -889,7 +1067,7 @@ final class WrapperCoalescer
         $mergedClass = SourceDom::mergeClassNames(...$chainClasses);
         $childParent = $child->parentNode;
         $childNextSibling = $child->nextSibling;
-        $promotedTag = $this->transferableGroupTag(strtolower($element->tagName));
+        $promotedTag = $restatedTag ?? $this->transferableGroupTag(strtolower($element->tagName));
         $standIn = null;
         $matchNode = $child;
         if ( null !== $promotedTag && $promotedTag !== strtolower($child->tagName) && $child->ownerDocument instanceof DOMDocument ) {
@@ -1004,7 +1182,7 @@ final class WrapperCoalescer
         return true;
     }
 
-    private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
+    public function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
     {
         $declarations = SourceDeclarations::inline($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
@@ -1019,7 +1197,7 @@ final class WrapperCoalescer
         return true;
     }
 
-    private function hasOnlyFullWidthTransparentBoxAffectingDeclarations(DOMElement $element): bool
+    public function hasOnlyFullWidthTransparentBoxAffectingDeclarations(DOMElement $element): bool
     {
         $declarations = $this->matchingAuthorDeclarations($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
@@ -1029,7 +1207,7 @@ final class WrapperCoalescer
         return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap($declarations);
     }
 
-    private function isNormalFlowFullWidthShellChild(DOMElement $element): bool
+    public function isNormalFlowFullWidthShellChild(DOMElement $element): bool
     {
         if ( $this->hasContainingBlockDependentAuthorDeclarations($element) ) {
             return false;
@@ -1073,7 +1251,7 @@ final class WrapperCoalescer
         return array() !== $declarations;
     }
 
-    private function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
+    public function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
     {
         $declarations = $this->matchingAuthorDeclarations($element);
         foreach ( array_keys($declarations) as $property ) {
@@ -1117,7 +1295,7 @@ final class WrapperCoalescer
      *
      * @param array<string, mixed> $childBlock
      */
-    private function isRedundantNestedLayoutWrapper(DOMElement $element, array $childBlock): bool
+    public function isRedundantNestedLayoutWrapper(DOMElement $element, array $childBlock): bool
     {
         if ( 'core/group' !== ($childBlock['blockName'] ?? null) ) {
             return false;
@@ -1151,7 +1329,7 @@ final class WrapperCoalescer
     }
 
     /** @param array<string, mixed> $childBlock */
-    private function wrapperTagIsRepresentableOnChild(DOMElement $element, array $childBlock): bool
+    public function wrapperTagIsRepresentableOnChild(DOMElement $element, array $childBlock): bool
     {
         $tag = strtolower($element->tagName);
         if ( 'div' === $tag ) {
@@ -1202,7 +1380,7 @@ final class WrapperCoalescer
     }
 
     /** @param array<string, mixed> $childBlock */
-    private function hasBlockingStructureSignals(DOMElement $element, array $childBlock): bool
+    public function hasBlockingStructureSignals(DOMElement $element, array $childBlock): bool
     {
         $signals = $this->sourceElementDescription->structureSignals($element);
         if ( 'core/image' === ($childBlock['blockName'] ?? null) ) {
@@ -1281,17 +1459,20 @@ final class WrapperCoalescer
      */
     public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
     {
-        if ($this->boxTreeClassifierOwnsWrappers()) return null;
         $proof = $this->layoutGeometryProofFor($element);
-        if (null === $proof || $this->isLayoutGeometryCorrectiveTarget($element) || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
-        $children = $this->tree->children($element, $fallbacks, true);
-        if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true) || $this->session->transformationProvenanceState()->isBindingAnchor($children[0]['_source_provenance_id'] ?? null)) return null;
-        $sourceChild = ($this->soleElementChild)($element);
-        if (!$sourceChild instanceof DOMElement || SourceDom::elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
+        if (null !== $this->decision()->proofBackedWrapper($element, $proof) || null === $proof) return null;
+        // A declined coalesce discards this conversion and the caller converts
+        // the subtree again; only an accepted one may report its findings (#7271).
+        $childFallbacks = array();
+        $children = $this->tree->children($element, $childFallbacks, true);
+        $resolution = $this->decision()->proofBackedChild($element, $children, $proof);
+        $sourceChild = $resolution['source_child'];
+        if (! $resolution['disposition']->isCoalesce() || ! $sourceChild instanceof DOMElement) return null;
         $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
         $childAttrs['className'] = SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
         $this->session->layoutGeometryState()->recordProof($proof);
+        array_push($fallbacks, ...$childFallbacks);
         return $this->createBlock->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
     }
 
@@ -1302,7 +1483,7 @@ final class WrapperCoalescer
      * carrier on the child's box and override that box's own values (for
      * example `display:block` over an authored `display:table`).
      */
-    private function isLayoutGeometryCorrectiveTarget(DOMElement $element): bool
+    public function isLayoutGeometryCorrectiveTarget(DOMElement $element): bool
     {
         $parent = $element->parentNode;
         if (!$parent instanceof DOMElement) return false;
@@ -1403,7 +1584,7 @@ final class WrapperCoalescer
      *
      * @return array<string, bool|string>
      */
-    private function interactiveAttributes(DOMElement $element): array
+    public function interactiveAttributes(DOMElement $element): array
     {
         return array_filter(array(
             'tabindex'      => SourceDom::attr($element, 'tabindex'),

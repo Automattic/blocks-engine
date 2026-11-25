@@ -634,6 +634,7 @@ final class FormControlMetadataBuilder
             $text = $this->buttonText($control);
             if ( '' !== $text ) {
                 $metadata['text'] = $text;
+                $metadata += $this->buttonCaptionAndName($control, $text);
             }
         }
 
@@ -641,7 +642,10 @@ final class FormControlMetadataBuilder
             $text = $this->buttonText($control);
             if ( '' !== $text ) {
                 $metadata['text'] = $text;
-                $labelElement = $this->buttonLabelElement($control, $text);
+                $metadata += $this->buttonCaptionAndName($control, $text);
+                // The label element and parts describe the rendered caption.
+                $caption = $metadata['visible_text'] ?? $text;
+                $labelElement = $this->buttonLabelElement($control, $caption);
                 if ( $labelElement instanceof DOMElement ) {
                     $metadata['label_classes'] = $this->classNames($labelElement);
                     // Author rules that addressed this element are projected onto its
@@ -652,7 +656,7 @@ final class FormControlMetadataBuilder
                     if ( '' !== $labelMarker ) {
                         $metadata['label_marker'] = $labelMarker;
                     }
-                } elseif ( array() !== ($parts = $this->buttonLabelParts($control, $text)) ) {
+                } elseif ( array() !== ($parts = $this->buttonLabelParts($control, $caption)) ) {
                     $metadata['label_parts'] = $parts;
                 }
             }
@@ -734,7 +738,7 @@ final class FormControlMetadataBuilder
         }
 
         if ( 'select' === $tagName ) {
-            $options = $this->options($control);
+            $options = $this->withDisplayedSelection($control, $this->options($control));
             if ( array() !== $options ) {
                 $metadata['options'] = $options;
             }
@@ -1457,6 +1461,65 @@ final class FormControlMetadataBuilder
         return $options;
     }
 
+    /**
+     * Mark the option a single-line select shows when none declares `selected`.
+     *
+     * HTML displays the first enabled option as the select's answer, and the
+     * capture's native state records which option the source showed. A
+     * provider reads `selected` as the field's default; without it a provider
+     * prepends its own prompt ("Select an option") the source never shows.
+     * An empty-value option shown this way is the field's prompt, flagged as
+     * an explicitly selected empty option is.
+     *
+     * @param array<int, array<string, mixed>> $options
+     * @return array<int, array<string, mixed>>
+     */
+    private function withDisplayedSelection(DOMElement $select, array $options): array
+    {
+        if ( array() === $options || $select->hasAttribute('multiple') || 1 < (int) SourceDom::attr($select, 'size') ) {
+            return $options;
+        }
+        foreach ( $options as $option ) {
+            if ( ! empty($option['selected']) ) {
+                return $options;
+            }
+        }
+
+        $displayed = null;
+        $state = NativeControlState::attributes($select);
+        if ( null !== $state && isset($state['options']) && count($state['options']) === count($options) ) {
+            foreach ( $state['options'] as $index => $option ) {
+                if ( true === ($option['initialSelected'] ?? false) ) {
+                    $displayed = $index;
+                    break;
+                }
+            }
+        } else {
+            $index = 0;
+            foreach ( $select->getElementsByTagName('option') as $option ) {
+                if ( ! $option instanceof DOMElement ) {
+                    continue;
+                }
+                $group = $option->parentNode;
+                if ( ! $option->hasAttribute('disabled') && ! ( $group instanceof DOMElement && 'optgroup' === strtolower($group->tagName) && $group->hasAttribute('disabled') ) ) {
+                    $displayed = $index;
+                    break;
+                }
+                ++$index;
+            }
+        }
+        if ( null === $displayed || ! isset($options[$displayed]) ) {
+            return $options;
+        }
+
+        $options[$displayed]['selected'] = true;
+        if ( '' === trim((string) ($options[$displayed]['value'] ?? '')) ) {
+            $options[$displayed]['placeholder'] = true;
+        }
+
+        return $options;
+    }
+
     public function labelText(DOMElement $label): string
     {
         $collapsed = preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? '';
@@ -1644,6 +1707,50 @@ final class FormControlMetadataBuilder
             return array();
         }
         return $parts;
+    }
+
+    /**
+     * A button's rendered caption and its accessible name are separate facts
+     * once an author names it apart from its content: `<button
+     * aria-label="Request email updates">↗</button>` shows an arrow and is
+     * announced by the label. `text` stays the name; when the caption differs,
+     * both are published so a consumer can render the caption and keep the
+     * name for assistive technology.
+     *
+     * @return array{visible_text?: string, accessible_name?: string}
+     */
+    private function buttonCaptionAndName(DOMElement $control, string $name): array
+    {
+        $caption = '';
+        foreach ( $control->childNodes as $child ) {
+            $caption .= $this->renderedText($child);
+        }
+        $caption = trim(preg_replace('/\s+/u', ' ', $caption) ?? '');
+        if ( '' === $caption || $caption === $name ) {
+            return array();
+        }
+        return array( 'visible_text' => $caption, 'accessible_name' => $name );
+    }
+
+    /**
+     * Text the source paints: `aria-hidden` glyphs are visible, while hidden,
+     * undisplayed, visually hidden and nested control subtrees are not.
+     */
+    private function renderedText(DOMNode $node): string
+    {
+        if ( XML_TEXT_NODE === $node->nodeType ) {
+            return $node->textContent ?? '';
+        }
+        if ( ! $node instanceof DOMElement || $node->hasAttribute('hidden') || FormControlClassifier::isControlElement($node)
+            || in_array(strtolower($node->tagName), array( 'script', 'style', 'template', 'svg' ), true)
+            || ($this->styleResolver?->isVisuallyHiddenAtRest($node) ?? false) ) {
+            return '';
+        }
+        $text = '';
+        foreach ( $node->childNodes as $child ) {
+            $text .= $this->renderedText($child);
+        }
+        return $text;
     }
 
     private function buttonText(DOMElement $control): string
