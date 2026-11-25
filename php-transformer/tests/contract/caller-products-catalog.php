@@ -13,6 +13,7 @@ $catalog = array();
 foreach (array('a', 'b', 'c') as $slug) {
     $catalog[] = array('slug' => $slug, 'name' => 'Catalog ' . strtoupper($slug), 'regular_price' => '99.00', 'sale_price' => '89.00', 'sku' => 'CAT-' . $slug, 'image' => 'https://example.test/catalog.jpg', 'description' => 'Catalog description', 'images' => array(array('src' => 'https://example.test/catalog.jpg', 'alt' => 'Catalog')), 'tags' => array('catalog'), 'category' => 'Catalog category', 'stock_status' => 'outofstock', 'variants' => array());
 }
+$catalog[0]['currency'] = 'PEN';
 $card = static fn (string $slug): string => '<article><a href="/products/' . $slug . '.html"><img src="https://example.test/' . $slug . '.jpg" alt="Product ' . $slug . '"><h2>Product ' . $slug . '</h2></a><p>$10.00</p><button type="button">Add to cart</button></article>';
 $ld = array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Detected A', 'url' => 'https://example.test/products/a.html', 'sku' => 'DETECTED', 'description' => 'Detected description', 'offers' => array('@type' => 'Offer', 'price' => '12.00', 'priceCurrency' => 'USD'));
 $artifact = array('entrypoint' => 'index.html', 'files' => array(
@@ -43,13 +44,17 @@ $assert(in_array('shop', array_column($plan['runtime_declarations'], 'capability
 WordPressSitePlan::assertValid($plan);
 
 // A detected row absent from the caller catalog must not disappear.
-$artifact['runtime_declarations'][0]['payload']['entities'] = array($catalog[0], $catalog[2]);
+$catalog[1]['currency'] = 'pen';
+$catalog[2]['currency'] = null;
+$artifact['runtime_declarations'][0]['payload']['entities'] = array($catalog[1], $catalog[2]);
 $detectedOnly = (new ArtifactCompiler())->compile($artifact)->toArray();
 $detectedPlan = $detectedOnly['source_reports']['wordpress_site_plan'];
 foreach ($detectedPlan['runtime_declarations'] as $declaration) {
     if ('products' !== ($declaration['type'] ?? null)) continue;
     $rows = array_column($declaration['payload']['entities'], null, 'slug');
-    $assert(3 === count($rows) && !empty($rows['b']['bindings']) && '10.00' === $rows['b']['regular_price'], 'Detected-only B survives with commerce data and its binding.');
+    $assert(!array_key_exists('currency', $rows['b']) && !array_key_exists('currency', $rows['c']), 'Invalid caller currencies are dropped, including catalog-only rows.');
+    $assert(3 === count($rows) && !empty($rows['a']['bindings']) && 'USD' === ($rows['a']['currency'] ?? null), 'Detected-only A survives with JSON-LD currency and its binding.');
 }
+$assert(str_contains(json_encode($detectedOnly, JSON_THROW_ON_ERROR), 'product_currency_invalid'), 'Invalid currency produces a diagnostic.');
 WordPressSitePlan::assertValid($detectedPlan);
 echo "caller-products-catalog: ok (A: catalog commerce + detail/card evidence; B: card binding; C: bindingless; grid/listing/cart/shop retained)\n";
