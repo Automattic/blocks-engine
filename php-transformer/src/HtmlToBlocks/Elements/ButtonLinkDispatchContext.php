@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -29,14 +30,16 @@ final class ButtonLinkDispatchContext
         private readonly ?FormRuntimeIslandRecorder $formRuntimeIslandRecorder = null,
         private readonly ?ButtonLinkLeftovers $leftovers = null,
         private readonly Runtime $runtime = new Runtime(),
-        private readonly ?\Closure $runtimeAuthoredButton = null
+        private readonly ?\Closure $runtimeAuthoredButton = null,
+        private readonly ?RichTextMaterialization $richTextMaterializer = null
     ) {
     }
 
     /** The anchor's markup as paragraph RichText {@see StyleResolver::richTextSerializationSource()}. */
     public function richTextOuterHtml(DOMElement $element): string
     {
-        return SourceDom::outerHtml($this->presentationResolver instanceof StyleResolver ? $this->presentationResolver->richTextSerializationSource($element) : $element);
+        return $this->richTextMaterializer?->content($element, array(), true)
+            ?? SourceDom::outerHtml($this->presentationResolver instanceof StyleResolver ? $this->presentationResolver->richTextSerializationSource($element) : $element);
     }
 
     public function isRuntimeDomTarget(DOMElement $element): bool

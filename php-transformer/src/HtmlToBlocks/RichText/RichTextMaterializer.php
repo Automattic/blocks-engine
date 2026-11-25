@@ -196,6 +196,25 @@ final class RichTextMaterializer implements RichTextMaterialization
                 continue;
             }
 
+            // Outer serialization must carry semantic identities for contextual
+            // rules; inner serialization already has its own carrier path.
+            $projections = $this->session->authorSelectorProjectionState();
+            $path = SourceDom::sourceElementIdentity($sourceInline);
+            $semantic = $projections->semanticMarker($path);
+            if ( $includeElement && '' !== $semantic ) {
+                $targetInline->setAttribute('class', SourceDom::mergeClassNames(
+                    SourceDom::attr($targetInline, 'class'),
+                    implode(' ', $projections->semanticCarrierClasses($semantic, $path))
+                ));
+            }
+
+            // Marker-backed spans already have a stylesheet-owned cascade.
+            // In an outer link serialization leave them to that existing
+            // carrier path instead of restating their declarations inline.
+            if ( $includeElement && 'a' === strtolower($element->tagName)
+                && '' !== $this->inlinePolicy->richTextMarker($sourceInline) ) {
+                continue;
+            }
             $inline = $this->inlineVisualDeclarations($sourceInline);
             $inline = $this->withoutKeptFormatTagDeclarations($sourceInline, $inline);
             $marker = $this->inlinePolicy->richTextMarker($sourceInline);
