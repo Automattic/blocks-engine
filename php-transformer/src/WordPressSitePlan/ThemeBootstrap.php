@@ -668,8 +668,9 @@ PHP;
             // A link to the served document's own permalink is current, as core
             // marks a post-type link by ID; the served route may name the source
             // route instead (an imported product), which the URL no longer carries.
+            // The query counts too: a plain permalink (/?page_id=7) is not '/'.
             $lines[] = "        \$path = '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' );";
-            $lines[] = "        \$current = is_array( \$sources ) ? null !== \$served && in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : ( null !== \$served && \$path === \$served ) || ( 0 !== \$document && \$path === '/' . trim( (string) parse_url( (string) get_permalink( \$document ), PHP_URL_PATH ), '/' ) );";
+            $lines[] = "        \$current = is_array( \$sources ) ? null !== \$served && in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : ( null !== \$served && \$path === \$served ) || ( 0 !== \$document && \$path === '/' . trim( (string) parse_url( \$permalink = (string) get_permalink( \$document ), PHP_URL_PATH ), '/' ) && (string) parse_url( \$url, PHP_URL_QUERY ) === (string) parse_url( \$permalink, PHP_URL_QUERY ) );";
             $lines[] = "    }";
             if ('navigation-submenu' === $navigationBlock) {
                 // A section parent is current while its submenu displays the
