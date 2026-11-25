@@ -665,7 +665,11 @@ PHP;
             $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
             $lines[] = "        \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
             $lines[] = "        \$routes = array( " . implode(', ', array_map(static fn(string $source, string $route): string => var_export($source, true) . ' => ' . var_export($route, true), array_keys($currentSourceRoutes), $currentSourceRoutes)) . " );";
-            $lines[] = "        \$current = null !== \$served && ( is_array( \$sources ) ? in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served );";
+            // A link to the served document's own permalink is current, as core
+            // marks a post-type link by ID; the served route may name the source
+            // route instead (an imported product), which the URL no longer carries.
+            $lines[] = "        \$path = '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' );";
+            $lines[] = "        \$current = is_array( \$sources ) ? null !== \$served && in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : ( null !== \$served && \$path === \$served ) || ( 0 !== \$document && \$path === '/' . trim( (string) parse_url( (string) get_permalink( \$document ), PHP_URL_PATH ), '/' ) );";
             $lines[] = "    }";
             if ('navigation-submenu' === $navigationBlock) {
                 // A section parent is current while its submenu displays the
