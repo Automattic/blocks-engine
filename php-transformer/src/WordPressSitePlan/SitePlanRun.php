@@ -449,7 +449,9 @@ final class SitePlanRun
         $assets = EditorCanvasStylesheets::split($assets);
         // A shared sheet each route links carries every route's gated arms:
         // each route's instance loads a copy holding only the arms it can match.
-        $assets = RouteStylesheetDeliveries::specialize($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments));
+        // Each copy also leaves out arms requiring authored classes only
+        // other documents carry: everything else a route renders is shared.
+        $assets = RouteStylesheetDeliveries::specialize($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), implode("\n", array_merge(self::markups(array_merge($parts, $templates, $syncedPatterns, $menus)), array_filter(array_column($menus, 'block_markup'), 'is_string'), array((string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme'], $rootDocuments), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)))));
         $tokens = array_merge($tokens, $this->tokens(array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['target_path'] ?? null, $known, true)))));
         // Writing canonicalizes references and can still drop rules (a missing
         // font source drops its face). Emptiness is judged on the written bytes,

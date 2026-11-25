@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+
 /**
  * Route-variant projection gates a shared stylesheet's rules with root
  * classes: a route class (`be-r-…`) or a route-set class (`be-rs-…`) on
@@ -20,6 +22,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
  * agree on the sheet's route classes share one copy, and a copy saving less
  * than {@see MIN_SAVED_BYTES} is not written.
  *
+ * A copy also leaves out the arms that require an authored class the
+ * document cannot carry: one another document's markup names (so it is an
+ * authored class, not one WordPress mints at render), but neither that
+ * document's own markup and root, nor anything every route renders (parts,
+ * templates, patterns, menus, runtime records, the theme) nor any shipped
+ * script names. Those arms style other routes' content: on this route they
+ * match nothing, yet each visitor downloaded them.
+ *
  * Only a sheet whose bytes are its own is copied: not one delivered through
  * parts or replays, a part itself, one another sheet imports, or one with
  * no document instances. A copy sits beside its sheet and keeps its leading
@@ -31,15 +41,22 @@ final class RouteStylesheetDeliveries
     public const FIELD = 'stylesheet_deliveries';
 
     private const ROUTE_CLASS = '/^be-rs?-[0-9a-f]+$/D';
+    /**
+     * Classes WordPress or the engine can put on rendered markup that the
+     * block markup does not spell out (body and post classes, alignment,
+     * navigation and pagination state): never pruned by absence.
+     */
+    private const GENERATED_CLASS = '/^(?:wp-|is-|has-|blocks-engine-|be-|route-class-|editor-|block-editor-|components-|align|screen-reader|skip-link|current|menu|sub-menu|page|post|type-|status-|format-|category-|tag-|taxonomy-|items-justified-|open-on-|size-|attachment-|columns-|logged-in|admin-bar|home$|blog$|archive|single|search|error404|custom-|comment|even$|odd$|depth-|thread-|bypost|byuser|avatar|emoji|children$|sticky|hentry|nav-)/i';
     /** A copy saving less than this costs more theme bytes than visitors gain. */
     private const MIN_SAVED_BYTES = 4096;
 
     /**
      * @param list<array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $documentsBySource Every canonical document by source path.
+     * @param string|null $shared Everything any route renders beside its own document: parts, templates, patterns, menus, runtime records and the theme. Null leaves authored class arms alone.
      * @return list<array<string,mixed>>
      */
-    public static function specialize(array $assets, array $documentsBySource): array
+    public static function specialize(array $assets, array $documentsBySource, ?string $shared = null): array
     {
         $rootClasses = $routeClasses = array();
         foreach ($documentsBySource as $source => $document) {
@@ -48,7 +65,8 @@ final class RouteStylesheetDeliveries
             $rootClasses[(string) $source] = array_fill_keys($classes, true);
             $routeClasses += array_fill_keys($classes, true);
         }
-        if (array() === $routeClasses) return $assets;
+        $carried = null === $shared ? null : self::carriedClasses($assets, $documentsBySource, $shared);
+        if (array() === $routeClasses && null === $carried) return $assets;
         $stylesheets = $partTargets = $targets = array();
         foreach ($assets as $index => $asset) {
             $targets[strtolower((string) ($asset['target_path'] ?? ''))] = true;
@@ -63,16 +81,21 @@ final class RouteStylesheetDeliveries
                 || !str_ends_with(strtolower((string) ($asset['target_path'] ?? '')), '.css') || self::imported($asset, $stylesheets, $index)) continue;
             preg_match_all('/(?<!\\\\)\.(be-rs?-[0-9a-f]+)(?![\w\\\\-])/', $asset['content'], $matches);
             $named = array_values(array_filter(array_unique($matches[1]), static fn(string $class): bool => isset($routeClasses[$class])));
-            if (array() === $named) continue;
+            $authored = null === $carried ? array() : self::authoredClasses($asset['content'], $carried);
+            if (array() === $named && array() === $authored) continue;
             $deliveries = $byAbsent = array();
             foreach ($asset['stylesheet_instances'] as $instance) {
                 $source = is_array($instance) ? ($instance['source_path'] ?? null) : null;
                 if (!is_string($source) || !isset($rootClasses[$source]) || isset($deliveries[$source])) continue;
                 $absent = array_values(array_filter($named, static fn(string $class): bool => !isset($rootClasses[$source][$class])));
                 $present = array_values(array_diff($named, $absent));
-                $key = implode(' ', $absent);
+                // A document whose markup is not known (an archive root) keeps every authored arm.
+                $tokens = $carried['documents'][$source] ?? null;
+                $uncarried = null === $tokens ? array() : array_keys(array_filter($authored, static fn(string $class): bool => !isset($tokens[$class])));
+                $key = implode(' ', $absent) . "\n" . implode(' ', $uncarried);
                 if (!array_key_exists($key, $byAbsent)) {
-                    $content = array() === $absent ? $asset['content'] : AbsentCarrierSelectors::withoutArmsRequiring($asset['content'], '/(?<!\\\\)\.(?:' . implode('|', array_map(static fn(string $class): string => preg_quote($class, '/'), $absent)) . ')(?![\w\\\\-])/');
+                    $required = array_merge($absent, $uncarried);
+                    $content = array() === $required ? $asset['content'] : AbsentCarrierSelectors::withoutArmsRequiring($asset['content'], '/(?<!\\\\)\.(?:' . implode('|', array_map(static fn(string $class): string => preg_quote($class, '/'), $required)) . ')(?![\w\\\\-])/');
                     $content = self::withoutArmsExcludingRoot($content, $present);
                     $byAbsent[$key] = strlen($asset['content']) - strlen($content) < self::MIN_SAVED_BYTES || '' === trim($content) ? null : self::copy($asset, $content, $targets, $copies);
                 }
@@ -171,6 +194,80 @@ final class RouteStylesheetDeliveries
         if (null === $marked || array() === $excluded) return $css;
         $pruned = AbsentCarrierSelectors::withoutArmsRequiring($marked, '/\.be-root-excludes-' . $nonce . '-\d+(?![\w-])/');
         return preg_replace_callback('/\.be-root-excludes-' . $nonce . '-\d+(?![\w-])/', static fn(array $match): string => $excluded[$match[0]], $pruned) ?? $css;
+    }
+
+    /**
+     * The classes each document's own markup and root name, those every
+     * route renders, and the shipped scripts' text; null when a script's
+     * bytes are not known, since it could add any class.
+     *
+     * @param list<array<string,mixed>> $assets
+     * @param array<string,array<string,mixed>> $documentsBySource
+     * @return array{documents:array<string,array<string,true>>,elsewhere:array<string,true>,shared:array<string,true>,scripts:string}|null
+     */
+    private static function carriedClasses(array $assets, array $documentsBySource, string $shared): ?array
+    {
+        $scripts = '';
+        foreach ($assets as $asset) {
+            if ('css' === ($asset['kind'] ?? null) || !empty($asset['binary'])) continue;
+            $script = in_array($asset['kind'] ?? null, array('js', 'script', 'html', 'json'), true) || 1 === preg_match('/\.(?:m?js|html?|json)$/i', (string) ($asset['target_path'] ?? $asset['source_path'] ?? ''));
+            if (!$script) continue;
+            if (!is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) return null;
+            $scripts .= "\n" . $asset['content'];
+        }
+        $documents = $elsewhere = array();
+        foreach ($documentsBySource as $source => $document) {
+            if (!is_string($document['canonical_block_markup'] ?? null)) continue;
+            $tokens = self::tokens($document['canonical_block_markup'] . "\n" . (string) json_encode($document['document_metadata'] ?? null, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+            $elsewhere += $tokens;
+            // A document that renders other posts' content can carry their classes.
+            if (1 === preg_match('/<!--\s+wp:(?:query|post-content|post-excerpt|latest-posts)[\s\/]/', $document['canonical_block_markup'])) continue;
+            $documents[(string) $source] = $tokens;
+        }
+        return array('documents' => $documents, 'elsewhere' => $elsewhere, 'shared' => self::tokens($shared . "\n" . $scripts), 'scripts' => $scripts);
+    }
+
+    /**
+     * The sheet's class selectors (as spelled in it) naming an authored class
+     * some document carries, but nothing every route renders and no script.
+     *
+     * @param array{documents:array<string,array<string,true>>,elsewhere:array<string,true>,shared:array<string,true>,scripts:string} $carried
+     * @return array<string,string> Spelling => class.
+     */
+    private static function authoredClasses(string $css, array $carried): array
+    {
+        $preludes = '';
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude) use (&$preludes): void {
+            $preludes .= $prelude . "\n";
+        });
+        preg_match_all('/(?<![\\\\\w-])\.((?:[\w-]|\\\\[^0-9a-fA-F\s])+)/', $preludes, $matches);
+        $classes = array();
+        foreach (array_unique($matches[1]) as $spelling) {
+            $class = (string) preg_replace('/\\\\(.)/s', '$1', $spelling);
+            // A spelling cut at a hex escape (`.a\3a b`) is never followed by
+            // the pruning pattern's boundary there, so it prunes nothing.
+            if (1 === preg_match('/^-?\d/', $class) || 1 === preg_match(self::GENERATED_CLASS, $class) || !isset($carried['elsewhere'][$class]) || isset($carried['shared'][$class]) || str_contains($carried['scripts'], $class)) continue;
+            $classes[$spelling] = $class;
+        }
+        return $classes;
+    }
+
+    /**
+     * Every whitespace-, quote- or backslash-separated token of $text, as
+     * written and with its JSON and HTML escapes decoded, so a class in a
+     * `class` attribute or a block's `className` is one token.
+     *
+     * @return array<string,true>
+     */
+    private static function tokens(string $text): array
+    {
+        $decoded = (string) preg_replace_callback('/\\\\u([0-9a-fA-F]{4})/', static fn(array $match): string => (string) mb_chr((int) hexdec($match[1]), 'UTF-8'), $text);
+        $decoded = html_entity_decode(str_replace('\\/', '/', $decoded), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $tokens = array();
+        foreach (array($text, $decoded) as $form) {
+            foreach (preg_split('/[\s"\'`\\\\]+/', $form, -1, PREG_SPLIT_NO_EMPTY) ?: array() as $token) $tokens[$token] = true;
+        }
+        return $tokens;
     }
 
     /** @param array<string,mixed> $asset @param array<int,string> $stylesheets */
