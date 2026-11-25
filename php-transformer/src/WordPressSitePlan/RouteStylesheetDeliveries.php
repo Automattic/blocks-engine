@@ -20,7 +20,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
  * what the shared sheet matches. The shared sheet stays as it is for the
  * frame fallback, where no route's classes are known. Documents whose roots
  * agree on the sheet's route classes share one copy, and a copy saving less
- * than {@see MIN_SAVED_BYTES} is not written.
+ * than {@see MIN_SAVED_BYTES} is not written. The root route tests a copy's
+ * arms still spell always hold on that root, so the copy writes them out.
  *
  * A copy also leaves out the arms that require an authored class the
  * document cannot carry: one another document's markup names (so it is an
@@ -96,7 +97,7 @@ final class RouteStylesheetDeliveries
                 if (!array_key_exists($key, $byAbsent)) {
                     $required = array_merge($absent, $uncarried);
                     $content = array() === $required ? $asset['content'] : AbsentCarrierSelectors::withoutArmsRequiring($asset['content'], '/(?<!\\\\)\.(?:' . implode('|', array_map(static fn(string $class): string => preg_quote($class, '/'), $required)) . ')(?![\w\\\\-])/');
-                    $content = self::withoutArmsExcludingRoot($content, $present);
+                    $content = self::withoutDecidedRootGates(self::withoutArmsExcludingRoot($content, $present), $present, $absent);
                     $byAbsent[$key] = strlen($asset['content']) - strlen($content) < self::MIN_SAVED_BYTES || '' === trim($content) ? null : self::copy($asset, $content, $targets, $copies);
                 }
                 if (null === $byAbsent[$key]) continue;
@@ -194,6 +195,48 @@ final class RouteStylesheetDeliveries
         if (null === $marked || array() === $excluded) return $css;
         $pruned = AbsentCarrierSelectors::withoutArmsRequiring($marked, '/\.be-root-excludes-' . $nonce . '-\d+(?![\w-])/');
         return preg_replace_callback('/\.be-root-excludes-' . $nonce . '-\d+(?![\w-])/', static fn(array $match): string => $excluded[$match[0]], $pruned) ?? $css;
+    }
+
+    /**
+     * The stylesheet with each root route gate the copy's root already
+     * decides written out. Every arm left after pruning can only require a
+     * route class the root carries (`:root.be-rs-…`, `:root:is(.be-r-…)`) or
+     * exclude one it does not (`:root:not(.be-rs-…)`): on this root those
+     * tests always hold, yet each is spelled once per arm. Each decided test
+     * leaves its `:root` compound, and a subject guard reduced to
+     * `:where(:root,:root *)` (true of every element of the document) leaves
+     * its compound; zero-weight `:where()` means no specificity changes.
+     * Tests on undecided classes stay as they are.
+     *
+     * @param list<string> $present Route classes the root carries.
+     * @param list<string> $absent Route classes the root does not carry.
+     */
+    private static function withoutDecidedRootGates(string $css, array $present, array $absent): string
+    {
+        if (!str_contains($css, ':root')) return $css;
+        $present = array_fill_keys($present, true);
+        $absent = array_fill_keys($absent, true);
+        $class = '\.be-rs?-[0-9a-f]+(?![\w\\\\-])';
+        $rewritten = preg_replace_callback(
+            '/(?<![\w\\\\-]):root((?:\.be-r(?![\w\\\\-])|' . $class . '|:(?:is|where|not)\(' . $class . '(?:,' . $class . ')*\))+)/',
+            static function (array $match) use ($present, $absent): string {
+                preg_match_all('/\.be-r(?![\w\\\\-])|\.be-rs?-[0-9a-f]+|:(?:is|where|not)\([^()]*\)/', $match[1], $pieces);
+                $kept = '';
+                foreach ($pieces[0] as $piece) {
+                    preg_match_all('/\.(be-rs?-[0-9a-f]+)/', $piece, $named);
+                    $classes = $named[1];
+                    $decided = array() !== $classes && (str_starts_with($piece, ':not(')
+                        ? array() === array_filter($classes, static fn(string $name): bool => !isset($absent[$name]))
+                        : array() !== array_filter($classes, static fn(string $name): bool => isset($present[$name])));
+                    if (!$decided) $kept .= $piece;
+                }
+                return ':root' . $kept;
+            },
+            $css
+        );
+        if (null === $rewritten) return $css;
+        // Only a guard trailing a compound leaves it; a lone one is a compound.
+        return preg_replace('/(?<=[\w)\]*-]):where\(:root,:root \*\)/', '', $rewritten) ?? $rewritten;
     }
 
     /**
