@@ -108,6 +108,8 @@ final class DesignUsageCollector
     private array $headingTypography = array();
     /** @var list<array<string,string>> Resolved, explicitly authored button looks. */
     private array $buttonLooks = array();
+    /** @var array<string,int> Family each rendered core/button control inherits from its parent ('' when none is resolved) => controls. */
+    private array $buttonContextFamilies = array();
     /** @var \SplObjectStorage<DOMElement,null> Source controls emitted as core/button, deduplicated by DOM identity. */
     private \SplObjectStorage $buttonElements;
     private float $rootPx = 16.0;
@@ -156,7 +158,7 @@ final class DesignUsageCollector
             }
         }
         if (array() === $viewports) $this->proseColumns = DeclarativeProseColumns::collect($body, $this->resolver);
-        $this->headingTypography = $this->buttonLooks = $this->schemeColors = array();
+        $this->headingTypography = $this->buttonLooks = $this->buttonContextFamilies = $this->schemeColors = array();
         $resolvedRootPx = $this->resolver->documentRootFontSize($body);
         $this->rootPx = $resolvedRootPx ?? 16.0;
         $html = $body->parentNode instanceof DOMElement && 'html' === strtolower($body->parentNode->tagName) ? $body->parentNode : null;
@@ -231,6 +233,7 @@ final class DesignUsageCollector
             'class_styles' => $this->classStyleRows(),
             'heading_typography' => $this->headingTypography,
             'button_looks' => $this->buttonLooks,
+            'button_context_families' => $this->buttonContextFamilies,
             'total_mass' => max(1, $mass),
             'element_count' => $this->elements,
         ) + (array() === $this->proseColumns ? array() : array('prose_columns' => array_values($this->proseColumns)));
@@ -286,9 +289,9 @@ final class DesignUsageCollector
      */
     private function walkReferenceHeadings(DOMElement $element, array $parent, array $declarations): void
     {
-        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->elements);
+        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->buttonContextFamilies, $this->elements);
         $this->walkVisible($element, $parent, $declarations, strtolower($element->tagName));
-        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->elements] = $usage;
+        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->buttonLooks, $this->buttonContextFamilies, $this->elements] = $usage;
     }
 
     /** Whether a media rule that applies at the desktop reference viewport overrides a resting `display: none`. */
@@ -335,6 +338,13 @@ final class DesignUsageCollector
         if ($opaque) {
             $context['background'] = (string) CssColor::hex($background);
             if ($control) $context['role'] = 'button';
+        }
+        // The family a button would render if it inherited instead of
+        // stating one: its parent's. A button element typeface may yield to
+        // inheritance only where that is the family it states.
+        if ($this->buttonElements->offsetExists($element)) {
+            $contextFamily = is_string($parent['family']) ? $parent['family'] : '';
+            $this->buttonContextFamilies[$contextFamily] = ($this->buttonContextFamilies[$contextFamily] ?? 0) + 1;
         }
         if ($this->buttonElements->offsetExists($element) && isset($declarations['border-radius'], $declarations['font-size'])) {
             $lookDeclarations = array_map(self::clean(...), $declarations);

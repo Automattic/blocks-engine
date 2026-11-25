@@ -924,8 +924,10 @@ final class ThemeJsonProjection
         // button already inherits from the text around it. Stated on the
         // button element (or its block style variation), it pins buttons to
         // that preset, so a Global Styles edit of the site typeface leaves
-        // every button behind. Let buttons inherit, as links do.
-        $styles = self::withInheritedRootButtonFamily($styles);
+        // every button behind. Let buttons inherit, as links do, but only
+        // where every source button sits in root-family text: inside a
+        // section set in another face, `inherit` would repaint the button.
+        if (true === ($system->root['button_family_inherited'] ?? false)) $styles = self::withInheritedRootButtonFamily($styles);
         // Absence of a unanimous element look means inheritance, not absence
         // of an editable element in Global Styles. Keep that default explicit
         // without promoting a section's colour or a heading level's typeface
@@ -980,7 +982,9 @@ final class ThemeJsonProjection
 
     /**
      * Replaces a button element or button variation typeface equal to the
-     * root typeface with `inherit`.
+     * root typeface with `inherit`. The caller applies it only when every
+     * source button inherits the root typeface from the text around it
+     * (DesignSystem root `button_family_inherited`).
      *
      * @param array<string,mixed> $styles
      * @return array<string,mixed>
