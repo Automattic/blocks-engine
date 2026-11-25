@@ -8,6 +8,24 @@ const fixturePath = fileURLToPath(new URL('../../../tests/unit/responsive-layere
 const fixtureOutput = execFileSync('php', [fixturePath], { encoding: 'utf8' });
 const fixture = JSON.parse(fixtureOutput.slice(0, fixtureOutput.indexOf('\n')));
 const browser = await chromium.launch();
+
+// Chromium intermittently rejects a full-page capture on CI runners with
+// Page.captureScreenshot "Unable to capture screenshot" even for a lone front
+// page. That is a compositor failure, not a rendering difference, so retry it
+// a bounded number of times; any other error, or a persistent one, still fails.
+const captureFullPage = async (page, attempts = 4) => {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await page.screenshot({ fullPage: true });
+		} catch (error) {
+			if (attempt >= attempts || !/Unable to capture screenshot/.test(String(error?.message))) {
+				throw error;
+			}
+			await page.waitForTimeout(250 * attempt);
+			await page.bringToFront();
+		}
+	}
+};
 const cases = [
 	{
 		name: 'single-breakpoint-shell-margin',
@@ -47,7 +65,7 @@ try {
 						};
 					});
 					await page.bringToFront();
-					const screenshot = await page.screenshot({ fullPage: true });
+					const screenshot = await captureFullPage(page);
 					return { probe, screenshot };
 				} finally {
 					await page.close();
