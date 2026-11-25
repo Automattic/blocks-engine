@@ -1918,7 +1918,7 @@ final class AuthorSelectorProjector
                 // must still reach their intended materialized image leaf.
                 $replacements[$typeSpan['start']] = array(
                     'end' => $typeSpan['end'],
-                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
+                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . $this->sourceImageTypeGuard($context),
                 );
             } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
                 // Core's label span has no source identity. Even a dormant
@@ -2505,6 +2505,10 @@ final class AuthorSelectorProjector
             );
         }
         $projected = array();
+        $rightmostType = strtolower((string) ($parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? ''));
+        // Replacing the source type with a figure must not discard its source
+        // provenance guard. A generated SVG image is not a source img subject.
+        $imageGuard = 'img' === $rightmostType ? $this->sourceImageTypeGuard($context, $wrapperOnly) : '';
         $tokens = CssSelectorTokenizer::tokenize($selector);
         $parentIndex = count($parsed['compounds']) - 2;
         $linkSpan = null;
@@ -2522,7 +2526,7 @@ final class AuthorSelectorProjector
             $replacements = array(
                 (int) $parsed['rightmost_rewrite_end'] => array(
                     'end' => (int) $parsed['rightmost_rewrite_end'],
-                    'value' => '.wp-block-image' . $leafPath,
+                    'value' => '.wp-block-image' . $leafPath . $imageGuard,
                 ),
             );
             $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
@@ -2544,7 +2548,7 @@ final class AuthorSelectorProjector
                     'end' => (int) $parsed['rightmost_compound_span']['start'],
                     'value' => '',
                 );
-                $replacements[(int) $parsed['rightmost_rewrite_end']]['value'] = '.wp-block-image > ' . $link . $this->typeSpecificityShim($context) . ' > img';
+                $replacements[(int) $parsed['rightmost_rewrite_end']]['value'] = '.wp-block-image > ' . $link . $this->typeSpecificityShim($context) . ' > img' . $imageGuard;
             }
             $arm = $this->replaceSelectorSpans($selector, $replacements);
             if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
@@ -2559,6 +2563,20 @@ final class AuthorSelectorProjector
             $projected[] = $arm;
         }
         return implode(',', $projected);
+    }
+
+    /** Exclude materialized SVGs from source img subjects without adding specificity. */
+    private function sourceImageTypeGuard(AuthorStylesheetProjectionContext $context, bool $figure = false): string
+    {
+        if ( ! str_contains($context->emittedMarkup, 'assets/materialized-svg/inline-svg-') ) {
+            return '';
+        }
+        $asset = '[src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]';
+        if ( ! $figure ) {
+            return ':not(:where(' . $asset . '))';
+        }
+        $leaves = array_map(static fn (string $path): string => ':has(' . $path . $asset . ')', NativeImageLeafPresentation::LEAF_PATHS);
+        return ':not(:where(' . implode(',', $leaves) . '))';
     }
 
     private function typeSpecificityShim(AuthorStylesheetProjectionContext $context): string

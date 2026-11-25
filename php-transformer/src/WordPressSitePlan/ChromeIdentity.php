@@ -160,9 +160,12 @@ final class ChromeIdentity
     private static function withoutMarkerSubjectClasses(string $markup): string
     {
         if (!preg_match_all('/' . EngineMarker::patternBody() . '/', $markup, $markers)) return $markup;
+        // One fixed pattern for the subject-class token shape and a set lookup:
+        // an alternation of every marker's subject class outgrows PCRE's
+        // pattern size on large sites.
         $subjects = array();
-        foreach (array_unique($markers[0]) as $marker) $subjects[] = preg_quote(EngineMarker::subjectClassClass($marker), '/');
-        return preg_replace('/\s*(?:' . implode('|', $subjects) . ')(?![\w-])/', '', $markup) ?? $markup;
+        foreach (array_unique($markers[0]) as $marker) $subjects[EngineMarker::subjectClassClass($marker)] = true;
+        return preg_replace_callback('/\s*(' . preg_quote(EngineMarker::SUBJECT_CLASS_PREFIX, '/') . '[a-f0-9]{12})(?![\w-])/', static fn(array $match): string => isset($subjects[$match[1]]) ? '' : $match[0], $markup) ?? $markup;
     }
 
     /** Compare captured dialog HTML with the same primitive as live source chrome. */

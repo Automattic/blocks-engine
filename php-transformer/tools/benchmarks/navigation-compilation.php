@@ -43,7 +43,8 @@ if ('--contract' === ($argv[1] ?? '')) {
     // Re-pinned for #7415: the site plan declares an empty `date_archives` list.
     // Re-pinned for #6145: `.tile.kind-N p` arms pay their class weight with
     // the paragraph's source class instead of a `:where()` and a class shim.
-    if ('5bf04c78efa9874b3862d6fd2726df8301eae8145048db0a4c584dda7899d6fc' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
+    // Re-pinned: theme.json opts into appearanceTools.
+    if ('741ff7997c0f687249a1ce301c92d2eb7e7b76f2b61fef32804fb7d791f5e601' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
 } elseif (isset($argv[1])) {
     $encoded = json_encode($output, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     if (is_file($argv[1]) && file_get_contents($argv[1]) !== $encoded) throw new RuntimeException('Compile output differs from baseline');

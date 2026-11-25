@@ -253,9 +253,10 @@ final class AuthorStylesheetMaterialization
             }
             foreach ( $coreDefaultResetParts as $offset => $part ) {
                 // Beat Core's unlayered default, but roll back to the author
-                // layers when they declare this margin. The engine layer is
-                // the fallback only when no author layer owns the property.
-                $bridge = preg_replace('/(?<=[{:;])0(?=[;}])/', 'revert-layer', $part);
+                // layers when they declare this margin (or position). The
+                // engine layer is the fallback only when no author layer owns
+                // the property.
+                $bridge = preg_replace('/(?<=[{:;])(?:0|static)(?=[;}])/', 'revert-layer', $part);
                 $beforeAuthorCssParts[$coreDefaultResetStart + $offset] = '@layer ' . self::ENGINE_RESET_LAYER . '{' . $part . '}' . $bridge;
             }
             $authorLayerOrder = '@layer ' . self::ENGINE_RESET_LAYER . ',' . substr($authorLayerOrder, strlen('@layer '));

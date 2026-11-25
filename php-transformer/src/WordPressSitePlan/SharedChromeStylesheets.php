@@ -1092,7 +1092,8 @@ final class SharedChromeStylesheets
         // A template frame still surrounds route content. Its hooks are not
         // detached chrome: keep their rules in the authored route cascade,
         // just as before shell extraction moved the frame out of the page.
-        $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements, $classes);
+        $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements, $classes, $varyingMarkers);
+        $routeOwnedControls = array_filter(array_diff_key(array_intersect_key($classes, $routeHooks['marker']), $varyingMarkers ?? array()), static fn (string $class): bool => 1 === preg_match('/^blocks-engine-control-[a-f0-9]{12}-[0-9]+$/', $class), ARRAY_FILTER_USE_KEY);
         foreach ($parts as $part) {
             if ('page-frame' !== ($part['slug'] ?? null)) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
@@ -1134,7 +1135,7 @@ final class SharedChromeStylesheets
             'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
             'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
         );
-        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
+        if (!$hasSharedNavigation && array() === $classes && array() === $routeOwnedControls && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
         // Current state is assigned by core on the served route, not saved in
         // the shared part. Projected selectors using only native navigation
@@ -1164,6 +1165,23 @@ final class SharedChromeStylesheets
             return self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
         };
 
+        // A route-owned chrome control's rules stay on the routes carrying it
+        // and follow the part, gated away from those routes, everywhere else.
+        $controlMatcher = self::generatedClassMatcher($routeOwnedControls);
+        $liftsGated = static function (array $asset) use ($routeOwnedControls, $controlMatcher, $classMatcher, $reanchor, $liveElementMarkers, $routeClasses): ?callable {
+            $gate = array() === $routeOwnedControls ? null : self::routeOwnedRulesGate($asset, $routeClasses);
+            if (null === $gate) return null;
+            return static function (string $selector) use ($gate, $routeOwnedControls, $controlMatcher, $classMatcher, $reanchor, $liveElementMarkers): ?string {
+                if (!self::selectorTargetsGeneratedClass($selector, $controlMatcher)) return null;
+                preg_match_all(self::GENERATED_CLASS_PATTERN, CssSelectorCompoundInspector::positiveSelector($selector), $named);
+                foreach (array_unique($named[0]) as $class) {
+                    if (!isset($routeOwnedControls[$class]) && !self::selectorTargetsGeneratedClass('.' . $class, $classMatcher)) return null;
+                }
+                if (null !== $liveElementMarkers && null === ($selector = DeadElementMarkers::withoutDead($selector, $liveElementMarkers))) return null;
+                return self::gatedAwayFromRoutes($reanchor($selector), $gate);
+            };
+        };
+
         // Lift chrome once per occurrence media contract, while retaining one
         // authored payload resource. Route instances still own their conditions.
         $chromeAssets = self::perMediaChromeAssets($assets);
@@ -1188,7 +1206,7 @@ final class SharedChromeStylesheets
                 $keep($asset);
                 continue;
             }
-            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
+            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher, $liftsGated($asset));
             if (null === $shared) {
                 $keep($asset);
                 continue;
@@ -1227,6 +1245,67 @@ final class SharedChromeStylesheets
             $projected[] = $sharedAsset;
         }
         return $projected;
+    }
+
+    /**
+     * The route classes a shared copy of a route-owned control's rules must
+     * not match, or null when the stylesheet holding them needs no copy.
+     *
+     * A control class addresses its complete rule sequence, so a shared
+     * part's control can carry the very class a page's own copy of that
+     * control carries (a skip link a page inlines and the generic header
+     * repeats). Its rules stay with the route stylesheets, in their cascade
+     * position, but a template rendering the part on a route without one of
+     * those stylesheets (a product, an archive) has none of them. The part
+     * needs a copy those routes see and the stylesheet's own routes do not.
+     *
+     * A stylesheet already enqueued everywhere, one enqueued on a route
+     * without a stamped class, and an editor static-state capture (whose
+     * rules must not widen past the routes its capture covered) keep their
+     * current ownership.
+     *
+     * @param array<string,mixed> $asset
+     * @param array<string,string> $routeClasses Stamped route class by page source path.
+     * @return list<string>|null
+     */
+    private static function routeOwnedRulesGate(array $asset, array $routeClasses): ?array
+    {
+        if ('editor-static-state' === ($asset['source'] ?? null)) return null;
+        foreach ($asset['scopes'] ?? array() as $scope) if ('global' === ($scope['kind'] ?? null)) return null;
+        $routes = array_column($asset['stylesheet_instances'] ?? array(), 'source_path');
+        if (array() === $routes) $routes = array_column($asset['scopes'] ?? array(), 'source_path');
+        $gate = array();
+        foreach (array_unique(array_map('strval', $routes)) as $route) {
+            if (!isset($routeClasses[$route])) return null;
+            $gate[$routeClasses[$route]] = true;
+        }
+        return array() === $gate || count($gate) === count(array_unique($routeClasses)) ? null : array_keys($gate);
+    }
+
+    /**
+     * A selector that cannot match on the given routes, at its own
+     * specificity: the root route gate gains `:not()` inside `:where()`.
+     *
+     * @param list<string> $routeClasses
+     */
+    private static function gatedAwayFromRoutes(string $selector, array $routeClasses): ?string
+    {
+        if (array() === $routeClasses) return null;
+        $not = ':not(.' . implode(',.', $routeClasses) . ')';
+        if (str_starts_with($selector, ':where(:root')) {
+            $depth = 0;
+            $length = strlen($selector);
+            for ($offset = strlen(':where'); $offset < $length; ++$offset) {
+                $character = $selector[$offset];
+                if ('\\' === $character || '"' === $character || "'" === $character) return null;
+                if ('(' === $character) ++$depth;
+                elseif (')' === $character && 0 === --$depth) break;
+                elseif (',' === $character && 1 === $depth) return null;
+            }
+            return $offset < $length ? substr($selector, 0, $offset) . $not . substr($selector, $offset) : null;
+        }
+        if (preg_match('/^(?::root|html)(?![\w-])/i', $selector, $root)) return $root[0] . ':where(' . $not . ')' . substr($selector, strlen($root[0]));
+        return ':where(:root' . $not . ') ' . $selector;
     }
 
     /**
@@ -1340,7 +1419,7 @@ final class SharedChromeStylesheets
      * @param array<string,true> $markers Generated classes the shared parts carry.
      * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}
      */
-    private static function routeKeptHooks(array $assets, array $pages, array $authored, array $hookRoutes, array $chromeElements, array $markers = array()): array
+    private static function routeKeptHooks(array $assets, array $pages, array $authored, array $hookRoutes, array $chromeElements, array $markers = array(), ?array &$varyingMarkers = null): array
     {
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
@@ -1356,7 +1435,9 @@ final class SharedChromeStylesheets
         // carries route state, such as where each route's own layout places
         // the part. One global rule cannot declare both, so it stays with the
         // route as well.
-        foreach (self::routeVaryingChromeHooks($assets, $authored, $hookRoutes, $markers) as $kind => $names) $routeHooks[$kind] += $names;
+        $varying = self::routeVaryingChromeHooks($assets, $authored, $hookRoutes, $markers);
+        $varyingMarkers = $varying['marker'];
+        foreach ($varying as $kind => $names) $routeHooks[$kind] += $names;
         // Rules for a hook no lifted selector can name (an escaped class) stay
         // with the route as well.
         foreach ($authored as $kind => $names) {
@@ -1428,19 +1509,27 @@ final class SharedChromeStylesheets
      * @param list<array{0:array<string,mixed>,1:list<string>}> $inheritedContexts
      * @param array<string,mixed> $classMatcher
      */
-    private static function sharedChromeRules(string $css, callable $liftsToChrome, callable $reanchor, array $inheritedContexts, ?array $liveElementMarkers, array $classMatcher): ?string
+    private static function sharedChromeRules(string $css, callable $liftsToChrome, callable $reanchor, array $inheritedContexts, ?array $liveElementMarkers, array $classMatcher, ?callable $liftsGated = null): ?string
     {
         $matched = false;
         $unparseable = false;
         $shared = (new CssStylesheetTransformer())->transformStyleRules(
             $css,
-            static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher, &$matched, &$unparseable): string {
+            static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher, $liftsGated, &$matched, &$unparseable): string {
                 $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                 if (null === $selectors) {
                     $unparseable = true;
                     return '';
                 }
                 $selectors = self::chromeArms($selectors, $liftsToChrome);
+                $gated = array();
+                if (null !== $liftsGated) {
+                    foreach ($selectors as $selector) {
+                        if (!$liftsToChrome($selector) && null !== ($lifted = $liftsGated($selector))) $gated[] = $lifted;
+                    }
+                }
+                if (array() !== $gated) $matched = true;
+                $gated = array() === $gated ? '' : implode(',', $gated) . '{' . $body . '}';
                 $inherited = '';
                 $declarations = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array(
                     '--*', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'font-stretch',
@@ -1460,17 +1549,17 @@ final class SharedChromeStylesheets
                     }
                 }
                 $kept = array_values(array_filter($selectors, $liftsToChrome));
-                if (array() === $kept) return $inherited;
+                if (array() === $kept) return $inherited . $gated;
                 // A grouped selector lifts only the alternatives the parts carry.
                 $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
-                if (array() === $kept) return $inherited;
+                if (array() === $kept) return $inherited . $gated;
                 if (null !== $liveElementMarkers) {
                     $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => DeadElementMarkers::withoutDead($selector, $liveElementMarkers), $kept), 'is_string'));
                     // Every selector named only replaced elements: the rule matches nothing.
-                    if (array() === $kept) return $inherited;
+                    if (array() === $kept) return $inherited . $gated;
                 }
                 $matched = true;
-                return $inherited . implode(',', array_map($reanchor, $kept)) . '{' . $body . '}';
+                return $inherited . implode(',', array_map($reanchor, $kept)) . '{' . $body . '}' . $gated;
             }
         );
         return $matched && !$unparseable ? $shared : null;

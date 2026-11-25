@@ -52,7 +52,7 @@ final class DeclarationAddressedClasses
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $arm) {
                     preg_match_all(self::PATTERN, $arm, $matches);
                     foreach (array_unique($matches[0]) as $marker) {
-                        $surface = str_replace($marker, '__control__', trim($arm));
+                        $surface = self::peerNeutral(str_replace($marker, '__control__', trim($arm)));
                         $record = json_encode(array($context, $parents, $surface, $declarations), JSON_THROW_ON_ERROR);
                         $records[$marker][] = $record;
                     }
@@ -68,6 +68,102 @@ final class DeclarationAddressedClasses
             $replacements[$marker] = 'blocks-engine-' . $kind[1] . '-' . substr(hash('sha256', $signature), 0, 12) . '-0';
         }
         return $replacements;
+    }
+
+    /**
+     * The surface with every `:is()`/`:where()` list on the control's path
+     * reduced to the control's own alternatives plus the set of its sibling
+     * alternatives, sibling carriers named by kind only.
+     *
+     * A carrier inside a nested list the compactor cannot expand (an outer
+     * list mixes specificities) otherwise takes every sibling alternative's
+     * provisional name, count and position into its address. One
+     * route-specific sibling then renames every carrier in the list, so the
+     * same control gets a new class on every page and every rule naming it is
+     * repeated per page. An element matching its own alternative matches the
+     * list whatever its siblings are named, how often they repeat or in what
+     * order, and a list weighs as its most specific alternative, which
+     * neither names nor duplicates change. Only lists reached through other
+     * lists are reduced: under `:not()`, `:has()` or any other function a
+     * sibling decides which elements match, so that text is kept verbatim, as
+     * are carriers in the control's own branch.
+     */
+    private static function peerNeutral(string $surface): string
+    {
+        if (!preg_match(self::PATTERN, $surface)) return $surface;
+        return self::reduceAlternatives($surface) ?? $surface;
+    }
+
+    private static function reduceAlternatives(string $selector): ?string
+    {
+        $groups = self::alternativeGroups($selector);
+        if (null === $groups) return null;
+        // Outermost lists first; rewrite right to left so offsets hold.
+        $outer = array_filter($groups, static fn (array $group): bool => 0 === $group['depth']);
+        foreach (array_reverse($outer) as $group) {
+            $content = substr($selector, $group['start'] + 1, $group['end'] - $group['start'] - 1);
+            if (!$group['list'] || !str_contains($content, '__control__')) continue;
+            $own = array();
+            $siblings = array();
+            $from = 0;
+            foreach (array_merge($group['commas'], array($group['end'])) as $comma) {
+                $alternative = substr($content, $from, $comma - $group['start'] - 1 - $from);
+                $from = $comma - $group['start'];
+                if (str_contains($alternative, '__control__')) {
+                    $reduced = self::reduceAlternatives($alternative);
+                    if (null === $reduced) return null;
+                    $own[] = $reduced;
+                    continue;
+                }
+                $siblings[] = preg_replace_callback(
+                    self::PATTERN,
+                    static fn (array $match): string => preg_replace('/-[a-f0-9]{12}-[0-9]+$/', '-__peer__', $match[0]) ?? $match[0],
+                    trim($alternative)
+                ) ?? $alternative;
+            }
+            $siblings = array_values(array_unique($siblings));
+            sort($siblings, SORT_STRING);
+            $selector = substr_replace($selector, implode(',', array_merge($own, $siblings)), $group['start'] + 1, $group['end'] - $group['start'] - 1);
+        }
+        return $selector;
+    }
+
+    /**
+     * Parenthesized groups in opening order, each with its nesting depth,
+     * top-level comma offsets and whether its alternatives are interchangeable
+     * (`:is()`, `:where()`). Quoted strings and escapes are not structure.
+     * @return list<array{start: int, end: int, depth: int, list: bool, commas: list<int>}>|null
+     */
+    private static function alternativeGroups(string $selector): ?array
+    {
+        $groups = array();
+        $stack = array();
+        $quote = '';
+        $length = strlen($selector);
+        for ($offset = 0; $offset < $length; ++$offset) {
+            $character = $selector[$offset];
+            if ('\\' === $character) {
+                ++$offset;
+                continue;
+            }
+            if ('' !== $quote) {
+                if ($character === $quote) $quote = '';
+                continue;
+            }
+            if ('"' === $character || "'" === $character) {
+                $quote = $character;
+            } elseif ('(' === $character) {
+                $list = (bool) preg_match('/:(?:is|where|matches|-webkit-any|-moz-any)$/i', substr($selector, max(0, $offset - 12), min($offset, 12)));
+                $groups[] = array('start' => $offset, 'end' => $length, 'depth' => count($stack), 'list' => $list, 'commas' => array());
+                $stack[] = count($groups) - 1;
+            } elseif (')' === $character) {
+                if (array() === $stack) return null;
+                $groups[array_pop($stack)]['end'] = $offset;
+            } elseif (',' === $character && array() !== $stack) {
+                $groups[end($stack)]['commas'][] = $offset;
+            }
+        }
+        return '' === $quote && array() === $stack ? $groups : null;
     }
 
     /**

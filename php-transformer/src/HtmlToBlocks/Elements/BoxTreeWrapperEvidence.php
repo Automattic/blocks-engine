@@ -172,14 +172,15 @@ final class BoxTreeWrapperEvidence
                     $offset = self::style($styles, $side);
                     if ('auto' !== $offset && ! self::zeroLength($offset)) return self::answer(self::LOAD_BEARING, 'inset:' . $side);
                 }
-                if ($this->containsOutOfFlowFor($wrapper, $viewport)) return self::answer(self::LOAD_BEARING, 'containing_block');
+                if ($this->containsOutOfFlowFor($wrapper, $viewport) && (! $restate || ! $this->positionTransfersTo($wrapper, $child))) return self::answer(self::LOAD_BEARING, 'containing_block');
             } elseif ('static' !== $position) {
                 return self::answer(self::LOAD_BEARING, 'position:' . $position);
             }
             if (! self::sameBox($box, $childObservation['border_box'])) {
                 $kind = self::geometryKind($styles);
                 if (! $restate || ! $this->insetTransfersTo($wrapper, $child)) {
-                    return self::answer(self::LOAD_BEARING, 'child_box_differs:' . $kind . ':' . $viewport);
+                    $detail = 'inset' === $kind && $restate ? ':' . $this->insetRefusal($wrapper, $child) : '';
+                    return self::answer(self::LOAD_BEARING, 'child_box_differs:' . $kind . ':' . $viewport . $detail);
                 }
             }
         }
@@ -230,6 +231,44 @@ final class BoxTreeWrapperEvidence
             $expanded['width'] += $padding['left'] + $padding['right'];
             $expanded['height'] += $padding['top'] + $padding['bottom'];
             if (! self::sameBox($expanded, $parent['border_box'])) return false;
+        }
+        return true;
+    }
+
+    /** Explain the first unproven inset without changing the all-viewport proof. */
+    private function insetRefusal(DOMElement $wrapper, DOMElement $child): string
+    {
+        foreach ($this->viewports as $viewport) {
+            $parent = self::observation($this->node($wrapper) ?? array(), $viewport);
+            $leaf = self::observation($this->node($child) ?? array(), $viewport);
+            if (null === $parent || null === $leaf) return 'missing_evidence:' . $viewport;
+            $styles = $leaf['used_styles'];
+            $paint = self::paintReason($styles);
+            if (null !== $paint) return 'child_paints:' . $paint . ':' . $viewport;
+            foreach (array('top', 'right', 'bottom', 'left') as $side) {
+                if (! self::zeroLength(self::style($styles, 'margin-' . $side))) return 'child_margin:' . $side . ':' . $viewport;
+                if (! self::zeroLength(self::style($styles, 'padding-' . $side))) return 'child_padding:' . $side . ':' . $viewport;
+            }
+            if ('block' !== self::style($styles, 'display') || 'static' !== self::style($styles, 'position') || 'none' !== self::style($styles, 'float')) return 'child_formatting_context:' . $viewport;
+        }
+        return 'expanded_box_mismatch';
+    }
+
+    /** A relative containing block moves only onto an unpositioned equal padding box. */
+    public function positionTransfersTo(DOMElement $wrapper, DOMElement $child): bool
+    {
+        if (! $this->insetTransfersTo($wrapper, $child)) return false;
+        $positions = $this->usedValues($wrapper, 'position');
+        if (null === $positions) return false;
+        foreach ($positions as $position) if ('relative' !== $position) return false;
+        foreach (array('top', 'right', 'bottom', 'left') as $side) {
+            $values = $this->usedValues($wrapper, $side);
+            if (null === $values) return false;
+            foreach ($values as $value) if ('auto' !== $value && ! self::zeroLength($value)) return false;
+        }
+        // Observe descendants too: missing evidence must not silently establish a new containing block.
+        foreach ($wrapper->getElementsByTagName('*') as $descendant) {
+            if (null === $this->usedValues($descendant, 'position')) return false;
         }
         return true;
     }

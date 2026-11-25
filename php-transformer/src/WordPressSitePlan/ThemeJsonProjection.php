@@ -1082,6 +1082,12 @@ final class ThemeJsonProjection
         // and the editor gap control enabled.
         if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = false;
         $settings['spacing']['blockGap'] = true;
+        // Core leaves the margin, padding, border, line height, link color and
+        // position controls off unless a theme opts in, so an imported page
+        // could not be restyled in the editor. The opt-in only fills settings
+        // the theme has not set: blockGap above is already explicit, so it
+        // does not change which layout gap CSS core emits.
+        $settings['appearanceTools'] = true;
         // Authored CSS also owns root padding that is not projected (a
         // shorthand, a responsive override, a calc()). WordPress's own
         // theme.json sets `styles.spacing.padding` to 0px on every side, and
