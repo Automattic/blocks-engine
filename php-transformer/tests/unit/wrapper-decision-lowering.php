@@ -31,6 +31,7 @@ $assert(array(
     'proof_backed_coalescing',
     'inherited_text_coalescing',
     'neutral_child_absorption',
+    'padding_shell_absorption',
     'single_child_candidate',
     'single_child_retention',
     'author_layout_empty_child',
@@ -40,6 +41,7 @@ $assert(array(
 $assert(11 === count($tables['proof_backed_coalescing']), 'proof-backed-guard-count', (string) count($tables['proof_backed_coalescing']));
 $assert(7 === count($tables['inherited_text_coalescing']), 'inherited-text-guard-count', (string) count($tables['inherited_text_coalescing']));
 $assert(30 === count($tables['neutral_child_absorption']), 'neutral-child-guard-count', (string) count($tables['neutral_child_absorption']));
+$assert(27 === count($tables['padding_shell_absorption']), 'padding-shell-guard-count', (string) count($tables['padding_shell_absorption']));
 foreach ( $tables as $table => $guards ) {
     $assert(array() === array_diff(array_unique(array_values($guards)), WrapperDecision::STAGES), $table . '-guards-belong-to-known-stages');
 }
