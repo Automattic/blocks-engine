@@ -61,6 +61,11 @@ final class SourceBlockAttributeProjector
      */
     public const RATIO_FRAME_IMAGE_FIGURE_CLASS = 'blocks-engine-ratio-frame-image-figure';
     public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
+    /**
+     * A fill image whose figure took the place of the paint-free positioned
+     * layer it filled: the figure is that layer's box, not an image inside it.
+     */
+    public const FILL_LAYER_IMAGE_FIGURE_CLASS = 'blocks-engine-fill-layer-image';
     /** A fill image a later absolutely positioned sibling layer paints over. */
     public const COVERED_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-covered-fill-image';
     /** A positioned sibling layer whose box covers an earlier fill image's whole box. */
@@ -120,6 +125,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
             self::RATIO_FRAME_IMAGE_FIGURE_CLASS,
             self::LAYER_FILL_IMAGE_FIGURE_CLASS,
+            self::FILL_LAYER_IMAGE_FIGURE_CLASS,
             self::COVERED_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
             self::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS,
@@ -268,7 +274,9 @@ final class SourceBlockAttributeProjector
             } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
                 $parent = $sourceElement->parentNode;
-                if ( $parent instanceof DOMElement ) {
+                // A figure that is the layer itself has no host to put in
+                // flow and no positioned layer later in its own box.
+                if ( $parent instanceof DOMElement && ! in_array(self::FILL_LAYER_IMAGE_FIGURE_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true) ) {
                     $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? ''));
                     if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
                         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYER_FILL_IMAGE_FIGURE_CLASS);
