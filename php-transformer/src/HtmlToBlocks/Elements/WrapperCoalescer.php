@@ -635,6 +635,9 @@ final class WrapperCoalescer
         // the child (attribute transport, direction) sees it there.
         foreach ($decision['moved_attributes'] as $name => $value) $sourceChild->setAttribute($name, $value);
         $childAttrs = ArrayField::array($childBlock, 'attrs');
+        if (isset($decision['attrs']['style'])) {
+            $childAttrs['style'] = array_replace_recursive($decision['attrs']['style'], $childAttrs['style'] ?? array());
+        }
         $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element), ...array_filter(array($projectedClass)));
         if ('' !== $decision['moved_id']) $childAttrs['anchor'] = $decision['moved_id'];
         // An id that did not survive the fold (the wrapper's, dropped; or the

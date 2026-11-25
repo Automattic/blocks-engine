@@ -417,8 +417,12 @@ final class RestatedWrapperFold
         // The child's percentages resolve against its containing block, the
         // wrapper before the fold and the wrapper's parent after it.
         $fontSized = false;
+        $inset = $evidence->insetTransfersTo($wrapper, $child);
         foreach ($competitors as $other) {
             $property = strtolower($other['property']);
+            if ($inset && in_array($property, self::SIZE_PROPERTIES, true)) {
+                return self::failure(self::CHILD_RELATIVE_TO_WRAPPER, $property . ':inset_sizing');
+            }
             if (in_array($property, array('font', 'font-size'), true)) $fontSized = true;
             if (! $this->isInherited($property) && str_contains($other['value'], '%')) {
                 return self::failure(self::CHILD_RELATIVE_TO_WRAPPER, $property);
@@ -474,13 +478,14 @@ final class RestatedWrapperFold
         // The evidence already proved the wrapper's float layout-neutral: it
         // fills its parent's content box, as the child fills it.
         if ('float' === $property) return null !== $evidence->usedValues($wrapper, 'float');
+        if ('opacity' === $property) return self::observedEverywhere($evidence, $child, 'opacity', array('1', '1.0'));
         if (in_array($property, self::SIZE_PROPERTIES, true)) return $evidence->sizeTransfersTo($child);
         if ('box-sizing' === $property) return self::observedEverywhere($evidence, $child, 'box-sizing', array($value));
         if (1 === preg_match('/^margin(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/', $property)) return true;
         if (in_array($property, self::ITEM_PROPERTIES, true)) return true;
         if ('display' === $property) return 'block' === $value && self::observedEverywhere($evidence, $child, 'display', array('block'));
         if (in_array($property, self::CONTAINER_PROPERTIES, true)) return self::observedEverywhere($evidence, $child, 'display', array('block', 'flow-root'));
-        if (1 === preg_match('/^padding(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/', $property)) return 1 === preg_match('/^(?:0(?:px)?\s*){1,4}$/', $value);
+        if (1 === preg_match('/^padding(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/', $property)) return 1 === preg_match('/^(?:0(?:px)?\s*){1,4}$/', $value) || $evidence->insetTransfersTo($wrapper, $child);
         if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-(?:width|style))?$/', $property)) return 1 === preg_match('/^(?:(?:0(?:px)?|none)\s*)+$/', $value);
         return in_array($value, self::NEUTRAL_VALUES[$property] ?? array(), true);
     }

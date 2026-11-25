@@ -172,4 +172,26 @@ foreach (array('no_box_tree_evidence', 'geometry_not_neutral', 'child_has_own_id
     rwf_assert(in_array($stages[$reason] ?? null, WrapperDecision::STAGES, true), "refusal {$reason} should be a staged guard");
 }
 
+// #7517: geometry is restated only when the expanded border box is proven.
+$inset = array_replace($neutral, array(
+    'w' => array('box' => $box, 'styles' => array('padding-left' => '20px', 'padding-right' => '20px')),
+    'c' => array('box' => array(28, 120, 1384, 200)),
+));
+$insetCss = '.col{padding:0 20px}.col .inner{color:blue}';
+rwf_assert($folded($compile($html, $insetCss, $inset)['markup']), 'a proven horizontal inset should fold');
+$centered = $inset;
+$centered['w']['styles'] += array('max-width' => '1424px', 'margin-left' => 'auto', 'margin-right' => 'auto');
+rwf_assert($folded($compile($html, $insetCss . '.col{max-width:1424px;margin-inline:auto}', $centered)['markup']), 'a centered max-width inset should fold');
+$childPaint = $inset;
+$childPaint['c']['styles'] = array('background-color' => 'rgb(255,0,0)');
+rwf_assert($wrapperKept($compile($html, $insetCss . '.inner{background:red}', $childPaint)['markup']), 'a child background must keep its inset wrapper');
+$opacity = $neutral;
+$opacity['w']['styles'] = array('opacity' => '0.5');
+rwf_assert($folded($compile($html, '.col{opacity:.5}.col .inner{color:blue}', $opacity)['markup']), 'a sole wrapper opacity should restate');
+$opacity['c']['styles'] = array('opacity' => '0.5');
+rwf_assert($wrapperKept($compile($html, '.col{opacity:.5}.inner{opacity:.5}', $opacity)['markup']), 'nested opacity must not collapse');
+$mismatch = $inset;
+$mismatch['c']['box'][2] -= 10;
+rwf_assert($wrapperKept($compile($html, $insetCss, $mismatch)['markup']), 'an unexplained border-box difference must refuse');
+
 echo "restated-wrapper-fold: ok\n";
