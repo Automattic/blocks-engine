@@ -21,12 +21,7 @@ final class CapturedInteractionReport
         $key = CapturedComponentStates::inputKey($report, $files);
         if (array_key_exists($key, self::$resolvedCache)) return self::$resolvedCache[$key];
         $report = CapturedComponentStates::shareEvidence($report, $files);
-        $report = self::cleanMarkup($report);
-        foreach ($report['pages'] as &$page) {
-            if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
-            $page['components'] = CapturedStateUrls::rebase($page['components'], $page['sourceUrl']);
-        }
-        unset($page);
+        self::cleanMarkup($report);
         if (4 <= count(self::$resolvedCache)) array_shift(self::$resolvedCache);
         return self::$resolvedCache[$key] = $report;
     }
@@ -79,24 +74,32 @@ final class CapturedInteractionReport
     /** Clean all captured HTML shards, including nested semantic evidence and snapshots.
      * The original sidecar stays untouched; only markup consumed by projectors is cleaned.
      */
-    private static function cleanMarkup(array $evidence): array
+    private static function cleanMarkup(array &$evidence, ?string $sourceUrl = null): void
     {
-        foreach ($evidence as $key => $value) {
+        $sourceUrl = is_string($evidence['sourceUrl'] ?? null) ? $evidence['sourceUrl'] : $sourceUrl;
+        foreach ($evidence as $key => &$value) {
             if (is_array($value)) {
-                $evidence[$key] = self::cleanMarkup($value);
-            } elseif (is_string($key) && is_string($value) && str_ends_with(strtolower($key), 'html')
-                && false !== stripos($value, \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)) {
-                $document = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::parseFragment('<div>' . $value . '</div>');
-                $root = $document->documentElement;
-                if (!$root instanceof \DOMElement) continue;
-                \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::removeEvidenceAttributes($root);
-                $html = '';
-                foreach ($root->childNodes as $child) $html .= $document->saveHTML($child);
-                $evidence[$key] = $html;
-                if (array_key_exists($key . 'Bytes', $evidence)) $evidence[$key . 'Bytes'] = strlen($html);
+                self::cleanMarkup($value, $sourceUrl);
+            } elseif (is_string($key) && is_string($value) && str_ends_with(strtolower($key), 'html')) {
+                $corroborated = ($evidence[$key . 'Bytes'] ?? null) === strlen($value);
+                if (false !== stripos($value, \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)) {
+                    $document = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::parseFragment('<div>' . $value . '</div>');
+                    $root = $document->documentElement;
+                    if ($root instanceof \DOMElement) {
+                        \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::removeEvidenceAttributes($root);
+                        $html = '';
+                        foreach ($root->childNodes as $child) $html .= $document->saveHTML($child);
+                        $value = $html;
+                        unset($html, $child);
+                    }
+                    unset($root, $document);
+                }
+                if (null !== $sourceUrl) $value = CapturedStateUrls::html($value, $sourceUrl);
+                // Do not turn invalid capture sizes into valid evidence during cleanup.
+                if ($corroborated) $evidence[$key . 'Bytes'] = strlen($value);
             }
         }
-        return $evidence;
+        unset($value);
     }
 
     private static function decode(string $content): ?array

@@ -61,6 +61,7 @@ final class CapturedComponentStates
                     $inventory[$selector][$hash][hash('sha256', serialize($component))] = $component;
                 }
             }
+            unset($node, $document);
         }
         if (!$inventory) return $report;
         foreach ($report['pages'] as &$page) {
@@ -86,6 +87,7 @@ final class CapturedComponentStates
                 }
             }
             $page['components'] = array_values($components);
+            unset($node, $document);
         }
         unset($page);
         return $report;
