@@ -12,7 +12,7 @@ $css = '*,:before,:after{box-sizing:border-box;border:0 solid #e5e7eb}'
     . '.tile{overflow:hidden;border-radius:12px;border-width:1px}'
     . '.inline-block{display:inline-block}.relative{position:relative}.absolute{position:absolute}'
     . '.aspect-square{aspect-ratio:1/1}.w-full{width:100%}.h-full{height:100%}.inset-0{inset:0}'
-    . '.object-cover{object-fit:cover}.p-2{padding:8px}.h-40{height:10rem}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}';
+    . '.aspect-video{aspect-ratio:16/9}.object-cover{object-fit:cover}.p-2{padding:8px}.h-40{height:10rem}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}';
 $frame = '<span class="inline-block relative aspect-square w-full"><img class="w-full h-full inset-0 absolute object-cover" src="a.jpg" alt="A"></span>';
 $compile = static function (string $body) use ($css): string {
     return (new ArtifactCompiler())->compile(array('files' => array(
@@ -71,12 +71,12 @@ foreach (array(
 // onto the image (`<img class="aspect-square">`) must not reset this figure's
 // ratio to auto, or the tile collapses to zero height.
 $compiled = (new ArtifactCompiler())->compile(array('files' => array(
-    array('path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><main><div class="grid"><div class="tile">' . $frame . '</div><div class="tile"><img class="aspect-square w-full object-cover" src="c.jpg" alt="C"></div></div></main></body></html>'),
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><main><div class="grid"><div class="tile">' . $frame . '</div><div class="tile"><img class="aspect-square w-full object-cover" src="c.jpg" alt="C"></div><div class="tile"><img class="aspect-video w-full" src="d.jpg" alt="D"></div></div></main></body></html>'),
     array('path' => 's.css', 'kind' => 'css', 'content' => $css),
 )))->toArray();
 preg_match_all('#<figure class="([^"]*)"#', $compiled['serialized_blocks'], $figures);
 $frameFigure = array_values(array_filter($figures[1], static fn (string $classes): bool => str_contains(' ' . $classes . ' ', ' inline-block ')));
-$imageFigure = array_values(array_filter($figures[1], static fn (string $classes): bool => !str_contains(' ' . $classes . ' ', ' inline-block ')));
+$imageFigure = array_values(array_filter($figures[1], static fn (string $classes): bool => str_contains(' ' . $classes . ' ', ' aspect-square ') && !str_contains(' ' . $classes . ' ', ' inline-block ')));
 if (1 !== count($frameFigure) || 1 !== count($imageFigure)) {
     throw new RuntimeException('Expected one framed and one ratio-classed image figure: ' . $compiled['serialized_blocks']);
 }
@@ -101,6 +101,14 @@ if ($resetsRatio($frameFigure[0])) {
 }
 if (!$resetsRatio($imageFigure[0])) {
     throw new RuntimeException('An image that carried its own ratio class still moves that ratio onto the image: ' . $stylesheets);
+}
+
+// A ratio reset no framed figure can match stays as the source wrote it:
+// the exclusion is confined to the classes framed figures carry, so the
+// rest of the site's stylesheet is not restated around them.
+if (1 !== preg_match('#\.aspect-video\.wp-block-image(?:[^{},]*)\{aspect-ratio:auto#', $stylesheets, $videoReset)
+    || str_contains($videoReset[0], 'blocks-engine-ratio-frame-image-figure')) {
+    throw new RuntimeException('A ratio reset no framed figure carries must not exclude framed figures: ' . $stylesheets);
 }
 
 echo "positioned-image-frame-figure: passed\n";
