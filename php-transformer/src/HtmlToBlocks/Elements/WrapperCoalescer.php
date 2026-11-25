@@ -611,7 +611,7 @@ final class WrapperCoalescer
             $childBlock,
             $evidence,
             $this->restatedIdentity,
-            fn (DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes): array => $this->restatementProof->prove($wrapper, $child, $movedId, $movedAttributes, $evidence),
+            fn (DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes, array $projectedAttributes, array $chain): array => $this->restatementProof->prove($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, $chain),
             static function (DOMElement $wrapper): bool {
                 $parent = $wrapper->parentNode;
                 return $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array('body', 'html'), true);
@@ -623,14 +623,19 @@ final class WrapperCoalescer
         if (! $disposition->isFold() || ! $sourceChild instanceof DOMElement) return null;
 
         $projections = $this->session->authorSelectorProjectionState();
+        // A projected attribute becomes an engine-owned class on the child;
+        // the arms that read it name that class.
+        $projectedClass = array() === $decision['projected_attributes']
+            ? ''
+            : $projections->ensureAttributeMarker($element->getNodePath() ?? '', 'restated-wrapper-fold');
         foreach ($decision['arms'] as $selector => $arms) {
-            foreach ($arms as $arm) $projections->addRestatedSelectorArm($selector, $arm);
+            foreach ($arms as $arm) $projections->addRestatedSelectorArm($selector, '' === $projectedClass ? $arm : RestatedWrapperFold::projectedArm($arm, $projectedClass));
         }
         // What moves lands on the source child too, so every later reader of
         // the child (attribute transport, direction) sees it there.
         foreach ($decision['moved_attributes'] as $name => $value) $sourceChild->setAttribute($name, $value);
         $childAttrs = ArrayField::array($childBlock, 'attrs');
-        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element));
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element), ...array_filter(array($projectedClass)));
         if ('' !== $decision['moved_id']) $childAttrs['anchor'] = $decision['moved_id'];
         // An id that did not survive the fold (the wrapper's, dropped; or the
         // child's, replaced) takes its editor-anchor class with it.
@@ -971,6 +976,34 @@ final class WrapperCoalescer
             $sourceChild = $this->imageLeafInGroupChain($element);
         }
         return $sourceChild;
+    }
+
+    /**
+     * The source element a wrapper's only child block was converted from,
+     * found down the wrapper's sole-element-child chain, with the elements
+     * between them (outermost first). Those elements did not emit a block of
+     * their own: the child block is the one their conversion returned, so
+     * each was already folded into it (#7505). Null when the block does not
+     * come from that chain.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array{0: DOMElement, 1: list<DOMElement>}|null
+     */
+    public function foldedChainSourceChild(DOMElement $element, array $childBlock): ?array
+    {
+        $target = $this->matchingSourceChild($element, $childBlock);
+        $provenanceId = $childBlock['_source_provenance_id'] ?? null;
+        $digest = is_int($provenanceId) ? (string) ($this->session->transformationProvenanceState()->source($provenanceId)['source_digest'] ?? '') : '';
+        if (! $target instanceof DOMElement && '' === $digest) return null;
+        $folded = array();
+        for ($node = ($this->soleElementChild)($element), $depth = 0; $node instanceof DOMElement && $depth < 32; $node = ($this->soleElementChild)($node), ++$depth) {
+            if ($node === $target) return array($node, $folded);
+            if (! $target instanceof DOMElement && hash('sha256', SourceDom::safeFallbackHtml($node, $this->session->authorSelectorProjectionState()->tagMarkers())) === $digest) {
+                return array($node, $folded);
+            }
+            $folded[] = $node;
+        }
+        return null;
     }
 
     /** @param array<string, mixed> $block */

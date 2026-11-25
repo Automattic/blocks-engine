@@ -24,6 +24,12 @@ final class RestatedWrapperIdentity
     public const DROP = 'drop';
     /** An attribute something reads, restated on the child. */
     public const MOVE = 'move';
+    /**
+     * An attribute only author CSS reads: the child takes an engine-owned
+     * class in its place, and each rule reading the attribute through the
+     * wrapper gains the arm naming that class ({@see RestatedWrapperFold}).
+     */
+    public const PROJECT = 'project';
     /** An attribute the fold cannot restate: the wrapper is kept. */
     public const KEEP = 'keep';
 
@@ -72,7 +78,9 @@ final class RestatedWrapperIdentity
      * What the fold does with one of the wrapper's authored attributes other
      * than `class` and `id`, as `[disposition, detail]`. A `data-*` attribute
      * no emitted selector, runtime selector or page script reads is inert;
-     * one the wrapper's block would carry to its saved root moves; any other
+     * one only author CSS reads is projected to an engine-owned class, so it
+     * does not matter whether the child already carries the attribute; one
+     * the wrapper's block would carry to its saved root moves; any other
      * read keeps the wrapper. `dir` moves. Anything else keeps the wrapper.
      *
      * @return array{0: string, 1: string}
@@ -84,10 +92,11 @@ final class RestatedWrapperIdentity
         if (! str_starts_with($name, 'data-') || str_starts_with($name, 'data-blocks-engine-') || str_starts_with($name, 'data-wp-')) {
             return array(self::KEEP, $name);
         }
-        $reader = $this->dataAttributeReader($name);
-        if (null === $reader) return array(self::DROP, $name);
+        $readers = $this->dataAttributeReaders($name);
+        if (array() === $readers) return array(self::DROP, $name);
+        if (array('css') === $readers) return array(self::PROJECT, $name);
         if (array_key_exists($name, $this->runtimeIslands->runtimeAttributesCarriedBy($wrapper, 'core/group'))) return array(self::MOVE, $name);
-        return array(self::KEEP, $name . ':' . $reader);
+        return array(self::KEEP, $name . ':' . implode('+', $readers));
     }
 
     /**
@@ -116,19 +125,21 @@ final class RestatedWrapperIdentity
         return null;
     }
 
-    /** What reads a `data-*` attribute: `css`, `runtime_selector` or `script`; null when nothing does. */
-    private function dataAttributeReader(string $name): ?string
+    /** @return list<string> What reads a `data-*` attribute, of `css`, `runtime_selector` and `script`; empty when nothing does. */
+    private function dataAttributeReaders(string $name): array
     {
+        $readers = array();
         $pattern = '/\[\s*' . preg_quote($name, '/') . '\s*[\]~|^$*=]/i';
-        if (1 === preg_match($pattern, $this->session->authorStyleAnalysis()->combinedCss())) return 'css';
+        if (1 === preg_match($pattern, $this->session->authorStyleAnalysis()->combinedCss())) $readers[] = 'css';
         foreach ($this->runtimeSelectors() as $selector) {
-            if (1 === preg_match($pattern, $selector)) return 'runtime_selector';
+            if (1 !== preg_match($pattern, $selector)) continue;
+            $readers[] = 'runtime_selector';
+            break;
         }
         $script = $this->session->boxTreeWrapperEvidence()->sourceScriptText();
-        if ('' === $script) return null;
         $key = (string) preg_replace_callback('/-([a-z])/', static fn (array $match): string => strtoupper($match[1]), substr($name, 5));
-        if (false !== stripos($script, $name) || ('' !== $key && str_contains($script, $key))) return 'script';
-        return null;
+        if ('' !== $script && (false !== stripos($script, $name) || ('' !== $key && str_contains($script, $key)))) $readers[] = 'script';
+        return $readers;
     }
 
     /** @return list<string> */

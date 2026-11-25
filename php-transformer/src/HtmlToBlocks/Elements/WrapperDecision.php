@@ -820,9 +820,16 @@ final class WrapperDecision
      * property, selector or attribute.
      *
      * @param array<string, mixed> $childBlock
-     * @param Closure(DOMElement, DOMElement, string, array<string, string>): array{failure: ?string, detail: string, arms: array<string, list<string>>} $prove
+     * A `data-*` attribute only author CSS reads is projected: the child
+     * takes an engine-owned class in its place and every rule reading the
+     * attribute through the wrapper gains the arm naming that class. A
+     * child block converted from a deeper element is accepted when the
+     * elements between it and the wrapper form a sole-child chain that
+     * already folded into it; the proof runs against that element.
+     *
+     * @param Closure(DOMElement, DOMElement, string, array<string, string>, array<string, string>, array{elements: list<DOMElement>, classes: list<string>, anchor: string}): array{failure: ?string, detail: string, arms: array<string, list<string>>} $prove
      * @param Closure(DOMElement): bool $isDocumentEdge
-     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement, moved_id: string, moved_attributes: array<string, string>, attrs: array<string, mixed>, arms: array<string, list<string>>}
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement, moved_id: string, moved_attributes: array<string, string>, projected_attributes: array<string, string>, folded_chain: list<DOMElement>, attrs: array<string, mixed>, arms: array<string, list<string>>}
      */
     public function restatedWrapperFold(DOMElement $wrapper, array $childBlock, BoxTreeWrapperEvidence $evidence, RestatedWrapperIdentity $identity, Closure $prove, Closure $isDocumentEdge): array
     {
@@ -836,8 +843,12 @@ final class WrapperDecision
         $movedId = $wrapperId;
         /** @var array<string, string> $movedAttributes */
         $movedAttributes = array();
-        $proven = function () use (&$proof, &$sourceChild, &$movedId, &$movedAttributes, $wrapper, $prove): array {
-            return $proof ??= $prove($wrapper, $sourceChild, $movedId, $movedAttributes);
+        /** @var array<string, string> $projectedAttributes */
+        $projectedAttributes = array();
+        /** @var array{elements: list<DOMElement>, classes: list<string>, anchor: string} $chain */
+        $chain = array('elements' => array(), 'classes' => array(), 'anchor' => '');
+        $proven = function () use (&$proof, &$sourceChild, &$movedId, &$movedAttributes, &$projectedAttributes, &$chain, $wrapper, $prove): array {
+            return $proof ??= $prove($wrapper, $sourceChild, $movedId, $movedAttributes, $projectedAttributes, $chain);
         };
         $proofFails = function (string $failure) use ($proven, &$detail): bool {
             if ($failure !== $proven()['failure']) return false;
@@ -858,14 +869,19 @@ final class WrapperDecision
             array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($wrapper)),
             array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($wrapper)),
             array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($wrapper)),
-            // Besides the class and the id, an inert attribute is dropped and
-            // a read one moves; any other keeps the wrapper.
-            array(self::STAGE_IDENTITY, 'unrestatable_wrapper_attribute', static function () use ($wrapper, $identity, &$movedAttributes, &$detail): bool {
+            // Besides the class and the id, an inert attribute is dropped, a
+            // read one moves, and one only author CSS reads is projected to
+            // an engine-owned class; any other keeps the wrapper.
+            array(self::STAGE_IDENTITY, 'unrestatable_wrapper_attribute', static function () use ($wrapper, $identity, &$movedAttributes, &$projectedAttributes, &$detail): bool {
                 foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($wrapper) as $attribute) {
                     $name = strtolower($attribute->nodeName);
                     if (in_array($name, array('class', 'id'), true)) continue;
                     [$use, $useDetail] = $identity->attributeUse($wrapper, $name);
                     if (RestatedWrapperIdentity::DROP === $use) continue;
+                    if (RestatedWrapperIdentity::PROJECT === $use) {
+                        $projectedAttributes[$name] = (string) $attribute->nodeValue;
+                        continue;
+                    }
                     if (RestatedWrapperIdentity::MOVE === $use) {
                         $movedAttributes[$name] = (string) $attribute->nodeValue;
                         continue;
@@ -875,10 +891,26 @@ final class WrapperDecision
                 }
                 return false;
             }),
-            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', function () use ($wrapper, $childBlock, &$sourceChild): bool {
-                $sole = $this->signals->soleElementChildOf($wrapper);
-                $sourceChild = $this->signals->matchingSourceChild($wrapper, $childBlock);
-                return ! $sole instanceof DOMElement || $sole !== $sourceChild;
+            // The child block comes from the wrapper's sole element child, or
+            // from a deeper element whose ancestors up to the wrapper are a
+            // sole-child chain already folded into that block.
+            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', function () use ($wrapper, $childBlock, &$sourceChild, &$chain, &$detail): bool {
+                $found = $this->signals->foldedChainSourceChild($wrapper, $childBlock);
+                if (null === $found) {
+                    $sourceChild = $this->signals->matchingSourceChild($wrapper, $childBlock);
+                    $detail = null === $this->signals->soleElementChildOf($wrapper) ? 'no_sole_child' : (null === $sourceChild ? 'no_source_match' : 'not_in_chain');
+                    return true;
+                }
+                [$sourceChild, $folded] = $found;
+                $carried = SourceDom::tokens((string) ($childBlock['attrs']['className'] ?? ''));
+                $classes = array();
+                foreach ($folded as $element) {
+                    foreach (SourceDom::classNames($element) as $class) {
+                        if (in_array($class, $carried, true)) $classes[] = $class;
+                    }
+                }
+                $chain = array('elements' => $folded, 'classes' => array_values(array_unique($classes)), 'anchor' => trim((string) ($childBlock['attrs']['anchor'] ?? '')));
+                return false;
             }),
             array(self::STAGE_IDENTITY, 'child_runtime_dom_target', function () use (&$sourceChild): bool {
                 return $this->runtimeIslands->isRuntimeDomTarget($sourceChild) || $this->sourceElementClassifier->hasMotionStructureToken($sourceChild);
@@ -950,7 +982,7 @@ final class WrapperDecision
             $guards[] = array(self::STAGE_RESTATEMENT, $failure, fn (): bool => $proofFails($failure));
         }
         $kept = static function (WrapperDisposition $disposition) use (&$sourceChild, &$attrs): array {
-            return array('disposition' => $disposition, 'source_child' => $sourceChild, 'moved_id' => '', 'moved_attributes' => array(), 'attrs' => $attrs, 'arms' => array());
+            return array('disposition' => $disposition, 'source_child' => $sourceChild, 'moved_id' => '', 'moved_attributes' => array(), 'projected_attributes' => array(), 'folded_chain' => array(), 'attrs' => $attrs, 'arms' => array());
         };
         foreach ($guards as [$stage, $reason, $matches]) {
             $detail = '';
@@ -973,6 +1005,8 @@ final class WrapperDecision
             'source_child' => $sourceChild,
             'moved_id' => $movedId,
             'moved_attributes' => $movedAttributes,
+            'projected_attributes' => $projectedAttributes,
+            'folded_chain' => $chain['elements'],
             'attrs' => $attrs,
             'arms' => $proven()['arms'],
         );
