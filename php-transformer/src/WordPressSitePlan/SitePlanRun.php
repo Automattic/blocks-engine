@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityShimCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationFormattingCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -651,7 +652,14 @@ final class SitePlanRun
             // Captured fluid lengths ship as the source runtime spelled them
             // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
             // that spelling, so it is written once at its smallest form.
-            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
+            // Document-inline replay retains its authored declaration spelling.
+            // Compact ordinary stylesheet delivery only, after guard generation;
+            // never rewrite selector literals or custom-property token streams.
+            $content = CssMathValueCompactor::stylesheet($asset['content']);
+            if ('frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
+                $content = CssDeclarationFormattingCompactor::stylesheet($content, in_array($asset['source'] ?? null, array('files', 'inline-style'), true));
+            }
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune($content));
             // Inline source sheets are projected like linked ones: a motion
             // or state rule restated per subject ships its block once.
             if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
@@ -674,6 +682,12 @@ final class SitePlanRun
             // the selector whitespace that separates no tokens ships once
             // per arm. Declaration values are left byte for byte.
             $compacted = CssSelectorListCompactor::withoutRedundantSelectorWhitespaceInStylesheet($compacted);
+            // Projection restates each source rule under its own copy of a
+            // long carrier selector list (`.blocks-engine-subject-…>:where(…)`),
+            // only final once shims and whitespace are settled above. Ship a
+            // repeated projected list once; author-written repeats stay as
+            // authored, and the merger never crosses competing declarations.
+            if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedSelectorRules($compacted, true);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);

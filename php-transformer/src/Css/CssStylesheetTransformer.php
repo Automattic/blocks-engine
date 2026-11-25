@@ -243,8 +243,13 @@ final class CssStylesheetTransformer
      * the earlier ones, and are only moved when no rule between the two
      * declares a property of the same cascade family, so every element keeps
      * its computed values. Malformed input is returned unchanged.
+     *
+     * With $projectedOnly, only selector lists that carry engine projection
+     * tokens (`blocks-engine-*` carriers, `be-*` specificity shims) fold:
+     * projection restates one long list per source rule, while rules the
+     * author wrote twice under their own selector stay as authored.
      */
-    public function mergeRepeatedSelectorRules(string $css): string
+    public function mergeRepeatedSelectorRules(string $css, bool $projectedOnly = false): string
     {
         if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
             return $css;
@@ -257,7 +262,7 @@ final class CssStylesheetTransformer
         foreach ( $units as $index => $unit ) {
             // Families are read lazily: only units between two candidates matter.
             $key = $this->repeatableSelectorRuleKey($unit);
-            if ( null === $key ) {
+            if ( null === $key || ( $projectedOnly && 1 !== preg_match('/blocks-engine-|[.(]be-[ctia]-\d/', $key) ) ) {
                 continue;
             }
             if ( isset($anchors[ $key ]) ) {
