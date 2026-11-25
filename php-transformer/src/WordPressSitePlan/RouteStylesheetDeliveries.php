@@ -69,10 +69,11 @@ final class RouteStylesheetDeliveries
                 $source = is_array($instance) ? ($instance['source_path'] ?? null) : null;
                 if (!is_string($source) || !isset($rootClasses[$source]) || isset($deliveries[$source])) continue;
                 $absent = array_values(array_filter($named, static fn(string $class): bool => !isset($rootClasses[$source][$class])));
-                if (array() === $absent) continue;
+                $present = array_values(array_diff($named, $absent));
                 $key = implode(' ', $absent);
                 if (!array_key_exists($key, $byAbsent)) {
-                    $content = AbsentCarrierSelectors::withoutArmsRequiring($asset['content'], '/(?<!\\\\)\.(?:' . implode('|', array_map(static fn(string $class): string => preg_quote($class, '/'), $absent)) . ')(?![\w\\\\-])/');
+                    $content = array() === $absent ? $asset['content'] : AbsentCarrierSelectors::withoutArmsRequiring($asset['content'], '/(?<!\\\\)\.(?:' . implode('|', array_map(static fn(string $class): string => preg_quote($class, '/'), $absent)) . ')(?![\w\\\\-])/');
+                    $content = self::withoutArmsExcludingRoot($content, $present);
                     $byAbsent[$key] = strlen($asset['content']) - strlen($content) < self::MIN_SAVED_BYTES || '' === trim($content) ? null : self::copy($asset, $content, $targets, $copies);
                 }
                 if (null === $byAbsent[$key]) continue;
@@ -134,6 +135,42 @@ final class RouteStylesheetDeliveries
         unset($copy['stylesheet_instances'], $copy['stylesheet_parent'], $copy['stylesheet_inline_order'], $copy['frame_fallback'], $copy['frame_fallback_handle'], $copy['references'], $copy['inline_references']);
         $copies[$path] = $copy;
         return $path;
+    }
+
+    /**
+     * The stylesheet without selector arms whose document root compound
+     * excludes a route class the root carries (`:root:not(.be-rs-…)`,
+     * `:root.be-r:not(.be-r-…,…)`): on that root such an arm matches
+     * nothing. Each such exclusion is read as a required stand-in class, so
+     * {@see AbsentCarrierSelectors::withoutArmsRequiring()} decides which
+     * arms (and `:where()`/`:is()` alternatives) die exactly as it does for
+     * an absent class; stand-ins left where they decide nothing (inside
+     * `:not()` or `:has()`) are restored.
+     *
+     * @param list<string> $present Route classes the root carries.
+     */
+    private static function withoutArmsExcludingRoot(string $css, array $present): string
+    {
+        if (array() === $present || !str_contains($css, ':not(.be-r')) return $css;
+        $present = array_fill_keys($present, true);
+        $nonce = substr(hash('sha256', $css), 0, 12);
+        $excluded = array();
+        $marked = preg_replace_callback(
+            '/(?<![\w\\\\-]):root(\.be-r(?![\w\\\\-]))?\K:not\(((?:\.be-rs?-[0-9a-f]+)(?:,\.be-rs?-[0-9a-f]+)*)\)/',
+            static function (array $match) use ($present, $nonce, &$excluded): string {
+                foreach (explode(',', $match[2]) as $class) {
+                    if (!isset($present[substr($class, 1)])) continue;
+                    $stand = '.be-root-excludes-' . $nonce . '-' . count($excluded);
+                    $excluded[$stand] = $match[0];
+                    return $stand;
+                }
+                return $match[0];
+            },
+            $css
+        );
+        if (null === $marked || array() === $excluded) return $css;
+        $pruned = AbsentCarrierSelectors::withoutArmsRequiring($marked, '/\.be-root-excludes-' . $nonce . '-\d+(?![\w-])/');
+        return preg_replace_callback('/\.be-root-excludes-' . $nonce . '-\d+(?![\w-])/', static fn(array $match): string => $excluded[$match[0]], $pruned) ?? $css;
     }
 
     /** @param array<string,mixed> $asset @param array<int,string> $stylesheets */
