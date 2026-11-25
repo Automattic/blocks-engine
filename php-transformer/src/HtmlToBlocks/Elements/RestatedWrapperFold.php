@@ -57,6 +57,14 @@ final class RestatedWrapperFold
     public const WRAPPER_DECLARATION_UNRESTATABLE = 'wrapper_declaration_unrestatable';
     public const CHILD_RELATIVE_TO_WRAPPER = 'child_relative_to_wrapper';
 
+    /**
+     * The proof gives the child a projected wrapper attribute under this
+     * prefix, so the rules reading the attribute can be evaluated as if the
+     * child carried the engine-owned class that replaces it, without
+     * touching an attribute of the same name the child has of its own.
+     */
+    public const PROJECTED_ATTRIBUTE_PREFIX = 'data-blocks-engine-restated-';
+
     /** Elements read before and after the fold; a larger region is not proven. */
     private const MAX_CHECKED_ELEMENTS = 4000;
 
@@ -116,7 +124,10 @@ final class RestatedWrapperFold
         'inset' => array('auto'),
     );
 
-    /** @var array<string, list<array<string, mixed>>>|null Author selectors by the class (`.x`) or id (`#x`) they name. */
+    /** @var array<string, array{0: string, 1: array<string, mixed>}> The projected-attribute form of each rule reading one, for the proof under way. */
+    private array $variants = array();
+
+    /** @var array<string, list<array<string, mixed>>>|null Author selectors by the class (`.x`), id (`#x`) or `data-*` attribute (`[name`) they name. */
     private ?array $tokenSelectors = null;
 
     /** @param Closure(string): bool $isInheritedTextProperty The inherited-text property set of the inherited-text restatement path. */
@@ -127,12 +138,93 @@ final class RestatedWrapperFold
     }
 
     /**
+     * Projected attributes (`data-*` attributes only author CSS reads) are
+     * evaluated as if the child carried them under
+     * {@see self::PROJECTED_ATTRIBUTE_PREFIX}: each rule reading one is
+     * matched in its original form or in the form reading the projected
+     * name. Arms that read a projected name are emitted with the
+     * engine-owned class in its place ({@see self::projectedArm()}).
+     *
+     * A child converted from a deeper element (`$chain['elements']` lie
+     * between the wrapper and it, and already folded into its block) is
+     * first put in place of that chain, with the chain classes its block
+     * carries, so the proof starts from what the block renders.
+     *
      * @param string $movedId The wrapper id the child takes (replacing an unreferenced id of its own), or ''.
      * @param array<string, string> $movedAttributes Consumed wrapper attributes the child takes.
+     * @param array<string, string> $projectedAttributes Wrapper attributes only author CSS reads, projected to a class.
+     * @param array{elements: list<DOMElement>, classes: list<string>, anchor: string} $chain
      * @return array{failure: ?string, detail: string, arms: array<string, list<string>>}
      */
-    public function prove(DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes, BoxTreeWrapperEvidence $evidence): array
+    public function prove(DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes, BoxTreeWrapperEvidence $evidence, array $projectedAttributes = array(), array $chain = array('elements' => array(), 'classes' => array(), 'anchor' => '')): array
     {
+        $restoreChain = $this->collapsedChain($wrapper, $child, $chain);
+        try {
+            return $this->proveFold($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, null !== $restoreChain);
+        } finally {
+            if (null !== $restoreChain) $restoreChain();
+        }
+    }
+
+    /**
+     * The projected name the proof gives a wrapper attribute.
+     */
+    public static function projectedAttributeName(string $name): string
+    {
+        $name = strtolower($name);
+        return self::PROJECTED_ATTRIBUTE_PREFIX . (str_starts_with($name, 'data-') ? substr($name, 5) : $name);
+    }
+
+    /**
+     * The arm as emitted: each predicate on a projected attribute name
+     * (`[data-blocks-engine-restated-testid="x"]`) becomes the engine-owned
+     * class the child carries in its place. A class and an attribute
+     * predicate weigh the same, so the arm keeps the authored specificity.
+     */
+    public static function projectedArm(string $arm, string $class): string
+    {
+        return (string) preg_replace(
+            '/\[\s*' . preg_quote(self::PROJECTED_ATTRIBUTE_PREFIX, '/') . '[\w-]*\s*(?:[~|^$*]?=\s*(?:"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|[^\]\s]+)\s*(?:[iIsS]\s*)?)?\]/',
+            '.' . $class,
+            $arm
+        );
+    }
+
+    /**
+     * Puts `$child` in place of the already folded chain between it and the
+     * wrapper, carrying the chain classes and anchor its block carries.
+     * Returns the restore, or null when there is no chain.
+     *
+     * @param array{elements: list<DOMElement>, classes: list<string>, anchor: string} $chain
+     */
+    private function collapsedChain(DOMElement $wrapper, DOMElement $child, array $chain): ?Closure
+    {
+        $outermost = $chain['elements'][0] ?? null;
+        if (! $outermost instanceof DOMElement || $outermost->parentNode !== $wrapper || ! $outermost->contains($child)) return null;
+        $childParent = $child->parentNode;
+        $childNext = $child->nextSibling;
+        $childClass = $child->hasAttribute('class') ? $child->getAttribute('class') : null;
+        $childId = $child->hasAttribute('id') ? $child->getAttribute('id') : null;
+        $wrapper->replaceChild($child, $outermost);
+        $classes = SourceDom::mergeClassNames(implode(' ', $chain['classes']), (string) $childClass);
+        if ('' !== $classes) $child->setAttribute('class', $classes);
+        if ('' !== $chain['anchor'] && $chain['anchor'] !== trim((string) $childId)) $child->setAttribute('id', $chain['anchor']);
+        return static function () use ($wrapper, $child, $outermost, $childParent, $childNext, $childClass, $childId): void {
+            $wrapper->replaceChild($outermost, $child);
+            if ($childParent instanceof DOMNode) $childParent->insertBefore($child, $childNext instanceof DOMNode && $childNext->parentNode === $childParent ? $childNext : null);
+            if (null === $childClass) $child->removeAttribute('class'); else $child->setAttribute('class', $childClass);
+            if (null === $childId) $child->removeAttribute('id'); else $child->setAttribute('id', $childId);
+        };
+    }
+
+    /**
+     * @param array<string, string> $movedAttributes
+     * @param array<string, string> $projectedAttributes
+     * @return array{failure: ?string, detail: string, arms: array<string, list<string>>}
+     */
+    private function proveFold(DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes, BoxTreeWrapperEvidence $evidence, array $projectedAttributes, bool $collapsed): array
+    {
+        $this->variants = array();
         $parent = $wrapper->parentNode;
         if (! $parent instanceof DOMNode || $child->parentNode !== $wrapper) return self::failure(self::SELECTOR_MATCH_CHANGED, 'detached');
         $tokens = array();
@@ -149,6 +241,28 @@ final class RestatedWrapperFold
                 if (array_intersect($entry['parsed']['combinators'] ?? array(), array('+', '~'))) $siblingCombinator = true;
             }
         }
+        // Each rule reading a projected attribute is also read in the form
+        // naming its projected name, which only the child carries.
+        $variants = array();
+        $armTokens = $tokens;
+        foreach (array_keys($projectedAttributes) as $name) {
+            $projected = self::projectedAttributeName($name);
+            $armTokens['[' . $projected] = true;
+            foreach ($this->tokenSelectors()['[' . strtolower($name)] ?? array() as $entry) {
+                if (null === self::matchable($entry)) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $entry['selector']);
+                $text = self::withProjectedAttribute($variants[$entry['key']][0] ?? (string) $entry['selector'], $name, $projected);
+                if (null === $text) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $entry['selector']);
+                $variants[$entry['key']] = array($text, array());
+                $tokenEntries[$entry['key']] = $entry;
+                if (array_intersect($entry['parsed']['combinators'] ?? array(), array('+', '~'))) $siblingCombinator = true;
+            }
+        }
+        foreach ($variants as $key => [$text]) {
+            $parsed = CssSelectorMatcher::parse(self::withoutPseudoElement($text)[0]);
+            if (! ($parsed['supported'] ?? false)) return self::failure(self::UNVERIFIABLE_SELECTOR, (string) $tokenEntries[$key]['selector']);
+            $variants[$key] = array($text, $parsed);
+        }
+        $this->variants = $variants;
         $descendants = SourceDom::descendantElements($child);
         $outside = array();
         if ($siblingCombinator) {
@@ -160,7 +274,8 @@ final class RestatedWrapperFold
         }
         if (count($descendants) + count($outside) > self::MAX_CHECKED_ELEMENTS) return self::failure(self::SELECTOR_CHECK_BUDGET, (string) (count($descendants) + count($outside)));
 
-        $before = $this->session->sourceStyleResolutionState()->selectorMatchCache;
+        // A collapsed chain changed the source document: read it afresh.
+        $before = $collapsed ? new CssSelectorMatchCache() : $this->session->sourceStyleResolutionState()->selectorMatchCache;
         $wrapperRules = $this->matched($wrapper, $before, $tokenEntries);
         $childBefore = $this->matched($child, $before, $tokenEntries);
         $descendantsBefore = array_map(fn (DOMElement $node): array => $this->matched($node, $before, $tokenEntries), $descendants);
@@ -179,12 +294,14 @@ final class RestatedWrapperFold
         $childId = $child->hasAttribute('id') ? $child->getAttribute('id') : null;
         $childAttributes = array();
         foreach (array_keys($movedAttributes) as $name) $childAttributes[$name] = $child->hasAttribute($name) ? $child->getAttribute($name) : null;
+        foreach (array_keys($projectedAttributes) as $name) $childAttributes[self::projectedAttributeName($name)] = null;
         $childNext = $child->nextSibling;
         $parent->insertBefore($child, $wrapper);
         $parent->removeChild($wrapper);
         $child->setAttribute('class', SourceDom::mergeClassNames(SourceDom::attr($wrapper, 'class'), (string) $childClass));
         if ('' !== $movedId) $child->setAttribute('id', $movedId);
         foreach ($movedAttributes as $name => $value) $child->setAttribute($name, $value);
+        foreach ($projectedAttributes as $name => $value) $child->setAttribute(self::projectedAttributeName($name), $value);
         try {
             $after = new CssSelectorMatchCache();
             $childAfter = $this->matched($child, $after, $tokenEntries);
@@ -216,17 +333,31 @@ final class RestatedWrapperFold
             }
             $entriesByKey = array();
             foreach ($lost as [$node, $entry]) {
-                $arm = $this->restoringArm((string) $entry['selector'], $tokens, $node, $after);
+                $arm = null;
+                if (isset($variants[$entry['key']])) $arm = $this->restoringArm($variants[$entry['key']][0], $armTokens, $node, $after);
+                $arm ??= $this->restoringArm((string) $entry['selector'], $tokens, $node, $after);
                 if (null === $arm) return self::failure(self::SELECTOR_MATCH_CHANGED, 'lost:' . $entry['selector']);
                 $arms[$entry['key']][$arm] = true;
                 $entriesByKey[$entry['key']] = $entry;
+            }
+            // A rule that reaches an element through the projected attribute
+            // reaches it, in the output, through the class that replaces it.
+            $reachable = array_merge(array($child), $descendants, $outside);
+            foreach ($variants as $key => [$text, $parsed]) {
+                $base = self::withoutPseudoElement($text)[0];
+                foreach ($reachable as $node) {
+                    if (! $after->matches($node, $base, $parsed, true)['matches']) continue;
+                    $arms[$key][$text] = true;
+                    $entriesByKey[$key] = $tokenEntries[$key];
+                    break;
+                }
             }
             // An arm may only restore: it reaches nothing the selector did not reach before.
             foreach ($arms as $key => $selectorArms) {
                 $entry = $entriesByKey[$key];
                 foreach (array_keys($selectorArms) as $arm) {
                     $parsed = CssSelectorMatcher::parse(self::withoutPseudoElement($arm)[0]);
-                    $checked = array(array($child, isset($childBefore[$key])));
+                    $checked = array(array($child, isset($childBefore[$key]) || isset($wrapperRules[$key])));
                     foreach ($descendants as $index => $node) $checked[] = array($node, isset($descendantsBefore[$index][$key]));
                     foreach ($outside as $index => $node) $checked[] = array($node, isset($outsideBefore[$index][$key]));
                     foreach ($checked as [$node, $matchedBefore]) {
@@ -235,6 +366,7 @@ final class RestatedWrapperFold
                 }
             }
         } finally {
+            $this->variants = array();
             $parent->insertBefore($wrapper, $child);
             $wrapper->insertBefore($child, $childNext instanceof DOMNode && $childNext->parentNode === $wrapper ? $childNext : null);
             if (null === $childClass) $child->removeAttribute('class'); else $child->setAttribute('class', $childClass);
@@ -523,7 +655,12 @@ final class RestatedWrapperFold
             $key = (string) $entry['key'];
             $matchable = isset($matched[$key]) ? null : self::matchable($entry);
             if (null === $matchable) continue;
-            if ($cache->matches($node, $matchable[0], $matchable[1], true)['matches']) $matched[$key] = $entry;
+            if ($cache->matches($node, $matchable[0], $matchable[1], true)['matches']) {
+                $matched[$key] = $entry;
+                continue;
+            }
+            $variant = $this->variants[$key] ?? null;
+            if (null !== $variant && $cache->matches($node, self::withoutPseudoElement($variant[0])[0], $variant[1], true)['matches']) $matched[$key] = $entry;
         }
         return $matched;
     }
@@ -550,14 +687,39 @@ final class RestatedWrapperFold
         foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
             foreach ($rule['selectors'] as $selectorIndex => $selector) {
                 $text = (string) $selector['selector'];
-                if (! preg_match_all('/([.#])(-?(?:[_a-zA-Z\x80-\xff]|\\\\.)(?:[\w\-\x80-\xff]|\\\\.)*)/', $text, $matches, PREG_SET_ORDER)) continue;
+                $tokens = array();
+                if (preg_match_all('/([.#])(-?(?:[_a-zA-Z\x80-\xff]|\\\\.)(?:[\w\-\x80-\xff]|\\\\.)*)/', $text, $matches, PREG_SET_ORDER)) {
+                    foreach ($matches as $match) $tokens[] = $match[1] . stripslashes($match[2]);
+                }
+                // Attribute predicates index under `[name`.
+                if (preg_match_all('/\[\s*(data-[\w-]+)\s*[\]~|^$*=]/i', $text, $matches)) {
+                    foreach ($matches[1] as $name) $tokens[] = '[' . strtolower($name);
+                }
+                if (array() === $tokens) continue;
                 $entry = array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex, 'source_path' => $rule['source_path'] ?? '', 'source_hash' => $rule['source_hash'] ?? ''));
-                foreach ($matches as $match) {
-                    $index[$match[1] . stripslashes($match[2])][$entry['key']] = $entry;
+                foreach ($tokens as $token) {
+                    $index[$token][$entry['key']] = $entry;
                 }
             }
         }
         return $this->tokenSelectors = array_map('array_values', $index);
+    }
+
+    /**
+     * The selector with every predicate on attribute `$name` reading
+     * `$projected` instead; null when one sits inside a functional
+     * pseudo-class (`:not([data-x])`), whose meaning the substitution does
+     * not keep.
+     */
+    private static function withProjectedAttribute(string $selector, string $name, string $projected): ?string
+    {
+        $pattern = '/(\[\s*)' . preg_quote($name, '/') . '(?=\s*[\]~|^$*=])/i';
+        if (! preg_match_all($pattern, $selector, $matches, PREG_OFFSET_CAPTURE)) return $selector;
+        foreach ($matches[0] as [, $offset]) {
+            $prefix = substr($selector, 0, (int) $offset);
+            if (substr_count($prefix, '(') > substr_count($prefix, ')')) return null;
+        }
+        return (string) preg_replace($pattern, '${1}' . $projected, $selector);
     }
 
     /** @return array{failure: string, detail: string, arms: array<string, list<string>>} */

@@ -31,6 +31,7 @@ $assert(array(
     'proof_backed_coalescing',
     'inherited_text_coalescing',
     'neutral_child_absorption',
+    'padding_shell_absorption',
     'restated_wrapper_fold',
     'single_child_candidate',
     'single_child_retention',
@@ -47,6 +48,7 @@ $assert('fold' === WrapperDisposition::fold(WrapperDecision::RESTATED_WRAPPER_FO
 $detailed = WrapperDisposition::preserve('geometry_not_neutral', WrapperDecision::STAGE_GEOMETRY)->withDetail('paint:background-color');
 $assert('geometry_not_neutral' === $detailed->reason && 'paint:background-color' === $detailed->detail && WrapperDecision::STAGE_GEOMETRY === $detailed->stage, 'refusal-detail');
 $assert(30 === count($tables['neutral_child_absorption']), 'neutral-child-guard-count', (string) count($tables['neutral_child_absorption']));
+$assert(27 === count($tables['padding_shell_absorption']), 'padding-shell-guard-count', (string) count($tables['padding_shell_absorption']));
 foreach ( $tables as $table => $guards ) {
     $assert(array() === array_diff(array_unique(array_values($guards)), WrapperDecision::STAGES), $table . '-guards-belong-to-known-stages');
 }

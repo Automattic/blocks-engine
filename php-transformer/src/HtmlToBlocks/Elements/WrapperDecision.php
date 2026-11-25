@@ -695,6 +695,79 @@ final class WrapperDecision
     }
 
     /**
+     * May a paint-free wrapper whose only box is vertical padding (a
+     * `section.py-20` spacing band) hand that padding to its sole group
+     * child (a centered `div.container`)? The wrapper spans its containing
+     * block and paints nothing, so the band is the child's box grown by the
+     * same padding: the child must paint nothing that the padding would
+     * enlarge, size nothing the padding would eat into, and keep no vertical
+     * margin the padding used to sit outside of. The wrapper's identity and
+     * tag move onto the child, which stays a native group.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement}
+     */
+    public function paddingShellAbsorption(DOMElement $element, array $childBlock): array
+    {
+        $tag = strtolower($element->tagName);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'unsupported_child_block_name', fn (): bool => 'core/group' !== ($childBlock['blockName'] ?? '')),
+            array(self::STAGE_RESTATEMENT, 'unsupported_wrapper_tag', fn (): bool => ! in_array($tag, array('div', 'section'), true)),
+            array(self::STAGE_RESTATEMENT, 'child_group_has_tag', fn (): bool => 'div' !== $tag && ! in_array((string) ($childBlock['attrs']['tagName'] ?? 'div'), array('', 'div'), true)),
+            array(self::STAGE_IDENTITY, 'saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
+            array(self::STAGE_IDENTITY, 'child_is_binding_anchor', fn (): bool => $this->signals->isBindingAnchor($childBlock)),
+            array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
+            array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
+            array(self::STAGE_IDENTITY, 'has_id_attribute', fn (): bool => '' !== SourceDom::attr($element, 'id')),
+            array(self::STAGE_IDENTITY, 'has_role_attribute', fn (): bool => '' !== SourceDom::attr($element, 'role')),
+            array(self::STAGE_IDENTITY, 'has_accessible_name', fn (): bool => '' !== SourceDom::attr($element, 'aria-label') || '' !== SourceDom::attr($element, 'aria-labelledby') || '' !== SourceDom::attr($element, 'title')),
+            array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($element)),
+            array(self::STAGE_IDENTITY, 'has_data_attributes', fn (): bool => array() !== SourceDom::safeDataAttributes($element)),
+            array(self::STAGE_GEOMETRY, 'structural_layout_element', fn (): bool => $this->signals->isStructuralLayoutElement($element)),
+            array(self::STAGE_GEOMETRY, 'structural_layout_child', fn (): bool => $this->signals->isDirectChildOfStructuralLayout($element)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $parentDeclarations = $this->signals->matchingAuthorDeclarations($element);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_GEOMETRY, 'wrapper_has_no_vertical_padding', fn (): bool => ! $this->signals->hasVerticalPadding($parentDeclarations)),
+            array(self::STAGE_GEOMETRY, 'wrapper_box_beyond_vertical_padding', fn (): bool => ! $this->signals->isVerticalPaddingOnlyBox($parentDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'wrapper_declares_inherited_text', fn (): bool => $this->signals->declaresInheritedText($parentDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'wrapper_state_or_pseudo_element_rule', fn (): bool => $this->signals->hasStateOrPseudoElementRule($element)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $child = $this->signals->soleElementChildOf($element);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_RESTATEMENT, 'missing_sole_child', fn (): bool => ! $child instanceof DOMElement),
+            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', fn (): bool => $this->signals->matchingSourceChild($element, $childBlock) !== $child),
+            array(self::STAGE_RESTATEMENT, 'child_tag_mismatch', fn (): bool => 'div' !== strtolower($child->tagName)),
+            array(self::STAGE_IDENTITY, 'child_runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($child)),
+            array(self::STAGE_IDENTITY, 'child_has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($child)),
+        ));
+        if (null !== $refusal) {
+            return array('disposition' => $refusal, 'source_child' => null);
+        }
+
+        $childDeclarations = $this->signals->matchingAuthorDeclarations($child);
+        $refusal = $this->firstRefusal(array(
+            array(self::STAGE_GEOMETRY, 'child_box_grows_with_padding', fn (): bool => $this->signals->boxChangesWithAddedVerticalPadding($childDeclarations)),
+            array(self::STAGE_GEOMETRY, 'spacing_owners_overlap', fn (): bool => $this->signals->spacingOwnersOverlap($parentDeclarations, $childDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'custom_property_owners_overlap', fn (): bool => $this->signals->customPropertyOwnersOverlap($parentDeclarations, $childDeclarations)),
+            array(self::STAGE_RESTATEMENT, 'selector_matching_does_not_survive_coalescing', fn (): bool => ! $this->signals->selectorMatchingSurvivesWrapperCoalescing($element, $child, true, 'div' === $tag ? null : $tag)),
+        ));
+
+        return array(
+            'disposition' => $refusal ?? WrapperDisposition::coalesce('padding_shell_absorbed', self::STAGE_GEOMETRY),
+            'source_child' => $child,
+        );
+    }
+
+    /**
      * Is a container with these converted children a single-child wrapper
      * candidate at all? A `preserve` names why not; null means the caller
      * asks the coalescing decision. Shared by flow containers, author-layout
@@ -747,9 +820,16 @@ final class WrapperDecision
      * property, selector or attribute.
      *
      * @param array<string, mixed> $childBlock
-     * @param Closure(DOMElement, DOMElement, string, array<string, string>): array{failure: ?string, detail: string, arms: array<string, list<string>>} $prove
+     * A `data-*` attribute only author CSS reads is projected: the child
+     * takes an engine-owned class in its place and every rule reading the
+     * attribute through the wrapper gains the arm naming that class. A
+     * child block converted from a deeper element is accepted when the
+     * elements between it and the wrapper form a sole-child chain that
+     * already folded into it; the proof runs against that element.
+     *
+     * @param Closure(DOMElement, DOMElement, string, array<string, string>, array<string, string>, array{elements: list<DOMElement>, classes: list<string>, anchor: string}): array{failure: ?string, detail: string, arms: array<string, list<string>>} $prove
      * @param Closure(DOMElement): bool $isDocumentEdge
-     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement, moved_id: string, moved_attributes: array<string, string>, attrs: array<string, mixed>, arms: array<string, list<string>>}
+     * @return array{disposition: WrapperDisposition, source_child: ?DOMElement, moved_id: string, moved_attributes: array<string, string>, projected_attributes: array<string, string>, folded_chain: list<DOMElement>, attrs: array<string, mixed>, arms: array<string, list<string>>}
      */
     public function restatedWrapperFold(DOMElement $wrapper, array $childBlock, BoxTreeWrapperEvidence $evidence, RestatedWrapperIdentity $identity, Closure $prove, Closure $isDocumentEdge): array
     {
@@ -763,8 +843,12 @@ final class WrapperDecision
         $movedId = $wrapperId;
         /** @var array<string, string> $movedAttributes */
         $movedAttributes = array();
-        $proven = function () use (&$proof, &$sourceChild, &$movedId, &$movedAttributes, $wrapper, $prove): array {
-            return $proof ??= $prove($wrapper, $sourceChild, $movedId, $movedAttributes);
+        /** @var array<string, string> $projectedAttributes */
+        $projectedAttributes = array();
+        /** @var array{elements: list<DOMElement>, classes: list<string>, anchor: string} $chain */
+        $chain = array('elements' => array(), 'classes' => array(), 'anchor' => '');
+        $proven = function () use (&$proof, &$sourceChild, &$movedId, &$movedAttributes, &$projectedAttributes, &$chain, $wrapper, $prove): array {
+            return $proof ??= $prove($wrapper, $sourceChild, $movedId, $movedAttributes, $projectedAttributes, $chain);
         };
         $proofFails = function (string $failure) use ($proven, &$detail): bool {
             if ($failure !== $proven()['failure']) return false;
@@ -785,14 +869,19 @@ final class WrapperDecision
             array(self::STAGE_IDENTITY, 'runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($wrapper)),
             array(self::STAGE_IDENTITY, 'has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($wrapper)),
             array(self::STAGE_IDENTITY, 'has_interactive_attributes', fn (): bool => array() !== $this->signals->interactiveAttributes($wrapper)),
-            // Besides the class and the id, an inert attribute is dropped and
-            // a read one moves; any other keeps the wrapper.
-            array(self::STAGE_IDENTITY, 'unrestatable_wrapper_attribute', static function () use ($wrapper, $identity, &$movedAttributes, &$detail): bool {
+            // Besides the class and the id, an inert attribute is dropped, a
+            // read one moves, and one only author CSS reads is projected to
+            // an engine-owned class; any other keeps the wrapper.
+            array(self::STAGE_IDENTITY, 'unrestatable_wrapper_attribute', static function () use ($wrapper, $identity, &$movedAttributes, &$projectedAttributes, &$detail): bool {
                 foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($wrapper) as $attribute) {
                     $name = strtolower($attribute->nodeName);
                     if (in_array($name, array('class', 'id'), true)) continue;
                     [$use, $useDetail] = $identity->attributeUse($wrapper, $name);
                     if (RestatedWrapperIdentity::DROP === $use) continue;
+                    if (RestatedWrapperIdentity::PROJECT === $use) {
+                        $projectedAttributes[$name] = (string) $attribute->nodeValue;
+                        continue;
+                    }
                     if (RestatedWrapperIdentity::MOVE === $use) {
                         $movedAttributes[$name] = (string) $attribute->nodeValue;
                         continue;
@@ -802,10 +891,26 @@ final class WrapperDecision
                 }
                 return false;
             }),
-            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', function () use ($wrapper, $childBlock, &$sourceChild): bool {
-                $sole = $this->signals->soleElementChildOf($wrapper);
-                $sourceChild = $this->signals->matchingSourceChild($wrapper, $childBlock);
-                return ! $sole instanceof DOMElement || $sole !== $sourceChild;
+            // The child block comes from the wrapper's sole element child, or
+            // from a deeper element whose ancestors up to the wrapper are a
+            // sole-child chain already folded into that block.
+            array(self::STAGE_RESTATEMENT, 'child_block_not_from_sole_child', function () use ($wrapper, $childBlock, &$sourceChild, &$chain, &$detail): bool {
+                $found = $this->signals->foldedChainSourceChild($wrapper, $childBlock);
+                if (null === $found) {
+                    $sourceChild = $this->signals->matchingSourceChild($wrapper, $childBlock);
+                    $detail = null === $this->signals->soleElementChildOf($wrapper) ? 'no_sole_child' : (null === $sourceChild ? 'no_source_match' : 'not_in_chain');
+                    return true;
+                }
+                [$sourceChild, $folded] = $found;
+                $carried = SourceDom::tokens((string) ($childBlock['attrs']['className'] ?? ''));
+                $classes = array();
+                foreach ($folded as $element) {
+                    foreach (SourceDom::classNames($element) as $class) {
+                        if (in_array($class, $carried, true)) $classes[] = $class;
+                    }
+                }
+                $chain = array('elements' => $folded, 'classes' => array_values(array_unique($classes)), 'anchor' => trim((string) ($childBlock['attrs']['anchor'] ?? '')));
+                return false;
             }),
             array(self::STAGE_IDENTITY, 'child_runtime_dom_target', function () use (&$sourceChild): bool {
                 return $this->runtimeIslands->isRuntimeDomTarget($sourceChild) || $this->sourceElementClassifier->hasMotionStructureToken($sourceChild);
@@ -877,7 +982,7 @@ final class WrapperDecision
             $guards[] = array(self::STAGE_RESTATEMENT, $failure, fn (): bool => $proofFails($failure));
         }
         $kept = static function (WrapperDisposition $disposition) use (&$sourceChild, &$attrs): array {
-            return array('disposition' => $disposition, 'source_child' => $sourceChild, 'moved_id' => '', 'moved_attributes' => array(), 'attrs' => $attrs, 'arms' => array());
+            return array('disposition' => $disposition, 'source_child' => $sourceChild, 'moved_id' => '', 'moved_attributes' => array(), 'projected_attributes' => array(), 'folded_chain' => array(), 'attrs' => $attrs, 'arms' => array());
         };
         foreach ($guards as [$stage, $reason, $matches]) {
             $detail = '';
@@ -900,6 +1005,8 @@ final class WrapperDecision
             'source_child' => $sourceChild,
             'moved_id' => $movedId,
             'moved_attributes' => $movedAttributes,
+            'projected_attributes' => $projectedAttributes,
+            'folded_chain' => $chain['elements'],
             'attrs' => $attrs,
             'arms' => $proven()['arms'],
         );
@@ -1067,6 +1174,35 @@ final class WrapperDecision
                 'spacing_owners_overlap' => self::STAGE_GEOMETRY,
                 'border_owners_overlap' => self::STAGE_GEOMETRY,
                 'paragraph_user_agent_margins' => self::STAGE_GEOMETRY,
+            ),
+            'padding_shell_absorption' => array(
+                'unsupported_child_block_name' => self::STAGE_RESTATEMENT,
+                'unsupported_wrapper_tag' => self::STAGE_RESTATEMENT,
+                'child_group_has_tag' => self::STAGE_RESTATEMENT,
+                'saved_group_boundary' => self::STAGE_IDENTITY,
+                'child_is_binding_anchor' => self::STAGE_IDENTITY,
+                'runtime_dom_target' => self::STAGE_IDENTITY,
+                'has_motion_structure_token' => self::STAGE_IDENTITY,
+                'has_id_attribute' => self::STAGE_IDENTITY,
+                'has_role_attribute' => self::STAGE_IDENTITY,
+                'has_accessible_name' => self::STAGE_IDENTITY,
+                'has_interactive_attributes' => self::STAGE_IDENTITY,
+                'has_data_attributes' => self::STAGE_IDENTITY,
+                'structural_layout_element' => self::STAGE_GEOMETRY,
+                'structural_layout_child' => self::STAGE_GEOMETRY,
+                'wrapper_has_no_vertical_padding' => self::STAGE_GEOMETRY,
+                'wrapper_box_beyond_vertical_padding' => self::STAGE_GEOMETRY,
+                'wrapper_declares_inherited_text' => self::STAGE_RESTATEMENT,
+                'wrapper_state_or_pseudo_element_rule' => self::STAGE_RESTATEMENT,
+                'missing_sole_child' => self::STAGE_RESTATEMENT,
+                'child_block_not_from_sole_child' => self::STAGE_RESTATEMENT,
+                'child_tag_mismatch' => self::STAGE_RESTATEMENT,
+                'child_runtime_dom_target' => self::STAGE_IDENTITY,
+                'child_has_motion_structure_token' => self::STAGE_IDENTITY,
+                'child_box_grows_with_padding' => self::STAGE_GEOMETRY,
+                'spacing_owners_overlap' => self::STAGE_GEOMETRY,
+                'custom_property_owners_overlap' => self::STAGE_RESTATEMENT,
+                'selector_matching_does_not_survive_coalescing' => self::STAGE_RESTATEMENT,
             ),
             'restated_wrapper_fold' => array(
                 'no_box_tree_evidence' => self::STAGE_GEOMETRY,

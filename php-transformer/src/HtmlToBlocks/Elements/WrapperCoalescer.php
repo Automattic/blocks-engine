@@ -551,7 +551,8 @@ final class WrapperCoalescer
         if (null !== $absorbed) return $absorbed;
         $resolution = $this->decision()->resolve($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
-            return $this->restatedWrapperFold($element, $childBlock);
+            return $this->absorbedPaddingShell($element, $childBlock)
+                ?? $this->restatedWrapperFold($element, $childBlock);
         }
         $proof = $resolution['proof'];
         $attrs = $resolution['attrs'];
@@ -610,7 +611,7 @@ final class WrapperCoalescer
             $childBlock,
             $evidence,
             $this->restatedIdentity,
-            fn (DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes): array => $this->restatementProof->prove($wrapper, $child, $movedId, $movedAttributes, $evidence),
+            fn (DOMElement $wrapper, DOMElement $child, string $movedId, array $movedAttributes, array $projectedAttributes, array $chain): array => $this->restatementProof->prove($wrapper, $child, $movedId, $movedAttributes, $evidence, $projectedAttributes, $chain),
             static function (DOMElement $wrapper): bool {
                 $parent = $wrapper->parentNode;
                 return $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array('body', 'html'), true);
@@ -622,14 +623,19 @@ final class WrapperCoalescer
         if (! $disposition->isFold() || ! $sourceChild instanceof DOMElement) return null;
 
         $projections = $this->session->authorSelectorProjectionState();
+        // A projected attribute becomes an engine-owned class on the child;
+        // the arms that read it name that class.
+        $projectedClass = array() === $decision['projected_attributes']
+            ? ''
+            : $projections->ensureAttributeMarker($element->getNodePath() ?? '', 'restated-wrapper-fold');
         foreach ($decision['arms'] as $selector => $arms) {
-            foreach ($arms as $arm) $projections->addRestatedSelectorArm($selector, $arm);
+            foreach ($arms as $arm) $projections->addRestatedSelectorArm($selector, '' === $projectedClass ? $arm : RestatedWrapperFold::projectedArm($arm, $projectedClass));
         }
         // What moves lands on the source child too, so every later reader of
         // the child (attribute transport, direction) sees it there.
         foreach ($decision['moved_attributes'] as $name => $value) $sourceChild->setAttribute($name, $value);
         $childAttrs = ArrayField::array($childBlock, 'attrs');
-        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element));
+        $childAttrs['className'] = SourceDom::mergeClassNames((string) ($decision['attrs']['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element), ...array_filter(array($projectedClass)));
         if ('' !== $decision['moved_id']) $childAttrs['anchor'] = $decision['moved_id'];
         // An id that did not survive the fold (the wrapper's, dropped; or the
         // child's, replaced) takes its editor-anchor class with it.
@@ -678,6 +684,144 @@ final class WrapperCoalescer
         $attrs = array_replace_recursive($this->styleResolver->presentationAttributes($element), ArrayField::array($childBlock, 'attrs'));
         $attrs['className'] = SourceDom::mergeClassNames((string) ($this->styleResolver->presentationAttributes($element)['className'] ?? ''), (string) ($childBlock['attrs']['className'] ?? ''), SourceDom::attr($element, 'class'));
         return $this->createBlock->createBlock($name, $attrs, $childBlock['innerBlocks'] ?? array(), $child);
+    }
+
+    /**
+     * A paint-free vertical-padding band hands its padding, classes and tag
+     * to its sole group child: one native group instead of a band the editor
+     * has to click through to reach the container it spaces.
+     *
+     * @param array<string,mixed> $childBlock
+     * @return array<string,mixed>|null
+     */
+    private function absorbedPaddingShell(DOMElement $element, array $childBlock): ?array
+    {
+        $absorption = $this->decision()->paddingShellAbsorption($element, $childBlock);
+        $child = $absorption['source_child'];
+        if (! $absorption['disposition']->isCoalesce() || ! $child instanceof DOMElement) return null;
+        $wrapperAttrs = $this->styleResolver->presentationAttributes($element);
+        $attrs = array_replace_recursive($wrapperAttrs, ArrayField::array($childBlock, 'attrs'));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($wrapperAttrs['className'] ?? ''), (string) ($childBlock['attrs']['className'] ?? ''), SourceDom::attr($element, 'class'));
+        $tag = strtolower($element->tagName);
+        if ('div' !== $tag) $attrs['tagName'] = $tag;
+        $attrs = array_filter($attrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
+        return $this->createBlock->createBlock((string) $childBlock['blockName'], $attrs, $childBlock['innerBlocks'] ?? array(), $child);
+    }
+
+    /** @param array<string, string> $declarations */
+    public function hasVerticalPadding(array $declarations): bool
+    {
+        foreach (array('padding-top', 'padding-bottom', 'padding-block', 'padding-block-start', 'padding-block-end') as $property) {
+            if (isset($declarations[$property]) && !$this->isRenderNeutralGeometryDeclaration('padding-top', $declarations[$property])) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The box is its vertical padding and nothing else: no paint, no
+     * horizontal spacing, sizing, positioning or formatting context of its
+     * own. Text and custom properties are judged by their own guards.
+     *
+     * @param array<string, string> $declarations
+     */
+    public function isVerticalPaddingOnlyBox(array $declarations): bool
+    {
+        $zeroWidthBorder = (new StyleAttributeMapper())->allBorderWidthsZero($declarations);
+        foreach ($declarations as $property => $value) {
+            $value = CssValueInspector::comparable($value);
+            if (str_starts_with($property, '--') || $this->isInheritedTextProperty($property)) continue;
+            if (in_array($property, array('padding-top', 'padding-bottom', 'padding-block', 'padding-block-start', 'padding-block-end', 'box-sizing', 'outline-color', 'outline-offset', 'border-color'), true)) continue;
+            if ($zeroWidthBorder && preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?$/', $property)) continue;
+            if ('display' === $property && 'block' === $value) continue;
+            if ('position' === $property && 'static' === $value) continue;
+            if ('width' === $property && in_array($value, array('auto', '100%'), true)) continue;
+            if (in_array($property, array('outline', 'outline-style'), true) && in_array($value, array('0', 'none'), true)) continue;
+            if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?$/', $property) && $this->isRenderNeutralGeometryDeclaration('padding', $value)) continue;
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether giving this box extra vertical padding changes what renders:
+     * it paints or clips its padding box, sizes its height, is a containing
+     * block for positioned descendants, sits out of flow, or has a vertical
+     * margin the padding used to sit outside of.
+     *
+     * @param array<string, string> $declarations
+     */
+    public function boxChangesWithAddedVerticalPadding(array $declarations): bool
+    {
+        $mapper = new StyleAttributeMapper();
+        $hasBorderWidth = false;
+        foreach ($declarations as $property => $value) {
+            $value = CssValueInspector::comparable($value);
+            if (str_starts_with($property, '--')) continue;
+            if (preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-width)?$/', $property)) $hasBorderWidth = true;
+            if (preg_match('/^(?:height|min-height|max-height|block-size|min-block-size|max-block-size|aspect-ratio)$/', $property)
+                && !in_array($value, array('auto', 'none', '0', '0px'), true)) return true;
+            if (preg_match('/^(?:background|background-color|background-image|box-shadow|outline|outline-style|backdrop-filter|filter|clip-path|mask|mask-image|transform|translate|scale|rotate|container-type|contain)$/', $property)
+                && !in_array($value, array('none', 'transparent', 'normal', 'initial', '0', 'rgba(0,0,0,0)', 'rgba(0, 0, 0, 0)'), true)) return true;
+            if (str_starts_with($property, 'overflow') && !in_array($value, array('visible', ''), true)) return true;
+            if ('position' === $property && 'static' !== $value) return true;
+            if ('float' === $property && 'none' !== $value) return true;
+            if ('display' === $property && !in_array($value, array('block', 'flow-root', 'flex', 'grid'), true)) return true;
+            if (in_array($property, array('margin-top', 'margin-bottom', 'margin-block', 'margin-block-start', 'margin-block-end'), true)
+                && !in_array($value, array('0', '0px', '0rem', '0em', 'auto'), true)) return true;
+            if ('margin' === $property) {
+                $sides = CssValueInspector::expandBoxShorthand($value);
+                foreach (array($sides[0] ?? '', $sides[2] ?? '') as $side) {
+                    if (!in_array(trim($side), array('0', '0px', '0rem', '0em', 'auto'), true)) return true;
+                }
+            }
+        }
+        return $hasBorderWidth && !$mapper->allBorderWidthsZero($declarations);
+    }
+
+    /**
+     * @param array<string, string> $parentDeclarations
+     * @param array<string, string> $childDeclarations
+     */
+    public function customPropertyOwnersOverlap(array $parentDeclarations, array $childDeclarations): bool
+    {
+        foreach ($parentDeclarations as $property => $value) {
+            if (str_starts_with($property, '--') && isset($childDeclarations[$property])
+                && CssValueInspector::comparable($childDeclarations[$property]) !== CssValueInspector::comparable($value)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A rule for the element's state (`:hover`, `:focus-within`) or its
+     * generated content (`::before`) is not in its resting declarations, so
+     * resting neutrality cannot prove the box is safe to move. Rules whose
+     * subject is only the universal selector reach every box alike.
+     */
+    public function hasStateOrPseudoElementRule(DOMElement $element): bool
+    {
+        foreach ($this->session->authorStyleRuleCandidates($element) as $rule) {
+            $subject = $this->selectorSubjectCompound((string) ($rule['selector'] ?? ''));
+            if (!preg_match('/::?(?:before|after|first-line|first-letter|marker|hover|focus|focus-within|focus-visible|active|target)\b/i', $subject)) continue;
+            $bare = trim((string) preg_replace('/::?[a-z-]+(?:\([^()]*\))?/i', '', $subject));
+            if ('' === $bare || '*' === $bare) continue;
+            return true;
+        }
+        return false;
+    }
+
+    private function selectorSubjectCompound(string $selector): string
+    {
+        $depth = 0;
+        $start = 0;
+        $length = strlen($selector);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $selector[$i];
+            if ('\\' === $char) { $i++; continue; }
+            if ('(' === $char || '[' === $char) $depth++;
+            elseif (')' === $char || ']' === $char) $depth--;
+            elseif (0 === $depth && in_array($char, array(' ', '>', '+', '~'), true)) $start = $i + 1;
+        }
+        return trim(substr($selector, $start));
     }
 
     /**
@@ -834,6 +978,34 @@ final class WrapperCoalescer
         return $sourceChild;
     }
 
+    /**
+     * The source element a wrapper's only child block was converted from,
+     * found down the wrapper's sole-element-child chain, with the elements
+     * between them (outermost first). Those elements did not emit a block of
+     * their own: the child block is the one their conversion returned, so
+     * each was already folded into it (#7505). Null when the block does not
+     * come from that chain.
+     *
+     * @param array<string, mixed> $childBlock
+     * @return array{0: DOMElement, 1: list<DOMElement>}|null
+     */
+    public function foldedChainSourceChild(DOMElement $element, array $childBlock): ?array
+    {
+        $target = $this->matchingSourceChild($element, $childBlock);
+        $provenanceId = $childBlock['_source_provenance_id'] ?? null;
+        $digest = is_int($provenanceId) ? (string) ($this->session->transformationProvenanceState()->source($provenanceId)['source_digest'] ?? '') : '';
+        if (! $target instanceof DOMElement && '' === $digest) return null;
+        $folded = array();
+        for ($node = ($this->soleElementChild)($element), $depth = 0; $node instanceof DOMElement && $depth < 32; $node = ($this->soleElementChild)($node), ++$depth) {
+            if ($node === $target) return array($node, $folded);
+            if (! $target instanceof DOMElement && hash('sha256', SourceDom::safeFallbackHtml($node, $this->session->authorSelectorProjectionState()->tagMarkers())) === $digest) {
+                return array($node, $folded);
+            }
+            $folded[] = $node;
+        }
+        return null;
+    }
+
     /** @param array<string, mixed> $block */
     public function syntheticImageGeometryLeaf(array $block): bool
     {
@@ -843,7 +1015,7 @@ final class WrapperCoalescer
             && (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $className);
     }
 
-    public function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
+    public function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false, ?string $restatedTag = null): bool
     {
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement ) {
@@ -892,7 +1064,7 @@ final class WrapperCoalescer
         $mergedClass = SourceDom::mergeClassNames(...$chainClasses);
         $childParent = $child->parentNode;
         $childNextSibling = $child->nextSibling;
-        $promotedTag = $this->transferableGroupTag(strtolower($element->tagName));
+        $promotedTag = $restatedTag ?? $this->transferableGroupTag(strtolower($element->tagName));
         $standIn = null;
         $matchNode = $child;
         if ( null !== $promotedTag && $promotedTag !== strtolower($child->tagName) && $child->ownerDocument instanceof DOMDocument ) {

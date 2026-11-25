@@ -19,6 +19,10 @@ declare(strict_types=1);
  * - A non-group child takes the class; an inert data attribute and an
  *   unreferenced id are dropped; a full-width float is neutral; only two
  *   referenced ids keep the wrapper.
+ * - A data attribute only author CSS reads projects to an engine-owned
+ *   class on the child, and each rule reading it gains the arm naming it.
+ * - A child block converted from a deeper element folds when the elements
+ *   between are a sole-child chain already folded into it.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -111,7 +115,11 @@ rwf_assert(1 === preg_match('/<p[^>]*class="(?=[^"]*\bcol\b)(?=[^"]*\binner\b)[^
 // 8. An inert data attribute is dropped with the wrapper; one a selector reads keeps it.
 $inert = $compile($page(' data-section-label="hero"', ''), $css, $neutral);
 rwf_assert($folded($inert['markup']) && ! str_contains($inert['markup'], 'hero'), 'an inert data attribute should be dropped with the wrapper: ' . $inert['markup']);
-rwf_assert($wrapperKept($compile($page(' data-tone="dark"', ''), $css . '[data-tone] .inner{color:red}', $neutral)['markup']), 'a data attribute a descendant selector reads should keep the wrapper');
+// A data attribute only author CSS reads is projected to an engine-owned
+// class on the child; the rule reading it gains the arm naming that class.
+$read = $compile($page(' data-tone="dark"', ''), $css . '[data-tone] .inner{color:red}', $neutral);
+rwf_assert($folded($read['markup']) && ! str_contains($read['markup'], 'data-tone'), 'a data attribute only CSS reads should be projected, not keep the wrapper: ' . $read['markup']);
+rwf_assert(1 === preg_match('/class="[^"]*\binner\b[^"]*\b(blocks-engine-attribute-[a-f0-9]+-\d+)\b/', $read['markup'], $projected) && 1 === preg_match('/\.' . preg_quote($projected[1], '/') . '\.inner\b/', $read['styles']), 'the projected class should carry the descendant rule: ' . $read['markup'] . $read['styles']);
 
 // 9. An unreferenced wrapper id is dropped, even when the child has its own id.
 $unreferenced = $compile($page(' id="a"', ' id="b"'), $css, $neutral);
@@ -131,7 +139,34 @@ rwf_assert($wrapperKept($compile($floatPage, '.col{float:left}.col .inner{paddin
 // 11. A universal pseudo-element rule that already reached the child does not keep the wrapper.
 rwf_assert($folded($compile($html, '*::selection{background:yellow}' . $css, $neutral)['markup']), 'a universal ::selection rule should not keep the wrapper');
 
-// 12. Every refusal is a named, staged reason.
+// 12. Consumed attribute selectors: a wrapper attribute author CSS reads
+//     projects to an engine-owned class even when the child carries the
+//     same attribute; the wrapper rule and the child rule both gain the arm.
+$both = $compile($page(' data-testid="hero"', ' data-testid="card"'), $css . '[data-testid="hero"]{margin-top:0}[data-testid="hero"]>.inner{color:red}[data-testid="card"]{border:0}', $neutral);
+rwf_assert($folded($both['markup']), 'a wrapper attribute the child also carries should be projected: ' . $both['markup']);
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $both['markup'], $classes);
+$armed = array_values(array_filter(array_unique($classes[0]), static fn (string $class): bool => 1 === preg_match('/\.' . preg_quote($class, '/') . '\.inner\b/', $both['styles'])));
+rwf_assert(1 === count($armed) && 1 === preg_match('/\.' . preg_quote($armed[0], '/') . '(?![\w-])(?!\.inner)[^{,]*\{margin-top:0/', $both['styles']), 'the subject rule and the child rule should gain the projected class arm: ' . $both['styles']);
+// A projected attribute read inside a functional pseudo-class is not proven.
+rwf_assert($wrapperKept($compile($page(' data-tone="dark"', ''), $css . '.col:not([data-tone="light"]) .inner{color:red}', $neutral)['markup']), 'an attribute read inside :not() should keep the wrapper');
+
+// 13. A child block converted from a deeper element folds when the elements
+//     between are a sole-child chain already folded into it; the proof runs
+//     against that element.
+$chainPage = '<html><head><link rel="stylesheet" href="s.css"></head><body><header><p>Head</p></header><main><p>Intro</p>'
+    . '<div class="a" data-blocks-engine-node-id="w1"><div class="b" data-blocks-engine-node-id="w2"><div class="inner" data-blocks-engine-node-id="c">'
+    . '<p data-blocks-engine-node-id="p1">One</p><p data-blocks-engine-node-id="p2">Two</p></div></div></div><p>Outro</p></main></body></html>';
+$chainNodes = array('w1' => array('box' => $box), 'w2' => array('box' => $box), 'c' => array('box' => $box), 'p1' => array(), 'p2' => array());
+$chainCss = '.a{margin-top:0}.b{margin-bottom:0}.a .inner{padding:1px}.b .inner{border:0}';
+$chainKept = $compile($chainPage, $chainCss, null);
+rwf_assert(1 === preg_match('/class="wp-block-group a"/', $chainKept['markup']), 'without evidence the outer wrapper of a folded chain should be kept: ' . $chainKept['markup']);
+$chain = $compile($chainPage, $chainCss, $chainNodes);
+rwf_assert(1 === preg_match('/<div[^>]*class="(?=[^"]*\ba\b)(?=[^"]*\bb\b)(?=[^"]*\binner\b)[^"]*"/', $chain['markup']) && ! str_contains($chain['markup'], 'class="wp-block-group a"'), 'the outer wrapper should fold into the block its folded chain produced: ' . $chain['markup']);
+rwf_assert(str_contains($chain['styles'], '.a.inner'), 'the outer wrapper rule should gain its compound arm against the deeper element: ' . $chain['styles']);
+// The chain proof still refuses what the deeper element cannot take.
+rwf_assert(str_contains($compile($chainPage, $chainCss . '.a{margin-bottom:4px}', $chainNodes)['markup'], 'class="wp-block-group a"'), 'a declaration contested by the folded chain should keep the outer wrapper');
+
+// 14. Every refusal is a named, staged reason.
 $stages = WrapperDecision::loweringGuardStages()['restated_wrapper_fold'] ?? array();
 foreach (array('no_box_tree_evidence', 'geometry_not_neutral', 'child_has_own_id', 'child_block_cannot_take_class', 'child_has_moved_attribute', RestatedWrapperFold::INHERITED_TEXT_OVERRIDE, RestatedWrapperFold::WRAPPER_DECLARATION_CONTESTED, RestatedWrapperFold::SELECTOR_MATCH_CHANGED) as $reason) {
     rwf_assert(in_array($stages[$reason] ?? null, WrapperDecision::STAGES, true), "refusal {$reason} should be a staged guard");
