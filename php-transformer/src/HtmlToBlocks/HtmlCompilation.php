@@ -213,6 +213,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly ImageUrlResolver $imageUrls;
     private readonly ImageDimensionResolver $imageDimensions;
     private readonly Elements\ImageLowering $imageLowering;
+    private ?Elements\FillLayerImageLowering $fillLayerImages = null;
     private readonly EmptyElementFootprint $emptyElementFootprint;
 
     private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector;
@@ -586,6 +587,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session
         ));
         $imageFrames = new Elements\PositionedImageFrameLowering($this->imageLowering, $this->session, $this->runtimeIslands, $this->sourceElementDescription, $this->styleResolver);
+        $this->fillLayerImages = new Elements\FillLayerImageLowering($this->imageLowering, $this->session, $this->runtimeIslands, $this->sourceElementDescription, $this->styleResolver);
         $inlineContentConverter = new InlineContentElementConverter($this->sourceElementClassifier, $this, $this->richTextMaterializer, new InlineContentElementContext(
             $this,
             $this->runtimeIslands,
@@ -1613,6 +1615,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 && SourceDom::hasWordPressTemplateParts($child)
             ) {
                 $blocks = array_merge($blocks, $this->convertChildren($child, $fallbacks, $captureUnsupported, $preserveLinkContainers));
+                continue;
+            }
+            // A paint-free fill layer is its image's figure and its overlays.
+            $layerBlocks = $preserveLinkContainers ? null : $this->fillLayerImages?->blocks(
+                $child,
+                function (DOMElement $overlay) use (&$fallbacks, $captureUnsupported): ?array {
+                    return $this->convertElement($overlay, $fallbacks, $captureUnsupported);
+                }
+            );
+            if ( null !== $layerBlocks ) {
+                $blocks = array_merge($blocks, $layerBlocks);
                 continue;
             }
             $fallbackOffset = count($fallbacks);
