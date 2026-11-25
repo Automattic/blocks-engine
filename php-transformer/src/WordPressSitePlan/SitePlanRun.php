@@ -652,9 +652,14 @@ final class SitePlanRun
             // Captured fluid lengths ship as the source runtime spelled them
             // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
             // that spelling, so it is written once at its smallest form.
-            // Compact declaration framing only: value spelling also appears
-            // in generated inline-style guards and must remain consistent.
-            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssDeclarationFormattingCompactor::stylesheet(CssMathValueCompactor::stylesheet($asset['content']))));
+            // Document-inline replay retains its authored declaration spelling.
+            // Compact ordinary stylesheet delivery only, after guard generation;
+            // never rewrite selector literals or custom-property token streams.
+            $content = CssMathValueCompactor::stylesheet($asset['content']);
+            if ('frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
+                $content = CssDeclarationFormattingCompactor::stylesheet($content, in_array($asset['source'] ?? null, array('files', 'inline-style'), true));
+            }
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune($content));
             // Inline source sheets are projected like linked ones: a motion
             // or state rule restated per subject ships its block once.
             if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
