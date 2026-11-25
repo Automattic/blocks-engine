@@ -343,7 +343,8 @@ final class TaxonomyProjection
     {
         $owners = array();
         foreach ($projection['entities'] as $taxonomyEntity) {
-            $archiveSource = $taxonomyEntity['archive']['source_path'];
+            $archiveSource = $taxonomyEntity['archive']['source_path'] ?? null;
+            if (null === $archiveSource) continue;
             foreach ($projection['pagination_source_paths_by_archive'][$archiveSource] ?? array() as $paginationSource) $owners[$paginationSource] = $archiveSource;
         }
         return $owners;
@@ -365,8 +366,8 @@ final class TaxonomyProjection
         $preflightBySource = array_column($preflightPages, null, 'source_path');
         $projectedTaxonomyEntities = array();
         foreach ($projection['entities'] as $taxonomyEntity) {
-            $archiveSource = $taxonomyEntity['archive']['source_path'];
-            if (!str_contains((string) ($preflightBySource[$archiveSource]['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
+            $archiveSource = $taxonomyEntity['archive']['source_path'] ?? null;
+            if (null !== $archiveSource && !str_contains((string) ($preflightBySource[$archiveSource]['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
                 unset($taxonomyEntity['archive']['presentation_markup']);
             }
             $projectedTaxonomyEntities[] = $taxonomyEntity;
@@ -388,7 +389,12 @@ final class TaxonomyProjection
     {
         $projectedTaxonomyEntities = array();
         foreach ($projection['entities'] as $taxonomyEntity) {
-            foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
+            // An entity proven without an archive has no presentation to settle.
+            if (!isset($taxonomyEntity['archive'])) {
+                $projectedTaxonomyEntities[] = $taxonomyEntity;
+                continue;
+            }
+            foreach ($pages as $page) if (($page['source_path'] ?? null) === $taxonomyEntity['archive']['source_path']) {
                 if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
                     $projection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
                 }

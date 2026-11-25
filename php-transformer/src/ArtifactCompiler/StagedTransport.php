@@ -23,6 +23,7 @@ trait StagedTransport
 {
     /** Deterministic work counters for staged regression tests. */
     private int $stagePartitionCount = 0;
+    private int $sharedShellCompilationCount = 0;
 
     /**
      * Prepare the immutable, serializable shared portion of an artifact.
@@ -36,7 +37,12 @@ trait StagedTransport
      */
     public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
-        return $this->cssRuleTrees->run(fn () => $this->prepareSharedWithCssRuleTrees($artifact, $payloadReader));
+        $previous = array($this->siteSelectorEvidence, $this->sharedSelectorPruner, $this->sharedSelectorStylesheets);
+        try {
+            return \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::run(fn () => $this->cssRuleTrees->run(fn () => $this->prepareSharedWithCssRuleTrees($artifact, $payloadReader)));
+        } finally {
+            [$this->siteSelectorEvidence, $this->sharedSelectorPruner, $this->sharedSelectorStylesheets] = $previous;
+        }
     }
 
     private function prepareSharedWithCssRuleTrees(array $artifact, ?PayloadReader $payloadReader = null): array
@@ -48,7 +54,7 @@ trait StagedTransport
         $partition = $this->stagePartition($artifact, 'shared');
         $entryPath = (string) ($partition['entrypoints'][0] ?? '');
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
-        $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($sharedArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $sharedArtifact['files'] = $normalized['files'];
         $this->retainSharedCssRuleTrees($normalized['files']);
@@ -147,7 +153,7 @@ trait StagedTransport
     private function pagePlanFromPartition(array $partition, array $sharedPlan, string $pageId): array
     {
         $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
-        $normalized = (new ArtifactNormalizer())->normalize($pageArtifact);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($pageArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $pageArtifact['files'] = $normalized['files'];
 
@@ -267,6 +273,9 @@ trait StagedTransport
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
         $stageCompiler->siteSelectorEvidence = $sharedPlan['analysis']['site_selector_evidence'] ?? null;
+        if (isset($sharedPlan['analysis']['site_selector_pruner'])) {
+            $stageCompiler->restoreSharedSelectorPruner($sharedPlan['analysis']);
+        }
         $stageCompiler->repeatedSubtrees = ArrayField::array($sharedPlan['analysis'], 'repeated_subtrees');
 
         $compiledDocuments = array();
@@ -651,15 +660,10 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $sourceCssBytes = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
+        $selectorEvidence = 'shared' === $scope ? $this->selectorEvidence($normalized['files']) : array();
         $projection = (new CaptureProjection())->project($normalized['files']);
         $capturedDialogs = $projection['captured_dialogs'];
         $rawFiles = $projection['files'];
-        // Box-tree identity is proven against the captured source bytes, which
-        // the projections above rewrite; keep what this normalization accepted.
-        $canonicalBoxTrees = array();
-        foreach ($normalized['files'] as $file) {
-            if ('html' === $file['kind'] && array() !== ($file['box_tree'] ?? array())) $canonicalBoxTrees[$file['path']] = $file['box_tree'];
-        }
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
         foreach ($rawFiles as &$file) {
@@ -684,25 +688,12 @@ trait StagedTransport
                 ? $ownership['scope']
                 : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
-            // Route-local evidence must travel only with its source page, not
-            // become a stale shared sidecar in every other page worker.
-            if (preg_match('~(?:^|/)box-tree/.+\.json$~D', $path)) {
-                $boxTree = json_decode((string) ($file['content'] ?? ''), true, 32);
-                if (is_array($boxTree) && is_string($boxTree['source_path'] ?? null)) {
-                    foreach ($rawFiles as $sourceFile) {
-                        if ($boxTree['source_path'] !== ($sourceFile['path'] ?? null)) continue;
-                        $fileScope = 'page';
-                        $filePageId = $sourceFile['metadata']['compilation']['id'] ?? $sourceFile['path'];
-                        break;
-                    }
-                }
-            }
             if ('page' === $fileScope) $pages[$filePageId][] = $file;
             else $shared[] = $file;
         }
         ksort($pages, SORT_STRING);
         $identity = array();
-        foreach (array('site_slug', 'site_name', 'block_namespace') as $key) if (is_string($artifact[$key] ?? null)) $identity[$key] = $artifact[$key];
+        foreach (array('site_slug', 'site_name', 'block_namespace', 'class_namespace') as $key) if (is_string($artifact[$key] ?? null)) $identity[$key] = $artifact[$key];
         // The source origin resolves captured same-site absolute links; every
         // stage has to know it, just as the whole compilation does.
         if (is_string($artifact['provenance']['source_url'] ?? null)) $identity['provenance'] = array('source_url' => $artifact['provenance']['source_url']);
@@ -722,40 +713,22 @@ trait StagedTransport
             'identity' => $identity,
             'source_paths' => $sourcePaths,
             'source_css_bytes' => $sourceCssBytes,
+            'site_selector_evidence' => $selectorEvidence,
             'canonical_source_hash' => $normalized['source_hash'],
             'canonical_bytes' => $normalized['bytes'],
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
-            'canonical_box_trees' => $canonicalBoxTrees,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
             'captured_dialogs' => $capturedDialogs,
         );
     }
 
-    /**
-     * Re-apply the whole-artifact normalization's identity to a stage
-     * envelope's normalization. Stage files are already projected, so their
-     * provenance hashes and box-tree intake would otherwise describe the
-     * projected bytes: projected route state no longer matches a sidecar's
-     * captured source hash, and the empty result would silently replace the
-     * accepted evidence. Box-tree intake and its diagnostics stay owned by the
-     * canonical normalization, exactly as in inline compilation.
-     *
-     * @param array<string,mixed> $normalized
-     * @param array<string,mixed> $partition
-     * @return array<string,mixed>
-     */
     private static function withCanonicalIdentity(array $normalized, array $partition): array
     {
         foreach ($normalized['files'] as &$file) {
             if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
-            if ('html' === $file['kind']) $file['box_tree'] = $partition['canonical_box_trees'][$file['path']] ?? array();
         }
         unset($file);
-        $normalized['diagnostics'] = array_values(array_filter(
-            $normalized['diagnostics'],
-            static fn(array $diagnostic): bool => !str_starts_with((string) ($diagnostic['code'] ?? ''), 'box_tree_')
-        ));
         return $normalized;
     }
 
@@ -879,7 +852,7 @@ trait StagedTransport
         $partition = $this->stagePartition($hydratedArtifact, $scope, $pageId);
         $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
         $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
-        $normalized = (new ArtifactNormalizer())->normalize($planArtifact);
+        $normalized = (new ArtifactNormalizer())->normalizeExpanded($planArtifact);
         $normalized = self::withCanonicalIdentity($normalized, $partition);
         $planArtifact['files'] = $normalized['files'];
         $plan = array(
@@ -1199,7 +1172,8 @@ trait StagedTransport
     private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
     {
         return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
-            'site_selector_evidence' => $this->selectorEvidence((new ArtifactNormalizer())->normalize($artifact)['files']),
+            'site_selector_evidence' => $partition['site_selector_evidence'],
+            'site_selector_pruner' => $this->prepareSharedSelectorPruner($normalized['files'], $partition['site_selector_evidence']),
             'entry_path' => $entryPath,
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
@@ -1214,6 +1188,26 @@ trait StagedTransport
             'captured_dialogs' => $partition['captured_dialogs'],
             'source_css_bytes' => $partition['source_css_bytes'],
         ));
+    }
+
+    /** Build the site reader index once, before compiling any shared shells. */
+    private function prepareSharedSelectorPruner(array $files, array $evidence): array
+    {
+        $stylesheets = $this->selectorStylesheets($files);
+        $this->siteSelectorEvidence = $evidence;
+        $this->sharedSelectorStylesheets = array_fill_keys(array_map(static fn (string $css): string => hash('sha256', $css), $stylesheets), true);
+        $this->sharedSelectorPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner($evidence, true, $stylesheets);
+        // Projection can drop IDs whereas reader discovery preserves them.
+        // Warm both modes so page workers never re-evaluate shared arms.
+        foreach ($stylesheets as $css) $this->sharedSelectorPruner->prune($css);
+        return array('stylesheets' => array_keys($this->sharedSelectorStylesheets), 'index' => $this->sharedSelectorPruner->exportState());
+    }
+
+    private function restoreSharedSelectorPruner(array $analysis): void
+    {
+        $state = $analysis['site_selector_pruner'];
+        $this->sharedSelectorStylesheets = array_fill_keys($state['stylesheets'], true);
+        $this->sharedSelectorPruner = \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner::fromState($analysis['site_selector_evidence'], $state['index']);
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */

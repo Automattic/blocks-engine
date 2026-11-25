@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use DOMElement;
 
 /** Per-transform reusable component recognition and mapping state. */
@@ -53,7 +54,7 @@ final class ReusableComponentState
      * lowering, so no output carries it; only a generated component, which
      * saves its menu as markup for every route, reads it back.
      */
-    public function liftRestingNavigation(DOMElement $root): void
+    public function liftRestingNavigation(DOMElement $root, AuthorSelectorProjectionState $projections): void
     {
         $this->restingNavigation = null;
         $nodes = array();
@@ -61,8 +62,29 @@ final class ReusableComponentState
         foreach ($nodes as $node) {
             $this->restingNavigation ??= new \SplObjectStorage();
             $this->restingNavigation[$node] = $node->getAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
+            // Publish the cross-route proof before lowering any menu. A menu
+            // with no current item cannot rediscover this state from its peers.
+            $state = json_decode($this->restingNavigation[$node], true);
+            if (is_array($state) && is_array($state['current']['class'] ?? null)) {
+                $projections->markCurrentNavigationClasses($state['current']['class']);
+                if (array() === ($state['rest']['class'] ?? array())) $projections->markAdditiveCurrentNavigationClasses($state['current']['class']);
+            }
+            if (is_array($state) && is_array($state['current'] ?? null)) {
+                $projections->markCurrentNavigationAttributes($state['current'], $state['rest'] ?? array());
+            }
             $node->removeAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
         }
+    }
+
+    /**
+     * Whether the captures proved this element a navigation item with route
+     * state. Only such an item's current-state classes are route state; the
+     * same class authored elsewhere on the page is ordinary content.
+     */
+    public function carriesRestingNavigation(DOMElement $element): bool
+    {
+        return $element->hasAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE)
+            || (null !== $this->restingNavigation && isset($this->restingNavigation[$element]));
     }
 
     /**

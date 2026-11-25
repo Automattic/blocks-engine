@@ -16,7 +16,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\StyledSourceClassBoundary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use DOMElement;
 
 /**
@@ -43,34 +42,39 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
 
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
-        return $this->emptyElementFootprint->shouldPreserveEmptyVisualElement($element, $this->emptyVisualRetentionPolicy($element));
+        return $this->emptyVisualDisposition($element)->isPreserve();
     }
 
-    /** Non-style retention decisions, evaluated only when the footprint query needs them. */
-    private function emptyVisualRetentionPolicy(DOMElement $element): iterable
+    /**
+     * Whether, and why, an element with no rendered content keeps a block:
+     * {@see WrapperDecision::emptyVisualRetention()} owns the step order (#7471).
+     */
+    public function emptyVisualDisposition(DOMElement $element): WrapperDisposition
     {
-        if ( '' !== SourceDom::renderedTextContent($element) || $this->isInertOutOfFlowEmptyElement($element) ) {
-            yield 'drop' => true;
-            return;
-        }
-        yield 'hidden' => $this->isInertHiddenEmptyElement($element);
-        if ( $this->hasSubstantiveSourceDescendant($element) && $this->shouldPreserveWrapper($element) ) {
-            yield 'keep' => true;
-        }
-        yield 'layout' => true;
-        if ( $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) ) {
-            yield 'inline' => $this->runtimeIslands->isRuntimeDomTarget($element)
-                || in_array(strtolower(SourceDom::attr($element, 'role')), array( 'presentation', 'none' ), true)
-                || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'));
-            return;
-        }
+        return WrapperDecision::emptyVisualRetention($this, $this->emptyElementFootprint, $element);
+    }
+
+    public function isInlineContentElement(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName));
+    }
+
+    /** An empty inline element is addressed by a runtime script or declared presentational. */
+    public function inlineEmptyVisualIdentity(DOMElement $element): bool
+    {
+        return $this->runtimeIslands->isRuntimeDomTarget($element)
+            || in_array(strtolower(SourceDom::attr($element, 'role')), array( 'presentation', 'none' ), true)
+            || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'));
+    }
+
+    /** An empty block element is a runtime or fragment target, carries events, or has structure signals. */
+    public function blockEmptyVisualIdentity(DOMElement $element): bool
+    {
         $id = SourceDom::namedFragmentTargetId($element);
-        yield 'block' => $this->runtimeIslands->isRuntimeDomTarget($element)
+        return $this->runtimeIslands->isRuntimeDomTarget($element)
             || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
             || array() !== SourceDom::eventMetadata($element)
             || array() !== $this->sourceElementDescription->structureSignals($element, array());
-        yield 'keep' => $this->hasStaticPseudoElementRule($element);
-        yield 'viewport' => $this->emptyVisualTopologyEvidence($element);
     }
 
     /**
@@ -132,7 +136,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         return true;
     }
 
-    private function hasSubstantiveSourceDescendant(DOMElement $element): bool
+    public function hasSubstantiveSourceDescendant(DOMElement $element): bool
     {
         if ( '' !== SourceDom::renderedTextContent($element) ) {
             return true;
@@ -153,16 +157,9 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
     {
         $child = null;
         foreach ( $element->childNodes as $node ) {
-            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
-                continue;
-            }
-            // Source comments carry no rendered, selector, or runtime boundary.
-            // Treating them as transparent lets generated exports shed an otherwise
-            // inert authoring wrapper without interpreting product-specific markup.
-            if ( XML_COMMENT_NODE === $node->nodeType ) {
-                continue;
-            }
-            if ( $node instanceof DOMElement && ($this->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
+            // {@see WrapperDecision::soleChildSkip()} names the nodes that
+            // carry no rendered, selector, or runtime boundary.
+            if ( null !== WrapperDecision::soleChildSkip($this, $node) ) {
                 continue;
             }
             if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
@@ -174,7 +171,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         return $child;
     }
 
-    private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
+    public function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
     {
         return 0 === SourceDom::childElementCount($element)
             && '' === trim($element->textContent ?? '')
@@ -188,21 +185,88 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
 
     public function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
     {
-        $tag = $asTag ?? $element->tagName;
+        return $this->wrapperDisposition($element, $asTag)->isPreserve();
+    }
 
-        // Elide only a neutral chain, not a media shell whose positioned child
-        // requires an intrinsic-size carrier. Keep identity on its real box.
+    /** Whether, and why, a flow wrapper keeps its own block: {@see WrapperDecision::wrapperRetention()} (#7471). */
+    public function wrapperDisposition(DOMElement $element, ?string $asTag = null): WrapperDisposition
+    {
+        return WrapperDecision::wrapperRetention($this, $element, $asTag);
+    }
+
+    /**
+     * Elide only a neutral chain, not a media shell whose positioned child
+     * requires an intrinsic-size carrier. Keep identity on its real box.
+     */
+    public function isNeutralGeneratedComponentChain(DOMElement $element, string $tag): bool
+    {
         $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
-        if ('div' === strtolower($tag) && '' === trim(SourceDom::attr($element, 'id'))
+        return 'div' === strtolower($tag) && '' === trim(SourceDom::attr($element, 'id'))
             && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
             && !$this->session->authorSelectorProjectionState()->hasSemanticMarker($element) && !$this->styledClassBoundaries->hasStyledSourceClassBoundary($element)
             && $this->renderNeutral->isRenderNeutralWrapper($element) && $this->renderNeutral->isRenderNeutralWrapper($child)
-            && $this->containsGeneratedComponentCandidate($element)
-        ) {
+            && $this->containsGeneratedComponentCandidate($element);
+    }
+
+    public function isWrapperPreservingTag(DOMElement $element, string $tag): bool
+    {
+        return ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element);
+    }
+
+    public function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        return $this->runtimeIslands->isRuntimeDomTarget($element);
+    }
+
+    public function hasSemanticSelectorMarker(DOMElement $element): bool
+    {
+        return $this->session->authorSelectorProjectionState()->hasSemanticMarker($element);
+    }
+
+    /** Resolving presentation attributes registers style carriers, so its position in the guard order is output. */
+    public function hasPresentationAttributes(DOMElement $element): bool
+    {
+        return array() !== $this->styleResolver->presentationAttributes($element);
+    }
+
+    public function hasStructureSignals(DOMElement $element): bool
+    {
+        return array() !== $this->sourceElementDescription->structureSignals($element, array());
+    }
+
+    public function hasStyledSourceClassBoundary(DOMElement $element): bool
+    {
+        return $this->styledClassBoundaries->hasStyledSourceClassBoundary($element);
+    }
+
+    /**
+     * A wrapper styled only through a type or combinator selector
+     * (`.card>div{aspect-ratio:16/9;overflow:hidden}`) has no class boundary
+     * and no presentation attributes: the stylesheet projector rewrites that
+     * rule onto the tag marker carried by whichever block represents this
+     * element. Eliding the wrapper leaves the marker without a carrier, so
+     * the rule's box (ratio, clip, padding, paint) silently disappears.
+     * Zero lengths, `display:block` and a bare `position:relative` are
+     * resets, not an owned box (a containing block is owned by the
+     * positioned-descendant policies).
+     */
+    public function tagMarkerOwnsWrapperBox(DOMElement $element): bool
+    {
+        if ( '' === $this->session->authorSelectorProjectionState()->tagMarker(strtolower($element->tagName)) ) {
             return false;
         }
-
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || $this->responsiveStylesheetOwnsWrapperBox($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+        foreach ( $this->emptyVisualTopologyEvidence($element) as $evidence ) {
+            foreach ( $evidence['declarations'] as $property => $value ) {
+                $value = CssValueInspector::comparable($value);
+                if ( preg_match('/^-?0(?:\.0+)?(?:[a-z%]+)?(?:\s+-?0(?:\.0+)?(?:[a-z%]+)?)*$/', $value)
+                    || ('display' === $property && in_array($value, array( 'block', 'flow-root' ), true))
+                    || ('position' === $property && 'relative' === $value) ) {
+                    continue;
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -266,7 +330,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         return $evidence;
     }
 
-    private function hasStaticPseudoElementRule(DOMElement $element): bool
+    public function hasStaticPseudoElementRule(DOMElement $element): bool
     {
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
             if ( $this->session->sourceStyleResolutionState()->matches($element, $rule['selector']) ) {
@@ -296,19 +360,12 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
 
     public function preservesScriptStateWrapper(DOMElement $element): bool
     {
-        if (SourceDom::isCaptureDeviceVisibilityCarrier($element)) return true;
-        if ( $this->isInertHiddenEmptyElement($element) ) {
-            return false;
-        }
-        foreach ( $element->attributes ?? array() as $attribute ) {
-            $name = strtolower($attribute->nodeName);
-            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
-                return true;
-            }
-            if ( $this->runtimeIslands->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name ) ) {
-                return true;
-            }
-        }
-        return false;
+        return $this->scriptStateDisposition($element)->isPreserve();
+    }
+
+    /** Whether, and why, a wrapper holds script-observed state: {@see WrapperDecision::scriptState()} (#7471). */
+    public function scriptStateDisposition(DOMElement $element): WrapperDisposition
+    {
+        return WrapperDecision::scriptState($this, $element);
     }
 }

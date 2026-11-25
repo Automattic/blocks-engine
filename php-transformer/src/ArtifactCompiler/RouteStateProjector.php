@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
@@ -652,13 +653,15 @@ final class RouteStateProjector
             $stylesheets ??= self::stylesheets($files);
             foreach ($varying as $token) {
                 foreach ($nodes as $index => $node) {
-                    if (in_array($token, $sets[$index], true) && !self::restsWithoutClass($token, $sets[$index], $stylesheets)) continue 2;
+                    if (in_array($token, $sets[$index], true) && !self::restsWithoutClass($token, $sets[$index], $stylesheets, $node)) continue 2;
                 }
                 foreach ($nodes as $index => $node) {
                     if (!in_array($token, $sets[$index], true)) continue;
                     $sets[$index] = array_values(array_diff($sets[$index], array($token)));
-                    if (array() === $sets[$index]) $node->removeAttribute('class');
-                    else $node->setAttribute('class', implode(' ', $sets[$index]));
+                    // Only the token leaves; the rest keep their spelling (a builder may repeat one).
+                    $kept = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => $class !== $token));
+                    if (array() === $kept) $node->removeAttribute('class');
+                    else $node->setAttribute('class', implode(' ', $kept));
                     $changed[$index] = true;
                 }
             }
@@ -786,7 +789,7 @@ final class RouteStateProjector
                 foreach (self::classes($element) as $class) $worn[$class] = true;
             }
         }
-        $sheetRules = array();
+        $sheetRules = array(); $namedHere = array(); $classRules = array();
         foreach (array_keys($documents) as $index) {
             // Each class's rules in this document's own sheets, in order.
             $rules = array(); $unaliasable = array();
@@ -805,8 +808,8 @@ final class RouteStateProjector
                                 }
                                 if (!$alone) { $sheetRules[$sheet][1][$class] = true; continue; }
                                 // Copies keep each route's own scope, so the slot only lets equal rules meet.
-                                $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", trim($selector)));
-                                $sheetRules[$sheet][0][$class][] = array(implode("\0", $ancestors), $read, RenderEquivalentMarkup::canonicalStyle($body));
+                                $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", self::selectorReading($selector)));
+                                $sheetRules[$sheet][0][$class][] = array(implode("\0", $ancestors), $read, RenderEquivalentMarkup::canonicalStyle($body), trim($selector));
                             }
                         }
                     });
@@ -814,10 +817,32 @@ final class RouteStateProjector
                 foreach ($sheetRules[$sheet][0] as $class => $read) $rules[$class] = array_merge($rules[$class] ?? array(), $read);
                 $unaliasable += $sheetRules[$sheet][1];
             }
+            $namedHere[$index] = array_fill_keys(array_keys($rules), true) + $unaliasable;
             foreach ($rules as $class => $meaning) {
                 // Engine-minted classes (re-ingested control bindings) are no route vocabulary.
                 if (str_starts_with($class, 'blocks-engine-') || isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
-                $meanings[$index][$class] = self::classMeaning($meaning);
+                $classRules[$index][$class] = $meaning;
+                $meanings[$index][$class] = self::classMeaning(self::ruleReadings($meaning));
+            }
+        }
+        // A rule that selects nothing in a document says nothing there about
+        // what its class means. Copies of one panel carry different dead
+        // rules (states it is not in, parts it does not render) depending on
+        // which route captured them, so a class read differently across
+        // routes is read again from the rules its document can apply.
+        $classReadings = array();
+        foreach ($meanings as $classes) foreach ($classes as $class => $meaning) $classReadings[$class][$meaning] = true;
+        $elements = array();
+        foreach ($classRules as $index => $classes) {
+            foreach ($classes as $class => $rules) {
+                if (count($classReadings[$class]) < 2) continue;
+                $elements[$index] ??= iterator_to_array($documents[$index]->getElementsByTagName('*'));
+                $live = array_values(array_filter($rules, static function (array $rule) use ($elements, $index): bool {
+                    $selector = CssSelectorMatcher::parse($rule[3]);
+                    // A selector the matcher cannot read may still apply.
+                    return !($selector['supported'] ?? false) || array() !== CssSelectorMatcher::filterMatching($elements[$index], $selector, true);
+                }));
+                if (array() !== $live) $meanings[$index][$class] = self::classMeaning(self::ruleReadings($live));
             }
         }
         $names = array(); $readings = array();
@@ -835,10 +860,19 @@ final class RouteStateProjector
             foreach (reset($routes) as $class) if (count($readings[$class]) > 1) $unstable[$meaning] = true;
         }
         if (array() === $unstable) return $files;
+        // A class with one meaning wherever a sheet names it reads as nothing
+        // on a route whose own sheets never name it: wearing its alias there
+        // changes nothing, and keeps that chrome equal to the other routes'.
+        $aligned = array();
+        foreach ($readings as $class => $classMeanings) {
+            if (1 === count($classMeanings) && isset($unstable[array_key_first($classMeanings)])) $aligned[$class] = 'route-class-' . substr((string) array_key_first($classMeanings), 0, 12);
+        }
         $sheetAliases = array();
-        foreach ($meanings as $index => $classes) {
+        foreach (array_keys($documents) as $index) {
+            $classes = $meanings[$index] ?? array();
             $aliases = array();
             foreach ($classes as $class => $meaning) if (isset($unstable[$meaning])) $aliases[$class] = 'route-class-' . substr($meaning, 0, 12);
+            foreach ($aligned as $class => $alias) if (!isset($namedHere[$index][$class])) $aliases[$class] = $alias;
             if (array() === $aliases) continue;
             $used = array();
             foreach ($scoped[$index] ?? array() as $element) {
@@ -934,14 +968,17 @@ final class RouteStateProjector
     /**
      * Whether an element with `$classes` renders the same at rest without
      * `$token`. At least one rule must name the token, and each of its
-     * selectors must either require a class the element lacks or apply only
-     * transition timing.
+     * selectors must either require a class the element lacks, apply only
+     * transition timing, or restate a property's initial value (a component
+     * root's `box-shadow:none`) that no other rule or inline style gives the
+     * element, so the element computes that value with or without it.
      *
      * @param list<string> $classes
      * @param list<string> $stylesheets
      */
-    private static function restsWithoutClass(string $token, array $classes, array $stylesheets): bool
+    private static function restsWithoutClass(string $token, array $classes, array $stylesheets, ?DOMElement $element = null): bool
     {
+        $resets = array();
         $pattern = '/\.' . preg_quote($token, '/') . '(?![A-Za-z0-9_\x{80}-\x{10FFFF}-])/u';
         $named = false;
         foreach ($stylesheets as $css) {
@@ -967,11 +1004,101 @@ final class RouteStateProjector
                     }
                     if ($unmatched) continue;
                     $timingOnly ??= self::setsOnlyTransitionTiming($rule['body']);
-                    if (!$timingOnly) return false;
+                    if ($timingOnly) continue;
+                    $initial = null === $element ? null : self::initialValueProperties($rule['body']);
+                    if (null === $initial) return false;
+                    $resets += $initial;
                 }
             }
         }
-        return $named;
+        return $named && (array() === $resets || self::onlyResetsState($token, array_keys($resets), $stylesheets, $element));
+    }
+
+    /**
+     * Whether a selector's subject compound can select the element at rest:
+     * it requires no class, id or type the element lacks, and no user-action
+     * state (`:hover`, `:focus`). An `:is()` or `:where()` of simple
+     * alternatives needs one of them to fit; any other functional
+     * pseudo-class can match without what it names.
+     */
+    private static function subjectCanMatch(string $selector, DOMElement $element): bool
+    {
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        $compound = $tokens['supported'] ? (string) end($tokens['compounds']) : (string) preg_replace('/^.*[\s>+~]/s', '', $selector);
+        if (preg_match('/:(?:hover|active|focus(?:-visible|-within)?)(?![A-Za-z-])/i', $compound)) return false;
+        if (preg_match_all('/:(?:is|where)\(([^()]*)\)/i', $compound, $groups)) {
+            foreach ($groups[1] as $group) {
+                $fits = false;
+                foreach (explode(',', $group) as $alternative) if (self::subjectCanMatch(trim($alternative), $element)) { $fits = true; break; }
+                if (!$fits) return false;
+            }
+        }
+        $compound = (string) preg_replace('/::?[A-Za-z-]+(?:\((?:[^()]|\([^()]*\))*\))?/', '', $compound);
+        if (preg_match('/^([A-Za-z][A-Za-z0-9-]*)/', $compound, $type) && strtolower($type[1]) !== strtolower($element->tagName)) return false;
+        preg_match_all('/\.(-?[A-Za-z_\x{80}-\x{10FFFF}][A-Za-z0-9_\x{80}-\x{10FFFF}-]*)/u', $compound, $classes);
+        if (array() !== array_diff($classes[1], self::classes($element))) return false;
+        preg_match_all('/#(-?[A-Za-z_\x{80}-\x{10FFFF}][A-Za-z0-9_\x{80}-\x{10FFFF}-]*)/u', $compound, $ids);
+        foreach ($ids[1] as $id) if ($id !== $element->getAttribute('id')) return false;
+        return true;
+    }
+
+    /**
+     * Non-inherited properties whose initial value a component's own sheet
+     * commonly restates on its root. Only these keywords are read; anything
+     * else means the rule may change how the element renders.
+     */
+    private const INITIAL_VALUES = array(
+        'box-shadow' => 'none', 'filter' => 'none', 'backdrop-filter' => 'none', 'transform' => 'none',
+        'clip-path' => 'none', 'mask-image' => 'none', 'background-image' => 'none', 'outline-style' => 'none',
+    );
+
+    /**
+     * The properties a rule body sets, when it sets each of them only to its
+     * initial value (with or without `!important`); null otherwise.
+     *
+     * @return array<string, true>|null
+     */
+    private static function initialValueProperties(string $body): ?array
+    {
+        $properties = array();
+        foreach (explode(';', $body) as $declaration) {
+            if ('' === trim($declaration)) continue;
+            $colon = strpos($declaration, ':');
+            if (false === $colon) return null;
+            $property = strtolower(trim(substr($declaration, 0, $colon)));
+            $value = strtolower(trim((string) preg_replace('/!\s*important\s*$/i', '', substr($declaration, $colon + 1))));
+            if (!isset(self::INITIAL_VALUES[$property]) || (self::INITIAL_VALUES[$property] !== $value && 'initial' !== $value)) return null;
+            $properties[$property] = true;
+        }
+        return array() === $properties ? null : $properties;
+    }
+
+    /**
+     * Whether nothing but rules naming `$token` gives the element any of
+     * `$properties`: no inline declaration, and no other rule whose selector
+     * matches it. A selector the matcher cannot read may match, so it counts.
+     *
+     * @param list<string> $properties
+     * @param list<string> $stylesheets
+     */
+    private static function onlyResetsState(string $token, array $properties, array $stylesheets, ?DOMElement $element): bool
+    {
+        if (null === $element) return false;
+        $property = '/(?<![A-Za-z0-9-])(?:' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), $properties)) . ')\s*:/i';
+        if (preg_match($property, $element->getAttribute('style'))) return false;
+        $named = '/\.' . preg_quote($token, '/') . '(?![A-Za-z0-9_\x{80}-\x{10FFFF}-])/u';
+        foreach ($stylesheets as $css) {
+            if (!preg_match($property, $css)) continue;
+            foreach (self::styleRules($css) as $rule) {
+                if (null === $rule['body'] || !preg_match($property, $rule['body']) || preg_match($named, $rule['prelude'])) continue;
+                foreach (CssStylesheetTransformer::splitSelectorList($rule['prelude']) ?? array($rule['prelude']) as $selector) {
+                    if (!self::subjectCanMatch(trim($selector), $element)) continue;
+                    $parsed = CssSelectorMatcher::parse(trim($selector));
+                    if (!($parsed['supported'] ?? false) || array() !== CssSelectorMatcher::filterMatching(array($element), $parsed, true)) return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -1183,6 +1310,34 @@ final class RouteStateProjector
     }
 
     /**
+     * A selector as it reads, not as it is spelled: a minifier that drops the
+     * quotes around an identifier attribute value (`[fill=currentColor]`) or
+     * the spaces around a combinator writes the same selector, and must not
+     * make one route's copy of a rule mean something else than another's.
+     */
+    private static function selectorReading(string $selector): string
+    {
+        $selector = (string) preg_replace_callback('/\[\s*([A-Za-z_-][A-Za-z0-9_:-]*)\s*([~|^$*]?=)\s*(?:"([^"]*)"|\'([^\']*)\'|([^\]\s"\']+))\s*(\s[iIsS])?\s*\]/', static function (array $match): string {
+            $value = '' !== ($match[3] ?? '') ? $match[3] : ('' !== ($match[4] ?? '') ? $match[4] : ($match[5] ?? ''));
+            $value = 1 === preg_match('/^-?[A-Za-z_][A-Za-z0-9_-]*$/', $value) ? $value : '"' . addcslashes($value, '"\\') . '"';
+            return '[' . $match[1] . $match[2] . $value . (isset($match[6]) ? ' ' . strtolower(trim($match[6])) : '') . ']';
+        }, trim($selector));
+        $selector = (string) preg_replace('/\s*([>+~])\s*(?![^\[]*\])/', '$1', $selector);
+        return (string) preg_replace('/\s+/', ' ', $selector);
+    }
+
+    /**
+     * A rule's reading without the selector it was read from.
+     *
+     * @param list<array{0:string,1:string,2:string,3:string}> $rules
+     * @return list<array{0:string,1:string,2:string}>
+     */
+    private static function ruleReadings(array $rules): array
+    {
+        return array_map(static fn(array $rule): array => array($rule[0], $rule[1], $rule[2]), $rules);
+    }
+
+    /**
      * What a class's own rules resolve to on one route. Builders restate a
      * component's CSS per page, repeating a rule or emitting its breakpoint
      * override before or after the base rule. Those spellings render alike:
@@ -1195,6 +1350,11 @@ final class RouteStateProjector
      */
     private static function classMeaning(array $readings): string
     {
+        // A rule restated later under the same condition and selector wins
+        // wherever the earlier copy would, so only the last copy reads.
+        $last = array();
+        foreach ($readings as $position => $reading) $last[implode("\0", $reading)] = $position;
+        $readings = array_values(array_intersect_key($readings, array_flip($last)));
         $ordered = hash('sha256', implode("\n", array_map(static fn(array $reading): string => implode("\0", $reading), $readings)));
         $parsed = array(); $names = array();
         foreach ($readings as [$condition, $read, $style]) {

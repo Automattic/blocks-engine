@@ -17,7 +17,6 @@ require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autol
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
-$fixture = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -32,11 +31,9 @@ $routes = array(
 $files = array();
 $order = 0;
 foreach ($routes as $path => [$url, $title]) {
-    // Capture node ids are route-local box-tree observations.
-    $node = static fn(int $id): string => ' data-blocks-engine-node-id="n' . (10 * $order + $id) . '"';
     ++$order;
     $item = static fn(string $href, string $label): string => '<div class="header-nav-item' . ($href === $url ? ' header-nav-item--active' : '') . '"><a href="' . $href . '"' . ($href === $url ? ' aria-current="page"' : '') . '>' . $label . '</a></div>';
-    $cart = '<div id="floatingCart" class="floating-cart hidden"' . $node(1) . '><a href="/cart" class="icon--cart sqs-custom-cart"' . $node(2) . '><span class="Cart-inner"' . $node(3) . '><svg class="icon icon--cart" viewBox="0 0 24 24" width="24" height="24"' . $node(4) . '><path d="M4 4h16l-2 10H6z"' . $node(5) . '></path></svg><span class="sqs-cart-quantity"' . $node(6) . '>0</span></span></a></div>';
+    $cart = '<div id="floatingCart" class="floating-cart hidden"' . '><a href="/cart" class="icon--cart sqs-custom-cart"' . '><span class="Cart-inner"' . '><svg class="icon icon--cart" viewBox="0 0 24 24" width="24" height="24"' . '><path d="M4 4h16l-2 10H6z"' . '></path></svg><span class="sqs-cart-quantity"' . '>0</span></span></a></div>';
     $header = '<header id="header" class="header"><div class="header-inner"><div class="header-title"><a href="/">Salon</a></div><nav class="header-nav">'
         . $item('/', 'Home') . $item('/services', 'Services') . $item('/team', 'Team') . $item('/press', 'Press')
         . '</nav></div></header>';
@@ -45,9 +42,7 @@ foreach ($routes as $path => [$url, $title]) {
         . '<main id="page"><article><section><h1>' . $title . '</h1><p>Body text for ' . $title . '.</p></section></article></main>'
         . '<footer id="footer-sections" class="sections"><p>30 Main Street | Open Tuesday to Saturday</p></footer></div></body></html>';
     $files[] = array('path' => $path, 'content' => $html);
-    // Each route's box tree observes the cart icon under its own node id.
-    $tree = array('schema' => $fixture['schema'], 'source_path' => $path, 'source_hash' => hash('sha256', $html), 'viewports' => $fixture['viewports'], 'nodes' => array('n' . (10 * ($order - 1) + 4) => array('children' => array(), 'viewports' => $fixture['nodes']['n1']['viewports'])));
-    $files[] = array('path' => 'website/box-tree/route-' . $order . '.json', 'content' => json_encode($tree, JSON_THROW_ON_ERROR));
+
 }
 
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'provenance' => array('source_url' => 'https://example.test/'), 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];

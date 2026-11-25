@@ -36,7 +36,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   palette and moves with the representative when the palette is edited
  *   (#3043, #6754). Block attributes never carry a derivation: WordPress's
  *   safecss strips relative colours and color-mix() from inline styles, so
- *   a block-level near shade keeps its exact literal.
+ *   a block's near-shade text names a derived token whose value is the
+ *   derivation (withBlockNearShades()), and other block-level near shades
+ *   keep their exact literal.
  *
  *   Grouping selects distinct palette entries: opaque colours within
  *   CIE76 ΔE*ab 2.3 (one just-noticeable difference) form a family, and
@@ -117,6 +119,8 @@ final class DesignSystem
     public const PRIMARY_COLORS = 12;
     /** Role of the exact tokens withBlockColors() adds for block-only colours. */
     public const BLOCK_COLOR_ROLE = 'block';
+    /** Role of the derived tokens withBlockNearShades() adds for near shades blocks paint as text. */
+    public const NEAR_SHADE_ROLE = 'near-shade';
     public const MAX_FONT_SIZES = 8;
     public const MAX_SPACING = 10;
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
@@ -364,6 +368,7 @@ final class DesignSystem
         $rootFontPx = array() === $rootPx ? 16.0 : (float) rtrim((string) array_key_first($rootPx), 'px');
 
         $root = self::unanimousRoot($usageBySource);
+        if (isset($root['font_family']) && self::buttonsInheritRootFamily($usageBySource, $root['font_family'])) $root['button_family_inherited'] = true;
         // An explicit pixel size replaces the UA medium keyword, which also
         // changes bare monospace sizing. Require root author evidence on every
         // document before applying the rendered size site-wide.
@@ -375,7 +380,7 @@ final class DesignSystem
         }
         $nearShades = array();
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles, $nearShades);
-        foreach ($colors as &$color) $color['name'] = self::sourceName($sourceRoles, $color['color']) ?? $color['name'];
+        foreach ($colors as &$color) $color['name'] = self::sourceName($sourceRoles, $color['color'], 'color') ?? $color['name'];
         unset($color);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
@@ -397,9 +402,9 @@ final class DesignSystem
             $px = CssLength::toPx($value, self::renderedRootPx($usage) ?? $rootFontPx);
             if (null !== $px) $lengthNames[$name][CssLength::format($px)] = ($lengthNames[$name][CssLength::format($px)] ?? 0) + 1;
         }
-        foreach ($fontSizes as &$size) $size['name'] = self::sourceName($lengthNames, CssLength::format($size['px'])) ?? $size['name'];
+        foreach ($fontSizes as &$size) $size['name'] = self::sourceName($lengthNames, CssLength::format($size['px']), 'font') ?? $size['name'];
         unset($size);
-        foreach ($spacing as &$step) $step['name'] = self::sourceName($lengthNames, CssLength::format($step['px'])) ?? $step['name'];
+        foreach ($spacing as &$step) $step['name'] = self::sourceName($lengthNames, CssLength::format($step['px']), 'spacing') ?? $step['name'];
         unset($step);
         $layout = self::layout($widthRows, $sharedRoot);
 
@@ -539,24 +544,6 @@ final class DesignSystem
         return null === $slug ? null : array('slug' => $slug, 'percent' => $percent);
     }
 
-    /**
-     * The system without the button element styles some `core/button` in
-     * the markup would take from them. An element style reaches every
-     * button that does not carry its own value; the usage it comes from
-     * only covers buttons that render a fill, so an outlined button that
-     * converts to `core/button` would otherwise be painted. A button value
-     * stays only when every button block owns that field. Dominant look
-     * fields are checked independently, including shape and spacing; matching
-     * inherited typography and core's outline fill also establish ownership.
-     *
-     * A button restyled from box-tree evidence carries its look in a carrier
-     * rule on its link instead of block attributes. That rule outranks the
-     * element style, so each field its unconditional declarations set is
-     * owned exactly as the matching attribute would own it.
-     *
-     * @param list<string> $markups Every page's block markup.
-     * @param list<string> $stylesheets Stylesheets the pages load, read for button link carriers.
-     */
     public function withButtonElementsOwnedBy(array $markups, array $stylesheets = array()): self
     {
         if (!isset($this->elements['button'])) return $this;
@@ -626,16 +613,6 @@ final class DesignSystem
         return array_values(array_filter(preg_split('/\s+/', is_string($attributes['className'] ?? null) ? $attributes['className'] : '') ?: array(), static fn(string $class): bool => '' !== $class));
     }
 
-    /**
-     * Unconditional rules that style a button link through its block's class
-     * (`.c.c>a.wp-block-button__link`) or its core/buttons' class
-     * (`.c.c>.wp-block-button>a.wp-block-button__link`), the two shapes a
-     * box-tree carrier takes on button blocks. Media, state and pseudo rules
-     * only refine a look, so they do not establish ownership.
-     *
-     * @param list<string> $stylesheets
-     * @return list<array{classes: list<string>, group: bool, properties: list<string>}>
-     */
     private static function buttonLinkCarriers(array $stylesheets): array
     {
         $carriers = array();
@@ -679,28 +656,6 @@ final class DesignSystem
         return array_keys($properties);
     }
 
-    /**
-     * The system with an exact preset for every literal font size and font
-     * family a block carries in `style.typography` that no preset renders.
-     *
-     * Usage reads the static author cascade, but a block can also carry the
-     * typography the browser rendered for its source node (box-tree evidence
-     * of a font the static cascade cannot resolve, such as a size computed
-     * from a viewport scaling factor). Those values are rendered text all
-     * the same, and without a token they stay literals outside the editable
-     * design system. Like heading sizes, they are additive: the established
-     * scale, its names and its roles are unchanged, and each new token is the
-     * exact value, so binding never changes a rendered font.
-     *
-     * A fluid size (`clamp(42px,6.5vw,84px)`) built only from absolute and
-     * viewport lengths renders the same for every block at a given viewport,
-     * whatever its parent, so it is one exact token too (fluidFontSize()).
-     * Its preset has no single pixel size (`px` 0), so an absolute literal
-     * never resolves to it through fontSizeSlug(); only the identical value
-     * binds to it.
-     *
-     * @param list<string> $markups Every page's block markup.
-     */
     public function withBlockTypography(array $markups): self
     {
         $sizes = $families = $fluid = array();
@@ -799,28 +754,6 @@ final class DesignSystem
         return array(min($absolute), max($absolute));
     }
 
-    /**
-     * The system with exact tokens for distinct opaque literal colours a block
-     * carries as its `style.color` text or background. A near shade of an
-     * existing preset (within COLOR_CONSOLIDATION_DISTANCE) does not re-enter
-     * the palette and keeps its exact literal on the block: safecss strips a
-     * relative colour from a block's inline style, and a preset attribute
-     * would repaint it. It is recorded in nearShades so stylesheet rules
-     * painting it derive it from that preset (nearShadeColor()).
-     *
-     * Like withBlockTypography(), this covers the colour the browser rendered
-     * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
-     * or `color(srgb …)` the static cascade cannot resolve). Those colours are
-     * painted all the same, and without a token they stay literals outside the
-     * editable palette. Each new token (`accent-N` after the usage-ranked
-     * ones, most used first) is the exact 8-bit colour, so binding never
-     * changes what renders. It carries BLOCK_COLOR_ROLE: it binds only that
-     * block literal, inline and in place (blockColorSlug()), never a
-     * stylesheet, a class-driven value or an element style, which keep the
-     * cascade the usage-ranked palette established.
-     *
-     * @param list<string> $markups Every page's block markup.
-     */
     public function withBlockColors(array $markups): self
     {
         $counts = array();
@@ -858,6 +791,88 @@ final class DesignSystem
         }
         ksort($nearShades, SORT_STRING);
         return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $nearShades);
+    }
+
+    /**
+     * The system with a derived palette token for each near shade a block
+     * paints as text: an inline text colour in block markup, or the colour
+     * an author class list renders (usage `class_styles`). The token's value
+     * is the shade's stylesheet derivation (nearShadeColor()), so at the
+     * default palette the block paints the exact source shade and the shade
+     * follows its representative when the palette is edited; the palette
+     * gains no independent colour. Without it the block's text stays painted
+     * by imported CSS that neither the block's colour support nor Global
+     * Styles reaches. Text only: background and border shades keep their
+     * stylesheet derivation. Bound through blockNearShadeSlug().
+     *
+     * @param list<string> $markups
+     * @param array<string,array<string,mixed>> $usageBySource
+     */
+    public function withBlockNearShades(array $markups, array $usageBySource): self
+    {
+        $values = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = json_decode($json, true);
+                $text = is_array($attributes) ? ($attributes['style']['color']['text'] ?? null) : null;
+                if (is_string($text)) $values[] = $text;
+            }
+        }
+        foreach ($usageBySource as $usage) {
+            foreach (ArrayField::array($usage, 'class_styles') as $row) {
+                foreach ((array) ($row['properties']['color'] ?? array()) as $observation) {
+                    array_push($values, ...explode(';', (string) $observation));
+                }
+            }
+        }
+        $colors = $this->colors;
+        $known = array_fill_keys(array_column($colors, 'slug'), true);
+        $added = array();
+        foreach ($values as $value) {
+            $hex = $this->nearShadeHex($value);
+            $slug = null === $hex ? null : $this->nearShadeSlug($hex);
+            if (null === $slug || isset($known[$slug]) || isset($added[$slug])) continue;
+            $representative = (string) $this->color((string) $this->stylesheetColorSlug($this->nearShades[$hex]));
+            $added[$slug] = array('slug' => $slug, 'name' => self::colorName($representative) . ' Shade', 'color' => (string) $this->nearShadeColor($hex), 'role' => self::NEAR_SHADE_ROLE, 'weight' => 0);
+        }
+        if (array() === $added) return $this;
+        ksort($added, SORT_STRING);
+        array_push($colors, ...array_values($added));
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
+    }
+
+    /**
+     * Slug of the derived near-shade token (withBlockNearShades()) that
+     * paints exactly this opaque colour, or null. Block text colour only:
+     * stylesheets keep the literal and its relative-colour derivation.
+     */
+    public function blockNearShadeSlug(string $value): ?string
+    {
+        $hex = $this->nearShadeHex($value);
+        $slug = null === $hex ? null : $this->nearShadeSlug($hex);
+        return null !== $slug && isset($this->colorIndex()['slug'][$slug]) && self::NEAR_SHADE_ROLE === $this->colors[$this->colorIndex()['slug'][$slug]]['role'] ? $slug : null;
+    }
+
+    /** Opaque hex of a near shade the palette omits, or null. */
+    private function nearShadeHex(string $value): ?string
+    {
+        if (str_contains($value, 'var(') || !CssColor::opaque($value)) return null;
+        $hex = CssColor::hex($value);
+        return null !== $hex && isset($this->nearShades[$hex]) && null === $this->colorSlug($hex) ? $hex : null;
+    }
+
+    /**
+     * `<representative slug>-shade-<hex as letters>`: Gutenberg kebab-cases
+     * preset slugs, splitting digit/letter boundaries, so the hex is spelled
+     * with letters only and core's class agrees with the compiler's.
+     */
+    private function nearShadeSlug(string $hex): ?string
+    {
+        $representative = $this->nearShades[$hex] ?? null;
+        $base = null === $representative ? null : $this->stylesheetColorSlug($representative);
+        if (null === $base || null === $this->nearShadeColor($hex)) return null;
+        return $base . '-shade-' . strtr(ltrim($hex, '#'), '0123456789abcdef', 'abcdefghijklmnop');
     }
 
     /**
@@ -1175,11 +1190,30 @@ final class DesignSystem
     }
 
     /** @param array<string,array<string,int>> $votes */
-    private static function sourceName(array $votes, string $value): ?string
+    private static function sourceName(array $votes, string $value, string $kind): ?string
     {
         $names = array();
         foreach ($votes as $name => $values) {
-            $label = ucwords(trim((string) preg_replace('/[-_]+/', ' ', ltrim($name, '-'))));
+            if (!isset($values[$value])) continue;
+            // Split both ordinary camelCase and acronym boundaries before
+            // classifying words; source tokens carry no usage provenance.
+            $words = preg_replace('/([A-Z]+)([A-Z][a-z])/', '$1 $2', ltrim($name, '-'));
+            $words = preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', $words);
+            $words = strtolower((string) preg_replace('/[-_]+/', ' ', $words));
+            if ('spacing' === $kind && 1 === preg_match('/\b(?:font|heading|text|line)\b.*\b(?:size|height)\b/', $words)) continue;
+            if ('font' === $kind && 1 === preg_match('/\b(?:space|spacing|padding|gap|margin)\b/', $words)) continue;
+            if ('color' === $kind) {
+                $words = trim((string) preg_replace('/\b(?:hsl|rgb|rgba|hex)\b/', '', $words));
+                $words = trim((string) preg_replace('/\bcolor$/', '', $words));
+                $family = strtolower(self::colorTraits($value)['family']);
+                // Include common hue synonyms, but leave descriptive names
+                // such as Warm Sand untouched when their family agrees.
+                $hues = array('black' => 'black', 'white' => 'white', 'gray' => 'gray', 'grey' => 'gray', 'red' => 'red', 'brown' => 'brown', 'sand' => 'sand', 'gold' => 'gold', 'yellow' => 'gold', 'green' => 'green', 'teal' => 'teal', 'blue' => 'blue', 'purple' => 'purple', 'rose' => 'rose', 'pink' => 'rose', 'orange' => 'brown|sand');
+                foreach (explode(' ', $words) as $word) {
+                    if (isset($hues[$word]) && !in_array($family, explode('|', $hues[$word]), true)) continue 2;
+                }
+            }
+            $label = ucwords(trim((string) preg_replace('/\s+/', ' ', $words)));
             if (isset($values[$value]) && 1 === preg_match('/[a-z]{3}/i', $label) && 1 !== preg_match('/^(?:Color|Accent|Size|Spacing|Font)\s*\d+$/i', $label)) $names[$label] = ($names[$label] ?? 0) + $values[$value];
         }
         $labels = array_keys($names);
@@ -2171,6 +2205,26 @@ final class DesignSystem
     {
         if (!is_string($value) || !CssColor::opaque($value)) return null;
         return CssColor::hex($value);
+    }
+
+    /**
+     * Whether every rendered button control sits in text of the root
+     * family, so `inherit` renders each the root typeface a button element
+     * style would otherwise pin. A button in a section of another family
+     * (a footer set in the heading face) would take that family instead.
+     *
+     * @param array<string,array<string,mixed>> $usageBySource
+     */
+    private static function buttonsInheritRootFamily(array $usageBySource, string $rootFamily): bool
+    {
+        $key = self::familyKey($rootFamily);
+        if ('' === $key) return false;
+        foreach ($usageBySource as $usage) {
+            foreach (array_keys(ArrayField::array($usage, 'button_context_families')) as $family) {
+                if (self::familyKey((string) $family) !== $key) return false;
+            }
+        }
+        return true;
     }
 
     /**

@@ -31,8 +31,6 @@ final class FlowContainerElementConverter implements ElementConverter
 {
     private readonly NavigationPattern $navigationPattern;
 
-    private readonly CapturedImageFrameLowering $imageFrames;
-
     /** @var \WeakMap<\DOMDocument, array<string, true>> */
     private \WeakMap $controllerIds;
 
@@ -59,11 +57,10 @@ final class FlowContainerElementConverter implements ElementConverter
         private readonly AuthoredMarqueeRecognizer $marquees,
         private readonly AuthoredCarouselBlockGenerator $carousels,
         private readonly EmptyVisualSpacerLowering $emptyVisualSpacers,
-        private readonly InFlowImageFrameLowering $inFlowImageFrames
+        private readonly ?PositionedImageFrameLowering $imageFrames = null
     )
     {
         $this->navigationPattern = new NavigationPattern($this->createBlock);
-        $this->imageFrames = new CapturedImageFrameLowering($this->session, $this->runtimeIslands, $this->imageLowering);
         $this->controllerIds = new \WeakMap();
     }
 
@@ -179,16 +176,15 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
         }
-        if ( $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element) ) {
+        if ( $this->emptyFeatureShells->disposition($element)->isDrop() ) {
             return ConversionOutcome::handled(null);
         }
-        // A block box its lone in-flow image fills exactly is that image's
-        // figure, not a Group around it.
-        $framedImage = $this->inFlowImageFrames->block($element);
+        // A ratio frame its lone image fills is that image's figure, not a
+        // Group around it.
+        $framedImage = $this->imageFrames?->block($element);
         if ( null !== $framedImage ) {
             return ConversionOutcome::handled($framedImage);
         }
-
         // A form is a semantic runtime boundary. Convert nested children before
         // text and layout recognizers can flatten it into static presentation.
         if ( $this->hasInlineFormWrapper($element) ) {
@@ -273,14 +269,6 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($cover);
         }
 
-        // A box the capture proves is its sole image's box is that image's figure.
-        if ( 'div' === $tagName ) {
-            $image = $this->imageFrames->blockFromElement($element);
-            if ( null !== $image ) {
-                return ConversionOutcome::handled($image);
-            }
-        }
-
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
             && ! SourceDom::hasClass($element, 'wp-block-columns')
             && ! $this->generatedComponents->isCandidate($element)
@@ -319,13 +307,12 @@ final class FlowContainerElementConverter implements ElementConverter
             && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true)
         ) {
             if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) ) {
-                // An out-of-flow layout item that paints nothing in any state
-                // and takes no input is not a box the author can see or edit.
-                if ( $this->context->isInertEmptyElement($element) ) {
-                    return ConversionOutcome::handled(null);
-                }
-                if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element) ) {
-                    return ConversionOutcome::handled($this->emptyVisualSpacers->emptyVisualSpacerBlock($element));
+                $emptyChild = WrapperDecision::authorLayoutEmptyChild(
+                    fn (): bool => $this->context->isInertEmptyElement($element),
+                    fn (): WrapperDisposition => $this->emptyVisualRetention->emptyVisualDisposition($element)
+                );
+                if ( null !== $emptyChild ) {
+                    return ConversionOutcome::handled($emptyChild->isDrop() ? null : $this->emptyVisualSpacers->emptyVisualSpacerBlock($element));
                 }
             }
             // A parent's CSS-authored layout must not hide a semantic widget
@@ -460,15 +447,16 @@ final class FlowContainerElementConverter implements ElementConverter
                 $children[] = $backgroundImage;
             }
         }
-        if ( 1 === count($children) ) {
+        if ( null === WrapperDecision::singleChildCandidate($children) ) {
             $block = $this->context->coalescedSingleGroupWrapper($element, $children[0]);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
-            if ( $this->context->shouldPreserveWrapper($element, $tagName) || $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element) ) {
-                return ConversionOutcome::handled($this->group($element, $children));
-            }
-            return ConversionOutcome::handled($children[0]);
+            $retention = WrapperDecision::singleChildRetention(
+                $this->context->wrapperDisposition($element, $tagName),
+                fn (): bool => $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element)
+            );
+            return ConversionOutcome::handled($retention->isPreserve() ? $this->group($element, $children) : $children[0]);
         }
         if ( array() !== $children ) {
             return ConversionOutcome::handled($this->group($element, $children));
@@ -481,7 +469,7 @@ final class FlowContainerElementConverter implements ElementConverter
 
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
     {
-        if ( 'nav' === strtolower($element->tagName) || ! $this->context->shouldPreserveWrapper($element) || $this->isVerifiedCollectionItemList($element) ) {
+        if ( 'nav' === strtolower($element->tagName) || ! $this->context->wrapperDisposition($element)->isPreserve() || $this->isVerifiedCollectionItemList($element) ) {
             return false;
         }
         if ( $this->isRepeatedLinkItemCluster($element)

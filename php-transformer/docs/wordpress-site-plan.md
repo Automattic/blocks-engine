@@ -105,6 +105,31 @@ path, and the generated block-render filter resolves that identity with WordPres
 date, term, or author link functions. Neither resolution nor archive identity uses
 `REQUEST_URI`. Uncaptured absolute source destinations remain unchanged.
 
+## Date Archives
+
+The additive `date_archives` list declares native date queries at captured source
+routes. Producers emit an empty list when none are proven; consumers of older
+plans may treat an absent list as empty.
+
+```js
+date_archives: [{
+  archive: {
+    source_path: 'posts/archives/2026/10/index.html',
+    source_route: '/posts/archives/2026/10',
+    query: { year: 2026, monthnum: 10 } // optional day: 16
+  }
+}]
+```
+
+The query uses integer WordPress date query variables matching the route suffix.
+Year archives omit `monthnum` and `day`; month archives omit `day`. Sources must
+be captured documents absent from materialized pages, and source paths and
+routes are unique. No captured presentation or post membership is declared:
+consumers serve the source route using WordPress's native date query.
+Date-only month/day routes with at least one dated card linking to another route
+are native archives, as are documents with the existing `archive date` body
+classes. A lone article without an outward dated card remains content.
+
 ## Author Archives
 
 The additive, required `author_entities` list contains at most 256 proven authors:
@@ -372,7 +397,7 @@ footer and the other routes.
 
 Clustering is deterministic:
 
-- A preset binding never changes a painted colour: a block attribute, stylesheet declaration or element style binds a colour only to a token whose value is that exact colour, so an import paints 1:1. A near shade the palette omits follows its group's representative through stylesheets instead: the rule keeps the literal, and a copy under `@supports (color:rgb(from red r g b))` right after it restates the shade relative to the representative preset (`rgb(from var(--wp--preset--color--base) calc(r - 8) calc(g - 8) calc(b - 11))`), which paints the exact source value at the default palette and moves with the representative when a site owner edits it. Block attributes never carry a derivation (WordPress's safecss strips relative colours and `color-mix()` from inline styles), so a block-level near shade keeps its exact literal; class rules in the theme stylesheet carry the derivation. Theme.json styles keep the literal too, since they have no fallback slot.
+- A preset binding never changes a painted colour: a block attribute, stylesheet declaration or element style binds a colour only to a token whose value is that exact colour, so an import paints 1:1. A near shade the palette omits follows its group's representative through stylesheets instead: the rule keeps the literal, and a copy under `@supports (color:rgb(from red r g b))` right after it restates the shade relative to the representative preset (`rgb(from var(--wp--preset--color--base) calc(r - 8) calc(g - 8) calc(b - 11))`), which paints the exact source value at the default palette and moves with the representative when a site owner edits it. Block attributes never carry a derivation (WordPress's safecss strips relative colours and `color-mix()` from inline styles), so a block's text in a near shade (an inline text colour, or the colour its author class list renders) names a derived palette token instead: `<representative>-shade-<hex as letters>`, whose value is that same derivation, so the block owns its text colour through its native colour support without adding an independent colour. Other block-level near shades (backgrounds, borders) keep their exact literal; class rules in the theme stylesheet carry the derivation. Theme.json styles keep the literal too, since they have no fallback slot.
 - Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) group together for ranking.
 - Colours are ranked by prominence: the mean of their share of the document's text and background area and their share of its coloured runs (text runs and painted elements). A colour reached through an authored custom property (`color:var(--cyan)`) counts like a literal. An accent on many small elements (bullets, eyebrow labels) therefore ranks beside a grey on a few long paragraphs, though it covers far less area.
 - A group within ΔE 5 of a more prominent one joins it however much it is used, so a near-duplicate (`#1a1a1a` beside `#212121`, ΔE 3.5) does not compete with a distinct colour for a role. Roles (`base`, `contrast`, `primary`, `secondary`) take each group's heaviest colour, and other distinct groups take `accent-N` tokens by painted weight, heaviest first. A near shade in a group (`#ffffff` cards on a `#f7fafc` page, `#f6f8fa` sections beside a `#ffffff` card) does not get a token of its own: it keeps its exact source value, stylesheet rules derive it from its group's representative (above), and it is reported in the design-system report's `literal_colors` and `near_shades` (shade => representative). Omitted shades still reserve their `accent-N` slot, so surviving slugs are stable.

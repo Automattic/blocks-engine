@@ -18,6 +18,39 @@ final class AuthorProjection
         return in_array('author', $classes, true) && in_array('author-' . $slug, $classes, true);
     }
 
+    /**
+     * Posts that name exactly one author through `rel="author"` links (the
+     * HTML link type for a page's author) belong to that author, even when the
+     * source has no author archive. Grouped by the nicename the name derives.
+     *
+     * @return array<string,array{name:string,membership_source_paths:list<string>}>
+     */
+    private static function bylineAuthors(array $documents): array
+    {
+        $authors = array();
+        foreach ($documents as $document) {
+            if (!in_array($document['metadata']['post_type'] ?? null, array('post', 'page'), true) || !is_string($document['source_path'] ?? null)) continue;
+            $html = (string) ($document['html'] ?? '');
+            if ('' === $html || !preg_match('/\brel\s*=\s*["\'][^"\']*\bauthor\b/i', $html)) continue;
+            $names = array();
+            $xpath = new \DOMXPath(HtmlSerialization::parseDocument($html));
+            foreach ($xpath->query('//a[@rel]') ?: array() as $link) {
+                if (!$link instanceof \DOMElement || !in_array('author', preg_split('/\s+/', strtolower($link->getAttribute('rel'))) ?: array(), true)) continue;
+                $name = trim(preg_replace('/\s+/u', ' ', str_replace("\xc2\xa0", ' ', $link->textContent)) ?? '');
+                if ('' !== $name) $names[$name] = true;
+            }
+            if (1 !== count($names)) continue;
+            $name = (string) array_key_first($names);
+            $slug = trim(substr(trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower((string) (iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $name) ?: $name))), '-'), 0, 50), '-');
+            if (!preg_match('/^[a-z0-9][a-z0-9-]{0,49}$/', $slug) || mb_strlen($name) > 250) continue;
+            // One nicename must name one person.
+            if (isset($authors[$slug]) && $authors[$slug]['name'] !== $name) { $authors[$slug]['conflict'] = true; continue; }
+            $authors[$slug]['name'] = $name;
+            $authors[$slug]['membership_source_paths'][] = $document['source_path'];
+        }
+        return array_filter($authors, static fn(array $author): bool => empty($author['conflict']) && count($author['membership_source_paths']) <= 10000);
+    }
+
     /** @return array{entities:array,diagnostics:array,pagination_source_paths_by_archive:array} */
     public static function project(array $documents, array $routes, string $sourceOrigin = ''): array
     {
@@ -95,14 +128,22 @@ final class AuthorProjection
         }
         $entities = array();
         $paginationByArchive = array();
+        $claimedSlugs = array_fill_keys(array_keys($groups), true);
+        foreach ($candidates as $entity) foreach ($entity['membership_source_paths'] as $source) $claimedSlugs['source:' . $source] = true;
+        foreach (self::bylineAuthors($documents) as $slug => $entity) {
+            // An archive is the stronger proof: its nicename and its posts win.
+            $members = array_values(array_filter($entity['membership_source_paths'], static fn(string $source): bool => !isset($claimedSlugs['source:' . $source])));
+            if (isset($claimedSlugs[$slug]) || array() === $members) continue;
+            $candidates[] = array('kind' => 'author', 'slug' => $slug, 'name' => $entity['name'], 'membership_source_paths' => $members, 'evidence' => array('membership' => true, 'name' => true), '_pagination' => array());
+        }
         foreach ($candidates as $index => $entity) {
             if (isset($conflicted[$index])) continue;
             if (count($entities) >= 256) {
-                $diagnose('unproven', 'The author entity count exceeds the bounded projection vocabulary.', $entity['archive']['source_path'], $entity['archive']['source_route']);
+                $diagnose('unproven', 'The author entity count exceeds the bounded projection vocabulary.', $entity['archive']['source_path'] ?? $entity['membership_source_paths'][0], $entity['archive']['source_route'] ?? '');
                 continue;
             }
             sort($entity['membership_source_paths'], SORT_STRING);
-            if (array() !== $entity['_pagination']) $paginationByArchive[$entity['archive']['source_path']] = $entity['_pagination'];
+            if (array() !== $entity['_pagination'] && isset($entity['archive'])) $paginationByArchive[$entity['archive']['source_path']] = $entity['_pagination'];
             unset($entity['_pagination']);
             $entities[] = $entity;
         }

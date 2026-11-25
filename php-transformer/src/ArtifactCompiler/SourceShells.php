@@ -135,7 +135,7 @@ final class SourceShells
                 // Comparison ignores route-local observations; emission keeps
                 // node IDs so the canonical route's accepted tree can restyle
                 // the isolated shared shell rather than falling back to CSS.
-                if ($ignoreViewportEntrance && \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name)) $node->removeAttributeNode($attribute);
+                if ($ignoreViewportEntrance && (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name) || str_starts_with($attribute->name, CaptureEvidence::VIEWPORT_CLASS_PREFIX))) $node->removeAttributeNode($attribute);
             }
         }
         if ($ignoreViewportEntrance) {
@@ -225,6 +225,24 @@ final class SourceShells
                 if (null === $value) $node->removeAttribute($attribute);
                 else $node->setAttribute($attribute, $value);
             }
+        }
+        // Only cross-route proven current classes are incidental here. Resting
+        // projection also changes attributes and bindings whose differences
+        // must remain structural (for example hidden or unanchored menus).
+        // Class swaps still use the item-level comparison below: deleting only
+        // one half would make a resting item's authored classes significant.
+        // Emission (ignoreViewportEntrance=false) keeps the original evidence.
+        foreach ($ignoreViewportEntrance ? ($xpath->query('//*[@' . RouteStateProjector::RESTING_STATE_ATTRIBUTE . ']') ?: array()) : array() as $node) {
+            if (!$node instanceof \DOMElement) continue;
+            $state = json_decode($node->getAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE), true);
+            if (!is_array($state)) continue;
+            foreach ($state['current'] ?? array() as $name => $value) {
+                if (str_starts_with($name, 'data-') && !str_starts_with($name, 'data-blocks-engine-') && null !== $value && null === ($state['rest'][$name] ?? null)) $node->removeAttribute($name);
+            }
+            if (!is_array($state['current']['class'] ?? null) || array() !== ($state['rest']['class'] ?? array())) continue;
+            $classes = array_values(array_diff(SourceDom::tokens($node->getAttribute('class')), $state['current']['class']));
+            if (array() === $classes) $node->removeAttribute('class');
+            else $node->setAttribute('class', implode(' ', $classes));
         }
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;

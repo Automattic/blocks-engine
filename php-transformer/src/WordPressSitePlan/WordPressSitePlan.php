@@ -220,6 +220,8 @@ final class WordPressSitePlan
         $pageTemplateKeys = array_fill_keys(array_map(TemplateSlugs::forPage(...), $plan['pages']), true);
         foreach ($plan['pages'] as $page) if (!empty($page['synthetic']) && !isset($pageParents[$page['source_path']])) throw new InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.');
         ArchiveEntities::assertArchiveSources(array_merge($plan['taxonomy_entities'], $plan['author_entities']), $sourceCatalog, $pagesBySource);
+        DateArchives::assertValid(array_key_exists('date_archives', $plan) ? $plan['date_archives'] : array());
+        ArchiveEntities::assertArchiveSources($plan['date_archives'] ?? array(), $sourceCatalog, $pagesBySource);
         ArchiveEntities::assertTerms($plan['taxonomy_entities'], $pagesBySource);
         ArchiveEntities::assertAuthors($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);

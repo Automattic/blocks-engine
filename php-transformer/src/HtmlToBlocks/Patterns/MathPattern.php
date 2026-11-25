@@ -48,7 +48,18 @@ final class MathPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) && $this->isTeXDelimitedText(trim($element->textContent ?? ''));
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) || ! $this->isTeXDelimitedText(trim($element->textContent ?? '')) ) {
+            return false;
+        }
+
+        // Text delimiters must not turn containers or form controls into math.
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! in_array(strtolower($descendant->tagName), array( 'span', 'em', 'strong', 'b', 'i', 'u', 's', 'small', 'sub', 'sup', 'code', 'mark', 'abbr', 'br' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function hasMathSignal(DOMElement $element): bool
@@ -80,14 +91,12 @@ final class MathPattern implements PatternRecognizerInterface
 
     private function isTeXDelimitedText(string $text): bool
     {
-        if ( str_starts_with($text, '$$') && str_ends_with($text, '$$') && 4 < strlen($text) ) {
-            return true;
-        }
-        if ( str_starts_with($text, '$') && str_ends_with($text, '$') && 2 < strlen($text) && ! str_starts_with($text, '$$') ) {
-            return true;
+        foreach ( array( array( '$$', '$$' ), array( '$', '$' ), array( '\\(', '\\)' ), array( '\\[', '\\]' ) ) as [$opening, $closing] ) {
+            if ( str_starts_with($text, $opening) ) {
+                return str_ends_with($text, $closing) && '' !== trim(substr($text, strlen($opening), -strlen($closing)));
+            }
         }
 
-        return ( str_starts_with($text, '\\(') && str_ends_with($text, '\\)') && 4 < strlen($text) )
-            || ( str_starts_with($text, '\\[') && str_ends_with($text, '\\]') && 4 < strlen($text) );
+        return false;
     }
 }

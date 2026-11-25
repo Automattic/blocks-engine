@@ -54,7 +54,7 @@ final class MissingStylesheetImportRecovery
         $kept = array();
         $changed = false;
         foreach (CssValueSplitter::splitTopLevel($text, array(';')) as $statement) {
-            if (preg_match('/^@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', $statement, $match)) {
+            if (preg_match('/^' . \Automattic\BlocksEngine\PhpTransformer\Css\CssImport::PREFIX . '(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', $statement, $match)) {
                 $url = (string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? ''));
                 if ($this->missing($url, $resolve)) {
                     $this->record($url, $origin);

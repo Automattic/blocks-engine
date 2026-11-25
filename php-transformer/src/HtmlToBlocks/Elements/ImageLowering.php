@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver;
@@ -29,6 +30,7 @@ use DOMElement;
 final class ImageLowering
 {
     public const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
+    public const BACKGROUND_IMAGE_HOST_CLASS = 'blocks-engine-background-image-host';
     public const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
 
     public function __construct(
@@ -40,8 +42,23 @@ final class ImageLowering
         private readonly HtmlTransformerSession $session,
         private readonly ImageUrlResolver $imageUrls,
         private readonly ImageDimensionResolver $imageDimensions,
-        private readonly SourceElementClassifier $sourceElementClassifier
+        private readonly SourceElementClassifier $sourceElementClassifier,
+        private readonly ?\Closure $ownedTextColorMarkup = null
     ) {
+    }
+
+    /**
+     * A caption is RichText like a paragraph, but it bypasses paragraph
+     * lowering. Its inline elements keep their source markup and also carry
+     * their resolved text colour inline, as paragraph RichText does, so the
+     * caption's text colour is owned by the content instead of a retained
+     * author class that silently overrides the block's colour control.
+     */
+    private function captionContent(DOMElement $caption): string
+    {
+        return null === $this->ownedTextColorMarkup
+            ? SourceDom::innerHtml($caption)
+            : (string) ($this->ownedTextColorMarkup)($caption, false);
     }
 
     /** @return array<string, mixed>|null */
@@ -150,7 +167,7 @@ final class ImageLowering
         $carrier = $this->session->layoutGeometryState()->allocateCarrier('materialized-background' . "\n" . $rule);
         $this->session->layoutGeometryState()->registerRule($carrier, ':root .' . $carrier . $rule);
         $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier, self::BACKGROUND_IMAGE_HOST_CLASS);
         return $this->blocks->createBlock('core/group', $attrs, array( $image ), $element);
     }
 
@@ -322,6 +339,81 @@ final class ImageLowering
     }
 
     /**
+     * Whether an author aspect ratio fixes the shape of the box an image fills:
+     * the image's own, or one on the chain of boxes whose height it takes as
+     * 100%. A centre crop for one box of a fixed shape is the same picture in
+     * every box of that shape, so the captured rendition is correct at every
+     * width; only a box whose shape follows the viewport needs the original.
+     */
+    private function boxKeepsItsShape(DOMElement $image): bool
+    {
+        $element = $image;
+        for ( $depth = 0; $depth < 4 && $element instanceof DOMElement; ++$depth ) {
+            $inline = array_column(CssRuleAnalyzer::declarations(SourceDom::attr($element, 'style'), array( 'aspect-ratio' )), 'value');
+            $ratio = strtolower(CssValueInspector::withoutImportant(array() !== $inline ? (string) end($inline) : $this->styleResolver->declaredPresentation($element, 'aspect-ratio')->resolvedValue()));
+            if ( '' !== $ratio && 'auto' !== $ratio ) {
+                return true;
+            }
+            $height = strtolower(trim($this->styleResolver->declaredPresentation($element, 'height')->resolvedValue()));
+            if ( $element === $image ) {
+                $height = strtolower(trim((string) ($this->styleResolver->imageShapeDeclarations($image)['height']['value'] ?? $height)));
+            }
+            if ( '100%' !== CssValueInspector::withoutImportant($height) ) {
+                return false;
+            }
+            $element = $element->parentNode;
+        }
+
+        return false;
+    }
+
+    /**
+     * A box fill rendition covering a box the author sized is the original
+     * covering that box: the builder re-requests the crop for the box each
+     * viewport gives the image, so the captured file is the capture viewport's
+     * crop only (a 1440x560 strip zooms into a 768x520 box). Lower the original
+     * the rendition was cut from, so the attachment covers the box at every
+     * width. The crop is about the centre, so only the default position agrees,
+     * and the box must not take its size from the file.
+     */
+    private function replayBoxFillOriginal(DOMElement $image): void
+    {
+        $original = $this->imageUrls->boxFillOriginalReference(SourceDom::attr($image, 'src'));
+        if ( '' === $original ) {
+            return;
+        }
+        foreach ( SrcsetParser::urls(SourceDom::attr($image, 'srcset')) as $candidate ) {
+            if ( $original !== $this->imageUrls->boxFillOriginalReference($candidate) ) {
+                return;
+            }
+        }
+        $shape = $this->styleResolver->imageShapeDeclarations($image);
+        $value = fn (string $property): string => strtolower(CssValueInspector::withoutImportant(
+            $this->styleResolver->customProperties->resolve((string) ($shape[$property]['value'] ?? ''), $image)
+        ));
+        if ( 'cover' !== $value('object-fit')
+            || ! in_array($value('object-position'), array( '', 'center', 'center center', '50%', '50% 50%' ), true) ) {
+            return;
+        }
+        $outOfFlow = in_array(strtolower($this->styleResolver->declaredPresentation($image, 'position')->resolvedValue()), array( 'absolute', 'fixed' ), true);
+        foreach ( array( 'width', 'height' ) as $axis ) {
+            $size = $value($axis);
+            // A percentage of an auto-height container is auto, the file's height.
+            $definite = 1 === preg_match('/^\d*\.?\d+(?:px|r?em|vh|vw|svh|dvh|lvh)$/', $size)
+                || (1 === preg_match('/^\d*\.?\d+%$/', $size) && ('width' === $axis || $outOfFlow));
+            if ( ! $definite ) {
+                return;
+            }
+        }
+        if ( $this->boxKeepsItsShape($image) ) {
+            return;
+        }
+        $image->setAttribute('src', $original);
+        $image->removeAttribute('srcset');
+        $image->removeAttribute('sizes');
+    }
+
+    /**
      * core/image keeps only the image inside its link, so the image is the
      * link's whole content and its alt is the link's accessible name. When the
      * source named the link with something else (`aria-label`, text such as a
@@ -367,10 +459,16 @@ final class ImageLowering
         return $nodes;
     }
 
-    /** @return array<string, mixed>|null */
-    public function convertImage(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false): ?array
+    /**
+     * @param array<int, string> $figureMarkers Engine classes the caller knows the figure needs.
+     * @return array<string, mixed>|null
+     */
+    public function convertImage(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false, array $figureMarkers = array()): ?array
     {
         $this->imageDimensions->fillParentImageViewportPair($image);
+        if ( null === $picture ) {
+            $this->replayBoxFillOriginal($image);
+        }
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
@@ -543,7 +641,7 @@ final class ImageLowering
         if ( $figure instanceof DOMElement ) {
             $caption = SourceDom::firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
-                $attrs['caption'] = SourceDom::innerHtml($caption);
+                $attrs['caption'] = $this->captionContent($caption);
                 // Core saves only wp-element-caption on this inner part. Bind
                 // author rules to a figure carrier, including rich-text subjects
                 // whose selectors depended on the source caption's classes.
@@ -608,6 +706,17 @@ final class ImageLowering
                     $projections->installInnerSubject($path, ':where(.' . $marker . ')', '', true);
                 }
                 $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
+                if ( $figure instanceof DOMElement && SourceDom::elementContains($link, $figure) ) {
+                    // The source link wrapped the container; core/image moves it
+                    // inside. It must not insert a new containing block or line
+                    // box between that container and an absolutely positioned
+                    // image. A static block keeps the link focusable, which
+                    // `display:contents` does not in Chromium.
+                    $geometry = $this->session->layoutGeometryState();
+                    $carrier = $geometry->allocateCarrier('image-link-container-swap');
+                    $geometry->registerRule($carrier, ':root figure.' . $carrier . '>a{display:block!important;position:static!important;width:auto!important;height:auto!important}');
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+                }
             }
         }
 
@@ -687,6 +796,9 @@ final class ImageLowering
             // would contain the float and push that text below the image.
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS);
         }
+        if ( array() !== $figureMarkers ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ...$figureMarkers);
+        }
         $block = $this->blocks->createBlock('core/image', $attrs, array(), $figure ?? $image);
         // core/image saves the class list and anchor on the <figure>; an author
         // subject naming the <img> by class or id must find them there.
@@ -733,7 +845,10 @@ final class ImageLowering
         $loading       = in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '';
         $fetchpriority = strtolower(trim(SourceDom::attr($image, 'fetchpriority')));
         $fetchpriority = in_array($fetchpriority, array( 'high', 'low', 'auto' ), true) ? $fetchpriority : '';
-        if ( null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) ) {
+        // A captured rendition is the browser's resolved selection: there is
+        // nothing left to replay but the loading hints.
+        $rendered = null !== $picture && '' !== SourceDom::capturedPictureRendition($image);
+        if ( $rendered || (null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset'))) ) {
             if ( '' === $loading && '' === $fetchpriority ) {
                 return array();
             }
@@ -888,7 +1003,9 @@ final class ImageLowering
             : array();
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.
-        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio')));
+        // Inline background paint likewise rides the leaf
+        // (imageLeafPlacementClassName()), not the figure's box.
+        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio'), $this->styleResolver->imageLeafBackgroundProperties($image)));
         if ( ! $figure instanceof DOMElement ) {
             // Native spacing is serialized on the figure even when geometry
             // excludes it. Source image margins are carried on the leaf instead.
