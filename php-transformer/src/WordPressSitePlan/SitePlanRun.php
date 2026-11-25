@@ -175,21 +175,41 @@ final class SitePlanRun
     }
 
     /**
-     * The captured entry document's prose column, which pages authored after
-     * the import render in. A lone entry page renders through front-page.html,
-     * leaving page.html to new pages; otherwise captured pages share page.html
-     * and new pages need a separate template.
+     * The prose column pages authored after the import render in. A lone
+     * entry page renders through front-page.html, leaving page.html to new
+     * pages, so its column is theirs. Otherwise captured pages share page.html
+     * and new pages need a separate template: they render in the column most
+     * of those captured pages share, as the pages beside them in the page
+     * lifecycle, else in the entry document's.
      *
      * @param array<int,array<string,mixed>> $pages
      * @return array<string,mixed>
      */
     private function authoredPage(array $pages): array
     {
+        $column = static function (array $document): ?array {
+            $usage = ArrayField::array($document, 'design_usage');
+            $column = array('prose_width' => $usage['prose_width_px'] ?? null, 'prose_padding' => $usage['prose_padding_px'] ?? null, 'prose_columns' => $usage['prose_columns'] ?? array());
+            return null === $column['prose_width'] && array() === $column['prose_columns'] ? null : $column;
+        };
         $lone = 1 === count($this->initialDocuments) && !empty($pages[0]['entrypoint']);
+        if (!$lone) {
+            $generic = array();
+            foreach ($pages as $page) if ('page' === ($page['post_type'] ?? 'page') && empty($page['entrypoint']) && !isset($page['route_template']) && isset($page['source_path'])) $generic[$page['source_path']] = true;
+            $shared = array();
+            foreach ($this->initialDocuments as $document) {
+                if (!isset($generic[$document['source_path'] ?? '']) || null === ($observed = $column($document))) continue;
+                $key = json_encode($observed);
+                $shared[$key] ??= array('column' => $observed, 'pages' => 0);
+                ++$shared[$key]['pages'];
+            }
+            $best = null;
+            foreach ($shared as $candidate) if (null === $best || $candidate['pages'] > $best['pages']) $best = $candidate;
+            if (null !== $best) return $best['column'] + array('separate' => true);
+        }
         $entry = $lone ? $this->initialDocuments[0] : (array_values(array_filter($this->initialDocuments, static fn(array $document): bool => !empty($document['entrypoint'])))[0] ?? null);
         if (null === $entry) return array();
-        $usage = ArrayField::array($entry, 'design_usage');
-        return array('prose_width' => $usage['prose_width_px'] ?? null, 'prose_padding' => $usage['prose_padding_px'] ?? null, 'prose_columns' => $usage['prose_columns'] ?? array(), 'separate' => !$lone);
+        return ($column($entry) ?? array()) + array('separate' => !$lone);
     }
 
     /**
@@ -284,6 +304,14 @@ final class SitePlanRun
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
+        // A form provider renders a fallback's readable blocks in place of the
+        // page's form, so they bind as the page markup they replace does.
+        if (null !== $this->presetBinding) foreach ($data['fallbacks'] as &$fallback) {
+            if (!is_array($fallback) || !is_array($fallback['readable_blocks'] ?? null)) continue;
+            $source = $fallback['source_path'] ?? null;
+            $fallback['readable_blocks'] = $this->presetBinding->bindBlockTree($fallback['readable_blocks'], is_string($source) ? $source : null);
+        }
+        unset($fallback);
         // Anchor only after presets and scoped font defaults settle the page
         // bytes, but before shell extraction moves any runtime-bound regions.
         $this->timer?->start('compose.site_plan.entity_bindings');
@@ -419,6 +447,9 @@ final class SitePlanRun
         // each sheet visitors load into an editor-only extract after it.
         $known = array_column($assets, 'target_path');
         $assets = EditorCanvasStylesheets::split($assets);
+        // A shared sheet each route links carries every route's gated arms:
+        // each route's instance loads a copy holding only the arms it can match.
+        $assets = RouteStylesheetDeliveries::specialize($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments));
         $tokens = array_merge($tokens, $this->tokens(array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['target_path'] ?? null, $known, true)))));
         // Writing canonicalizes references and can still drop rules (a missing
         // font source drops its face). Emptiness is judged on the written bytes,

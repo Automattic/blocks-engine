@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperDecision;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -450,11 +451,9 @@ final class NavigationToggleSuppressor
         if ( '' === $id || null === $target->ownerDocument ) {
             return;
         }
+        // Which close helper is dropped is WrapperDecision's (#7471).
         foreach ( $target->ownerDocument->getElementsByTagName('button') as $button ) {
-            if ( $button instanceof DOMElement
-                && $id === trim(SourceDom::attr($button, CaptureEvidence::DIALOG_CLOSE))
-                && $button->hasAttribute('hidden')
-                && ! SourceDom::elementContains($target, $button) ) {
+            if ( $button instanceof DOMElement && WrapperDecision::captureCloseHelper($button, $id, $target)->isDrop() ) {
                 $this->session->navigationProjectionState()->suppress($button);
             }
         }
@@ -485,13 +484,16 @@ final class NavigationToggleSuppressor
         }
 
         $root = $this->documentVariantRoot($control);
+        // Which duplicate navigation is dropped is WrapperDecision's (#7471).
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement
-                || $candidate->isSameNode($navigation)
-                || $this->session->navigationProjectionState()->isSuppressed($candidate)
-                || SourceDom::elementContains($candidate, $control)
-                || ! $this->isAssociatedNavigationTarget($candidate)
-                || $signature !== $this->sourceNavigationSignature($candidate) ) {
+            if ( ! WrapperDecision::equivalentNavigationDuplicate(
+                $candidate,
+                $navigation,
+                $control,
+                fn (): bool => $this->session->navigationProjectionState()->isSuppressed($candidate),
+                fn (): bool => $this->isAssociatedNavigationTarget($candidate),
+                fn (): bool => $signature === $this->sourceNavigationSignature($candidate)
+            )->isDrop() ) {
                 continue;
             }
             $this->session->navigationProjectionState()->suppress($candidate);

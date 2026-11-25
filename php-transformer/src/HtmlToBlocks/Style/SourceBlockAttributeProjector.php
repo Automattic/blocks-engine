@@ -55,6 +55,11 @@ final class SourceBlockAttributeProjector
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
+    /**
+     * A figure lowered from the source's ratio frame around an image pinned
+     * out of flow inside it: the figure, not the image, owns that ratio box.
+     */
+    public const RATIO_FRAME_IMAGE_FIGURE_CLASS = 'blocks-engine-ratio-frame-image-figure';
     public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
     /** A fill image a later absolutely positioned sibling layer paints over. */
     public const COVERED_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-covered-fill-image';
@@ -113,6 +118,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+            self::RATIO_FRAME_IMAGE_FIGURE_CLASS,
             self::LAYER_FILL_IMAGE_FIGURE_CLASS,
             self::COVERED_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
@@ -302,6 +308,22 @@ final class SourceBlockAttributeProjector
     }
 
     /**
+     * Whether the source <video>'s own declarations fix its block size: an
+     * aspect ratio, or a definite non-percentage height.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function sizesVideoBlockAxis(array $declarations): bool
+    {
+        $aspectRatio = CssValueInspector::declared($declarations, 'aspect-ratio');
+        if ( '' !== $aspectRatio && 'auto' !== $aspectRatio && ! in_array($aspectRatio, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+            return true;
+        }
+        $height = CssValueInspector::declared($declarations, 'height');
+        return 1 === preg_match('/^(?:\d*\.?\d+(?:px|r?em|vh|svh|lvh|dvh|vmin|vmax|ch|ex|lh|cm|mm|in|pt|pc|q)|(?:calc|clamp|min|max)\(.*\))$/', $height);
+    }
+
+    /**
      * Zero-specificity size hints for a video's HTML dimensions, and its fill class.
      *
      * @param array<string, mixed> $attrs
@@ -341,11 +363,12 @@ final class SourceBlockAttributeProjector
             if ( '100%' === CssValueInspector::declared($declarations, 'width')
                 && '100%' === CssValueInspector::declared($declarations, 'height') ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
-            } elseif ( $this->declaresAspectRatio($sourceElement) ) {
-                // The authored ratio (`.aspect-video{aspect-ratio:16/9}`)
-                // sized the <video> box and letterboxed its frames. Projected,
-                // it sizes the figure instead, so the video must fill that box
-                // rather than take its intrinsic (often portrait) ratio.
+            } elseif ( $this->declaresAspectRatio($sourceElement) || $this->sizesVideoBlockAxis($declarations) ) {
+                // The source box (`.aspect-video{aspect-ratio:16/9}` or a fixed
+                // height) sized the <video> and letterboxed its frames.
+                // Projected, it sizes the figure instead, so the video must
+                // fill that box rather than take its intrinsic (often portrait)
+                // ratio.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_RATIO_VIDEO_FIGURE_CLASS);
             }
         }

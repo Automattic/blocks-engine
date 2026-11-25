@@ -1264,7 +1264,7 @@ final class CssStylesheetTransformer
                     $reason = null;
                     $arms = null === $routeSetClass || !str_contains($scope, '.be-rs-')
                         ? self::scopeRouteArms($arms, $scope, $reason, $parsedArms, $rootTokens)
-                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms);
+                        : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms, $rootTokens);
                 }
                 $unit['text'] = $lead . implode(',', $arms) . $body;
                 $output[] = $unit;
@@ -1481,8 +1481,12 @@ final class CssStylesheetTransformer
         self::scopeRouteArms($arms, ':where(:root:is(.be-route-probe))', $reason, $parsedArms);
     }
 
-    /** @param list<string> $arms @return list<string> */
-    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms): array
+    /**
+     * @param list<string> $arms
+     * @param array<string,true>|null $rootTokens Classes and ids any document root can carry; null when unknown.
+     * @return list<string>
+     */
+    private static function scopeRouteSubjects(array $arms, string $scope, ?string &$reason, array &$parsedArms, ?array $rootTokens = null): array
     {
         // Test document membership on the subject, not on an assumed ancestor.
         // A class-led first compound can be either the root or a descendant;
@@ -1509,8 +1513,11 @@ final class CssStylesheetTransformer
             $pseudo = self::pseudoElementOffset($tokens['compounds'][$last]);
             $insert = null === $pseudo ? $span['end'] : $span['start'] + $pseudo;
             // A subject after a combinator has a parent or a previous sibling,
-            // so it is never the root: only the descendant alternative can hold.
-            $subjectGuard = $tokens['supported'] && $last > 0 ? ':where(' . $root . ' *)' : $guard;
+            // so it is never the root, and neither is a lone compound that
+            // requires a type, class or id no document root carries: only the
+            // descendant alternative can hold.
+            $descendant = $tokens['supported'] && ($last > 0 || (null !== $rootTokens && !self::compoundMayMatchRoot($tokens['compounds'][0], $rootTokens)));
+            $subjectGuard = $descendant ? ':where(' . $root . ' *)' : $guard;
             $arm = substr($arm, 0, $insert) . $subjectGuard . substr($arm, $insert);
         }
         unset($arm);
@@ -1600,7 +1607,7 @@ final class CssStylesheetTransformer
      */
     private static function compoundMayMatchRoot(string $compound, array $rootTokens): bool
     {
-        if (str_contains($compound, '\\') || str_contains($compound, '|') || 1 === preg_match('/[^\x20-\x7E]/', $compound)) return true;
+        if (str_contains($compound, '|') || 1 === preg_match('/[^\x20-\x7E]/', $compound)) return true;
         $length = strlen($compound);
         if (preg_match('/^[A-Za-z][\w-]*/', $compound, $type) && 'html' !== strtolower($type[0])) return false;
         for ($i = 0; $i < $length; ++$i) {
@@ -1613,8 +1620,8 @@ final class CssStylesheetTransformer
                 $close = self::closingBracket($compound, $i);
                 if (null === $close) return true;
                 $i = $close;
-            } elseif (('.' === $char || '#' === $char) && preg_match('/\G[\w-]+/', $compound, $name, 0, $i + 1)) {
-                if (!isset($rootTokens[$name[0]]) && !('.' === $char && 1 === preg_match(self::ROOT_MINTED_CLASS, $name[0]))) return false;
+            } elseif (('.' === $char || '#' === $char) && preg_match('/\G(?:[\w-]|\\\\[0-9a-fA-F]{1,6} ?|\\\\[^\n\r\f0-9a-fA-F])+/', $compound, $name, 0, $i + 1)) {
+                if (!self::rootMayCarry(self::unescapeIdentifier($name[0]), '.' === $char, $rootTokens)) return false;
                 $i += strlen($name[0]);
             } elseif (':' === $char && preg_match('/\G:(?:is|where|matches|-webkit-any|-moz-any)\(/i', $compound, $open, 0, $i)) {
                 $start = $i + strlen($open[0]);
@@ -1635,6 +1642,35 @@ final class CssStylesheetTransformer
             }
         }
         return true;
+    }
+
+    /**
+     * Root tokens are the `[\w-]+` runs of root class/id attributes and of
+     * scripts, so a root carrying a name yields every run of that name. One
+     * missing run proves no document root carries it (an escaped utility like
+     * `hover:bg-primary/90` included).
+     *
+     * @param array<string,true> $rootTokens
+     */
+    private static function rootMayCarry(string $name, bool $class, array $rootTokens): bool
+    {
+        if ($class && 1 === preg_match(self::ROOT_MINTED_CLASS, $name)) return true;
+        preg_match_all('/[\w-]+/', $name, $runs);
+        if (array() === $runs[0]) return true;
+        foreach ($runs[0] as $run) {
+            if (!isset($rootTokens[$run])) return false;
+        }
+        return true;
+    }
+
+    /** Decode CSS escapes in an identifier (`hover\:bg-primary\/90` names `hover:bg-primary/90`). */
+    private static function unescapeIdentifier(string $identifier): string
+    {
+        return preg_replace_callback('/\\\\(?:([0-9a-fA-F]{1,6}) ?|(.))/s', static function (array $match): string {
+            if (isset($match[2]) && '' !== $match[2]) return $match[2];
+            $code = hexdec($match[1]);
+            return 0 === $code || $code > 0x10FFFF || ($code >= 0xD800 && $code <= 0xDFFF) ? "\u{FFFD}" : (string) mb_chr((int) $code, 'UTF-8');
+        }, $identifier) ?? $identifier;
     }
 
     /** Offset of the bracket or parenthesis closing the one at $open, outside strings. */

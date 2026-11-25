@@ -181,17 +181,22 @@ final class ElementConversionPrelude implements ElementConverter
             return $nativeForm;
         }
 
-        $inert = $this->inertScaffolding->convert($element, $tagName, $fallbacks);
-        if ( $inert->handled ) {
-            return $inert;
+        // Which wrapper is dropped, kept or folded here is WrapperDecision's (#7471).
+        $wrapper = WrapperDecision::preludeWrapper(
+            fn (): ?WrapperDisposition => WrapperDecision::inertScaffolding($this->inertScaffolding, $element, $tagName),
+            fn (): bool => 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length,
+            fn (): bool => $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element)
+        );
+        if ( null !== $wrapper && $wrapper->isDrop() ) {
+            return ConversionOutcome::handled(null);
         }
 
-        if ( 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length ) {
+        if ( null !== $wrapper && $wrapper->isPreserve() ) {
             $children = $this->tree->children($element, $fallbacks, $captureUnsupported);
             return ConversionOutcome::handled(array() === $children ? null : $this->createBlock->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element));
         }
 
-        if ( $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element) ) {
+        if ( null !== $wrapper && $wrapper->isFold() ) {
             $leaf = $this->inlineLayoutCarrierBlock($element);
             if ( null !== $leaf ) {
                 return ConversionOutcome::handled($leaf);

@@ -3043,9 +3043,19 @@ final class AuthorStylesheetProjector
             // would size that box itself and ignore a definite image height
             // from another rule (`.grid img{height:260px}` beside `.photo
             // {aspect-ratio:1}` squares the figure, not the image).
+            // A figure lowered from a ratio frame around an out-of-flow image
+            // is the ratio box itself: the image cannot take the ratio over.
+            // Only an arm whose subject classes a framed figure carries can
+            // reach one; every other arm keeps its plain reset.
             if ( isset($declarations['aspect-ratio']) ) {
+                $frameFigures = $this->ratioFrameFigureClassLists($context->emittedMarkup);
                 $figurePrelude = implode(',', array_unique(array_map(
-                    static fn (string $arm): string => (string) preg_replace('/\s*>\s*(?:a\s*>\s*)?img\s*$/i', '', $arm),
+                    function (string $arm) use ($frameFigures): string {
+                        $figure = (string) preg_replace('/\s*>\s*(?:a\s*>\s*)?img\s*$/i', '', $arm);
+                        return $this->armMayMatchRatioFrameFigure($figure, $frameFigures)
+                            ? $figure . ':where(:not(.' . SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS . '))'
+                            : $figure;
+                    },
                     CssValueSplitter::splitTopLevel($imagePrelude, array(','))
                 )));
                 $rule .= $figurePrelude . '{aspect-ratio:auto' . (str_contains($declarations['aspect-ratio'], '!important') ? '!important' : '') . '}';
@@ -3063,6 +3073,58 @@ final class AuthorStylesheetProjector
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
 
         return array() !== $selectors && array() === array_filter($selectors, fn (string $selector): bool => ! $this->subjectStaysOnImage($selector, $context));
+    }
+
+    /**
+     * The class lists of figures lowered from a ratio frame, in the emitted
+     * markup.
+     *
+     * @return list<list<string>>
+     */
+    private function ratioFrameFigureClassLists(string $markup): array
+    {
+        static $cachedMarkup = null;
+        static $lists = array();
+        if ( $cachedMarkup === $markup ) {
+            return $lists;
+        }
+        $cachedMarkup = $markup;
+        $lists = array();
+        if ( ! str_contains($markup, SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS) ) {
+            return $lists;
+        }
+        preg_match_all('/\sclass="([^"]*\b' . preg_quote(SourceBlockAttributeProjector::RATIO_FRAME_IMAGE_FIGURE_CLASS, '/') . '\b[^"]*)"/', $markup, $matches);
+        foreach ( array_unique($matches[1]) as $classes ) {
+            $lists[] = preg_split('/\s+/', trim(html_entity_decode($classes, ENT_QUOTES | ENT_HTML5))) ?: array();
+        }
+
+        return $lists;
+    }
+
+    /**
+     * Whether a figure arm's subject compound can match a framed figure:
+     * some framed figure carries every class the subject requires. An arm
+     * that does not parse is assumed to match.
+     *
+     * @param list<list<string>> $frameFigures
+     */
+    private function armMayMatchRatioFrameFigure(string $arm, array $frameFigures): bool
+    {
+        if ( array() === $frameFigures ) {
+            return false;
+        }
+        $parsed = CssSelectorMatcher::parse(trim($arm));
+        if ( ! is_array($parsed) || ! is_array($parsed['compounds'] ?? null) ) {
+            return true;
+        }
+        $required = CssSelectorCompoundInspector::rightmost($parsed['compounds'])['classes'] ?? array();
+        foreach ( $frameFigures as $classes ) {
+            if ( array() === array_diff($required, $classes) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function subjectStaysOnImage(string $selector, AuthorStylesheetProjectionContext $context): bool

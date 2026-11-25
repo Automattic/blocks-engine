@@ -56,7 +56,8 @@ final class FlowContainerElementConverter implements ElementConverter
         private readonly ReadableFormControlBlockConverter $readableControls,
         private readonly AuthoredMarqueeRecognizer $marquees,
         private readonly AuthoredCarouselBlockGenerator $carousels,
-        private readonly EmptyVisualSpacerLowering $emptyVisualSpacers
+        private readonly EmptyVisualSpacerLowering $emptyVisualSpacers,
+        private readonly ?PositionedImageFrameLowering $imageFrames = null
     )
     {
         $this->navigationPattern = new NavigationPattern($this->createBlock);
@@ -177,6 +178,12 @@ final class FlowContainerElementConverter implements ElementConverter
         }
         if ( $this->emptyFeatureShells->disposition($element)->isDrop() ) {
             return ConversionOutcome::handled(null);
+        }
+        // A ratio frame its lone image fills is that image's figure, not a
+        // Group around it.
+        $framedImage = $this->imageFrames?->block($element);
+        if ( null !== $framedImage ) {
+            return ConversionOutcome::handled($framedImage);
         }
         // A form is a semantic runtime boundary. Convert nested children before
         // text and layout recognizers can flatten it into static presentation.
