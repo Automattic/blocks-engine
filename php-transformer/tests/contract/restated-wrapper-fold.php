@@ -172,4 +172,42 @@ foreach (array('no_box_tree_evidence', 'geometry_not_neutral', 'child_has_own_id
     rwf_assert(in_array($stages[$reason] ?? null, WrapperDecision::STAGES, true), "refusal {$reason} should be a staged guard");
 }
 
+// #7517: geometry is restated only when the expanded border box is proven.
+$inset = array_replace($neutral, array(
+    'w' => array('box' => $box, 'styles' => array('padding-left' => '20px', 'padding-right' => '20px')),
+    'c' => array('box' => array(28, 120, 1384, 200)),
+));
+$insetCss = '.col{padding:0 20px}.col .inner{color:blue}';
+rwf_assert($folded($compile($html, $insetCss, $inset)['markup']), 'a proven horizontal inset should fold');
+$centered = $inset;
+$centered['w']['styles'] += array('max-width' => '1424px', 'margin-left' => 'auto', 'margin-right' => 'auto');
+rwf_assert($folded($compile($html, $insetCss . '.col{max-width:1424px;margin-inline:auto}', $centered)['markup']), 'a centered max-width inset should fold');
+$childPaint = $inset;
+$childPaint['c']['styles'] = array('background-color' => 'rgb(255,0,0)');
+rwf_assert($wrapperKept($compile($html, $insetCss . '.inner{background:red}', $childPaint)['markup']), 'a child background must keep its inset wrapper');
+$opacity = $neutral;
+$opacity['w']['styles'] = array('opacity' => '0.5');
+rwf_assert($folded($compile($html, '.col{opacity:.5}.col .inner{color:blue}', $opacity)['markup']), 'a sole wrapper opacity should restate');
+$opacity['c']['styles'] = array('opacity' => '0.5');
+rwf_assert($wrapperKept($compile($html, '.col{opacity:.5}.inner{opacity:.5}', $opacity)['markup']), 'nested opacity must not collapse');
+$mismatch = $inset;
+$mismatch['c']['box'][2] -= 10;
+rwf_assert($wrapperKept($compile($html, $insetCss, $mismatch)['markup']), 'an unexplained border-box difference must refuse');
+
+// #7521: positioned containing blocks and generated boxes move with the token.
+$relative = $inset;
+$relative['w']['styles']['position'] = 'relative';
+$relative['p1']['styles']['position'] = 'absolute';
+rwf_assert($folded($compile($html, $insetCss . '.col{position:relative}', $relative)['markup']), 'relative containing block should transfer with its padding box');
+rwf_assert($wrapperKept($compile($html, $insetCss . '.col{position:relative}.inner{position:relative}', $relative)['markup']), 'a child position declaration must contest transfer');
+$offset = $relative;
+$offset['w']['styles']['left'] = '4px';
+rwf_assert($wrapperKept($compile($html, $insetCss . '.col{position:relative;left:4px}', $offset)['markup']), 'nonzero relative offsets must refuse');
+foreach (array(':before', '::after', ':not(.y):after', '::placeholder', ':-moz-placeholder') as $pseudo) {
+    rwf_assert($folded($compile($html, '.col{margin:0}.col' . $pseudo . '{content:"";background:red}', $neutral)['markup']), 'generated box should move with host: ' . $pseudo);
+}
+foreach (array('hover', 'focus', 'focus-visible', 'visited', 'active') as $state) {
+    rwf_assert($folded($compile($html, '.col{margin:0}.col:' . $state . ' .inner{color:blue}', $neutral)['markup']), 'dynamic ancestor selector should be proven: ' . $state);
+}
+
 echo "restated-wrapper-fold: ok\n";

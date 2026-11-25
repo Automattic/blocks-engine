@@ -2327,6 +2327,10 @@ final class ArtifactCompiler
     /** @var list<string>|null Whole-site evidence supplied to a partition worker. */
     private ?array $siteSelectorEvidence = null;
 
+    private ?UnreachableSelectorPruner $sharedSelectorPruner = null;
+    /** @var array<string,true> */
+    private array $sharedSelectorStylesheets = array();
+
     /** @var array|null The subject and stylesheet evidence the pruner indexes. */
     private ?array $siteSelectorPrunerEvidence = null;
     private ?UnreachableSelectorPruner $siteSelectorPruner = null;
@@ -2340,6 +2344,22 @@ final class ArtifactCompiler
     private function siteSelectorPruner(array $files): UnreachableSelectorPruner
     {
         $evidence = $this->siteSelectorEvidence ?? $this->selectorEvidence($files);
+        $stylesheets = $this->selectorStylesheets($files);
+        if (null !== $this->sharedSelectorPruner) {
+            $increment = array_values(array_filter($stylesheets, fn (string $css): bool => !isset($this->sharedSelectorStylesheets[hash('sha256', $css)])));
+            return $this->sharedSelectorPruner->withStylesheets($increment);
+        }
+        $cacheEvidence = array($evidence, $stylesheets);
+        if (null === $this->siteSelectorPruner || $cacheEvidence !== $this->siteSelectorPrunerEvidence) {
+            $this->siteSelectorPrunerEvidence = $cacheEvidence;
+            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true, $stylesheets);
+        }
+        return $this->siteSelectorPruner;
+    }
+
+    /** @return list<string> */
+    private function selectorStylesheets(array $files): array
+    {
         $stylesheets = array();
         foreach ($files as $file) {
             $content = $file['content'] ?? null;
@@ -2352,12 +2372,7 @@ final class ArtifactCompiler
                 foreach ($document->getElementsByTagName('style') as $style) $stylesheets[] = $style->textContent;
             }
         }
-        $cacheEvidence = array($evidence, $stylesheets);
-        if (null === $this->siteSelectorPruner || $cacheEvidence !== $this->siteSelectorPrunerEvidence) {
-            $this->siteSelectorPrunerEvidence = $cacheEvidence;
-            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true, $stylesheets);
-        }
-        return $this->siteSelectorPruner;
+        return $stylesheets;
     }
 
     /**

@@ -955,7 +955,7 @@ final class WrapperDecision
             // document's edges; an id there names the shell.
             array(self::STAGE_IDENTITY, 'document_edge_wrapper_id', fn (): bool => '' !== $wrapperId && $isDocumentEdge($wrapper)),
             array(self::STAGE_GEOMETRY, 'geometry_not_neutral', static function () use ($evidence, $wrapper, &$detail): bool {
-                $answer = $evidence->classify($wrapper);
+                $answer = $evidence->classify($wrapper, true);
                 if (BoxTreeWrapperEvidence::NEUTRAL === $answer['state']) return false;
                 $detail = $answer['reason'];
                 return true;
@@ -972,7 +972,7 @@ final class WrapperDecision
             }),
             array(self::STAGE_GEOMETRY, 'unsupported_presentation_attributes', function () use ($wrapper, &$attrs, &$detail): bool {
                 $attrs = $this->styleResolver->presentationAttributes($wrapper);
-                $extra = array_diff(array_keys($attrs), array('className', 'anchor'));
+                $extra = array_diff(array_keys($attrs), array('className', 'anchor', 'style'));
                 if (array() === $extra) return false;
                 $detail = implode(',', $extra);
                 return true;
@@ -987,14 +987,14 @@ final class WrapperDecision
         foreach ($guards as [$stage, $reason, $matches]) {
             $detail = '';
             if ($matches()) {
-                return $kept(WrapperDisposition::preserve($reason, $stage)->withDetail($detail));
+                return $kept(WrapperDisposition::preserve($reason, $stage)->withDetail('' === $detail ? $reason : $detail));
             }
         }
 
         // The id the wrapper would emit must be its source id.
         $anchor = (string) ($attrs['anchor'] ?? '');
         if ($anchor !== ('' === $wrapperId ? '' : SourceDom::anchorAttributeValue($wrapperId))) {
-            return $kept(WrapperDisposition::preserve('anchor_not_restatable', self::STAGE_IDENTITY)->withDetail($anchor));
+            return $kept(WrapperDisposition::preserve('anchor_not_restatable', self::STAGE_IDENTITY)->withDetail('' === $anchor ? 'empty_anchor' : $anchor));
         }
         if (null !== $proven()['failure']) {
             return $kept(WrapperDisposition::preserve('restatement_not_proven', self::STAGE_RESTATEMENT)->withDetail((string) $proven()['failure']));

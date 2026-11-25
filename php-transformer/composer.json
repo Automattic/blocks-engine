@@ -81,6 +81,7 @@
     "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",
     "test:navigation-opener-inherited-font-browser": "node tests/contract/navigation-opener-inherited-font-browser.mjs",
     "test:root-absolute-sprite-links-browser": "node tests/contract/root-absolute-sprite-links-browser.mjs",
+    "test:layout-shell-inner-blocks-position-browser": "node tests/contract/layout-shell-inner-blocks-position-browser.mjs",
     "test:social-links-icon-font-browser": "node tests/unit/social-links-icon-font-browser.mjs",
     "test:social-links-glyph-paint-browser": "node tests/unit/social-links-glyph-paint-browser.mjs",
     "test:scoped-zero-reset-browser": "node tests/unit/scoped-zero-reset-browser.mjs",

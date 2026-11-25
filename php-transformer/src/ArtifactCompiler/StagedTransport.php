@@ -37,7 +37,12 @@ trait StagedTransport
      */
     public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
-        return \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::run(fn () => $this->cssRuleTrees->run(fn () => $this->prepareSharedWithCssRuleTrees($artifact, $payloadReader)));
+        $previous = array($this->siteSelectorEvidence, $this->sharedSelectorPruner, $this->sharedSelectorStylesheets);
+        try {
+            return \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::run(fn () => $this->cssRuleTrees->run(fn () => $this->prepareSharedWithCssRuleTrees($artifact, $payloadReader)));
+        } finally {
+            [$this->siteSelectorEvidence, $this->sharedSelectorPruner, $this->sharedSelectorStylesheets] = $previous;
+        }
     }
 
     private function prepareSharedWithCssRuleTrees(array $artifact, ?PayloadReader $payloadReader = null): array
@@ -268,6 +273,9 @@ trait StagedTransport
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
         $stageCompiler->siteSelectorEvidence = $sharedPlan['analysis']['site_selector_evidence'] ?? null;
+        if (isset($sharedPlan['analysis']['site_selector_pruner'])) {
+            $stageCompiler->restoreSharedSelectorPruner($sharedPlan['analysis']);
+        }
         $stageCompiler->repeatedSubtrees = ArrayField::array($sharedPlan['analysis'], 'repeated_subtrees');
 
         $compiledDocuments = array();
@@ -1165,6 +1173,7 @@ trait StagedTransport
     {
         return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
             'site_selector_evidence' => $partition['site_selector_evidence'],
+            'site_selector_pruner' => $this->prepareSharedSelectorPruner($normalized['files'], $partition['site_selector_evidence']),
             'entry_path' => $entryPath,
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
@@ -1179,6 +1188,26 @@ trait StagedTransport
             'captured_dialogs' => $partition['captured_dialogs'],
             'source_css_bytes' => $partition['source_css_bytes'],
         ));
+    }
+
+    /** Build the site reader index once, before compiling any shared shells. */
+    private function prepareSharedSelectorPruner(array $files, array $evidence): array
+    {
+        $stylesheets = $this->selectorStylesheets($files);
+        $this->siteSelectorEvidence = $evidence;
+        $this->sharedSelectorStylesheets = array_fill_keys(array_map(static fn (string $css): string => hash('sha256', $css), $stylesheets), true);
+        $this->sharedSelectorPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner($evidence, true, $stylesheets);
+        // Projection can drop IDs whereas reader discovery preserves them.
+        // Warm both modes so page workers never re-evaluate shared arms.
+        foreach ($stylesheets as $css) $this->sharedSelectorPruner->prune($css);
+        return array('stylesheets' => array_keys($this->sharedSelectorStylesheets), 'index' => $this->sharedSelectorPruner->exportState());
+    }
+
+    private function restoreSharedSelectorPruner(array $analysis): void
+    {
+        $state = $analysis['site_selector_pruner'];
+        $this->sharedSelectorStylesheets = array_fill_keys($state['stylesheets'], true);
+        $this->sharedSelectorPruner = \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner::fromState($analysis['site_selector_evidence'], $state['index']);
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */
