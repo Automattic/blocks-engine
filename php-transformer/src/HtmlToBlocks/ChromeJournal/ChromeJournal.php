@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -27,7 +28,7 @@ final class ChromeJournal
     private const UNJOURNALED_PROPERTY = '/[Cc]ache|Hits$|Builds$|Misses$|Peak|Checks$|Executions$|Lookups$|matchBytes|matchEntries|Retained$|Skipped$/';
 
     /** Block and evidence fields holding transformation provenance ids. */
-    private const PROVENANCE_ID_FIELDS = array('_source_provenance_id' => true, 'provenance_id' => true);
+    private const PROVENANCE_ID_FIELDS = array('_source_provenance_id' => true, 'provenance_id' => true, '_binding_provenance_id' => true, '_card_provenance_id' => true);
     private const PROVENANCE_ID_LIST_FIELDS = array('_source_provenance_ids' => true);
 
     private const ELEMENT = "\0chrome-element";
@@ -258,7 +259,9 @@ final class ChromeJournal
         $markers = array_filter($markers, static fn (string $replacement, string $marker): bool => $replacement !== $marker, ARRAY_FILTER_USE_BOTH);
         $delta = $translate($journal['delta']);
         $block = $translate($journal['block']);
-        $fallbacks = $translate($journal['fallbacks']);
+        // A form fallback's identity hashes its source path, so it follows the
+        // path this page translated in.
+        $fallbacks = array_map(FallbackDiagnostic::withFormIdentity(...), $translate($journal['fallbacks']));
         // Markers were allocated against this page; a reference that does not
         // resolve leaves the page to convert normally, with nothing applied.
         if ($missing) return null;

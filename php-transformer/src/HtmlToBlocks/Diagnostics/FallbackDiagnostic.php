@@ -20,22 +20,35 @@ final class FallbackDiagnostic
                 $defaults[$key] = $commerce[$key];
             }
         }
-        $finding = array_merge($defaults, $fields, $provenance);
-        if ( 'html_form_fallback' === ($finding['diagnostic_code'] ?? null) ) {
-            // Source location, rather than mutable form content, is the stable
-            // reconciliation key a successful provider projection consumes.
-            $identity = hash('sha256', implode("\n", array(
-                'blocks-engine/form-fallback/v1',
-                (string) ($finding['source_format'] ?? ''),
-                (string) ($finding['source'] ?? ''),
-                (string) ($finding['scope'] ?? ''),
-                (string) ($finding['selector'] ?? ''),
-            )));
-            $finding['fallback_identity'] = $identity;
-            $finding['reconciliation_identity'] = $identity;
-        }
+        return self::withGenericFindingMetadata(self::withFormIdentity(array_merge($defaults, $fields, $provenance)));
+    }
 
-        return self::withGenericFindingMetadata($finding);
+    /**
+     * Key a form fallback by its source location, rather than mutable form
+     * content: the stable reconciliation key a provider projection consumes.
+     *
+     * @param array<string, mixed> $finding
+     * @return array<string, mixed>
+     */
+    public static function withFormIdentity(array $finding): array
+    {
+        if ( 'html_form_fallback' !== ($finding['diagnostic_code'] ?? null) ) {
+            return $finding;
+        }
+        $identity = hash('sha256', implode("\n", array(
+            'blocks-engine/form-fallback/v1',
+            (string) ($finding['source_format'] ?? ''),
+            (string) ($finding['source'] ?? ''),
+            (string) ($finding['scope'] ?? ''),
+            (string) ($finding['selector'] ?? ''),
+        )));
+        if ( array_key_exists('id', $finding) && $finding['id'] === ($finding['fallback_identity'] ?? null) ) {
+            $finding['id'] = $identity;
+        }
+        $finding['fallback_identity'] = $identity;
+        $finding['reconciliation_identity'] = $identity;
+
+        return $finding;
     }
 
     /**
