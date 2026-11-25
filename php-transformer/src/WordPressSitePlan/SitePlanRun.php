@@ -682,6 +682,10 @@ final class SitePlanRun
             // the selector whitespace that separates no tokens ships once
             // per arm. Declaration values are left byte for byte.
             $compacted = CssSelectorListCompactor::withoutRedundantSelectorWhitespaceInStylesheet($compacted);
+            // Only now are preset bindings and selector canonicalization final.
+            // Ship identical author selector lists once, including inline sheets;
+            // the merger refuses to cross competing declaration families.
+            if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedSelectorRules($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
