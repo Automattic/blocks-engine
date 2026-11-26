@@ -196,6 +196,29 @@ PHP;
         return (bool) array_filter($pages, static fn(array $page): bool => empty($page['synthetic']) && array() !== array_diff_key($page['document_metadata']['body_attributes'] ?? array(), array('class' => true)));
     }
 
+    /**
+     * Captured term and author archives keyed by the WordPress object they
+     * list (`term:<taxonomy>:<slug>`, `author:<slug>`), mapped to their
+     * captured route. Archive styles and root context are keyed by that
+     * route, which need not equal the permalink WordPress serves the archive
+     * at: a source `blog/tag/x` is WordPress `tag/x` under the default tag base.
+     *
+     * @param array<int,array<string,mixed>> $pages @return array<string,string>
+     */
+    private static function archiveRoutes(array $pages): array
+    {
+        $routes = array();
+        foreach ($pages as $page) {
+            $query = $page['archive_query'] ?? null;
+            if (!is_array($query) || !empty($page['synthetic']) || isset($page['post_type'])) continue;
+            $path = trim((string) ($page['route']['path'] ?? ''), '/');
+            if (is_string($query['taxonomy'] ?? null) && is_string($query['term'] ?? null)) $routes['term:' . $query['taxonomy'] . ':' . $query['term']] = $path;
+            elseif (is_string($query['author'] ?? null)) $routes['author:' . $query['author']] = $path;
+        }
+        ksort($routes);
+        return $routes;
+    }
+
     /** @param array<int,array<string,mixed>> $pages */
     public static function bootstrap(array $pages): string
     {
@@ -212,13 +235,21 @@ PHP;
         }
         if (array() === $rows) return '';
         $links = self::archiveLinks(array_values(array_filter($pages, static fn(array $page): bool => !isset($page['post_type']))));
+        $archiveRoutes = self::archiveRoutes($pages);
         $code = <<<'PHP'
 if ( ! function_exists( 'blocks_engine_archive_path' ) ) {
 function blocks_engine_archive_path(): ?string {
+    global $blocks_engine_archive_routes;
     if ( ! is_singular() ) {
         $archive_url = null;
-        if ( is_category() || is_tag() || is_tax() ) $archive_url = get_term_link( get_queried_object() );
-        elseif ( is_author() ) $archive_url = get_author_posts_url( get_queried_object_id() );
+        $object = get_queried_object();
+        if ( is_category() || is_tag() || is_tax() ) {
+            if ( is_object( $object ) && isset( $object->taxonomy, $object->slug, $blocks_engine_archive_routes[ 'term:' . $object->taxonomy . ':' . $object->slug ] ) ) return $blocks_engine_archive_routes[ 'term:' . $object->taxonomy . ':' . $object->slug ];
+            $archive_url = get_term_link( $object );
+        } elseif ( is_author() ) {
+            if ( is_object( $object ) && isset( $object->user_nicename, $blocks_engine_archive_routes[ 'author:' . $object->user_nicename ] ) ) return $blocks_engine_archive_routes[ 'author:' . $object->user_nicename ];
+            $archive_url = get_author_posts_url( get_queried_object_id() );
+        }
         elseif ( is_date() ) {
             $year = (int) get_query_var( 'year' );
             $month = (int) get_query_var( 'monthnum' );
@@ -330,7 +361,8 @@ PHP;
         // A single route has no factored classes. Keep its direct table lookup
         // (and bootstrap bytes) instead of emitting unused reconstruction code.
         $singleRowCode = 'foreach ( ' . $rowData . ' as [$identity, $path, $front_page, $attributes, $body_attributes] ) $blocks_engine_document_rows[] = array( \'identity\' => $identity, \'path\' => $path, \'front_page\' => 1 === $front_page, \'attributes\' => $blocks_engine_document_attribute_bodies[ $attributes ], \'body_attributes\' => $blocks_engine_document_attribute_bodies[ $body_attributes ] );' . "\n";
-        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback, \$blocks_engine_document_hooks;\n"
+        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback, \$blocks_engine_document_hooks" . (array() === $archiveRoutes ? '' : ', $blocks_engine_archive_routes') . ";\n"
+            . (array() === $archiveRoutes ? '' : '$blocks_engine_archive_routes = array_replace( $blocks_engine_archive_routes ?? array(), ' . BootstrapData::literal($archiveRoutes) . " );\n")
             . BootstrapData::table('blocks_engine_document_attribute_bodies', $bodies) . "\n"
             // One positional row per route; the loop restores the keyed rows.
             . '$blocks_engine_document_rows = array();' . "\n"

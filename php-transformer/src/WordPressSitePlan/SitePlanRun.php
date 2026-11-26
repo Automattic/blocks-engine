@@ -947,7 +947,10 @@ final class SitePlanRun
      * Root selector context belongs to captured documents, not only to
      * entities that survive as pages (terms, authors and dates do not).
      * Returns the pages whose stylesheets are scoped (native archives are
-     * excluded) and the captured documents no such page carries.
+     * excluded) and the captured documents no such page carries. A native
+     * archive's document also names the term or author it lists, so its
+     * captured route still resolves when WordPress serves that archive at a
+     * different permalink (a source `blog/tag/x` is WordPress `tag/x`).
      *
      * @param array<int,array<string,mixed>> $pages
      * @param array<string,mixed> $taxonomyProjection
@@ -962,11 +965,15 @@ final class SitePlanRun
         $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
         $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
         $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
+        $archiveQueries = array();
+        foreach ($taxonomyProjection['entities'] as $entity) if (is_string($entity['archive']['source_path'] ?? null) && is_array($entity['archive']['query'] ?? null)) $archiveQueries[$entity['archive']['source_path']] = array_diff_key($entity['archive']['query'], array('post_type' => true));
         foreach ($this->compiled['pages'] as $document) {
             if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
             $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
             $metadata = $document['document_metadata'] ?? array();
-            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => WordPressSitePlan::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
+            $rootDocument = array('source_path' => $document['source_path'], 'reconciliation_identity' => WordPressSitePlan::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
+            if (isset($archiveQueries[$document['source_path']])) $rootDocument['archive_query'] = $archiveQueries[$document['source_path']];
+            $rootDocuments[] = $rootDocument;
         }
         return array('asset_pages' => $assetPages, 'root_documents' => $rootDocuments);
     }

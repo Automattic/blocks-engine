@@ -1401,7 +1401,7 @@ function is_tag(): bool { return 'tag' === ($GLOBALS['rootArchiveKind'] ?? ''); 
 function is_tax(): bool { return false; }
 function is_author(): bool { return 'author' === ($GLOBALS['rootArchiveKind'] ?? ''); }
 function is_date(): bool { return false; }
-function get_queried_object(): object { return (object) array('term_id' => 970); }
+function get_queried_object(): object { return $GLOBALS['rootQueriedObject'] ?? (object) array('term_id' => 970); }
 function get_term_link($term): string { return 'https://example.test/' . $GLOBALS['rootArchivePath'] . '/'; }
 function get_author_posts_url($id): string { return 'https://example.test/author/zapier/'; }
 function wp_make_link_relative(string $url): string { return (string) parse_url($url, PHP_URL_PATH); }
@@ -1485,6 +1485,40 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     $assert($termIdentityBootstrap === ($writeMap($termIdentityStagedPlan['writes'])['functions.php']['payload']['data'] ?? ''), 'Archive stylesheet route blocks round-trip through staged bootstrap validation.');
     $assert($termIdentityPlan['taxonomy_entities'] === $termIdentityStagedPlan['taxonomy_entities'], 'Retained body classes and head titles also prove empty terms when staged documents omit HTML.');
 }
+// A captured archive under a source prefix (`blog/tag/sample`) is served by
+// WordPress at its own term link (`tag/sample`). Its route-owned styles, such
+// as inline card positions, and its root context still follow the queried term.
+$prefixedArchiveResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<title>Home – Example Site</title><main><h1>Home</h1><a href="/blog/tag/sample/">Sample</a></main>'),
+    array('path' => 'blog/first/index.html', 'content' => '<title>First – Example Site</title><meta property="article:published_time" content="2024-01-01T12:00:00Z"><main><article><h1>First</h1><p>Tagged <a href="/blog/tag/sample/">Sample</a></p></article></main>'),
+    array('path' => 'blog/second/index.html', 'content' => '<title>Second – Example Site</title><meta property="article:published_time" content="2024-02-01T12:00:00Z"><main><article><h1>Second</h1><p>Tagged <a href="/blog/tag/sample/">Sample</a></p></article></main>'),
+    array('path' => 'blog/tag/sample/index.html', 'content' => '<html><head><title>Sample – Example Site</title></head><body class="archive tag tag-sample"><main><h1>Sample</h1><div class="cards" style="position:relative;height:640px"><article class="card" style="position:absolute;top:0;left:0;width:30%"><h2><a href="/blog/first/">First</a></h2></article><article class="card" style="position:absolute;top:0;left:35%;width:30%"><h2><a href="/blog/second/">Second</a></h2></article></div></main></body></html>'),
+)))->toArray();
+$prefixedArchivePlan = $prefixedArchiveResult['source_reports']['wordpress_site_plan'];
+$prefixedArchiveBootstrap = (string) ($writeMap($prefixedArchivePlan['writes'])['functions.php']['payload']['data'] ?? '');
+$prefixedEntity = array_column($prefixedArchivePlan['taxonomy_entities'], null, 'slug')['sample'] ?? array();
+$assert('post_tag' === ($prefixedEntity['taxonomy'] ?? null) && 'blog/tag/sample/index.html' === ($prefixedEntity['archive']['source_path'] ?? null), 'A prefixed tag capture projects a native tag archive.');
+preg_match("/if \\( ('blog\\/tag\\/sample' === blocks_engine_archive_path\\(\\)) \\) /", $prefixedArchiveBootstrap, $prefixedStyleMatch);
+$assert(isset($prefixedStyleMatch[1]), 'A prefixed tag archive emits a route stylesheet block for its captured route.');
+$rootStart = strpos($prefixedArchiveBootstrap, 'global $blocks_engine_document_roots');
+$rootEnd = strpos($prefixedArchiveBootstrap, "add_filter( 'language_attributes'", $rootStart);
+unset($blocks_engine_document_roots, $blocks_engine_document_attributes, $blocks_engine_document_fallback, $blocks_engine_archive_routes);
+eval(substr($prefixedArchiveBootstrap, $rootStart, $rootEnd - $rootStart) . "\n}");
+$prefixedRoot = array_column($blocks_engine_document_roots, null, 'path')['blog/tag/sample'] ?? array();
+$savedNavQuery = $blocksEngineNavQueryState;
+$blocksEngineNavQueryState = array('page' => false, 'front_page' => false, 'queried_id' => 971);
+$GLOBALS['rootArchiveKind'] = 'tag';
+$GLOBALS['rootArchivePath'] = 'tag/sample';
+$GLOBALS['rootQueriedObject'] = (object) array('term_id' => 971, 'taxonomy' => 'post_tag', 'slug' => 'sample');
+$assert('blog/tag/sample' === blocks_engine_archive_path(), 'A tag archive served at the WordPress term link resolves to its captured route.');
+$assert(true === eval('return ' . ($prefixedStyleMatch[1] ?? 'false') . ';'), 'The captured archive stylesheet block loads at the WordPress term link.');
+$assert(array() !== $prefixedRoot && $prefixedRoot['body_attributes'] === $blocks_engine_document_attributes('body'), 'The captured archive root context resolves at the WordPress term link.');
+$GLOBALS['rootQueriedObject'] = (object) array('term_id' => 972, 'taxonomy' => 'post_tag', 'slug' => 'other');
+$GLOBALS['rootArchivePath'] = 'tag/other';
+$assert('tag/other' === blocks_engine_archive_path() && false === eval('return ' . ($prefixedStyleMatch[1] ?? 'false') . ';'), 'An uncaptured term keeps its WordPress link path and does not load another archive\'s styles.');
+unset($GLOBALS['rootQueriedObject']);
+$GLOBALS['rootArchiveKind'] = '';
+$blocksEngineNavQueryState = $savedNavQuery;
 $feedHead = '<link rel="alternate" type="application/rss+xml" href="/feed.xml">';
 $blogFeed = $blogPostTypes(array('hub/index.html' => '<main>Hub</main>', 'hub/one/index.html' => $feedHead . $undatedArticle('One'), 'hub/two/index.html' => $feedHead . $undatedArticle('Two')));
 $assert('post' === ($blogFeed['hub/one/index.html'] ?? null) && 'post' === ($blogFeed['hub/two/index.html'] ?? null), 'Undated Article JSON-LD on pages that advertise a feed stays posts.');
