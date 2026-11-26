@@ -509,7 +509,7 @@ final class ListingQueryLoops
         if (null === $transformed || !$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
-        $template = $transformed['markup'];
+        $template = UnreferencedEngineClasses::without($transformed['markup'], self::perCardPlacement($markup, $cards));
         $gaps = array();
         for ($index = 1; $index < count($cards); ++$index) {
             $gaps[] = substr($markup, $cards[$index - 1]['offset'] + $cards[$index - 1]['length'], $cards[$index]['offset'] - ($cards[$index - 1]['offset'] + $cards[$index - 1]['length']));
@@ -896,6 +896,28 @@ final class ListingQueryLoops
             return null !== $lead && WordPressSitePlan::TOKEN_PREFIX . $lead['asset_token'] . '}}' === $image;
         }
         return false;
+    }
+
+    /**
+     * Capture geometry on the card roots that differs between cards places
+     * each card among its siblings (a runtime masonry or absolute layout).
+     * One post template repeats one card for every post, so no card's
+     * placement applies to all of them: the loop's cards flow instead.
+     *
+     * @param array<int,array{offset:int,length:int}> $cards @return array<string,true>
+     */
+    private static function perCardPlacement(string $markup, array $cards): array
+    {
+        $placements = array();
+        foreach ($cards as $card) {
+            $className = (string) (PostBlocks::sourceAttributes(substr($markup, $card['offset'], $card['length']))['className'] ?? '');
+            preg_match_all('/(?<![\w-])be-inline-geometry-[0-9a-f]{16}(?:-[0-9a-f]{16})?(?![\w-])/', $className, $matches);
+            $geometry = $matches[0];
+            sort($geometry);
+            $placements[implode(' ', $geometry)] = $geometry;
+        }
+        if (2 > count($placements)) return array();
+        return array_fill_keys(array_merge(...array_values($placements)), true);
     }
 
     /** Visible text identifies a card leaf; a textless leaf is identified by its markup. */
