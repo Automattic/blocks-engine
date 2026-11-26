@@ -1431,7 +1431,7 @@ final class ShellExtraction
             foreach ($regions as $regionIndex => $region) $documents[] = array('kind' => 'page', 'index' => $index, 'region_index' => $regionIndex, 'source_path' => (string) ($page['source_path'] ?? ''), 'markup' => $markup, 'region' => $region);
         }
         foreach ($parts as $index => $part) {
-            if ('footer' !== ($part['area'] ?? null) || 'inline_shared_shell' === ($part['placement']['kind'] ?? null) || 'responsive_variant_partition' === ($part['provenance']['reason'] ?? null)) continue;
+            if ('footer' !== ($part['area'] ?? null) || 'inline_shared_shell' === ($part['placement']['kind'] ?? null) || in_array($part['provenance']['reason'] ?? null, array('responsive_variant_partition', 'route_device_bundle'), true)) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
             $regions = $this->footerContentRegions($markup, (string) ($part['source_path'] ?? ''), true);
             if (array() === $regions) continue;
@@ -2565,6 +2565,12 @@ final class ShellExtraction
                 $excluded = array_filter($diagnostics, static fn(array $d): bool => $area === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)));
                 if (array() === $excluded) continue;
                 $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], $area, $captureEdges);
+                $bundle = $this->routeDeviceBundlePart($pages, $index, $area, $rows, $parts, $partLandmark, $runtimeDeclarations);
+                if (null !== $bundle) {
+                    [$pages, $parts, $diagnostic] = $bundle;
+                    $diagnostics[] = $diagnostic;
+                    continue;
+                }
                 if (1 !== count($rows)) continue;
                 $row = $rows[0];
                 $anchorVariant = 'header' === $area && $this->addsOnlySameDocumentAnchorItems($page, $part, $pages, $stylesheetIds);
@@ -2623,6 +2629,55 @@ final class ShellExtraction
             }
         }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * A route that keeps one copy of its chrome per device document cannot
+     * join a part built from routes with one copy: its shell candidate is a
+     * device bundle. Bind that bundle to the route's own template as a
+     * route variant part, as the dominant bundle part is bound, instead of
+     * leaving every device copy in post content. Routes with the same bundle
+     * markup share one part.
+     *
+     * @param array<int,array<string,mixed>> $pages @param list<array<string,mixed>> $rows @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{0:array<int,array<string,mixed>>,1:array<int,array<string,mixed>>,2:array<string,mixed>}|null
+     */
+    private function routeDeviceBundlePart(array $pages, int $index, string $area, array $rows, array $parts, string $partLandmark, array $runtimeDeclarations): ?array
+    {
+        $page = $pages[$index];
+        $candidates = array_values(array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
+        if (1 !== count($candidates) || empty($candidates[0]['device_document_bundle']) || count($rows) < 2) return null;
+        $candidate = $candidates[0];
+        // Each device copy must show the shared part's chrome.
+        foreach ($rows as $row) if (array() === array_intersect(self::chromeReferences($row['markup']), self::chromeReferences($partLandmark))) return null;
+        $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $rows);
+        if ($bindings['blocked'] || array() !== $bindings['refs']) return null;
+        $withoutShell = $this->withoutNestedShell($page['canonical_block_markup'], $candidate);
+        if (null === $withoutShell || '' === trim($withoutShell) || $this->retainsResponsiveVariantLandmark($withoutShell, $area)) return null;
+        $templateSlug = TemplateSlugs::forPage($page);
+        $markup = (string) $candidate['template_part_markup'];
+        $pages[$index]['canonical_block_markup'] = $withoutShell;
+        $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
+        foreach ($parts as $key => $part) {
+            if ('route_device_bundle' !== ($part['provenance']['reason'] ?? null) || $area !== $part['area'] || $markup !== $part['canonical_block_markup']) continue;
+            $parts[$key]['placement']['template_slugs'][] = $templateSlug;
+            $parts[$key]['placement']['excluded_template_slugs'] = array_values(array_diff($part['placement']['excluded_template_slugs'], array($templateSlug)));
+            $parts[$key]['provenance']['sources'][$page['source_path']] = ArrayField::string($candidate, 'source_hash');
+            ksort($parts[$key]['provenance']['sources'], SORT_STRING);
+            return array($pages, $parts, array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => "Bound a route's device {$area} copies to an existing route variant part.", 'area' => $area, 'slug' => $part['slug'], 'page_count' => 1, 'source_paths' => array($page['source_path'])));
+        }
+        // A bound part applies to every route override it does not exclude.
+        $otherOverrides = array();
+        foreach ($pages as $other) {
+            if (!empty($other['synthetic'])) continue;
+            $otherSlug = TemplateSlugs::forPage($other);
+            if ($otherSlug !== $templateSlug && 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $otherSlug)) $otherOverrides[$otherSlug] = true;
+        }
+        $slug = $area . '-' . substr(hash('sha256', $page['source_path']), 0, 12);
+        $sourcePath = 'wordpress-site-plan/shared/' . $slug;
+        $title = self::routeVariantTitle($area, $page, count($parts) + 1);
+        $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $slug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => array($templateSlug), 'excluded_template_slugs' => array_keys($otherOverrides)), 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_device_bundle', array(array($candidate)), hash('sha256', (string) $candidate['identity_markup'])), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($markup)) + (is_array($candidate['ancestor_context'] ?? null) ? array('ancestor_context' => $candidate['ancestor_context']) : array());
+        return array($pages, $parts, array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => "Extracted a route's device {$area} copies as an editable template part.", 'area' => $area, 'slug' => $slug, 'page_count' => 1, 'source_paths' => array($page['source_path'])));
     }
 
     /**
