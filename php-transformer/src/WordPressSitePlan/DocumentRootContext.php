@@ -242,15 +242,15 @@ function blocks_engine_archive_path(): ?string {
     global $blocks_engine_archive_routes;
     if ( ! is_singular() ) {
         $archive_url = null;
-        $object = get_queried_object();
         if ( is_category() || is_tag() || is_tax() ) {
+            $object = get_queried_object();
             if ( is_object( $object ) && isset( $object->taxonomy, $object->slug, $blocks_engine_archive_routes[ 'term:' . $object->taxonomy . ':' . $object->slug ] ) ) return $blocks_engine_archive_routes[ 'term:' . $object->taxonomy . ':' . $object->slug ];
             $archive_url = get_term_link( $object );
         } elseif ( is_author() ) {
+            $object = get_queried_object();
             if ( is_object( $object ) && isset( $object->user_nicename, $blocks_engine_archive_routes[ 'author:' . $object->user_nicename ] ) ) return $blocks_engine_archive_routes[ 'author:' . $object->user_nicename ];
             $archive_url = get_author_posts_url( get_queried_object_id() );
-        }
-        elseif ( is_date() ) {
+        } elseif ( is_date() ) {
             $year = (int) get_query_var( 'year' );
             $month = (int) get_query_var( 'monthnum' );
             $day = (int) get_query_var( 'day' );
