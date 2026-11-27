@@ -567,7 +567,8 @@
             "retagged div>mark": 3,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged div>time": 1,
-            "retagged span>mark": 22,
+            "retagged span>mark": 18,
+            "retagged span>mark [blocks-engine-semantic]": 4,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 8
         },
         "38-medical-clinic": {
