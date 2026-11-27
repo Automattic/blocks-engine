@@ -36,7 +36,7 @@ final class ButtonLinkDispatchContext
     /** The anchor's markup as paragraph RichText {@see StyleResolver::richTextSerializationSource()}. */
     public function richTextOuterHtml(DOMElement $element): string
     {
-        return SourceDom::outerHtml($this->presentationResolver instanceof StyleResolver ? $this->presentationResolver->richTextSerializationSource($element) : $element);
+        return SourceDom::outerHtml($this->presentationResolver instanceof StyleResolver ? $this->presentationResolver->richTextSerializationSource($element, true) : $element);
     }
 
     public function isRuntimeDomTarget(DOMElement $element): bool

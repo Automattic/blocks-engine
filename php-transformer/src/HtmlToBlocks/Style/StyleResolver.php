@@ -829,8 +829,10 @@ final class StyleResolver implements ElementPresentationResolver
     /**
      * Serialize RichText without unpainted flex/grid boundary whitespace or
      * redundant inherited typography. Resolve styles against source ancestry.
+     * Outer anchor markup also needs semantic selector carriers; inner RichText
+     * materialization owns its own carrier and declaration projection.
      */
-    public function richTextSerializationSource(DOMElement $element): DOMElement
+    public function richTextSerializationSource(DOMElement $element, bool $carrySemanticClasses = false): DOMElement
     {
         $blockifiesChildren = function (DOMElement $container): bool {
             $display = CssValueInspector::comparable($this->authorViewport->reference($container, array( 'display' ))['display'] ?? '');
@@ -851,6 +853,19 @@ final class StyleResolver implements ElementPresentationResolver
         $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
         $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
         foreach ($sources as $index => $source) {
+            if ( $carrySemanticClasses && 'true' !== SourceDom::attr($source, 'aria-hidden') ) {
+                // Copy identity only: materializing these descendants would drop
+                // decorative wrappers and could freeze class-owned CSS inline.
+                $projections = $this->session->authorSelectorProjectionState();
+                $path = SourceDom::sourceElementIdentity($source);
+                $semantic = $projections->semanticMarker($path);
+                if ( '' !== $semantic ) {
+                    $targets[$index]->setAttribute('class', SourceDom::mergeClassNames(
+                        SourceDom::attr($targets[$index], 'class'),
+                        implode(' ', $projections->semanticCarrierClasses($semantic, $path))
+                    ));
+                }
+            }
             $collapse = '';
             for ($ancestor = $source; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
                 $declarations = $this->authorViewport->reference($ancestor, array('white-space', 'white-space-collapse'));
