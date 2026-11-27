@@ -226,8 +226,9 @@ final class EntityBindings
     /**
      * A shared header may retain a page copy (for example a captured
      * responsive variant). Cart navigation is one capability of that shared
-     * control: prefer its exact template-part anchor, not a second entity for
-     * every route that carries the same opener.
+     * control: prefer its exact template-part anchors, not a second entity for
+     * every route that carries the same opener. A part holding several equal
+     * openers (desktop and mobile copies) binds each of them.
      */
     private static function withSharedCartLinks(array $declarations, array $parts): array
     {
@@ -235,26 +236,36 @@ final class EntityBindings
             if ('cart_links' !== ($declaration['type'] ?? null)) continue;
             $cartLinks = array();
             foreach ($declaration['payload']['entities'] as $entity) {
+                $copies = 1;
                 foreach ($entity['bindings'] as &$binding) {
                     $matches = array();
                     foreach ($parts as $part) {
                         if ('header' !== ($part['area'] ?? null)) continue;
-                        $partMarkup = $part['canonical_block_markup'] ?? '';
-                        $search = $binding['search_block_markup'];
-                        if (1 === substr_count($partMarkup, $search)) $matches[] = $part['source_path'];
+                        $count = substr_count($part['canonical_block_markup'] ?? '', $binding['search_block_markup']);
+                        if (0 < $count) $matches[$part['source_path']] = $count;
                     }
-                    if (1 === count($matches)) {
-                        $binding['source_path'] = $matches[0];
-                        // The part is its own projected source. Its anchor must
-                        // describe the rewritten markup, not a route's asset
-                        // paths or links from before canonical projection.
-                        $binding['projected_anchor'] = self::projectedAnchor($binding);
-                    }
+                    if (1 !== count($matches)) continue;
+                    $binding['source_path'] = array_key_first($matches);
+                    // The part is its own projected source: its anchors are
+                    // the part's copies in order, not a route's position.
+                    unset($binding['position']);
+                    $binding['_part_copies'] = reset($matches);
+                    $copies = max($copies, $binding['_part_copies']);
                 }
                 unset($binding);
-                if (isset($entity['bindings'][0])) $entity['source_path'] = $entity['bindings'][0]['source_path'];
-                $key = $entity['source_path'] . "\n" . ($entity['bindings'][0]['search_block_markup'] ?? $entity['selector']);
-                $cartLinks[$key] = $entity;
+                foreach (range(1, $copies) as $occurrence) {
+                    $copy = $entity;
+                    foreach ($copy['bindings'] as &$binding) {
+                        if (!isset($binding['_part_copies'])) continue;
+                        $binding['occurrence'] = min($occurrence, $binding['_part_copies']);
+                        unset($binding['_part_copies']);
+                        $binding['projected_anchor'] = self::projectedAnchor($binding);
+                    }
+                    unset($binding);
+                    if (isset($copy['bindings'][0])) $copy['source_path'] = $copy['bindings'][0]['source_path'];
+                    $key = $copy['source_path'] . "\n" . ($copy['bindings'][0]['search_block_markup'] ?? $copy['selector']) . "\n" . ($copy['bindings'][0]['occurrence'] ?? '');
+                    $cartLinks[$key] = $copy;
+                }
             }
             $declaration['payload']['entities'] = array_values($cartLinks);
         }
