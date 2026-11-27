@@ -52,6 +52,17 @@ foreach ( $sharedLinks as $link ) {
     $assert(str_contains($headers[0]['canonical_block_markup'], $binding['search_block_markup']), 'The header binding matches exact markup in the captured part.');
     $assert($headers[0]['source_path'] === $binding['source_path'], 'The binding identifies its template part.');
 }
+// A shared header holding equal desktop and mobile openers binds each copy.
+$nav = '<nav class="navUser"><ul><li><a href="/about.html">About</a></li><li class="navUser-item--cart"><a class="navUser-action" href="/cart.php">Cart</a></li></ul></nav>';
+$copies = static fn (string $title): string => '<!doctype html><html><head><title>' . $title . '</title></head><body><header><div class="desktop">' . $nav . '</div><div class="mobile">' . $nav . '</div></header><main><h1>' . $title . '</h1></main></body></html>';
+$copiesResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $copies('Home'), 'about.html' => $copies('About'))))->toArray();
+$copyBindings = array();
+foreach ( $copiesResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration ) {
+    if ( 'cart_links' !== ($declaration['type'] ?? null) ) continue;
+    foreach ( $declaration['payload']['entities'] as $entity ) $copyBindings[] = $entity['bindings'][0]['source_path'] . '#' . $entity['bindings'][0]['occurrence'];
+}
+sort($copyBindings);
+$assert(array('wordpress-site-plan/shared/header#header#1', 'wordpress-site-plan/shared/header#header#2') === $copyBindings, 'Both header copies of the opener bind on the shared part: ' . json_encode($copyBindings ?: ($copiesResult['source_reports']['wordpress_site_plan_diagnostics'] ?? null)));
 // Close/dismiss evidence wins over cart vocabulary in every recognized language.
 $recognizer = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer();
 foreach (array('close', 'cerrar', 'fechar', 'fermer', 'schließen', 'chiudi', 'sluiten', 'dismiss', '×', '✕') as $close) {
