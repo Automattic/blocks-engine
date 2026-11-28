@@ -19,7 +19,26 @@ try {
     const computed = await image.evaluate(image => ({ width: getComputedStyle(image).width, filter: getComputedStyle(image).filter }));
     assert.equal(computed.width, '320px', 'authored width overrides the 220px intrinsic width');
     assert.equal(computed.filter, 'drop-shadow(rgb(18, 52, 86) 6px 6px 0px)');
-    console.log('Passive SVG image projection browser check passed:', computed);
+    // The shared size class also applies to a flex item. Projection keeps that
+    // width on figures, including the icon in normal flow, so its auto margins
+    // must be able to center the figure rather than just the image inside it.
+    const icon = classes => `<svg class="${classes}" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>`;
+    const centered = '<style>svg{display:block}.card{width:280px}.row{display:flex}.icon{width:28px;height:28px}.centered{margin-inline:auto}@media(max-width:600px){.centered{margin-inline:0}}</style>'
+        + `<main><div class="card">${icon('icon centered')}<p>Menu</p></div><div class="row">${icon('icon')}<p>Other</p></div></main>`;
+    const cards = JSON.parse(execFileSync('php', ['-r', php, root, centered], { encoding: 'utf8' }));
+    const cardCss = cards.assets.filter(asset => asset.kind === 'css').map(asset => asset.content).join('\n');
+    for (const [width, expectedOffset] of [[900, 126], [390, 0]]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const markup of [centered, `<style>${cardCss}</style>${cards.serialized_blocks}`]) {
+            await page.setContent(markup);
+            const bounds = await page.locator('.card').evaluate(card => {
+                const artwork = card.querySelector('svg, img').getBoundingClientRect();
+                return { offset: artwork.x - card.getBoundingClientRect().x, width: artwork.width };
+            });
+            assert.deepEqual(bounds, { offset: expectedOffset, width: 28 }, `icon position and width at ${width}px`);
+        }
+    }
+    console.log('Passive SVG image projection browser check passed');
 } finally {
     await browser.close();
 }
