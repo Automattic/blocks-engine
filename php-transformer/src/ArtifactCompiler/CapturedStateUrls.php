@@ -24,7 +24,7 @@ final class CapturedStateUrls
         return $evidence;
     }
 
-    private static function html(string $html, string $sourceUrl): string
+    public static function html(string $html, string $sourceUrl): string
     {
         $source = parse_url($sourceUrl);
         if (!is_array($source) || !isset($source['scheme'], $source['host'])) return $html;

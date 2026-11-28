@@ -73,6 +73,7 @@ final class CapturedChoiceGroupProjector
             $count = $this->projectInlinePage($document, $path, $diagnostics);
             $this->removeInlineEvidence($document);
             $output = HtmlSerialization::documentHtml($document);
+            unset($document);
             if (is_string($output)) {
                 $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $output);
                 $projected += $count;
@@ -428,21 +429,32 @@ final class CapturedChoiceGroupProjector
      */
     private function projectGroup(array $group, array $regions, string $sourcePath, array &$diagnostics): int
     {
-        $stateRoots = array();
+        $snapshots = array();
+        $content = array();
+        $groupContent = array();
         $configStates = array();
         foreach ($group['states'] as $state) {
             $stateRoot = $this->fragmentRoot((string) ($state['html'] ?? ''));
             if (! $stateRoot instanceof DOMElement) {
                 return 0;
             }
-            $stateRoots[] = $stateRoot;
+            $groupContent[] = $this->nodeContentFingerprint($stateRoot);
+            $snapshot = array();
+            foreach ($group['choices'] as $index => $choice) {
+                $nodes = $this->choiceNodes($stateRoot, $choice);
+                if (!isset($nodes[$index])) return 0;
+                $snapshot[$index] = $this->nodeSnapshot($nodes[$index]);
+                $content[$index][] = $this->nodeContentFingerprint($nodes[$index]);
+            }
+            $snapshots[] = $snapshot;
             $configStates[] = array(
                 'selectedIndex' => $state['selectedIndex'],
                 'selected' => $state['selected'],
                 'html' => $this->innerHtml($stateRoot),
             );
+            unset($nodes, $stateRoot);
         }
-        $bindings = $this->stateBindings($stateRoots, $group['choices']);
+        $bindings = $this->stateBindings($snapshots, $content, $groupContent, $group['choices']);
         if (null === $bindings) {
             $diagnostics[] = $this->diagnostic('captured_choice_group_state_invalid', 'warning', 'A captured choice group was omitted because a replay state did not contain its ordered choice controls.', array('source_path' => $sourcePath, 'selector' => $group['group']['selector'] ?? ''));
             return 0;
@@ -468,27 +480,13 @@ final class CapturedChoiceGroupProjector
         $region->setAttribute('data-blocks-engine-choice-config', $config);
     }
 
-    /** @param array<int, DOMElement> $roots @param array<int, array<string, mixed>> $choices @return array<int, array<int, array<string, mixed>>>|null */
-    private function stateBindings(array $roots, array $choices): ?array
+    /** Compare scalar snapshots without retaining the state documents. */
+    private function stateBindings(array $snapshots, array $content, array $groupContent, array $choices): ?array
     {
-        $snapshots = array();
-        $content = array();
-        $groupContent = array();
-        foreach ($roots as $root) {
-            $groupContent[] = $this->nodeContentFingerprint($root);
-            $snapshot = array();
-            foreach ($choices as $index => $choice) {
-                $nodes = $this->choiceNodes($root, $choice);
-                if (! isset($nodes[$index])) return null;
-                $snapshot[$index] = $this->nodeSnapshot($nodes[$index]);
-                $content[$index][] = $this->nodeContentFingerprint($nodes[$index]);
-            }
-            $snapshots[] = $snapshot;
-        }
         if (1 < count(array_unique($groupContent, SORT_STRING))) return null;
         foreach ($content as $fingerprints) if (1 < count(array_unique($fingerprints, SORT_STRING))) return null;
 
-        $bindings = array_fill(0, count($roots), array());
+        $bindings = array_fill(0, count($snapshots), array());
         foreach ($choices as $choiceIndex => $_choice) {
             $paths = array();
             foreach ($snapshots as $snapshot) foreach ($snapshot[$choiceIndex] as $path => $attributes) {
@@ -616,6 +614,7 @@ final class CapturedChoiceGroupProjector
         if (! $root instanceof DOMElement) {
             return null;
         }
+        \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::removeEvidenceAttributes($root);
         $result = '';
         foreach ($root->childNodes as $node) {
             $result .= $document->saveHTML($node);

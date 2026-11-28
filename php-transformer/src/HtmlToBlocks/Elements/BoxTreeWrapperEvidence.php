@@ -93,11 +93,11 @@ final class BoxTreeWrapperEvidence
         foreach (iterator_to_array($document->getElementsByTagName('*')) as $element) {
             if (! $element instanceof DOMElement || ! $element->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
             $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            $element->removeAttribute(BoxTree::NODE_ATTRIBUTE);
             if ('' === $id) continue;
             $counts[$id] = ($counts[$id] ?? 0) + 1;
             $ids[] = array($element, $id);
         }
+        BoxTree::removeEvidenceAttributes($document);
         foreach ($ids as [$element, $id]) {
             // A duplicated id identifies no single source element.
             if (1 === $counts[$id] && isset($this->nodes[$id])) $this->boundIds[$element] = $id;

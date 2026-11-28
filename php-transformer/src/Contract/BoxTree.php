@@ -75,6 +75,17 @@ final class BoxTree
         return array_values(array_filter(iterator_to_array($element->attributes), static fn (\DOMAttr $attribute): bool => ! self::isEvidenceAttribute($attribute->name)));
     }
 
+    /** Remove capture identity from a subtree, including its root. */
+    public static function removeEvidenceAttributes(\DOMNode $root): void
+    {
+        if ($root instanceof DOMElement) {
+            foreach (iterator_to_array($root->attributes) as $attribute) {
+                if (self::isEvidenceAttribute($attribute->name)) $root->removeAttributeNode($attribute);
+            }
+        }
+        foreach ($root->childNodes as $child) self::removeEvidenceAttributes($child);
+    }
+
     /** Static-site-importer still reads this to recognize sidecars, regardless of role. */
     public static function isSidecarPath(string $path): bool
     {

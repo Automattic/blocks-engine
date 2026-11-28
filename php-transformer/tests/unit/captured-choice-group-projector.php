@@ -20,9 +20,9 @@ $htmlFor = static function (int $selected): string {
     $buttons = '';
     for ($index = 0; $index < 3; ++$index) {
         $fill = $index <= $selected ? 'fill:gold' : 'fill:none';
-        $buttons .= '<button type="button" data-blocks-engine-capture-choice-index="' . $index . '"><svg style="' . $fill . '"><path d="M1 1"></path></svg></button>';
+        $buttons .= '<button data-blocks-engine-node-id="button-' . $index . '" type="button" data-blocks-engine-capture-choice-index="' . $index . '"><svg data-blocks-engine-node-id="svg-' . $index . '" style="' . $fill . '"><path data-blocks-engine-node-id="path-' . $index . '" d="M1 1"></path></svg></button>';
     }
-    return '<div class="choices"><span>Choice controls</span>' . $buttons . '</div>';
+    return '<div data-blocks-engine-node-id="group" class="choices"><span data-blocks-engine-node-id="label">Choice controls</span>' . $buttons . '</div>';
 };
 $state = static function (int $index, string $html, array $selected = array(null, null, null)): array {
     return array(
@@ -52,7 +52,20 @@ $assert(1 === ($projected['projected_count'] ?? 0), 'complete choice transitions
 $assert(str_contains($markup, 'data-blocks-engine-choice-group="true"'), 'projected group carries the companion marker');
 $assert(str_contains($markup, 'data-blocks-engine-choice-config='), 'projected group carries bounded replay configuration');
 $assert(! str_contains($markup, 'data-blocks-engine-capture-choice-index'), 'capture-only choice markers do not ship');
+$assert(! str_contains($markup, 'data-blocks-engine-node-id'), 'capture node identity does not ship in encoded replay config or initial markup');
+$assert(str_contains($files[2]['content'], 'data-blocks-engine-node-id'), 'projection leaves the captured sidecar unchanged');
 $assert(str_contains($markup, 'fill:gold') && str_contains($markup, 'fill:none'), 'the initial transition preserves source visual state');
+
+// The shared reader also owns nested captured markup, not just choice transitions.
+$shard = '<section DATA-BLOCKS-ENGINE-NODE-ID=shard data-authored="keep"><span data-blocks-engine-node-id=child>Evidence</span></section>';
+$shardReport = json_decode($files[2]['content'], true);
+$shardReport['pages'][0]['semanticEvidence'] = array('sectionSnapshots' => array(array('html' => $shard, 'htmlBytes' => strlen($shard))));
+$shardFiles = $files;
+$shardFiles[2]['content'] = json_encode($shardReport);
+$read = \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedInteractionReport::read($shardFiles);
+$snapshot = $read['pages'][0]['semanticEvidence']['sectionSnapshots'][0];
+$assert(! str_contains(strtolower($snapshot['html']), 'data-blocks-engine-node-id'), 'nested semantic-evidence section snapshots lose root and descendant carriers');
+$assert(str_contains($snapshot['html'], 'data-authored="keep"') && $snapshot['htmlBytes'] === strlen($snapshot['html']), 'captured markup preserves authored attributes and updates byte counts');
 
 // Each device document is its own scope, whether it is marked by a variant class or declared by the capture.
 $main = substr($source, strlen('<html><body>'), -strlen('</body></html>'));
