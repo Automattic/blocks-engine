@@ -280,9 +280,39 @@ PHP;
     }
 
     /** @param array<int,array<string,mixed>> $assets */
-    public static function functionsPhp(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): string
+    public static function functionsPhp(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array(), array $fallbacks = array()): string
     {
-        return self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments)['source'];
+        return self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments, $fallbacks)['source'];
+    }
+
+    /**
+     * The asset tokens the theme resolves at render time, keyed by token, each
+     * mapped to its theme file.
+     *
+     * Pages count too: a consumer may publish a theme template from a page's
+     * canonical markup (a store's product archive keeps its asset tokens),
+     * and only this resolver turns those tokens into theme URLs on render.
+     * So do the readable blocks of the plan's fallbacks: a form provider
+     * renders them in place of the page's form, so a template published from
+     * that page carries their tokens (an inline icon kept as an image asset)
+     * even though no document references them.
+     * Map only the tokens these reference: every entry ships in functions.php
+     * and keeps its theme file reachable.
+     *
+     * @param array<int,array<string,mixed>> $tokens    The plan's reference tokens.
+     * @param array<int,array<string,mixed>> $documents Templates, parts and pages.
+     * @param array<int,mixed>               $fallbacks The plan's `quality.fallbacks`.
+     * @return array<string,string>
+     */
+    public static function templateAssetTokens(array $tokens, array $documents, array $fallbacks = array()): array
+    {
+        $markup = array_map(static fn(array $document): string => (string) ($document['canonical_block_markup'] ?? ''), $documents);
+        foreach ($fallbacks as $fallback) if (is_array($fallback) && is_array($fallback['readable_blocks'] ?? null) && array() !== $fallback['readable_blocks']) $markup[] = (string) json_encode($fallback['readable_blocks'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        $referenced = array();
+        foreach ($markup as $content) if (preg_match_all('/' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '([^}]+)\}\}/', $content, $matches)) $referenced += array_fill_keys($matches[1], true);
+        $covered = array();
+        foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $covered[WordPressSitePlan::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
+        return $covered;
     }
 
     /**
@@ -293,7 +323,7 @@ PHP;
      * @param array<int,array<string,mixed>> $assets
      * @return array{source:string,units:list<array{hook:string,feature:string}>}
      */
-    public static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): array
+    public static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array(), array $fallbacks = array()): array
     {
         $units = array();
         $served = 0;
@@ -441,16 +471,8 @@ PHP;
             // device markers, stylesheet-set titles and disabled states.
             $lines[] = "add_filter( 'css_do_concat', static function ( \$do_concat, \$handle ) use ( \$blocks_engine_stylesheet_attributes ) { return isset( \$blocks_engine_stylesheet_attributes[ \$handle ] ) ? false : \$do_concat; }, 10, 2 );";
         }
-        // Pages count too: a consumer may publish a theme template from a page's
-        // canonical markup (a store's product archive keeps its asset tokens),
-        // and only this resolver turns those tokens into theme URLs on render.
-        // Map only the tokens those documents reference: every entry ships in
-        // functions.php and keeps its theme file reachable.
         self::serve($lines, $served, $units, 'stylesheet_attributes');
-        $referenced = array();
-        foreach ($documents as $document) if (preg_match_all('/' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '([^}]+)\}\}/', (string) ($document['canonical_block_markup'] ?? ''), $matches)) $referenced += array_fill_keys($matches[1], true);
-        $templateAssetTokens = array();
-        foreach ($tokens as $token) if (isset($referenced[$token['token'] ?? null]) && is_string($token['target_path'] ?? null)) $templateAssetTokens[WordPressSitePlan::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
+        $templateAssetTokens = self::templateAssetTokens($tokens, $documents, $fallbacks);
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_template_attachment_ids = array();';

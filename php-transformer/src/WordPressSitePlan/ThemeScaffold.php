@@ -17,10 +17,10 @@ use InvalidArgumentException;
 final class ThemeScaffold
 {
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
-    public static function writes(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array(), ?string $bootstrapSource = null): array
+    public static function writes(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array(), ?string $bootstrapSource = null, array $fallbacks = array()): array
     {
         $writes = array(PlanWrites::inline('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), PlanWrites::inline('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        $writes[] = PlanWrites::inline('theme_bootstrap', 'functions.php', $bootstrapSource ?? ThemeBootstrap::functionsPhp($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments));
+        $writes[] = PlanWrites::inline('theme_bootstrap', 'functions.php', $bootstrapSource ?? ThemeBootstrap::functionsPhp($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments, $fallbacks));
         if (DocumentRootContext::needsCanvas(array_merge($pages, $rootDocuments))) $writes[] = PlanWrites::inline('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
         foreach ( $templates as $template ) $writes[] = PlanWrites::inline('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = PlanWrites::inline('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
@@ -41,7 +41,7 @@ final class ThemeScaffold
         // A published plan's bootstrap was derived from the engine-named plan
         // before ClassPublisher renamed it; published content cannot re-derive it.
         $published = isset($plan[ClassPublisher::MAP_KEY]);
-        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || (!$published && ThemeBootstrap::functionsPhp($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], 'wordpress' === ($plan['theme']['runtime_emoji'] ?? null), $plan['theme']['document_roots'] ?? array()) !== ($bootstrap['canonical_payload'] ?? $bootstrap['payload']['data'] ?? null))) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || (!$published && ThemeBootstrap::functionsPhp($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], 'wordpress' === ($plan['theme']['runtime_emoji'] ?? null), $plan['theme']['document_roots'] ?? array(), $plan['quality']['fallbacks'] ?? array()) !== ($bootstrap['canonical_payload'] ?? $bootstrap['payload']['data'] ?? null))) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         if (DocumentRootContext::needsCanvas(array_merge($plan['pages'], $plan['theme']['document_roots'] ?? array()))) {
             $canvas = $writes['document-canvas.php'] ?? null;
             if (!is_array($canvas) || 'theme_scaffold' !== ($canvas['kind'] ?? null) || 'wordpress-site-plan/document-canvas.php' !== ($canvas['source_path'] ?? null) || DocumentRootContext::canvas() !== ($canvas['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan document canvas is invalid.');

@@ -491,7 +491,7 @@ final class SitePlanRun
         $pages = $integrity->documents($pages);
         $parts = $integrity->documents($parts);
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
-        $bootstrap = ThemeBootstrap::bootstrap($assets, $scriptLoading['scripts'], $parts, $tokens, $templates, $pages, $menus, $this->runtimeEmoji, $rootDocuments);
+        $bootstrap = ThemeBootstrap::bootstrap($assets, $scriptLoading['scripts'], $parts, $tokens, $templates, $pages, $menus, $this->runtimeEmoji, $rootDocuments, $data['fallbacks']);
         $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $this->runtimeEmoji, $rootDocuments, $bootstrap['source']), $assetWrites);
         $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $navigationMarkup));
         $recoveryDiagnostics = array_merge($this->routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $this->missingFonts->diagnostics(), $this->missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
