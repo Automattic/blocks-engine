@@ -1485,6 +1485,18 @@ foreach (array(' – ', ' | ', ' - ') as $termTitleSeparator) {
     $assert($termIdentityBootstrap === ($writeMap($termIdentityStagedPlan['writes'])['functions.php']['payload']['data'] ?? ''), 'Archive stylesheet route blocks round-trip through staged bootstrap validation.');
     $assert($termIdentityPlan['taxonomy_entities'] === $termIdentityStagedPlan['taxonomy_entities'], 'Retained body classes and head titles also prove empty terms when staged documents omit HTML.');
 }
+// A tag archive whose cards a runtime layout placed (absolute top/left per
+// card) becomes a Query Loop. The post template repeats one card for every
+// post, so a per-card placement must not travel with it.
+$placedCardsPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<title>Home – Example Site</title><main><h1>Home</h1><a href="/blog/tag/sample/">Sample</a></main>'),
+    array('path' => 'blog/first/index.html', 'content' => '<title>First – Example Site</title><meta property="article:published_time" content="2024-01-01T12:00:00Z"><main><article><h1>First</h1><p>Tagged <a href="/blog/tag/sample/">Sample</a></p></article></main>'),
+    array('path' => 'blog/second/index.html', 'content' => '<title>Second – Example Site</title><meta property="article:published_time" content="2024-02-01T12:00:00Z"><main><article><h1>Second</h1><p>Tagged <a href="/blog/tag/sample/">Sample</a></p></article></main>'),
+    array('path' => 'blog/tag/sample/index.html', 'content' => '<html><head><title>Sample – Example Site</title></head><body class="archive tag tag-sample"><main><h1>Sample</h1><div class="cards" style="position:relative;height:640px"><article class="card" style="position:absolute;top:0;left:0;width:30%"><h2><a href="/blog/first/">First</a></h2></article><article class="card" style="position:absolute;top:0;left:35%;width:30%"><h2><a href="/blog/second/">Second</a></h2></article></div></main></body></html>'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$placedCardsTemplate = (string) (array_column($placedCardsPlan['templates'], 'canonical_block_markup', 'slug')['tag-sample'] ?? '');
+preg_match('~<!-- wp:post-template -->(.*?)<!-- /wp:post-template -->~s', $placedCardsTemplate, $placedCardsLoop);
+$assert(isset($placedCardsLoop[1]) && str_contains($placedCardsLoop[1], '"className":"card"') && !str_contains($placedCardsLoop[1], 'be-inline-geometry-'), 'A post template drops the per-card placement of absolutely positioned cards, so every post flows instead of stacking at the first card\'s position.');
 $feedHead = '<link rel="alternate" type="application/rss+xml" href="/feed.xml">';
 $blogFeed = $blogPostTypes(array('hub/index.html' => '<main>Hub</main>', 'hub/one/index.html' => $feedHead . $undatedArticle('One'), 'hub/two/index.html' => $feedHead . $undatedArticle('Two')));
 $assert('post' === ($blogFeed['hub/one/index.html'] ?? null) && 'post' === ($blogFeed['hub/two/index.html'] ?? null), 'Undated Article JSON-LD on pages that advertise a feed stays posts.');
