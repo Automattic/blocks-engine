@@ -31,4 +31,11 @@ foreach (array(
 }
 $preference = $compile($choices);
 if (str_contains($preference['serialized_blocks'], ' disabled') || str_contains($preference['serialized_blocks'], 'This form is not accepting responses yet.')) throw new RuntimeException('Preference controls without submission must stay unchanged');
+// An array name declares a choice group even when one member renders (a
+// one-product compare form); a lone named checkbox may belong to a larger flow.
+foreach (array('products[]' => array('choice_submission', false), 'consent' => array('unknown', true)) as $name => [$intent, $preserved]) {
+    $result = $compile('<label><input type="checkbox" name="' . $name . '" value="1">Pick</label><button>Send</button>');
+    $forms = array_values(array_filter($result['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
+    if ($intent !== ($forms[0]['form_intent'] ?? null) || $preserved !== str_contains($result['serialized_blocks'], 'wp:html')) throw new RuntimeException("Single {$name} checkbox form must be {$intent}");
+}
 echo "Inactive choice submission forms passed.\n";
