@@ -26,6 +26,12 @@ final class NativeImageLeafPresentation
             || str_starts_with($property, 'border-');
     }
 
+    /** Properties that position a box out of, or offset from, its flow. */
+    public static function isPositioningProperty(string $property): bool
+    {
+        return in_array($property, array( 'position', 'inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end', 'top', 'right', 'bottom', 'left', 'z-index' ), true);
+    }
+
     public static function isPlacementProperty(string $property): bool
     {
         // Margins position the sized image, not its full-width synthetic figure.
