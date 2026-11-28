@@ -470,12 +470,13 @@ final class InlineGeometry
         if (is_numeric($opacity) && 0.0 === (float) $opacity) {
             $properties[] = 'opacity';
         }
-        $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
-        if (
-            1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $collapsedHeight)
-            && in_array(CssValueInspector::declared($declarations, 'overflow'), array('hidden', 'clip'), true)
-        ) {
-            $properties[] = 'overflow';
+        // An inline overflow other than visible clips or scrolls the source
+        // box's content (a carousel viewport hiding its off-screen slides, a
+        // collapsed panel). Core supports cannot express it; carry it.
+        foreach ( array( 'overflow', 'overflow-x', 'overflow-y' ) as $overflow ) {
+            if ( ! in_array(CssValueInspector::declared($declarations, $overflow), array( '', 'visible' ), true) ) {
+                $properties[] = $overflow;
+            }
         }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         $textClippedBackground = in_array(strtolower(trim((string) ($declarations['background-clip'] ?? ''))), array('text'), true)
