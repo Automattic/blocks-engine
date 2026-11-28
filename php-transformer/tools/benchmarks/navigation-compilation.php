@@ -45,7 +45,8 @@ if ('--contract' === ($argv[1] ?? '')) {
     // the paragraph's source class instead of a `:where()` and a class shim.
     // Re-pinned: theme.json opts into appearanceTools.
     // Re-pinned for #7528: navigation runtime also matches the document's own permalink.
-    if ('6135789d11b08f0d731989002c340054424923d36ab88add848abd49724fe3f7' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
+    // Re-pinned: the archive path helper resolves captured terms and authors to their captured routes.
+    if ('8e1aaabe08e924fc98306f2bd695b949838a8b2e6d16d2e70228ad12ad281324' !== $hash) throw new RuntimeException('Generated fixture differs from pre-optimization blocks/site plan');
 } elseif (isset($argv[1])) {
     $encoded = json_encode($output, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     if (is_file($argv[1]) && file_get_contents($argv[1]) !== $encoded) throw new RuntimeException('Compile output differs from baseline');
