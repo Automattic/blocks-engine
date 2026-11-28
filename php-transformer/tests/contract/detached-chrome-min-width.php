@@ -7,9 +7,11 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // A fixed-width page frame encloses header, content and footer. Detached into
 // shared parts, the header and footer must keep the frame's minimum width, or
 // their content centered against it shifts off-screen in narrow viewports.
-$compile = static function (string $frameRule, string $bodyClass = ''): string {
-    $document = static function (string $title) use ($frameRule, $bodyClass): string {
+$compile = static function (string $frameRule, string $bodyClass = '', string $generic = ''): string {
+    $document = static function (string $title) use ($frameRule, $bodyClass, $generic): string {
         $inner = '<div class="frame"><header class="site-top"><p class="brand">Studio</p></header><main><h1>' . $title . '</h1><p>Route content</p></main><footer class="site-footer"><p>Copyright Studio</p></footer></div>';
+        // Builder output can give every element one generic class.
+        if ('' !== $generic) $inner = (string) preg_replace(array('/class="/', '/<(main|h1|p)>/'), array('class="' . $generic . ' ', '<$1 class="' . $generic . '">'), $inner);
         return '<!doctype html><html><head><style>' . $frameRule . '.brand{margin-left:calc((100% - 980px) / 2)}@media (max-width:600px){.data-blocks-engine-capture-desktop-document{display:none}}@media (min-width:601px){.data-blocks-engine-capture-mobile-document{display:none}}</style></head><body' . ('' === $bodyClass ? '' : ' class="' . $bodyClass . '"') . '><div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-document-scope="">' . $inner . '</div><div class="data-blocks-engine-capture-mobile-document" data-blocks-engine-capture-document-scope="">' . str_replace('Studio</p>', 'Mobile Studio</p>', $inner) . '</div></body></html>';
     };
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $document('Home'), 'about/index.html' => $document('About'))))->toArray()['source_reports']['wordpress_site_plan'];
@@ -33,4 +35,9 @@ foreach (array(
     $found = null === $expected ? !str_contains($css, '.wp-site-blocks:has(>.wp-block-post-content .frame){min-width') : str_contains(str_replace(array("\n", ' {'), array('', '{'), $css), $expected);
     if (!$found) throw new RuntimeException('FAIL ' . $label . ': template root minimum width');
 }
+// A class every element carries is in the ancestor context but does not
+// identify the frame, so it must not become the template root's hook.
+$css = str_replace(array("\n", ' {'), array('', '{'), $compile('.el.frame{min-width:980px}', '', 'el'));
+if (str_contains($css, '.wp-block-post-content .el')) throw new RuntimeException('FAIL generic class: a class every element carries is a hook');
+if (!str_contains($css, $root)) throw new RuntimeException('FAIL generic class: the frame keeps its identifying hook');
 echo "detached-chrome-min-width: ok\n";

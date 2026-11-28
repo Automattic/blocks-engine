@@ -135,4 +135,27 @@ $assert(str_contains($resolve(array('.page-body{display:flex;flex-direction:colu
 $assert(str_contains($resolve(array($media . '{.page-body{display:flex;flex-direction:column}}', $media . '{.page-body{min-height:100vh}}')), $media . '{' . $root), 'Same-media declarations contribute across assets.');
 $assert(!str_contains($resolve(array($media . '{.page-body{display:flex;flex-direction:column}}', '.page-body{min-height:100vh}')), $root), 'Conditional layout does not qualify an unconditional minimum.');
 $assert(!str_contains($resolve(array('@media (max-width:699px){.page-body{display:flex;flex-direction:column}}', $media . '{.page-body{min-height:100vh}}')), $root), 'Unrelated media layout does not qualify the minimum.');
+// Builder output can give every element one generic class (alongside its own
+// classes). That class is in the detached header's ancestor context, but it
+// does not identify the shell: hooking on it would turn every element in post
+// content into a stretching flex column. The shell's own class is the hook.
+foreach (array(true, false) as $shellClass) {
+    $fixture = require dirname(__DIR__) . '/fixtures/viewport-shell.php';
+    foreach ($fixture['files'] as &$html) {
+        $html = (string) preg_replace_callback('/<(div|header|main|footer|h1|p)\b([^>]*)>/', static function (array $match): string {
+            if (str_contains($match[2], 'data-blocks-engine-capture')) return $match[0];
+            return str_contains($match[2], 'class="') ? '<' . $match[1] . str_replace('class="', 'class="el ', $match[2]) . '>' : '<' . $match[1] . ' class="el"' . $match[2] . '>';
+        }, $html);
+        $html = str_replace('.page-body{min-height:100vh;display:flex;flex-direction:column}', '.page-body{min-height:70vh;display:flex;flex-direction:column}', $html);
+        // Without its own class the shell has no identifying hook at all.
+        if (!$shellClass) $html = str_replace(array('class="el page-body"', '.page-body{'), array('class="el" style="min-height:70vh;display:flex;flex-direction:column"', '.unused{'), $html);
+    }
+    unset($html);
+    $plan = (new ArtifactCompiler())->compile($fixture)->toArray()['source_reports']['wordpress_site_plan'];
+    $parts = array_column($plan['template_parts'], 'placement', 'slug');
+    $assert('shared_shell' === ($parts['header']['kind'] ?? null), 'The header is a detached shared part: ' . json_encode($parts));
+    $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
+    $assert(!str_contains($css, '.wp-block-post-content .el'), 'A class every element carries is not a shell hook: ' . $css);
+    if ($shellClass) $assert(str_contains($css, '.wp-site-blocks:has(>.wp-block-post-content .page-body){min-height:70vh;display:flex;flex-direction:column}'), 'The shell is hooked by its identifying class.');
+}
 echo "viewport-shell: ok\n";
