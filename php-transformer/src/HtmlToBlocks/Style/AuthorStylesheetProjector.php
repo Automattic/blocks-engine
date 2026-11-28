@@ -2774,8 +2774,10 @@ final class AuthorStylesheetProjector
      * filter declarations then apply twice (doubled margins and borders,
      * compounded fades). The leaf owns them, as it owns an `<img>`'s
      * placement: keep them off the synthetic figure, and on every other box
-     * the rule matches. Fill and flex SVGs have their own wrapper projection,
-     * and a rule that also reaches a bare `<img>` keeps its figure paint.
+     * the rule matches. Fill and flex/grid SVGs have their own wrapper
+     * projection. When a width rule is shared by a layout item and a flow SVG,
+     * keep that width off the flow figure only. Rules that also reach a bare
+     * `<img>` keep their existing figure projection.
      *
      * @param array<string, string> $declarations
      * @return array{body: string, owned: array<string, string>, rules: string}
@@ -2794,6 +2796,9 @@ final class AuthorStylesheetProjector
             return $unchanged;
         }
         $moves = false;
+        $hasFlowSvg = false;
+        $hasLayoutItem = false;
+        $hasPositionedSvg = false;
         foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
@@ -2803,14 +2808,32 @@ final class AuthorStylesheetProjector
             $moves = $moves || ! $this->subjectStaysOnImage($selector, $context) || AuthorSelectorSemanticPreparer::isRootChildSelector($parsed);
             foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
                 $tagName = strtolower($element->tagName);
-                if ( 'img' === $tagName
-                    || ( 'svg' === $tagName && ( $this->styleResolver->imageIsFlexOrGridItem($element) || $this->isProjectableFillSvg($element, $declarations) ) ) ) {
+                if ( 'img' === $tagName || ( 'svg' === $tagName && $this->isProjectableFillSvg($element, $declarations) ) ) {
                     return $unchanged;
+                }
+                if ( 'svg' !== $tagName ) {
+                    continue;
+                }
+                if ( $this->styleResolver->imageIsFlexOrGridItem($element) ) {
+                    $hasLayoutItem = true;
+                } elseif ( in_array(CssValueInspector::declared($this->styleResolver->structuralPresentationDeclarations($element), 'position'), array( 'absolute', 'fixed' ), true) ) {
+                    $hasPositionedSvg = true;
+                } else {
+                    $hasFlowSvg = true;
                 }
             }
         }
-        if ( ! $moves ) {
+        if ( ! $moves || ( $hasLayoutItem && ( ! $hasFlowSvg || $hasPositionedSvg ) ) ) {
             return $unchanged;
+        }
+        if ( $hasLayoutItem ) {
+            // A shared sizing rule can match both a flex/grid SVG item and a
+            // normal-flow icon. Keep the latter's figure full width so the
+            // image leaf has room to resolve its own horizontal auto margins.
+            $owned = array_intersect_key($owned, array_flip(array( 'width', 'min-width', 'max-width' )));
+            if ( array() === $owned ) {
+                return $unchanged;
+            }
         }
         // Margins keep their own projection; the caller guards it the same way.
         $guarded = array_filter($owned, static fn (string $property): bool => 'margin' !== $property && ! str_starts_with($property, 'margin-'), ARRAY_FILTER_USE_KEY);
@@ -2821,8 +2844,10 @@ final class AuthorStylesheetProjector
                 $retained[] = $declaration;
             }
         }
+        $figureGuard = ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS
+            . ( $hasLayoutItem ? ':not(.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ')' : '' ) . '))';
         $original = array_map(static fn (string $selector): string => self::canMatchSyntheticImageFigure($selector)
-            ? rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))'
+            ? rtrim($selector) . $figureGuard
             : rtrim($selector), CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context, false, false, true)) ?? array());
         if ( array() === $original ) {
             return $unchanged;
