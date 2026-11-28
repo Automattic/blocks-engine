@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
@@ -135,7 +136,10 @@ final class FormFallbackFindingBuilder
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $node): string => $this->context->sanitizeInlineSvgMarkup($node),
             fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control),
-            controlElements: $controlElements
+            controlElements: $controlElements,
+            carryLabelStrut: $purchase ? null : function (int $index, DOMElement $label, array $font, float $size, float $height) use (&$finding): void {
+                $this->projectLabelStrut($finding['controls'][$index], $label, $font, $size, $height);
+            }
         ))->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(true), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ( 'form' !== strtolower($element->tagName) ) {
             $finding['form_boundary'] = $this->pseudoFormAnalyzer->boundaryMetadata($element);
@@ -160,6 +164,44 @@ final class FormFallbackFindingBuilder
         }
 
         return $diagnostic;
+    }
+
+    /**
+     * @param array<string, mixed> $control
+     * @param array<string, string> $font
+     */
+    private function projectLabelStrut(array &$control, DOMElement $label, array $font, float $size, float $height): void
+    {
+        $sourceStyles = $this->session->sourceStyleResolutionState();
+        foreach ( $sourceStyles->pseudoElementRules() as $rule ) {
+            if ( 'before' === $rule['pseudo'] && isset($rule['declarations']['content']) && $sourceStyles->matches($label, $rule['selector']) ) {
+                return;
+            }
+        }
+        // The provider's block label supplies its own line box. An empty
+        // inline pseudo-element restores the source parent's baseline without
+        // adding text or guessing how the font divides ascent and descent.
+        $family = $font['font_family'] ?? 'inherit';
+        $style = $font['font_style'] ?? 'normal';
+        $weight = $font['font_weight'] ?? '400';
+        // Only interpolate plain font stacks; do not emit unresolved var()
+        // references or a quoted family with an unterminated CSS string.
+        if ( ! preg_match('/^(?:[\w ,-]|\'[\w ,-]+\'|"[\w ,-]+")+$/D', $family)
+            || ! in_array($style, array( 'normal', 'italic', 'oblique' ), true)
+            || ! preg_match('/^(?:normal|bold|[0-9]{1,4})$/D', $weight) ) {
+            return;
+        }
+        $strut = 'content:"";display:inline;vertical-align:baseline;font-family:' . $family . ';font-style:' . $style
+            . ';font-weight:' . $weight . ';font-size:' . CssLength::format($size) . ';line-height:' . CssLength::format($height);
+        $marker = 'blocks-engine-form-label-strut-' . substr(hash('sha256', $strut), 0, 12);
+        $control['label_class'] = trim(($control['label_class'] ?? '') . ' ' . $marker);
+        // Override the provider's graph-only padding fallback, on marked
+        // labels only. The sibling gap and the label typography still apply.
+        $selector = '.contact-form label.' . $marker . '.' . $marker;
+        $projections = $this->session->sourceTargetProjectionState();
+        $source = SourceDom::elementSelector($label);
+        $projections->record($source, $selector, 'padding-top:0;padding-bottom:0');
+        $projections->record($source, $selector . '::before', $strut);
     }
 
     /**

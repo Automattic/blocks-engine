@@ -19,6 +19,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = array();
@@ -65,6 +66,25 @@ $check(! isset($rows[2]['label']['styles']['padding_top']), 'a block label is no
 $check('.375rem' === ($rows[2]['label']['styles']['margin_block_end'] ?? null), 'a block label still carries the gap');
 // An inline-block control shares the label's line: no line box is carried.
 $check(! isset($rows[3]['label']['styles']['padding_top']), 'a label beside an inline control is not padded to a line box');
+
+// The site plan must ship both the marker the provider puts on its block
+// label and the style that recreates the parent's baseline. The graph-only
+// symmetric padding keeps the height, but cannot align different font metrics.
+$source = '<style>' . $css . 'body{font-family:Georgia,serif;font-weight:400}</style>'
+    . '<form><div class="space-y-1.5"><label for="m" class="text-sm leading-none" style="font-weight:700">Message</label>'
+    . '<textarea id="m" name="message" class="flex w-full"></textarea></div><button type="submit">Send</button></form>';
+$artifact = (new ArtifactCompiler())->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $source ) ))->toArray();
+$classes = '';
+foreach ( $artifact['source_reports']['wordpress_site_plan']['runtime_declarations'] as $declaration ) {
+    if ( 'forms' === ($declaration['type'] ?? null) ) {
+        $classes = $declaration['payload']['entities'][0]['controls'][0]['label_class'] ?? '';
+    }
+}
+$stylesheet = implode("\n", array_column(array_filter($artifact['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$check(1 === preg_match('/\b(blocks-engine-form-label-strut-[a-f0-9]{12})\b/', $classes, $marker)
+    && str_contains($stylesheet, '.' . $marker[1] . '{padding-top:0;padding-bottom:0}')
+    && str_contains($stylesheet, '.' . $marker[1] . '::before{content:"";display:inline;vertical-align:baseline;font-family:Georgia,serif;font-style:normal;font-weight:400;font-size:16px;line-height:24px}'),
+    'the provider label replaces symmetric padding with a strut using the source parent typography');
 
 if ( array() !== $failures ) {
     fwrite(STDERR, implode(PHP_EOL, array_map(static fn (string $f): string => 'FAIL: ' . $f, $failures)) . PHP_EOL);
