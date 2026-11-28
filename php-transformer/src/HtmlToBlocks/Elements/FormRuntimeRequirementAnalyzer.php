@@ -304,11 +304,12 @@ final class FormRuntimeRequirementAnalyzer
         // One question answered by picking among named options, such as a poll,
         // needs a handler the source site owned. A lone consent checkbox or a
         // select with a submit may belong to a larger flow, and so may anything
-        // that buys, registers, or searches, so those stay unknown.
+        // that buys, registers, or searches, so those stay unknown. An array
+        // name (`products[]`) declares a group however many members render.
         if ( $onlyChoices && $hasSubmit && ! $select && ! $email && ! $search && ! $hiddenItem
             && ! self::hasCommerceSubmissionSignal($form, false, $soleActionControl)
             && ! self::hasSourceBehavior($form)
-            && array() !== array_filter($choiceGroupSizes, static fn (int $size): bool => $size > 1) ) {
+            && array() !== array_filter($choiceGroupSizes, static fn (int $size, string $group): bool => $size > 1 || str_ends_with($group, '[]'), ARRAY_FILTER_USE_BOTH) ) {
             return 'choice_submission';
         }
 
