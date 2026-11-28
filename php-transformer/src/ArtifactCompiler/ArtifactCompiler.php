@@ -285,7 +285,7 @@ final class ArtifactCompiler
      */
     private function sourceHasPurchaseAffordance(array $files): bool
     {
-        return $this->sourceHasPurchaseAffordance ??= \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer::sourceHasPurchaseAffordance($files);
+        return $this->sourceHasPurchaseAffordance ??= \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer::sourceHasPurchaseAffordance($files, static fn (string $path): array => self::boxTreeForSource($files, $path));
     }
 
     private function compileArtifact(array $artifact): TransformerResult

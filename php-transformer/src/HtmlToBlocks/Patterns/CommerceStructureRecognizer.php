@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\BoxTreeWrapperEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use DOMDocument;
 use DOMElement;
@@ -490,8 +491,16 @@ final class CommerceStructureRecognizer
         return false;
     }
 
-    /** Whether any source document supplies purchase evidence (schema alone does not). */
-    public static function sourceHasPurchaseAffordance(array $files): bool
+    /**
+     * Whether any source document supplies purchase evidence (schema alone does not).
+     *
+     * An element its capture proves is never displayed (`display:none` at every
+     * captured viewport) offers nothing to buy: a site builder can place a
+     * hidden cart widget on every page of a site that has no store.
+     *
+     * @param \Closure(string): array<string, mixed>|null $boxTree A source path's capture box tree, or an empty array.
+     */
+    public static function sourceHasPurchaseAffordance(array $files, ?\Closure $boxTree = null): bool
     {
         $recognizer = new self();
         foreach ( $files as $file ) {
@@ -499,11 +508,30 @@ final class CommerceStructureRecognizer
                 continue;
             }
             $document = HtmlSerialization::parseDocument($file['content']);
+            if ( null !== $boxTree ) {
+                self::removeElementsNeverDisplayed($document, $boxTree((string) $file['path']));
+            }
             if ( $document->documentElement instanceof DOMElement && $recognizer->hasPurchaseAffordance($document->documentElement) ) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** @param array<string, mixed> $tree */
+    private static function removeElementsNeverDisplayed(DOMDocument $document, array $tree): void
+    {
+        $evidence = new BoxTreeWrapperEvidence($tree);
+        if ( ! $evidence->hasEvidence() ) {
+            return;
+        }
+        $evidence->bindSourceDocument($document);
+        foreach ( iterator_to_array($document->getElementsByTagName('*')) as $element ) {
+            $display = $element instanceof DOMElement ? $evidence->usedValues($element, 'display') : null;
+            if ( null !== $display && array('none') === array_values(array_unique($display)) && null !== $element->parentNode ) {
+                $element->parentNode->removeChild($element);
+            }
+        }
     }
 
     public function cartControlElement(DOMElement $card, bool $includeNavigation = false): ?DOMElement
