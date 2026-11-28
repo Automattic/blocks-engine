@@ -1836,9 +1836,10 @@ JS;
     }
 
     /**
-     * Whether the source track and its items fill a sized carousel root through
-     * full percentage heights, so the inserted stage wrappers must keep that
-     * chain instead of collapsing to the slide's natural ratio.
+     * Whether the source track fills a sized carousel root through a full
+     * percentage height that its items either fill or, out of flow, leave as
+     * its only size, so the inserted stage wrappers must keep that chain
+     * instead of collapsing to the slide's natural ratio or to nothing.
      *
      * @param array<string, mixed> $geometryDeclarations
      * @param array<int, DOMElement> $items
@@ -1850,7 +1851,12 @@ JS;
             return false;
         }
         foreach ( $items as $item ) {
-            if ( '100%' !== CssValueInspector::declared($styleResolver->structuralPresentationDeclarations($item), 'height') ) {
+            $declarations = $styleResolver->structuralPresentationDeclarations($item);
+            // An out-of-flow slide adds no height to the track, so the track's
+            // percentage height is its only size, as with a filling slide.
+            if ( '100%' !== CssValueInspector::declared($declarations, 'height')
+                && ! in_array(CssValueInspector::declared($declarations, 'position'), array('absolute', 'fixed'), true)
+            ) {
                 return false;
             }
         }
