@@ -178,8 +178,15 @@ final class FormPresentationGraphBuilder
     /** Custom-property resolution over {@see $matchCache}'s source document. */
     private readonly FormCustomPropertyResolver $customProperties;
 
-    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements @param CssSelectorMatchCache|null $selectorMatchCache A cache the caller owns and shares across one compile's passes; by default this builder owns one. */
-    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array(), ?CssSelectorMatchCache $selectorMatchCache = null, private readonly array $additionalControls = array(), private readonly ?array $controlElements = null)
+    /**
+     * @param (Closure(DOMElement, string): string)|null $resolveValue
+     * @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup
+     * @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker
+     * @param list<DOMElement> $scopeElements
+     * @param CssSelectorMatchCache|null $selectorMatchCache A cache the caller owns and shares across one compile's passes; by default this builder owns one.
+     * @param (Closure(int, DOMElement, array<string, string>, float, float): void)|null $carryLabelStrut
+     */
+    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array(), ?CssSelectorMatchCache $selectorMatchCache = null, private readonly array $additionalControls = array(), private readonly ?array $controlElements = null, private readonly ?Closure $carryLabelStrut = null)
     {
         $this->matchCache = $selectorMatchCache ?? new CssSelectorMatchCache();
         $this->customProperties = new FormCustomPropertyResolver($this->matchCache);
@@ -1826,8 +1833,9 @@ final class FormPresentationGraphBuilder
      * An inline label alone on its line, above a block-level control in a
      * block container, is as tall as that container's line box: its parent's
      * strut, not its own smaller line-height. A provider renders the label as
-     * a block, so state the parent's line height on it to keep the label's
-     * footprint above the control.
+     * a block, so recreate the parent strut when the output can carry it.
+     * Padding is a box-height fallback, not a faithful baseline: changing
+     * font size or weight can move the baseline within the line box.
      *
      * @param array<string, mixed> $row
      * @param list<array<string, mixed>> $rules
@@ -1858,14 +1866,22 @@ final class FormPresentationGraphBuilder
             return;
         }
         $styles = is_array($row['label']['styles'] ?? null) ? $row['label']['styles'] : array();
-        foreach ( array( 'padding', 'padding_top', 'padding_bottom', 'padding_block', 'padding_block_start', 'padding_block_end' ) as $key ) {
+        $blockPadding = array( 'padding', 'padding_top', 'padding_bottom', 'padding_block', 'padding_block_start', 'padding_block_end' );
+        foreach ( $blockPadding as $key ) {
             // Inline vertical padding never grew the line box; a provider block
             // label would apply it, so the two boxes cannot be reconciled here.
             if ( isset($styles[$key]) && 1 !== preg_match('/^(?:0(?:\.0+)?(?:px|em|rem|%)?\s*)+$/', trim($styles[$key])) ) return;
         }
-        // The label keeps its own line height (its text metrics); the parent
-        // strut's extra height is split above and below it, where the inline
-        // label's line box placed it.
+        if ( null !== $this->carryLabelStrut && self::isWrappedFieldControl($control) && null === $label->firstElementChild
+            && in_array($styles['vertical_align'] ?? 'baseline', array( 'baseline', 'initial' ), true)
+            && ! self::hasConditionalLabelPadding($this->matched($label, $rules)['conditional'], $blockPadding) ) {
+            $fontFacts = array();
+            for ( $ancestor = $parent; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                $fontFacts += $this->styles(array_intersect_key($this->layoutFacts($ancestor, $rules, null), array( 'font-family' => true, 'font-style' => true, 'font-weight' => true )), $ancestor, null, $customRules, true);
+            }
+            ($this->carryLabelStrut)($row['index'], $label, $fontFacts, $parentLine['font'], $parentLine['px']);
+        }
+        // Consumers without the accompanying stylesheet still need the box height.
         $leading = CssLength::format(($parentLine['px'] - $labelLine['px']) / 2);
         $styles['padding_top'] = $leading;
         $styles['padding_bottom'] = $leading;
@@ -1878,12 +1894,22 @@ final class FormPresentationGraphBuilder
         );
     }
 
+    /** The stylesheet must not override padding authored at another viewport. */
+    private static function hasConditionalLabelPadding(array $conditional, array $blockPadding): bool
+    {
+        $properties = array_fill_keys(array_map(static fn (string $key): string => str_replace('_', '-', $key), $blockPadding), true);
+        foreach ( $conditional as $facts ) {
+            if ( array_intersect_key($facts, $properties) ) return true;
+        }
+        return false;
+    }
+
     /**
      * The used line height of an element in pixels, resolving inherited
      * unitless factors against each element's own font size. Null when it is
      * `normal` (font-metric dependent) or cannot be resolved.
      *
-     * @return array{px: float, fact: array<string, mixed>}|null
+     * @return array{px: float, font: float, fact: array<string, mixed>}|null
      */
     private function lineHeightPixels(DOMElement $element, array $rules, array $customRules): ?array
     {
@@ -1921,7 +1947,7 @@ final class FormPresentationGraphBuilder
         }
         if ( null === $source ) return null;
         $used = null !== $factor ? $factor * $font : $px;
-        return null !== $used && $used > 0 ? array( 'px' => $used, 'fact' => $source ) : null;
+        return null !== $used && $used > 0 ? array( 'px' => $used, 'font' => $font, 'fact' => $source ) : null;
     }
 
     /** Hits of the per-builder {@see matched()} memo, for regression tests. */
