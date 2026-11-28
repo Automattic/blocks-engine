@@ -86,13 +86,20 @@ final class ListingFieldProjection
         return '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' -->' . $opening . $content . '</p><!-- /wp:paragraph -->';
     }
 
-    /** @param list<array<string,mixed>> $pages */
+    /**
+     * Registers the fields core/post-meta bindings read. Protected keys
+     * (`_wp_page_template` template assignments) are persisted with the page
+     * but never bound: registering one for REST without an auth callback makes
+     * WordPress refuse every editor save whose meta includes it.
+     *
+     * @param list<array<string,mixed>> $pages
+     */
     public static function bootstrap(array $pages): string
     {
         $keys = array();
         foreach ($pages as $page) {
             self::assertMetadata($page['metadata']);
-            foreach (array_keys($page['metadata']['post_meta'] ?? array()) as $key) $keys[$page['post_type']][$key] = true;
+            foreach (array_keys($page['metadata']['post_meta'] ?? array()) as $key) if (!str_starts_with($key, '_')) $keys[$page['post_type']][$key] = true;
         }
         $lines = array();
         foreach ($keys as $type => $fields) foreach (array_keys($fields) as $key) {
