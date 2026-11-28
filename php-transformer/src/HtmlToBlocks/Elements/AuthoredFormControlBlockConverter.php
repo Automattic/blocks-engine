@@ -95,10 +95,14 @@ final class AuthoredFormControlBlockConverter
             // Caption text, not an association: the caption is the core
             // paragraph's own box, carrying the label's classes and its text as
             // core RichText (a <label> inside RichText is structural markup the
-            // editor cannot edit). It keeps the block box every label of the
-            // materialized form takes, so the field lays out as before.
+            // editor cannot edit). It keeps the source label's box: an inline
+            // label stays an inline carrier, so its line box is still its
+            // parent's strut, not the label's own (often smaller,
+            // `leading-none`) line height; a label the author made a block
+            // keeps a block box.
+            $box = $this->labelIsInline($label) ? '' : ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS;
             return $this->createBlock->createBlock('core/paragraph', array_filter(array(
-                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS),
+                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . $box),
                 'anchor' => (string) ($attrs['id'] ?? ''),
                 'content' => (string) ($attrs['content'] ?? ''),
             ), static fn (string $value): bool => '' !== $value), array(), $label);
@@ -107,6 +111,13 @@ final class AuthoredFormControlBlockConverter
         $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
+    }
+
+    /** A label whose display the source never changes from the UA's inline. */
+    private function labelIsInline(DOMElement $label): bool
+    {
+        return $this->presentation->declaredPresentation($label, 'display')->isEmpty()
+            || $this->presentation->hasPropertyValueAtEveryViewport($label, 'display', 'inline');
     }
 
     /**

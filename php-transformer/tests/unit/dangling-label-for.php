@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 // Issue #6453: in a whole document, a label whose `for` names no element
 // associates nothing. Beside the value it captions it is caption text: a core
-// paragraph box carries the label's classes and text as core RichText (no
-// structural <label> markup inside it). An empty one carries nothing. A
+// paragraph carries the label's classes and text as core RichText (no
+// structural <label> markup inside it), in the label's own box (inline unless
+// the author made it a block). An empty one carries nothing. A
 // dangling label alone in its box stays authored copy, and real associations
 // keep the authored-label host.
 
@@ -35,7 +36,9 @@ $assert(array() === $empty['source_reports']['generated_blocks'], 'an empty dang
 $caption = $transform($document('<form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form>'));
 $assert(!in_array('custom/authored-label', $names($caption['blocks']), true), 'a dangling caption beside its value is not an authored-label');
 $assert(!in_array('authored-label', array_column($caption['source_reports']['generated_blocks'], 'name'), true), 'a dangling caption registers no authored-label definition');
-$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph">Service<\/p>/', $caption['serialized_blocks']), 'the dangling caption is a block-box core paragraph carrying the label classes');
+$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph">Service<\/p>/', $caption['serialized_blocks']), 'an inline dangling caption is an inline-carrier core paragraph carrying the label classes (its line box stays the parent strut, #6918)');
+$blockCaption = (new HtmlTransformer())->transform($document('<form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form>'), array( 'static_css' => '.caption{display:block}' ))->toArray();
+$assert(1 === preg_match('/<p class="caption blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph">Service<\/p>/', $blockCaption['serialized_blocks']), 'a dangling caption the author made a block keeps a block-box paragraph');
 $assert(0 === $caption['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'], 'the caption paragraph carries no structural markup in its RichText content');
 
 $alone = $transform($document('<form><input id="f"><label for="f">First</label><div><label for="nowhere">Fields marked * are required</label></div></form>'));
