@@ -24,6 +24,13 @@ $assert(1 === preg_match('/^\$blocks_engine_presentation_replay = (\[.*\]);$/m',
 $replay = eval('return ' . $match[1] . ';');
 $assert(1 === count($replay) && array(0, 1, 2, 3, 4, 5) === $replay[0][1], 'One shared sheet across six pages is one replay entry with six scopes.');
 
+// Replay sets each expanded style's scope and template parts, so a file row
+// that also aggregated them across occurrences was emitted and never read.
+$assert(1 === preg_match('/^\$blocks_engine_presentation_styles_rows = (\[.*\]);$/m', $bootstrap, $rows), 'The file table is emitted.');
+foreach (eval('return ' . $rows[1] . ';') as $row) {
+    $assert(!array_key_exists('scopes', $row) && !array_key_exists('template_part_slugs', $row), 'A file row carries only what every occurrence of the file shares.');
+}
+
 $start = strpos($bootstrap, '$blocks_engine_presentation_scopes_rows');
 $end = strpos($bootstrap, '$blocks_engine_presentation_matches', $start);
 eval(substr($bootstrap, $start, $end - $start));
