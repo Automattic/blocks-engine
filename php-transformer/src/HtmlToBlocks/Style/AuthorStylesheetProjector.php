@@ -2916,26 +2916,33 @@ final class AuthorStylesheetProjector
      * Restate the author's own item-box declarations on the image itself, at
      * this rule's position and under its conditions, so a media-conditioned
      * size still takes over exactly where it did in the source (#2973).
+     * The figure is equally box-less when the image's link was the item, so
+     * that image's own box comes back the same way. Neither figure can own
+     * positioning: an absolutely positioned image that fills a padding-bottom
+     * frame only resolves its height against that frame while positioned.
      *
      * @param array<string, string> $declarations
      */
     private function flexItemImageBoxRule(string $prelude, string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         if ( '' === $imagePrelude
-            || ! str_contains($context->emittedMarkup, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS)
-            || ! $this->selectsFlexItemImage($prelude, $context) ) {
+            || ! str_contains($context->emittedMarkup, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS) ) {
+            return '';
+        }
+        $imageItem = $this->selectsFlexItemImage($prelude, $context);
+        if ( ! $imageItem && ! $this->selectsFlexItemLinkImage($prelude, $context) ) {
             return '';
         }
         $box = array();
         $minimum = array();
         foreach ( $declarations as $property => $declaration ) {
-            if ( ! NativeImageLeafPresentation::isBoxProperty($property) ) {
+            if ( ! NativeImageLeafPresentation::isBoxProperty($property) && ! NativeImageLeafPresentation::isPositioningProperty($property) ) {
                 continue;
             }
             $value = trim($declaration);
             if ( '' !== $value && 1 !== preg_match('~[{}<>;]|/\*~', $value) ) {
                 $box[] = $property . ':' . $value;
-                if ( in_array($property, array( 'min-width', 'min-height' ), true) ) {
+                if ( $imageItem && in_array($property, array( 'min-width', 'min-height' ), true) ) {
                     $minimum[] = $property . ':' . $value;
                 }
             }
@@ -2966,6 +2973,25 @@ final class AuthorStylesheetProjector
         }
 
         return $rule;
+    }
+
+    private function selectsFlexItemLinkImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $link = $element->parentNode;
+                if ( 'img' === strtolower($element->tagName) && $link instanceof DOMElement && 'a' === strtolower($link->tagName)
+                    && $this->styleResolver->imageIsFlexOrGridItem($link) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function selectsFlexItemImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
@@ -3025,7 +3051,7 @@ final class AuthorStylesheetProjector
             $box = array_filter($declarations, static fn (string $property): bool =>
                 ( NativeImageLeafPresentation::isBoxProperty($property)
                 && ! NativeImageLeafPresentation::isPlacementProperty($property) )
-                || ( $ownsPositioning && in_array($property, array( 'position', 'inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end', 'top', 'right', 'bottom', 'left', 'z-index' ), true) ), ARRAY_FILTER_USE_KEY);
+                || ( $ownsPositioning && NativeImageLeafPresentation::isPositioningProperty($property) ), ARRAY_FILTER_USE_KEY);
             if ( array() !== $box ) {
                 $rule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . $figure . ')', $imagePrelude)
                     . '{' . $this->styleResolver->cssDeclarationString($box) . '}';
